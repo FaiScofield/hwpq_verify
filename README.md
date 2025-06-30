@@ -15,6 +15,7 @@
 
 ## 验证方案说明
 TODO
+[FPGA验证说明.md](./doc/FPGA验证说明.md)
 
 ## 使用方式
 TODO

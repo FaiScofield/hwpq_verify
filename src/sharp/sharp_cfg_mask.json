@@ -1,0 +1,30 @@
+{
+    "sharp_lite_mask": {
+        "i_sharp_lite_en": [0, 1, 1, 1], 
+        "f_usm_sigma_0": [2, 0.1, 2.0, 1], 
+        "f_usm_sigma_1": [2, 0.1, 2.0, 1], 
+        "f_usm_gain_0": [2, 0, 4, 1], 
+        "f_usm_gain_1": [2, 0, 4, 1],  
+        "f_usm_coring_thr": [0, 0, 127, 1], 
+        "i_shoot_ctrl_en": [0, 0, 1, 1], 
+        "i_shoot_ctrl_delta_offset": [0, 0, 255, 1], 
+        "i_shoot_ctrl_pos": [0, 0, 127, 1], 
+        "i_shoot_ctrl_neg": [0, 0, 127, 1], 
+        "i_shoot_ctrl_pos_unlimit": [0, 0, 127, 1], 
+        "i_shoot_ctrl_neg_unlimit": [0, 0, 127, 1], 
+        "i_sharp_roi_enable": [0, 0, 1, 1], 
+        "i_sharp_roi_xstart": [0, 0, 4095, 1], 
+        "i_sharp_roi_ystart": [0, 0, 4095, 1], 
+        "i_sharp_roi_xend": [0, 0, 4095, 1], 
+        "i_sharp_roi_yend": [0, 0, 4095, 1],
+        "i_sharp_force_core_mode": [0, 1, 1, 1], 
+        "i_sharp_core_A": [0, -128, 127, 1], 
+        "i_sharp_core_B": [0, -128, 127, 1], 
+        "i_sharp_core_C": [0, -128, 127, 1], 
+        "i_sharp_usm_gain": [0, 0, 1023, 1], 
+        "i_ink_enable": [0, 0, 1, 1], 
+        "i_ink_mode": [0, 0, 3, 1], 
+        "i_ink_idx_h": [0, 0, 4095, 1], 
+        "i_ink_idx_v": [0, 0, 4095, 1]
+    }
+}
