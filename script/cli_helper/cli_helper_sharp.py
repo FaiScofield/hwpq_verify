@@ -3,13 +3,43 @@ Copyright   : Copyright (c) 2025 by Rockchip. All right reserved.
 FilePath    : cli_helper_sharp.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
-Description : 
-LastEditTime: 2025-07-02
+Description :
+LastEditTime: 2025-07-02 21:13:29
 '''
 
-from .cli_helper_core import ModuleHelper
+from .cli_helper_core import *
 from typing import Optional, Dict, Any, List, Type
+from ctypes import Structure, c_uint
 
+class SharpLiteConfig:
+    def __init__(self):
+        sharp_en = 1
+        sharp_config_mode = 1
+        sigma0 = 1
+        sigma1 = 1
+        gain0 = 1
+        gain1 = 1
+        coring_thr = 1
+        shoot_ctrl_en = 1
+        shoot_ctrl_delta_offset = 1
+        shoot_ctrl_alpha_pos = 1
+        shoot_ctrl_alpha_neg = 1
+        shoot_ctrl_alpha_pos_unlimit = 1
+        shoot_ctrl_alpha_neg_unlimit = 1
+        core_direct_config_mode = 1
+        core_A = 1
+        core_B = 1
+        core_C = 1
+        fix_gain = 1
+        sharp_roi_en = 1
+        sharp_roi_xstart = 1
+        sharp_roi_xend = 1
+        sharp_roi_ystart = 1
+        sharp_roi_yend = 1
+        sharp_ink_enable = 1
+        sharp_ink_mode = 1
+        sharp_ink_h = 1
+        sharp_ink_v = 1
 
 class SharpHelper(ModuleHelper):
     def __init__(self, name: str = "SHARP", platform: str = 'RK3572', parent: Optional['ModuleHelper'] = None):

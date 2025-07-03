@@ -3,8 +3,8 @@ Copyright   : Copyright (c) 2025 by Rockchip. All right reserved.
 FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
-Description : 
-LastEditTime: 2025-07-02
+Description :
+LastEditTime: 2025-07-02 20:55:08
 '''
 
 import sys
@@ -14,6 +14,13 @@ import random
 # import argparse
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List, Type
+from ctypes import Structure, c_uint
+
+class ModuleRegister():
+    def __init__(self, platform: str, regs: List[Structure]):
+        # super().__init__()
+        self.platform = platform.upper()
+        self.regs = regs
 
 class ModuleHelper(ABC):
     """ Command-Line Interface Helper base framework """
@@ -30,6 +37,7 @@ class ModuleHelper(ABC):
             "help": (self.do_help, "", "显示命令帮助信息"),
             "quit": (self.do_quit, "", "退出或返回上一级"),
             "plat": (self.do_plat, "<name>", "设置平台属性"),
+            "load": (self.do_load, "<file>", "加载.json配置文件或.dat/.bin寄存器文件"),
             "gen": (self.do_gen, "[target]", "生成随机配置"),
             "dump": (self.do_dump, "[target]", "导出当前配置到文件或控制台"),
             "reg": (self.do_reg, "[target]", "生成寄存器配置值"),
@@ -114,33 +122,37 @@ class ModuleHelper(ABC):
         if not self.platform:
             print(f"[{self.name}] Platform not set!")
 
-        # 不退出
         return False
 
     def do_dump(self, args) -> bool:
         """导出配置到文件或控制台"""
-        target = args[0] if args else None
         data = self.get_config_data()
 
-        if not data:
-            print(f"[{self.name}] 错误: 当前无有效配置")
-            return False
-
-        if os.path.isinstance(target):
-            # 导出到文件
-            try:
-                with open(target, "w") as f:
-                    json.dump(data, f, indent=2)
-                print(f"[{self.name}] 配置已导出到: {os.path.abspath(target)}")
-            except Exception as e:
-                print(f"[{self.name}] 导出失败: {str(e)}")
-        else:
-            # 控制台显示
+        if not args:
+            ## 控制台显示
             print(f"[{self.name}] \n当前配置:")
             for key, value in data.items():
                 print(f"[{self.name}]   {key}: {value}")
+        else:
+            ## 导出到文件
+            targets = args
+            for target in targets:
+                try:
+                    if target.endswith(".json"):
+                        with open(targets, "w") as f:
+                            json.dump(data, f, indent=2)
+                    elif target.endswith(".dat"):
+                        with open(targets, "w") as f:
+                            f.write(f"{data['module']}\n")
+                    elif target.endswith(".bin"):
+                        with open(targets, "wb") as f:
+                            f.write(data['module'].encode('utf-8'))
+                    else:
+                        print(f"[{self.name}] 错误: 不支持的输出文件类型: {target}. 仅支持 .json/.dat/.bin")
+                    print(f"[{self.name}] 配置已导出到: {os.path.abspath(target)}")
+                except Exception as e:
+                    print(f"[{self.name}] 导出配置信息至文件 {os.path.abspath(target)} 失败: {str(e)}")
 
-        # 不退出
         return False
 
     def do_gen(self, args) -> bool:
@@ -153,6 +165,30 @@ class ModuleHelper(ABC):
             self.do_dump(args)
 
         # 不退出
+        return False
+
+    def do_load(self, args) -> bool:
+        if not args:
+            print(f"[{self.name}] 错误: 需要一个额外的参数来指定文件路径！")
+            return False
+
+        filename = args[0]
+        if not os.path.isfile(filename):
+            print(f"[{self.name}] 错误: 文件不存在: {filename}")
+            return False
+
+        if filename.endswith(".json"):
+            # 加载JSON配置文件
+            self.load_config_json(filename)
+        elif filename.endswith(".dat"):
+            # 加载.dat寄存器配置文件
+            self.load_config_reg(filename, True)
+        elif filename.endswith(".bin"):
+            # 加载.bin寄存器配置文件
+            self.load_config_reg(filename, False)
+        else:
+            print(f"[{self.name}] 错误: 不支持的文件类型: {filename}. 仅支持 .json/.dat/.bin")
+
         return False
 
     def do_plat(self, args) -> bool:
@@ -201,17 +237,11 @@ class ModuleHelper(ABC):
         return False
 
     def do_quit(self, args) -> bool:
-        """退出或返回上一级"""
         if self.parent:
             print(f"[{self.name}] 返回 {self.parent.name.upper()} 模块...")
             return True  # 退出当前模块
         else:
-            # 顶层模块的退出确认
-            # resp = input("确定退出程序? (y/n): ").lower()
-            # if resp == 'y':
-            #     print(f"[{self.name}] 程序已退出")
             sys.exit(0)
-        # return False
 
     def do_get(self, args) -> bool:
         """获取多个参数值"""
@@ -270,6 +300,32 @@ class ModuleHelper(ABC):
         return False
 
     ## =============== 通用辅助方法 ===============
+    def load_config_json(self, filename: str):
+        """加载JSON配置文件"""
+        try:
+            with open(filename, "r") as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"[{self.name}] 错误: 加载JSON配置文件失败: {str(e)}")
+            return False
+
+    def load_config_reg(self, filename: str, is_dat: bool):
+        """加载.dat/.bin寄存器配置文件"""
+        if is_dat:
+            # 加载.dat文件
+            try:
+                with open(filename, "rt") as f:
+                    data = f.read().strip()
+            except Exception as e:
+                print(f"[{self.name}] 错误: 加载.dat文件失败: {str(e)}")
+        else:
+            try:
+                with open(filename, "rb") as f:
+                    data = f.read()
+            except Exception as e:
+                print(f"[{self.name}] 错误: 加载.bin文件失败: {str(e)}")
+                return False
+
     def get_config_data(self) -> Dict[str, Any]:
         """获取配置数据的字典形式"""
         return {
