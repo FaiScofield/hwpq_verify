@@ -4,12 +4,13 @@ FilePath    : cli_helper_main.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description : 
-LastEditTime: 2025-07-02
+LastEditTime: 2025-07-07
 '''
 
 from cli_helper.cli_helper_core import *
 from cli_helper.cli_helper_sharp import *
 from cli_helper.cli_helper_acm import *
+from cli_helper.cli_helper_cfa import *
 from typing import Any
 
 
@@ -22,6 +23,7 @@ class MainApp(ModuleHelper):
             "sharp": SharpHelper("sharp", platform, self),
             "acm": AcmHelper("acm", platform, self),
             # "dci": DciHelper("dci", platform, self),
+            "cfa": CfaHelper("cfa", platform, self),
         }
 
         ## 直接覆盖掉基类的命令内容
@@ -31,8 +33,9 @@ class MainApp(ModuleHelper):
             "plat": (self.do_plat, "<name>", "set the platform: RK3576, RK3572, RK3538, etc."),
             "sharp": (self.do_sharp, "", "enter module SHARP"),
             "acm": (self.do_acm, "", "enter module ACM"),
-            "dci": (self.do_dci, "", "enter module DCI"),
-            "csc": (self.do_csc, "", "enter module CSC"),
+            # "dci": (self.do_dci, "", "enter module DCI"),
+            # "csc": (self.do_csc, "", "enter module CSC"),
+            "cfa": (self.do_cfa, "", "enter module CFA"),
         }
 
     def run(self) -> bool:
@@ -95,6 +98,9 @@ class MainApp(ModuleHelper):
     def do_csc(self, args) -> str:
         print(f"[{self.name}] TODO: CSC 模块暂未支持")
         return None
+
+    def do_cfa(self, args) -> str:
+        return self.modules['cfa'].run()
 
     def is_valid_module(self, module_name: str) -> bool:
         return module_name in self.modules

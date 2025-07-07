@@ -4,14 +4,15 @@ FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-02 20:55:08
+LastEditTime: 2025-07-07
 '''
 
 import sys
 import os
 import json
 import random
-# import argparse
+import argparse
+from tqdm import tqdm
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List, Type
 from ctypes import Structure, c_uint
@@ -29,8 +30,9 @@ class ModuleHelper(ABC):
         self.name = name.upper()
         self.platform = platform.upper()
         self.parent = parent
-        self.config = {}  # 配置参数存储
-        self.modules = {} # 空的
+        self.config = self.define_config()  # 创建配置参数变量，需要复写
+        self.regs = self.config_to_registers() # 创建寄存器变量，需要复写
+        self.modules = {} # 子模块，空的，顶层使用
 
         ## 命令注册表: name, handler, param_desc, description
         self.commands = {
@@ -38,11 +40,11 @@ class ModuleHelper(ABC):
             "quit": (self.do_quit, "", "退出或返回上一级"),
             "plat": (self.do_plat, "<name>", "设置平台属性"),
             "load": (self.do_load, "<file>", "加载.json配置文件或.dat/.bin寄存器文件"),
-            "gen": (self.do_gen, "[target]", "生成随机配置"),
-            "dump": (self.do_dump, "[target]", "导出当前配置到文件或控制台"),
-            "reg": (self.do_reg, "[target]", "生成寄存器配置值"),
-            "get": (self.do_get, "<params>", "获取配置参数值"),
-            "set": (self.do_set, "<params>", "设置配置参数值"),
+            "gen": (self.do_gen, "[-n num] [-o filename/directory]", "生成1个或多个随机配置, 可输出到文件或文件夹"),
+            "dump": (self.do_dump, "[filenames]", "指定文件名(.json/.dat/.bin, 可多个)时则导出当前配置到对应文件, 否则打印到控制台"),
+            "reg": (self.do_reg, "[target]", "生成寄存器配置值 (TODO)"),
+            "get": (self.do_get, "<params>(name1 name2 ...)", "获取配置参数值"),
+            "set": (self.do_set, "<params>(-name1_short value1  --name2_long=value2 ...)", "设置配置参数值"),
         }
 
     def run(self):
@@ -90,10 +92,10 @@ class ModuleHelper(ABC):
         pass
 
     @abstractmethod
-    def config_to_registers(self) -> int:
+    def config_to_registers(self) -> map:
         """将配置转换为32位寄存器值（由子类实现）"""
         # 返回32位寄存器值
-        return 0
+        pass
 
     @abstractmethod
     def get_param(self, param_name: str) -> Any:
@@ -126,27 +128,24 @@ class ModuleHelper(ABC):
 
     def do_dump(self, args) -> bool:
         """导出配置到文件或控制台"""
-        data = self.get_config_data()
+        config = self.config
+        regs = self.config_to_registers()
 
         if not args:
             ## 控制台显示
-            print(f"[{self.name}] \n当前配置:")
-            for key, value in data.items():
-                print(f"[{self.name}]   {key}: {value}")
+            config.dump()
+            # regs.dump()
         else:
             ## 导出到文件
             targets = args
             for target in targets:
                 try:
                     if target.endswith(".json"):
-                        with open(targets, "w") as f:
-                            json.dump(data, f, indent=2)
+                        config.dump(target)
                     elif target.endswith(".dat"):
-                        with open(targets, "w") as f:
-                            f.write(f"{data['module']}\n")
+                        regs.dump(target)
                     elif target.endswith(".bin"):
-                        with open(targets, "wb") as f:
-                            f.write(data['module'].encode('utf-8'))
+                        regs.dump(target, align=4)
                     else:
                         print(f"[{self.name}] 错误: 不支持的输出文件类型: {target}. 仅支持 .json/.dat/.bin")
                     print(f"[{self.name}] 配置已导出到: {os.path.abspath(target)}")
@@ -156,16 +155,42 @@ class ModuleHelper(ABC):
         return False
 
     def do_gen(self, args) -> bool:
-        """生成随机配置"""
-        self.generate_random_config()
-        print(f"[{self.name}] 已生成随机配置")
+        ## parse args & check
+        parser = argparse.ArgumentParser()
+        parser.add_argument("-n", "--num", default=1, type=int, help="生成随机配置的数量")
+        parser.add_argument("-s", "--rand_seed", default=114514, type=int, help="起始随机种子(n>1时随机种子自增1)")
+        parser.add_argument("-o", "--file_or_dir", default="", type=str, help="生成的配置文件或目录(n>1时指定目录)")
+        args = parser.parse_args(args)
 
-        # 如果指定了target，自动调用dump命令
-        if args:
-            self.do_dump(args)
+        args.num = max(1, args.num)
+        abs_path = os.path.abspath(args.file_or_dir)
+        if args.file_or_dir == '':
+            args.num = 1
+            abs_path = dirname = ''
+        elif os.path.isdir(abs_path):
+            dirname = abs_path
+        else:
+            dirname = os.path.dirname(abs_path)
+        if dirname != '' and not os.path.exists(dirname):
+            os.makedirs(dirname, parents=True, exist_ok=True)
 
-        # 不退出
-        return False
+        if args.num == 1:
+            if abs_path != '' and not os.path.isfile(abs_path):
+                abs_path = os.path.join(dirname, f"{self.name.lower()}_config_seed_{args.rand_seed}.json")
+                print(f"[{self.name}] num = 1, 指定输出应该为绝对路径的文件名，强制修改为: {abs_path}")
+            self.config.gen(args.rand_seed)
+            ok = self.config.dump(abs_path)
+            if ok:
+                print(f"[{self.name}] 随机配置已生成并导出到: {abs_path}")
+        else:
+            if not os.path.isdir(abs_path):
+                print(f"[{self.name}] num > 1, 指定输出应该为绝对路径的目录名，强制修改为: {dirname}")
+            for i in tqdm(range(args.num), desc='生成随机配置'):
+                abs_path = os.path.join(dirname, f"{self.name.lower()}_config_seed_{args.rand_seed+i}.json")
+                self.config.gen(args.rand_seed + i)
+                self.config.dump(abs_path)
+
+        return False # 不退出
 
     def do_load(self, args) -> bool:
         if not args:
