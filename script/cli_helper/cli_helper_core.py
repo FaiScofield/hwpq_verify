@@ -1,11 +1,11 @@
-'''
+"""
 Copyright   : Copyright (c) 2025 by Rockchip. All right reserved.
 FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
 LastEditTime: 2025-07-07
-'''
+"""
 
 import sys
 import os
@@ -17,22 +17,24 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List, Type
 from ctypes import Structure, c_uint
 
-class ModuleRegister():
+
+class ModuleRegister:
     def __init__(self, platform: str, regs: List[Structure]):
         # super().__init__()
         self.platform = platform.upper()
         self.regs = regs
 
-class ModuleHelper(ABC):
-    """ Command-Line Interface Helper base framework """
 
-    def __init__(self, name: str, platform: str = 'RK3572', parent: Optional['ModuleHelper'] = None):
+class ModuleHelper(ABC):
+    """Command-Line Interface Helper base framework"""
+
+    def __init__(self, name: str, platform: str = "RK3572", parent: Optional["ModuleHelper"] = None):
         self.name = name.upper()
         self.platform = platform.upper()
         self.parent = parent
         self.config = self.define_config()  # 创建配置参数变量，需要复写
-        self.regs = self.config_to_registers() # 创建寄存器变量，需要复写
-        self.modules = {} # 子模块，空的，顶层使用
+        self.regs = self.config_to_registers()  # 创建寄存器变量，需要复写
+        self.modules = {}  # 子模块，空的，顶层使用
 
         ## 命令注册表: name, handler, param_desc, description
         self.commands = {
@@ -68,7 +70,7 @@ class ModuleHelper(ABC):
                     handler = self.commands[command][0]
                     should_exit = handler(args)
                     if should_exit:
-                        return None # 返回上一级
+                        return None  # 返回上一级
                 elif command == self.name.lower():
                     print(f"[{self.name}] 正处于当前模块中，无需切换")
                     continue
@@ -110,7 +112,7 @@ class ModuleHelper(ABC):
 
     # @abstractmethod
     def is_valid_module(self, module_name: str) -> bool:
-        return False # 只给最顶层APP级使用
+        return False  # 只给最顶层APP级使用
 
     ## =============== 通用命令处理函数 ===============
     def do_help(self, args) -> bool:
@@ -158,39 +160,40 @@ class ModuleHelper(ABC):
         ## parse args & check
         parser = argparse.ArgumentParser()
         parser.add_argument("-n", "--num", default=1, type=int, help="生成随机配置的数量")
-        parser.add_argument("-s", "--rand_seed", default=114514, type=int, help="起始随机种子(n>1时随机种子自增1)")
+        parser.add_argument("-s", "--rand_seed", type=int, help="起始随机种子(n>1时随机种子自增1)")
         parser.add_argument("-o", "--file_or_dir", default="", type=str, help="生成的配置文件或目录(n>1时指定目录)")
         args = parser.parse_args(args)
 
         args.num = max(1, args.num)
         abs_path = os.path.abspath(args.file_or_dir)
-        if args.file_or_dir == '':
+        if args.file_or_dir == "":
             args.num = 1
-            abs_path = dirname = ''
+            abs_path = dirname = ""
         elif os.path.isdir(abs_path):
             dirname = abs_path
         else:
             dirname = os.path.dirname(abs_path)
-        if dirname != '' and not os.path.exists(dirname):
+        if dirname != "" and not os.path.exists(dirname):
             os.makedirs(dirname, parents=True, exist_ok=True)
 
         if args.num == 1:
-            if abs_path != '' and not os.path.isfile(abs_path):
-                abs_path = os.path.join(dirname, f"{self.name.lower()}_config_seed_{args.rand_seed}.json")
+            seed_ret = self.config.gen(args.rand_seed)
+            if abs_path != "" and not os.path.isfile(abs_path):
+                abs_path = os.path.join(dirname, f"{self.name.lower()}_config_seed_{seed_ret}.json")
                 print(f"[{self.name}] num = 1, 指定输出应该为绝对路径的文件名，强制修改为: {abs_path}")
-            self.config.gen(args.rand_seed)
             ok = self.config.dump(abs_path)
             if ok:
                 print(f"[{self.name}] 随机配置已生成并导出到: {abs_path}")
         else:
             if not os.path.isdir(abs_path):
                 print(f"[{self.name}] num > 1, 指定输出应该为绝对路径的目录名，强制修改为: {dirname}")
-            for i in tqdm(range(args.num), desc='生成随机配置'):
-                abs_path = os.path.join(dirname, f"{self.name.lower()}_config_seed_{args.rand_seed+i}.json")
-                self.config.gen(args.rand_seed + i)
+            seed = self.config.get_seed() if args.rand_seed is None else args.rand_seed
+            for i in tqdm(range(args.num), desc="生成随机配置"):
+                seed_ret = self.config.gen(seed + i)
+                abs_path = os.path.join(dirname, f"{self.name.lower()}_config_seed_{seed_ret}.json")
                 self.config.dump(abs_path)
 
-        return False # 不退出
+        return False  # 不退出
 
     def do_load(self, args) -> bool:
         if not args:
@@ -233,7 +236,7 @@ class ModuleHelper(ABC):
         for mod in self.modules:
             self.modules[mod].do_plat(args)
 
-        return False # 不退出
+        return False  # 不退出
 
     def do_reg(self, args) -> bool:
         """生成寄存器配置值"""
@@ -295,7 +298,7 @@ class ModuleHelper(ABC):
         results = []
         for i in range(0, len(args), 2):
             param_name = args[i]
-            value_str = args[i+1]
+            value_str = args[i + 1]
 
             # 尝试类型转换
             try:
@@ -353,11 +356,7 @@ class ModuleHelper(ABC):
 
     def get_config_data(self) -> Dict[str, Any]:
         """获取配置数据的字典形式"""
-        return {
-            "module": self.name,
-            "platform": self.platform,
-            **self.config
-        }
+        return {"module": self.name, "platform": self.platform, **self.config}
 
     def generate_random_config(self):
         """生成随机配置（默认实现，子类可覆盖）"""

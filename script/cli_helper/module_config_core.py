@@ -14,6 +14,7 @@ class ModuleConfigCore(ABC):
         self.name = name.upper()
         self.valid = False
         self.version = version
+        self.randSeed = 114514
 
     @abstractmethod
     def dump(self, filename):
@@ -29,4 +30,8 @@ class ModuleConfigCore(ABC):
 
     @abstractmethod
     def gen(self, seed: int = 114514):
+        self.randSeed = seed
         return seed
+
+    def get_seed(self):
+        return self.randSeed

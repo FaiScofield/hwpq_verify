@@ -66,22 +66,23 @@ class SharpHelper(ModuleHelper):
             }
         }
 
-    def config_to_registers(self) -> int:
+    def config_to_registers(self) -> map:
         """将Sharp配置转换为32位寄存器值"""
-        # 简化转换逻辑
-        enable_bit = 0x80000000 if self.config["enable"] else 0
-        gain_int = int(self.config["peaking_gain"] * 10)
-        cores = min(self.config["cores"], 7)  # 限制在3位以内
-        threshold = int(self.config["threshold"] * 100)
+        # # 简化转换逻辑
+        # enable_bit = 0x80000000 if self.config["enable"] else 0
+        # gain_int = int(self.config["peaking_gain"] * 10)
+        # cores = min(self.config["cores"], 7)  # 限制在3位以内
+        # threshold = int(self.config["threshold"] * 100)
 
-        # 合并为32位值
-        reg_value = (
-            enable_bit |
-            (gain_int << 24) |
-            (cores << 20) |
-            (threshold << 12)
-        )
-        return reg_value
+        # # 合并为32位值
+        # reg_value = (
+        #     enable_bit |
+        #     (gain_int << 24) |
+        #     (cores << 20) |
+        #     (threshold << 12)
+        # )
+        # return reg_value
+        pass
 
     def get_param(self, param_name: str) -> Any:
         """获取特定参数值"""
