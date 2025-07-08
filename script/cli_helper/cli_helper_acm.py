@@ -7,9 +7,13 @@ Description :
 LastEditTime: 2025-07-02
 '''
 
-from .cli_helper_core import ModuleHelper
+import os
+import sys
 from typing import Optional, Dict, Any, List, Type
 
+sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
+from cli_helper.cli_helper_core import ModuleHelper
+# from config_def.module_config_acm import AcmConfig
 
 class AcmHelper(ModuleHelper):
     def __init__(self, name: str = "ACM", platform: str = 'RK3572', parent: Optional['ModuleHelper'] = None):

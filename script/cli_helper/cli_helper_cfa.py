@@ -7,14 +7,14 @@ Description :
 LastEditTime: 2025-07-07
 """
 
-import sys
 import os
-import argparse
+import sys
 from tqdm import tqdm
 from typing import Optional, Dict, Any, List, Type
 
-from .cli_helper_core import ModuleHelper
-from .module_config_cfa import CfaConfig
+sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
+from cli_helper.cli_helper_core import ModuleHelper
+from config_def.module_config_cfa import CfaConfig
 
 
 class CfaHelper(ModuleHelper):

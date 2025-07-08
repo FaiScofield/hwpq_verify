@@ -4,15 +4,16 @@ FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description : 
-LastEditTime: 2025-07-07
+LastEditTime: 2025-07-08
 """
 
 import os
 import sys
 import json
 import random
-from cli_helper.module_config_core import *
 
+sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
+from config_def.module_config_core import *
 
 class CfaConfig(ModuleConfigCore):
     def __init__(self, name: str, version: str = "unknown"):
@@ -190,9 +191,9 @@ class CfaConfig(ModuleConfigCore):
         self.nSaturationGain = random.randint(0, 200)  # [0, 128]
         self.nLuminanceGain = random.randint(0, 200)  # [0, 128]
         self.nSharpenGain = random.randint(0, 200)  # [0, 128]
-        self.nStretchBlack = random.randint(0, 200)  # [0, 127]
-        self.nStretchWhite = random.randint(0, 300)  # [128, 255]
-        self.bDither = random.randint(0, 1)
+        self.nStretchBlack = random.randint(0, 120)  # [0, 96]
+        self.nStretchWhite = random.randint(120, 300)  # [160, 255]
+        self.bDither = random.randint(0, 1) * 2 # 0 or 2
         self.bDeFalseColor4Gray = random.randint(0, 1)
         self.bContrastEqual = 0
         self.bForceRunWithCpu = random.randint(0, 1)
@@ -200,7 +201,7 @@ class CfaConfig(ModuleConfigCore):
         self.nA2AlgoType = 2
         self.nA2CompLevel = random.randint(0, 80)  # [0, 64]
         self.bA2Modulate = random.randint(0, 8)  # [0, 7]
-        self.bClearLow4bits = random.randint(0, 1)  # [0, 1]
+        self.bClearLow4bits = 1 #random.randint(0, 1)  # [0, 1]
         self.sRoiInfo = [0, 0, 0, 0, 0, 0]  # x6
         self.aReserved = [0, 0, 0, 0, 0, 0, 0, 0]  # x8
 

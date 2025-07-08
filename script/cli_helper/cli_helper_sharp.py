@@ -4,12 +4,17 @@ FilePath    : cli_helper_sharp.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-02 21:13:29
+LastEditTime: 2025-07-08
 '''
 
-from .cli_helper_core import *
+import os
+import sys
 from typing import Optional, Dict, Any, List, Type
 from ctypes import Structure, c_uint
+
+sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
+from cli_helper.cli_helper_core import ModuleHelper
+
 
 class SharpLiteConfig:
     def __init__(self):
