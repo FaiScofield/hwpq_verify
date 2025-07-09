@@ -36,13 +36,13 @@ class ModuleHelper(ABC):
         self.regs = self.config_to_registers()  # 创建寄存器变量，需要复写
         self.modules = {}  # 子模块，空的，顶层使用
 
-        ## 命令注册表: name, handler, param_desc, description
+        ## 命令注册表: name, (handler, param_desc, description)
         self.commands = {
             "help": (self.do_help, "", "显示命令帮助信息"),
             "quit": (self.do_quit, "", "退出或返回上一级"),
             "plat": (self.do_plat, "<name>", "设置平台属性"),
             "load": (self.do_load, "<file>", "加载.json配置文件或.dat/.bin寄存器文件"),
-            "gen": (self.do_gen, "[-n num] [-o filename/directory]", "生成1个或多个随机配置, 可输出到文件或文件夹"),
+            "gen": (self.do_gen, "[-n num] [-o filename/directory] [-s rand_seed]", "生成 num 个随机配置, 可输出到文件(num=1)或文件夹(num>1)"),
             "dump": (self.do_dump, "[filenames]", "指定文件名(.json/.dat/.bin, 可多个)时则导出当前配置到对应文件, 否则打印到控制台"),
             "reg": (self.do_reg, "[target]", "生成寄存器配置值 (TODO)"),
             "get": (self.do_get, "<params>(name1 name2 ...)", "获取配置参数值"),
@@ -117,11 +117,16 @@ class ModuleHelper(ABC):
     ## =============== 通用命令处理函数 ===============
     def do_help(self, args) -> bool:
         print(f"\n[{self.name}] 可用命令如下:")
-        max_cmd_len = max(len(cmd) for cmd in self.commands)
+        # max_desc_len = max(len(pipe[1]) for _, pipe in self.commands)
 
         for cmd, (_, param_desc, description) in self.commands.items():
-            full_cmd = f"{cmd}  {param_desc}".strip()
-            print(f"\t{full_cmd.ljust(max_cmd_len + 15)} - {description}")
+            cmd_args = f"{cmd.ljust(8)}{param_desc.ljust(24)}"
+            second_prefix = " "
+            if len(cmd_args) > 32:
+                print(f"\t{cmd_args}")
+                print(f"\t{second_prefix.ljust(32)} - {description}")
+            else:
+                print(f"\t{cmd_args.ljust(32)} - {description}")
 
         if not self.platform:
             print(f"[{self.name}] Platform not set!")
