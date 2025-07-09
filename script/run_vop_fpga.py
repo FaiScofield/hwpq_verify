@@ -4,7 +4,7 @@ FilePath    : run_vop_fpga.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description : 
-LastEditTime: 2025-07-08
+LastEditTime: 2025-07-09
 '''
 
 import os
@@ -12,6 +12,10 @@ import json
 import argparse
 import sys
 import time
+# import crcmod
+import filecmp
+import subprocess
+import numpy as np
 from config_def.module_config_cfa import CfaConfig
 
 def main(args):
@@ -104,9 +108,9 @@ def main(args):
             json.dump(json_ref_root, f_out, indent=4, separators=(", ", ": "))
     '''
 
-    script_dir = os.path.dirname(os.path.realpath(__file__))
-    exe0 = os.path.normpath(os.path.join(script_dir, '../bin/rkcfa_sim_exe.exe'))  # exe from librkcfa.so SDK
-    exe1 = os.path.normpath(os.path.join(script_dir, '../bin/cfa_dither_sim_exe.exe')) # exe from IC cmodel
+    # script_dir = os.path.dirname(os.path.realpath(__file__))
+    exe0 = os.path.normpath('G:/Codes/RkYuvAlgos_update/pub_lib/rkcfa_0.13.1.4757/bin/Windows/amd64/rkcfa_sim_exe.exe')  # exe from librkcfa.so SDK
+    exe1 = os.path.normpath('G:/Codes/RkVopAlgos/pub_lib/RkCfaDitherSim/AMD64/bin/cfa_dither_sim_exe.exe') # exe from IC cmodel
     run_cmd(f'chmod +x {exe0}')
     run_cmd(f'chmod +x {exe1}')
 
@@ -121,25 +125,55 @@ def main(args):
         }
     config_list = os.listdir(config_dir)
 
+    config_handler = CfaConfig()
+    # crc_handler = crcmod.mkCrcFun(0x104C11DB7, initCrc=0xFFFFFFFF, xorOut=0xFFFFFFFF)
+
     ## run command & get CRC result
+    check_pass = 0
+    check_fail = 0
     for input_name, (wid, hgt) in input_list.items():
         input_path = os.path.join(input_dir, input_name)
         for config in config_list:
+            ret0, ret1 = 0, 0
             config_path = os.path.join(config_dir, config)
-            cmd0 = exe0 + f' -i={input_path} -o={output_dir} -j={config_path} -sw={wid} -sh={hgt}'
-            cmd1 = exe1 + f' -i {input_path} -o {output_dir} -j {config_path} -w {wid} -g {hgt}'
-            # print(f"cmd0: {cmd0}")
-            # print(f"cmd0: {cmd1}")
-            ret0 = run_cmd(cmd0)
-            ret1 = run_cmd(cmd1)
+            config_handler.load(config_path)
+            seed = config_handler.randSeed
+
+            output_file0 = os.path.join(output_dir, f'rkcfa_test_out_seed_{seed}_Y8.yuv')
+            cmd0 = exe0 + f' -i={input_path} -o={output_file0} -j={config_path} -sw={wid} -sh={hgt}'
+            ret0 = run_cmd(cmd0, False)
+
+            output_file1 = os.path.join(output_dir, f'cfa_dither_test_out_seed_{seed}_Y8.yuv')
+            cmd1 = exe1 + f' -i {input_path} -o {output_file1} -j {config_path} -w {wid} -g {hgt}'
+            ret1 = run_cmd(cmd1, False)
             if ret0 != 0 or ret1 != 0:
                 print(f"Error happend! ret of cmd0/cmd1: {ret0}/{ret1}")
                 print(f"Error input_path: {input_path}")
                 print(f"Error config_path: {config_path}")
                 break
 
-def run_cmd(cmd):
-    return os.system(cmd)
+            if filecmp.cmp(output_file0, output_file1, shallow=False):
+                print(f"✅ Binary equal when seed = {seed}, input = {input_name} ...")
+                check_pass += 1
+            else:
+                print(f"❌ Error happend! file not binary equal when seed = {seed}, input = {input_name}!")
+                check_fail += 1
+                # return
+    print(f"Check done. ✅ pass num: {check_pass}, ❌ fail num: {check_fail}")
+
+
+def run_cmd(cmd, showOutput=True):
+    # return os.system(cmd)
+    print('cmd to run: %s' % cmd)
+    if showOutput:
+        ret = subprocess.call(cmd, shell=True)
+    else:
+        r = os.popen(cmd)
+        text = r.read()
+        r.close()
+        ret = 0
+    return ret
+
 
 if __name__ == "__main__":
     main(sys.argv)

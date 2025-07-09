@@ -4,7 +4,7 @@ FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description : 
-LastEditTime: 2025-07-08
+LastEditTime: 2025-07-09
 """
 
 import os
@@ -16,7 +16,7 @@ sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import *
 
 class CfaConfig(ModuleConfigCore):
-    def __init__(self, name: str, version: str = "unknown"):
+    def __init__(self, name: str = "CFA", version: str = "unknown"):
         super().__init__(name, version)
         self.nCallCnt = 0
         self.nFrameIdx = 0
@@ -184,12 +184,12 @@ class CfaConfig(ModuleConfigCore):
         self.eCfaPattern = 0
         self.eAlgoType = random.randint(0, 2)
         self.eImgFormat = 0
-        self.eOutFormat = random.randint(11, 13)
+        self.eOutFormat = 11 # random.randint(11, 13)
         self.eDisplayMode = 0
         self.nColorDepth = 64
         self.nContrastGain = random.randint(0, 200)  # [0, 128]
         self.nSaturationGain = random.randint(0, 200)  # [0, 128]
-        self.nLuminanceGain = random.randint(0, 200)  # [0, 128]
+        self.nLuminanceGain = random.randint(0, 200)  # [0, 128]s
         self.nSharpenGain = random.randint(0, 200)  # [0, 128]
         self.nStretchBlack = random.randint(0, 120)  # [0, 96]
         self.nStretchWhite = random.randint(120, 300)  # [160, 255]
@@ -198,7 +198,7 @@ class CfaConfig(ModuleConfigCore):
         self.bContrastEqual = 0
         self.bForceRunWithCpu = random.randint(0, 1)
         self.nRegalType = 0
-        self.nA2AlgoType = 2
+        self.nA2AlgoType = 0 # always 0 for hardware mode
         self.nA2CompLevel = random.randint(0, 80)  # [0, 64]
         self.bA2Modulate = random.randint(0, 8)  # [0, 7]
         self.bClearLow4bits = 1 #random.randint(0, 1)  # [0, 1]
