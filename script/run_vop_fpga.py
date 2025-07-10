@@ -17,6 +17,7 @@ import filecmp
 import subprocess
 import numpy as np
 from datetime import datetime
+from typing import Dict, List
 from config_def.module_config_cfa import CfaConfig
 from setup_logger import setup_logger, add_file_handler
 
@@ -141,7 +142,7 @@ def main(args):
 
     ## run command & get CRC result
     check_pass = 0
-    fail_list = []
+    fail_map: Dict[int, List[str]] = {}
     run_cmd(f'chmod +x {exe0}')
     run_cmd(f'chmod +x {exe1}')
     for input_name, (wid, hgt) in input_list.items():
@@ -163,19 +164,18 @@ def main(args):
                 logger.error(f"Error happend! ret of cmd0/cmd1: {ret0}/{ret1}")
                 logger.error(f"Error input: {input_path}")
                 logger.error(f"Error config: {config}")
-                fail_list.append((seed, input_name))
-                continue
-
+                fail_map.setdefault(seed, []).append(input_name)
+                return
             if filecmp.cmp(output_file0, output_file1, shallow=False):
                 logger.info(f"✅ Binary equal when seed = {seed}, input = {input_name} ...")
                 check_pass += 1
             else:
                 logger.error(f"❌ Binary not equal when seed = {seed}, input = {input_name}!")
-                fail_list.append((seed, input_name))
+                fail_map.setdefault(seed, []).append(input_name)
                 # return
-    logger.info(f"Check done. ✅ pass num: {check_pass}, ❌ fail num: {len(fail_list)}")
-    if len(fail_list) > 0:
-        logger.error(f"Failed seed-input list: {fail_list}")
+    logger.info(f"Check done. ✅ pass num: {check_pass}, ❌ fail num: {len(fail_map)}")
+    for seed, input_names in fail_map:
+        logger.error(f"Failed seed-inputs case seed {seed}: {input_names}")
 
 
 def run_cmd(cmd, showOutput=True):

@@ -24,6 +24,7 @@ logging.basicConfig(
     encoding='utf-8'
 )
 
+g_plain_formatter = logging.Formatter("[%(asctime)s] [%(name)s] %(levelname)-8s: %(message)s", datefmt="%m/%d %H:%M:%S")
 
 def add_file_handler(logger, output):
     if output is not None:
@@ -39,7 +40,7 @@ def add_file_handler(logger, output):
 
         fh = logging.FileHandler(filename, mode="a", encoding='utf-8') # set encoding to utf-8 to support ✅ & ❌
         fh.setLevel(logging.DEBUG)
-        # fh.setFormatter(g_plain_formatter)
+        fh.setFormatter(g_plain_formatter)
         logger.addHandler(fh)
 
 def setup_logger(name: str = None, output: str = None, loglevel: str = "DEBUG"):
