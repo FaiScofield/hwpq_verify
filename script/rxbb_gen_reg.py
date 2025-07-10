@@ -20,9 +20,9 @@ def main(args):
     parser.add_argument("-i", "--input_path", required=True)
     parser.add_argument("-o", "--output_path", required=True)
     # parser.add_argument("-s", "--sheet_name_i", required=True)
-    
+
     args = parser.parse_args()
-    
+
     input_path = args.input_path
     output_path = args.output_path
     # sheet_name_i = args.sheet_name_i
@@ -35,7 +35,8 @@ def main(args):
             data = sheet_list[sheet_name]
             write_sheet_reg(data, sheet_name, fp)
         write_tail(fp, output_header_name)
-    
+    print(f"Done. Generated the register file: {output_path}")
+
 def write_sheet_reg(data, sheet_name, fp):
     rxbb_info_struct = cvt_datafrom_to_reg_dict(data)
     reg_addr = 0
@@ -57,11 +58,11 @@ def write_tail(fp, output_name):
 
 
 def cvt_datafrom_to_reg_dict(data):
-    # 
+    #
     reg_series = data["register"]
     reg_name_list = reg_series.drop_duplicates()
     sub_reg_cnt_list = reg_series.value_counts()
-    
+
     rxbb_info_struct = dict()
     for reg_idx in range(0, reg_name_list.size, 1):
         tab_idx = reg_name_list.index[reg_idx]
@@ -74,9 +75,9 @@ def cvt_datafrom_to_reg_dict(data):
             for item_idx in range(0, data.columns.size, 1):
                 sub_reg_struct[data.columns[item_idx]] = data[data.columns[item_idx]][tab_idx + sub_reg_idx]
             sub_reg_info[sub_reg_name] = sub_reg_struct
-            
+
         rxbb_info_struct[reg_name] = sub_reg_info
-    
+
     return rxbb_info_struct
 
 def reg_print(fp, reg_in, reg_in_key, reg_addr):
@@ -89,7 +90,7 @@ def reg_print(fp, reg_in, reg_in_key, reg_addr):
         fp.write(line_rev_reg_0)
         reg_addr += reserv_reg_num*4
         # return reg_addr
-    
+
     line_seq0 = ["\t\tunion %s_u { \n" % (reg_in_key.lower()), "\t\t\tstruct %s_s { \n" % (reg_in_key.lower())]
     fp.writelines(line_seq0)
     reserve_cnt = 0
@@ -115,16 +116,16 @@ def reg_print(fp, reg_in, reg_in_key, reg_addr):
     if (reserve_cnt < 32):
         reg_str_info = "\t\t\t\tunsigned int reserve_%d: %d;\n" % (reserve_idx, 32 - reserve_cnt)
         fp.write(reg_str_info)
-    
+
     line_seq1 = ["\t\t\t} bits;\n", "\t\t\tunsigned int u32;\n"]
     fp.writelines(line_seq1)
     line_temp = "\t\t} sw_%s;\n" % (reg_in_key.lower())
     fp.write(line_temp)
-    
+
     reg_addr += 4
     return reg_addr
-        
-    
+
+
 if __name__ == "__main__":
     args = sys.argv
     main(args)

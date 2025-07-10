@@ -23,6 +23,15 @@ from setup_logger import setup_logger, add_file_handler
 logger = setup_logger(name='run_vop_fpga')
 
 def main(args):
+    ## set data root dir & exe path
+    root_dir = "//172.16.4.246/vop/RKCFA/batch_sim/sim_check_sdk0.13.1_vs_cmodel1.0"
+    input_dir  = os.path.join(root_dir, 'input')
+    output_dir = os.path.join(root_dir, 'output')
+    config_dir = os.path.join(root_dir, 'config')
+    exe0 = os.path.normpath('G:/Codes/RkYuvAlgos_update/project/vc/build/rkcfa/Release/rkcfa_sim_exe.exe')  # exe from librkcfa.so SDK
+    exe1 = os.path.normpath('G:/Codes/RkVopAlgos/pub_lib/RkCfaDitherSim/AMD64/bin/cfa_dither_sim_exe.exe') # exe from IC cmodel
+
+    ## set log file
     time_str = datetime.now().strftime('%Y%m%d%H%M%S')
     log_file = os.path.join(output_dir, f'{time_str}_run_vop_fpga.log')
     add_file_handler(logger, log_file)
@@ -116,15 +125,7 @@ def main(args):
             json.dump(json_ref_root, f_out, indent=4, separators=(", ", ": "))
     '''
 
-    # script_dir = os.path.dirname(os.path.realpath(__file__))
-    exe0 = os.path.normpath('G:/Codes/RkYuvAlgos_update/project/vc/build/rkcfa/Release/rkcfa_sim_exe.exe')  # exe from librkcfa.so SDK
-    exe1 = os.path.normpath('G:/Codes/RkVopAlgos/pub_lib/RkCfaDitherSim/AMD64/bin/cfa_dither_sim_exe.exe') # exe from IC cmodel
-    run_cmd(f'chmod +x {exe0}')
-    run_cmd(f'chmod +x {exe1}')
 
-    input_dir = 'V:/RKCFA/batch_sim/sim_check_crc_v0.13.0.4736_vs_v0.7/input/'
-    output_dir = 'V:/RKCFA/batch_sim/sim_check_crc_v0.13.0.4736_vs_v0.7/output/'
-    config_dir = 'V:/RKCFA/batch_sim/sim_check_crc_v0.13.0.4736_vs_v0.7/config/'
     input_list = {
         ## basename, w, h
         "cfa_src_1200x825_rgba.rgb": (1200, 825),
@@ -132,6 +133,7 @@ def main(args):
         "input_720x480_rgba_full_25frames.rgb": (720, 480),
         }
     config_list = os.listdir(config_dir)
+    logger.info(f"Set data root dir to: {root_dir}")
     logger.info(f"Read {len(config_list)} config files from {config_dir}")
 
     config_handler = CfaConfig()
@@ -140,6 +142,8 @@ def main(args):
     ## run command & get CRC result
     check_pass = 0
     fail_list = []
+    run_cmd(f'chmod +x {exe0}')
+    run_cmd(f'chmod +x {exe1}')
     for input_name, (wid, hgt) in input_list.items():
         input_path = os.path.join(input_dir, input_name)
         for config in config_list:
