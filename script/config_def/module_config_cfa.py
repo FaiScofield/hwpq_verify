@@ -4,7 +4,7 @@ FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description : 
-LastEditTime: 2025-07-09
+LastEditTime: 2025-07-10
 """
 
 import os
@@ -181,6 +181,7 @@ class CfaConfig(ModuleConfigCore):
         self.nCurrC2pWidStride = self.nImgWid
         self.nCurrC2pHgtStride = self.nImgHgt
         self.ePlatform = random.randint(0, 10)
+        self.ePlatform = 7 if self.ePlatform == 8 else self.ePlatform  # 8 is not supported
         self.eCfaPattern = 0
         self.eAlgoType = random.randint(0, 2)
         self.eImgFormat = 0

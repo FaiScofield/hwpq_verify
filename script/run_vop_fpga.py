@@ -4,7 +4,7 @@ FilePath    : run_vop_fpga.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description : 
-LastEditTime: 2025-07-09
+LastEditTime: 2025-07-10
 '''
 
 import os
@@ -16,9 +16,17 @@ import time
 import filecmp
 import subprocess
 import numpy as np
+from datetime import datetime
 from config_def.module_config_cfa import CfaConfig
+from setup_logger import setup_logger, add_file_handler
+
+logger = setup_logger(name='run_vop_fpga')
 
 def main(args):
+    time_str = datetime.now().strftime('%Y%m%d%H%M%S')
+    log_file = os.path.join(output_dir, f'{time_str}_run_vop_fpga.log')
+    add_file_handler(logger, log_file)
+
     '''
     parser = argparse.ArgumentParser()
     parser.add_argument("-exe", "--exe_path", default="./exe/RkVopSimExe_dci_rand_run_v2771.exe")
@@ -99,7 +107,7 @@ def main(args):
 
     ## generate rand cfg
     for cfg_idx in range(cfg_seed, cfg_seed + cfg_num, 1):
-        print("yuv_idx: %d, cfg_idx: %d" % (yuv_idx, cfg_idx))
+        logger.info("yuv_idx: %d, cfg_idx: %d" % (yuv_idx, cfg_idx))
 
         json_ref_root["pq_tuning_param"]["dci"]["s_vop_dci_interp_params"]["s_vop_dci_ctrl"]["i_vop_srand_seed"] = cfg_idx
         rand_json_name = "%s/rand_cfg_%d.json" % (cfg_path, cfg_idx)
@@ -109,7 +117,7 @@ def main(args):
     '''
 
     # script_dir = os.path.dirname(os.path.realpath(__file__))
-    exe0 = os.path.normpath('G:/Codes/RkYuvAlgos_update/pub_lib/rkcfa_0.13.1.4757/bin/Windows/amd64/rkcfa_sim_exe.exe')  # exe from librkcfa.so SDK
+    exe0 = os.path.normpath('G:/Codes/RkYuvAlgos_update/project/vc/build/rkcfa/Release/rkcfa_sim_exe.exe')  # exe from librkcfa.so SDK
     exe1 = os.path.normpath('G:/Codes/RkVopAlgos/pub_lib/RkCfaDitherSim/AMD64/bin/cfa_dither_sim_exe.exe') # exe from IC cmodel
     run_cmd(f'chmod +x {exe0}')
     run_cmd(f'chmod +x {exe1}')
@@ -124,13 +132,14 @@ def main(args):
         "input_720x480_rgba_full_25frames.rgb": (720, 480),
         }
     config_list = os.listdir(config_dir)
+    logger.info(f"Read {len(config_list)} config files from {config_dir}")
 
     config_handler = CfaConfig()
     # crc_handler = crcmod.mkCrcFun(0x104C11DB7, initCrc=0xFFFFFFFF, xorOut=0xFFFFFFFF)
 
     ## run command & get CRC result
     check_pass = 0
-    check_fail = 0
+    fail_list = []
     for input_name, (wid, hgt) in input_list.items():
         input_path = os.path.join(input_dir, input_name)
         for config in config_list:
@@ -147,24 +156,27 @@ def main(args):
             cmd1 = exe1 + f' -i {input_path} -o {output_file1} -j {config_path} -w {wid} -g {hgt}'
             ret1 = run_cmd(cmd1, False)
             if ret0 != 0 or ret1 != 0:
-                print(f"Error happend! ret of cmd0/cmd1: {ret0}/{ret1}")
-                print(f"Error input_path: {input_path}")
-                print(f"Error config_path: {config_path}")
-                break
+                logger.error(f"Error happend! ret of cmd0/cmd1: {ret0}/{ret1}")
+                logger.error(f"Error input: {input_path}")
+                logger.error(f"Error config: {config}")
+                fail_list.append((seed, input_name))
+                continue
 
             if filecmp.cmp(output_file0, output_file1, shallow=False):
-                print(f"✅ Binary equal when seed = {seed}, input = {input_name} ...")
+                logger.info(f"✅ Binary equal when seed = {seed}, input = {input_name} ...")
                 check_pass += 1
             else:
-                print(f"❌ Error happend! file not binary equal when seed = {seed}, input = {input_name}!")
-                check_fail += 1
+                logger.error(f"❌ Binary not equal when seed = {seed}, input = {input_name}!")
+                fail_list.append((seed, input_name))
                 # return
-    print(f"Check done. ✅ pass num: {check_pass}, ❌ fail num: {check_fail}")
+    logger.info(f"Check done. ✅ pass num: {check_pass}, ❌ fail num: {len(fail_list)}")
+    if len(fail_list) > 0:
+        logger.error(f"Failed seed-input list: {fail_list}")
 
 
 def run_cmd(cmd, showOutput=True):
     # return os.system(cmd)
-    print('cmd to run: %s' % cmd)
+    logger.info('cmd to run: %s' % cmd)
     if showOutput:
         ret = subprocess.call(cmd, shell=True)
     else:
