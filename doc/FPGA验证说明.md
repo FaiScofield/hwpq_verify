@@ -19,78 +19,55 @@
   - `8224@172.16.12.252`
   - `8224@172.16.13.206`
 
+## 2. 寄存器对应功能熟悉
+
+### RK3572 VOP
+:warning: 以下仅列出一些常用的或关键的寄存器
+
+| 寄存器地址 | 寄存器名称 | bitfield内容 | 对应功能 |
+| --------- | --------- | ------------ | -------- |
+| 0x9F000000 | VOP_BASE |              | vop的寄存器基地址 |
+| 0x9F000070 ~ 0x9F00008C | POST0_CTRL.POST_ACM_R2Y_CTRL ~ POST0_CTRL.POST_ACM_R2Y_OFFSET2 |  | 外层整体ACM R2Y系数 |
+| 0x9F000CD0 ~ 0x9F000CEC | POST0_CTRL.POST_ACM_CTRL     ~ POST0_CTRL.POST_ACM_Y2R_OFFSET2 |  | 外层整体ACM Y2R系数 |
+| 0x9F000CD0 | POST0_CTRL.POST_ACM_CTRL | acm_bypass_en <br> ... | 外层整体ACM Y2R控制和bypass控制 |
+| 0x9F006400 ~ 0x9F006BD8 | ACM      |       | 内层ACM模块 |
+| 0x9F006400 | ACM_CTRL | acm_en, acm_bypass <br> debug_en, debug_data_sel <br> acm_width, acm_height | ACM开关 <br> ACM debug开关 |
+| 0x9F006404 | DELTA_RANGE |    | ACM三组LUT的gain值 |
+| 0x9F006408 | FETCH_START |    | 对后续3组LUT赋值前需要将此设1 |
+| 0x9F006410 ~ 0x9F00641C | DEBUG_POINT0_CFG ~ DEBUG_POINT3_CFG |  | 需要debug的4个像素位置 |
+| 0x9F006420 | FETCH_DONE  |    | 对后续3组LUT赋值后需要将此设1 |
+| 0x9F006430 ~ 0x9F00646C | DEBUG0_DATA0 ~ DEBUG3_DATA3 |  | 需要debug的4个像素的像素值 |
+| 0x9F006500 ~ 0x9F006760 | YHS_GAIN_BY_Y_SEG0 ~ YHS_GAIN_BY_Y_SEG152 |  | y_gain表，9x17=153个  |
+| 0x9F006764 ~ 0x9F006AD4 | YHS_GAIN_BY_S_SEG0 ~ YHS_GAIN_BY_S_SEG220 |  | s_gain表，13x17=221个 |
+| 0x9F006AD8 ~ 0x9F006BD8 | YHS_DEL_BY_H_SEG0 ~ YHS_DEL_BY_H_SEG64    |  | delta表，65个 |
+
+
+
 ## Debug方法
-### CRC 校验
-- 开关寄存器: `0xf9000C40(POST0_CTRL.POST_SCL_CTRL.crc_en)`
-- 读取CRC值: `0xf9000C28(POST0_CTRL.POST_CRC_OUT)`
+### CRC32 校验
+- RGA的CRC开关寄存器: `0xf9000C40(POST0_CTRL.POST_SCL_CTRL.crc_en)`
+- RGA的CRC值读取: `0xf9000C28(POST0_CTRL.POST_CRC_OUT)`
+- 注意CRC的精度问题： CRC模块计算节点在POST之后，计算的数据精度受`POST0_CTRL.POST_DSP_CTRL.dsp_out_mode`影响。需要将其设为`0xF`才能保证是10bit精度
   ```c
       // enable CRC. POST0_CTRL.POST_SCL_CTRL.crc_en
       word32(VOPLITE_BASE + VOP3_POST0_CTRL_BASE + 0x40) = 0x0100;
+      // dsp_out_mode set to 'Parallel 30-bit'. set this when checking CRC
+      word32(VOPLITE_BASE + VOP3_POST0_CTRL_BASE + 0x00) |= 0x0F;
+      // read CRC
       int crc = word32(VOPLITE_BASE + VOP3_POST0_CTRL_BASE + 0x28);
   ```
 
-### DEBUG_POINT 查看像素值
-- 开关寄存器: `0x5400(ACM.ACM_CTRL.debug_en)`
+
+### 利用 DEBUG_POINT 核对像素值
+- 开关寄存器: `0x6400(ACM.ACM_CTRL.debug_en) |= 1<<2`
+- 支持查看输入/输出和一些中间计算的结果，通过寄存器`(ACM.ACM_CTRL.debug_data_sel)`来切换要，具体种类包括:
+  - `3'b000`: `((0<<3)|(1<<2)=0x04)` YUV in data
+  - `3'b001`: `((1<<3)|(1<<2)=0x0c)` YUV2YHS data
+  - `3'b010`: `((2<<3)|(1<<2)=0x14)` Interlation data
+  - `3'b011`: `((3<<3)|(1<<2)=0x1c)` YUV out data
+  - `3'b100`: `((4<<3)|(1<<2)=0x24)` Csc_out
+  - `3'b101`: `((5<<3)|(1<<2)=0x2c)` Sharp_data
 - 支持同时查看4个像素的像素值，设置 `0x6410(ACM.DEBUG_POINT0_CFG)` ~ `0x641C(ACM.DEBUG_POINT3_CFG)`
 - 显示结果位于`0x6430(ACM.DEBUG0_DATA0)` ~ `0x646C(ACM.DEBUG3_DATA3)`
 
 
-
-## 错误
-
-### SharpLite 开关时会抖动
-
-### SharpLite CRC 不对
-
-fpga输入文件： `vop/sharplite/test_1920x1080_tl_roi_720x480_nv24.yuv` (左上角ROI: [0,0,720,480])
-cmodel输入文件: `data/test_1920x1080_tl_roi_720x480_yuv444p.yuv`
-cmodel输出文件: `Data/test_out_1920x1080_yuv444p10le.yuv`
-
-- ✅ 锐化ROI在纯色区域，开关Sharp模块CRC值应保持一致
-  - sharp_en=0x1, peacking_gain=0x100300 , roi=[500,600,1200,900] (0x825801F4, 0x038404B0), CRC=0x9FC471FB / 0x9fc471fb
-  - sharp_en=0x0, peacking_gain=0x100300 , roi=[500,600,1200,900] (0x825801F4, 0x038404B0), CRC=0x9FC471FB / 0x9fc471fb
-- ❌ 锐化ROI包含一部分有效区域，开关Sharp模块CRC值应不相等
-  - sharp_en=0x1, peacking_gain=0x100300 , roi=[500,400,1200,500] (0x819001F4, 0x01F404B0),  CRC=0x9A05C0D4 / 0x8a17f16e
-  - sharp_en=0x0, peacking_gain=0x100300 , roi=[500,400,1200,500] (0x819001F4, 0x01F404B0),  CRC=0x9FC471FB
-- ✅ 锐化ROI关闭（作用全图），`peacking_gain=0`，开关Sharp模块CRC值应保持一致
-  - sharp_en=0x1, peacking_gain=0x100000 , roi=OFF (0x00000000, 0x038404B0), CRC=0x9FC471FB / 0x9fc471fb
-  - sharp_en=0x0, peacking_gain=0x100300 , roi=OFF (0x00000000, 0x038404B0), CRC=0x9FC471FB / 0x9fc471fb
-  - 0x7B63B960
-
-- roi=x_start=717=02cd, crc fpga/cmodel = **0xDCB509B1** / **0xc9a9d6de** ❌ pixel values:
-  - 0x01DF02CC(x=716,y=479): 0A0/214/1F8 ✅
-  - 0x01DF02CD(x=717,y=479): 032/21C/1F4 ✅
-  - 0x01DF02CE(x=718,y=479): 0AC/21C/1F4 ✅
-  - 0x01DF02CF(x=719,y=479): 008/21C/1F4 ✅
-  - 0x01DF02D0(x=720,y=479): 208/208/230 ✅
-  - 0x01DF02D1(x=721,y=479): 190/208/230 ✅
-  - 0x01E002CC(x=716,y=480): 190/208/230 ✅
-  - 0x01E002CD(x=717,y=480): 26E/208/230 ✅
-  - 0x01E002CE(x=718,y=480): 244/208/230 ✅
-  - 0x01E002CF(x=719,y=480): 1F0/208/230 ✅
-  - 0x01E002D0(x=720,y=480): 190/208/230 ✅
-  - 0x01E002D1(x=721,y=480): 190/208/230 ✅
-  - 0x01DE02CC(x=716,y=478): 07C/208/208 ✅
-  - 0x01DE02CD(x=717,y=478): 080/210/200 ✅
-  - 0x01DE02CE(x=718,y=478): 090/210/200 ✅
-  - 0x01DE02CF(x=719,y=478): 098/210/200 ✅
-  - 0x01DE02D0(x=720,y=478): 190/208/230 ✅
-  - 0x01DE02D1(x=721,y=478): 190/208/230 ✅
-
-- roi=x_start=718=02ce, crc fpga/cmodel = 0x6BDD7D21 / 0x6bdd7d21 ✅
-  - 0x27d06c20:  0x00000010 0x00200010 0x00200010 0x81df02ce
-  - 0x27d06c30:  0x03200320 0x80000000 0x00000000 0x00000000
-
-- roi=x_start=720=02d0, crc fpga/cmodel = 0x2328484E / 0x2328484e ✅
-  - 0x27d06c20:  0x00000010 0x00200010 0x00200010 0x81df02d0
-  - 0x27d06c30:  0x03200320 0x80000000 0x00000000 0x00000000
-
-- roi=x_start=721=02d1, crc fpga/cmodel = 0x9FC471FB / 0x9fc471fb ✅
-  - 0x27d06c00:  0x00000001 0x00000000 0x00000000 0x00000000
-  - 0x27d06c10:  0x00100300 0x00402010 0x00000000 0x00000000
-  - 0x27d06c20:  0x00000010 0x00200010 0x00200010 0x81df02d1
-  - 0x27d06c30:  0x03200320 0x80000000 0x00000000 0x00000000
-
-### ACM 开关 左侧有部分列像素值没有变化，看起来像横条线
-- 大部分是 delay_num 原因
-- 还在排除中
