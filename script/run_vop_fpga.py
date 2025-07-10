@@ -29,6 +29,7 @@ def main(args):
     input_dir  = os.path.join(root_dir, 'input')
     output_dir = os.path.join(root_dir, 'output')
     config_dir = os.path.join(root_dir, 'config')
+    b_output_overwrite = True
     exe0 = os.path.normpath('G:/Codes/RkYuvAlgos_update/project/vc/build/rkcfa/Release/rkcfa_sim_exe.exe')  # exe from librkcfa.so SDK
     exe1 = os.path.normpath('G:/Codes/RkVopAlgos/pub_lib/RkCfaDitherSim/AMD64/bin/cfa_dither_sim_exe.exe') # exe from IC cmodel
 
@@ -151,13 +152,15 @@ def main(args):
             ret0, ret1 = 0, 0
             config_path = os.path.join(config_dir, config)
             config_handler.load(config_path)
-            seed = config_handler.randSeed
 
-            output_file0 = os.path.join(output_dir, f'rkcfa_test_out_seed_{seed}_Y8.yuv')
+            seed = config_handler.randSeed
+            suffix = '' if b_output_overwrite else f'_seed_{seed}'
+            output_file0 = os.path.join(output_dir, f'rkcfa_test_out_Y8{suffix}.yuv')
+            output_file1 = os.path.join(output_dir, f'cfa_dither_test_out_Y8{suffix}.yuv')
+
             cmd0 = exe0 + f' -i={input_path} -o={output_file0} -j={config_path} -sw={wid} -sh={hgt}'
             ret0 = run_cmd(cmd0, False)
 
-            output_file1 = os.path.join(output_dir, f'cfa_dither_test_out_seed_{seed}_Y8.yuv')
             cmd1 = exe1 + f' -i {input_path} -o {output_file1} -j {config_path} -w {wid} -g {hgt}'
             ret1 = run_cmd(cmd1, False)
             if ret0 != 0 or ret1 != 0:

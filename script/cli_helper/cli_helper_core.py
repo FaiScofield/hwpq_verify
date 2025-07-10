@@ -163,11 +163,14 @@ class ModuleHelper(ABC):
 
     def do_gen(self, args) -> bool:
         ## parse args & check
-        parser = argparse.ArgumentParser()
-        parser.add_argument("-n", "--num", default=1, type=int, help="生成随机配置的数量")
-        parser.add_argument("-s", "--rand_seed", type=int, help="起始随机种子(n>1时随机种子自增1)")
-        parser.add_argument("-o", "--file_or_dir", default="", type=str, help="生成的配置文件或目录(n>1时指定目录)")
-        args = parser.parse_args(args)
+        try:
+            parser = argparse.ArgumentParser()
+            parser.add_argument("-n", "--num", default=1, type=int, help="生成随机配置的数量")
+            parser.add_argument("-s", "--rand_seed", type=int, help="起始随机种子(n>1时随机种子自增1)")
+            parser.add_argument("-o", "--file_or_dir", default="", type=str, help="生成的配置文件或目录(n>1时指定目录)")
+            args = parser.parse_args(args)
+        except:
+            return False  # 不退出
 
         args.num = max(1, args.num)
         abs_path = os.path.abspath(args.file_or_dir)
