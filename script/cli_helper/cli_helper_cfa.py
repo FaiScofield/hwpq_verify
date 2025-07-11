@@ -4,7 +4,7 @@ FilePath    : cli_helper_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description : 
-LastEditTime: 2025-07-07
+LastEditTime: 2025-07-11
 """
 
 import os
@@ -25,26 +25,18 @@ class CfaHelper(ModuleHelper):
         parent: Optional["ModuleHelper"] = None,
     ):
         super().__init__(name, platform, parent)
-        self.config = self.define_config()
-
-        ## 增加额外的命令
-        # self.add_command('opt', self.do_optimize, "<level>", "执行图像优化处理")
+        # self.define_config_and_regs()
 
     ## =============== overwrite methods  ===============
-    def define_config(self):
-        return CfaConfig(self.name)
+    def define_config_and_regs(self):
+        self.config = CfaConfig(self.name)
+        return self.config
 
-    def config_to_registers(self) -> int:
-        # TODO
-        pass
+    def config_to_regs(self):
+        print("TODO: config_to_regs")
 
-    def get_param(self, param_name: str) -> Any:
-        # TODO
-        pass
-
-    def set_param(self, param_name: str, value: Any) -> bool:
-        # TODO
-        pass
+    def regs_to_config(self):
+        print("TODO: regs_to_config")
 
 
 if __name__ == "__main__":

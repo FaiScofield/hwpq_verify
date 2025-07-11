@@ -4,7 +4,7 @@ FilePath    : reg_def_sharp_lite.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-03 17:35:32
+LastEditTime: 2025-07-11
 """
 import os
 import sys
@@ -119,8 +119,8 @@ class RK3572_SharpLiteReg_0x34(Structure):
 
 
 class SharpLiteRegisters_RK3572(ModuleRegisterCore):
-    def __init__(self):
-        self.platform = "RK3572"
+    def __init__(self, name: str = "SHARP", platform: str = 'RK3572'):
+        super().__init__(name, platform)
 
         self.ENABLE_CTRL = RK3572_SharpLiteReg_0x00()  # Address Offset: 0x0000
         self.GATING_CTRL = RK3572_SharpLiteReg_0x04()  # Address Offset: 0x0004
@@ -160,10 +160,24 @@ class SharpLiteRegisters_RK3572(ModuleRegisterCore):
         return False
 
     def load(self, filename):
+        try:
+            if filename.endswith(".bin"):
+                with open(filename, "rt") as f:
+                    data = f.read()
+                    # TODO: parse data
+
+            elif filename.endswith(".dat"):
+                with open(filename, "rt") as f:
+                    data = f.read().strip()
+                    # TODO: parse data
+            else:
+                print(f"[{self.name}] 文件类型不支持!")
+        except Exception as e:
+            print(f"[{self.name}] 错误: 加载文件\'{filename}\'失败: {str(e)}")
         return False
 
     def check(self):
-        return False
+        return True
 
 
 if __name__ == "__main__":
@@ -175,14 +189,6 @@ if __name__ == "__main__":
     reg.USM_COEF.coef_C = 0x30
 
     print("checking SharpLiteRegisters_RK3572:")
-    # for name, field, len in reg._fields_:
-    #     print(f"{name}: {getattr(reg, name)} {field.__name__}, {len}")
-    #     total_sub_len = 0
-    #     for sub_name, sub_field, sub_len in field._fields_:
-    #         print(f"{name}: {getattr(reg, name)} {field.__name__}, {len}")
-    #         total_sub_len += sub_len
-    #     if total_sub_len != 32:
-    #         print(f"error: total_sub_len != 32 for reg {name} !")
 
     print(read_reg(reg.USM_COEF), reg.USM_COEF.coef_A, reg.USM_COEF.coef_B, reg.USM_COEF.coef_C)
     print(read_reg(reg.USM_CTRL), reg.USM_CTRL.peaking_gain)

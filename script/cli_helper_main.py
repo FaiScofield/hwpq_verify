@@ -4,7 +4,7 @@ FilePath    : cli_helper_main.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description : 
-LastEditTime: 2025-07-07
+LastEditTime: 2025-07-11
 '''
 
 from cli_helper.cli_helper_core import *
@@ -106,16 +106,13 @@ class MainApp(ModuleHelper):
         return module_name in self.modules
 
     ## =============== 主程序不需要实现这些抽象方法 ===============
-    def define_config(self):
+    def define_config_and_regs(self):
         return None
 
-    def config_to_registers(self) -> int:
-        return 0
-
-    def get_param(self, param_name: str) -> Any:
+    def config_to_regs(self):
         return None
 
-    def set_param(self, param_name: str, value: Any) -> bool:
+    def regs_to_config(self):
         return None
 
 

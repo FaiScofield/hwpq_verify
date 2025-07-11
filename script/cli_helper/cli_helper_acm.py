@@ -4,7 +4,7 @@ FilePath    : cli_helper_acm.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description : 
-LastEditTime: 2025-07-02
+LastEditTime: 2025-07-11
 '''
 
 import os
@@ -18,28 +18,22 @@ from cli_helper.cli_helper_core import ModuleHelper
 class AcmHelper(ModuleHelper):
     def __init__(self, name: str = "ACM", platform: str = 'RK3572', parent: Optional['ModuleHelper'] = None):
         super().__init__(name, platform, parent)
-        self.define_config()
+        # self.define_config_and_regs()
 
         ## 增加额外的命令
         # self.add_command('opt', self.do_optimize, "<level>", "执行图像优化处理")
 
 
     ## =============== overwrite methods  ===============
-    def define_config(self):
+    def define_config_and_regs(self):
         #TODO
         pass
 
-    def config_to_registers(self) -> int:
-        #TODO
-        pass
+    def config_to_regs(self):
+        print("TODO: config_to_regs")
 
-    def get_param(self, param_name: str) -> Any:
-                #TODO
-        pass
-
-    def set_param(self, param_name: str, value: Any) -> bool:
-                #TODO
-        pass
+    def regs_to_config(self):
+        print("TODO: regs_to_config")
 
 
 if __name__ == "__main__":

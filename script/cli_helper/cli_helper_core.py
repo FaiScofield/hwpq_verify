@@ -4,14 +4,16 @@ FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-07
+LastEditTime: 2025-07-11
 """
 
 import sys
 import os
 import json
+import re
 import random
 import argparse
+from ast import literal_eval
 from tqdm import tqdm
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List, Type
@@ -31,22 +33,21 @@ class ModuleHelper(ABC):
     def __init__(self, name: str, platform: str = "RK3572", parent: Optional["ModuleHelper"] = None):
         self.name = name.upper()
         self.platform = platform.upper()
-        self.parent = parent
-        self.config = self.define_config()  # 创建配置参数变量，需要复写
-        self.regs = self.config_to_registers()  # 创建寄存器变量，需要复写
-        self.modules = {}  # 子模块，空的，顶层使用
+        self.parent = parent # 无上级窗口则为空
+        self.define_config_and_regs()  # 创建变量 self.config / self.config, 需要复写
+        self.modules = {}  # 子模块，空的，暂时仅供顶层使用
 
         ## 命令注册表: name, (handler, param_desc, description)
         self.commands = {
             "help": (self.do_help, "", "显示命令帮助信息"),
             "quit": (self.do_quit, "", "退出或返回上一级"),
-            "plat": (self.do_plat, "<name>", "设置平台属性"),
-            "load": (self.do_load, "<file>", "加载.json配置文件或.dat/.bin寄存器文件"),
+            "plat": (self.do_plat, "<name>", "设置平台: (Only RK3572 for now!)"),
+            "load": (self.do_load, "<file>", "加载 .json 配置文件或 .dat/.bin 寄存器文件"),
             "gen": (self.do_gen, "[-n num] [-o filename/directory] [-s rand_seed]", "生成 num 个随机配置, 可输出到文件(num=1)或文件夹(num>1)"),
             "dump": (self.do_dump, "[filenames]", "指定文件名(.json/.dat/.bin, 可多个)时则导出当前配置到对应文件, 否则打印到控制台"),
             "reg": (self.do_reg, "[target]", "生成寄存器配置值 (TODO)"),
-            "get": (self.do_get, "<params>(name1 name2 ...)", "获取配置参数值"),
-            "set": (self.do_set, "<params>(-name1_short value1  --name2_long=value2 ...)", "设置配置参数值"),
+            "get": (self.do_get, "<name1> [name2 name3 ...]", "获取配置参数的值"),
+            "set": (self.do_set, "<name1=value1> [name2=value2 name3=value3 ...]", "设置配置参数的值"),
         }
 
     def run(self):
@@ -83,36 +84,27 @@ class ModuleHelper(ABC):
                 print(f"[{self.name}] \n操作已取消")
             except Exception as e:
                 print(f"[{self.name}] 错误: {str(e)}")
-                # 详细的调试信息（调试模式下）
+                # 详细的调试信息(调试模式下)
                 # import traceback
                 # traceback.print_exc()
 
+    ## =============== 虚函数，需要继承实现 ===============
     @abstractmethod
-    def define_config(self):
-        """定义模块的配置参数（由子类实现）"""
-        # 子类应该在此方法中设置self.config属性
+    def define_config_and_regs(self):
+        """定义模块的配置参数(由子类实现)"""
+        self.config = None
+        self.regs = None
         pass
 
     @abstractmethod
-    def config_to_registers(self) -> map:
-        """将配置转换为32位寄存器值（由子类实现）"""
-        # 返回32位寄存器值
+    def config_to_regs(self):
+        """将配置转换为32位寄存器值(由子类实现)"""
         pass
 
     @abstractmethod
-    def get_param(self, param_name: str) -> Any:
-        """获取特定参数值（由子类实现）"""
+    def regs_to_config(self):
+        '''将寄存器的值转为配置参数(由子类实现)'''
         pass
-
-    @abstractmethod
-    def set_param(self, param_name: str, value: Any) -> bool:
-        """设置特定参数值（由子类实现）"""
-        # 返回设置是否成功
-        return True
-
-    # @abstractmethod
-    def is_valid_module(self, module_name: str) -> bool:
-        return False  # 只给最顶层APP级使用
 
     ## =============== 通用命令处理函数 ===============
     def do_help(self, args) -> bool:
@@ -136,7 +128,7 @@ class ModuleHelper(ABC):
     def do_dump(self, args) -> bool:
         """导出配置到文件或控制台"""
         config = self.config
-        regs = self.config_to_registers()
+        regs = self.config_to_regs()
 
         if not args:
             ## 控制台显示
@@ -190,7 +182,7 @@ class ModuleHelper(ABC):
                 abs_path = os.path.join(dirname, f"{self.name.lower()}_config_seed_{seed_ret}.json")
                 print(f"[{self.name}] num = 1, 指定输出应该为绝对路径的文件名，强制修改为: {abs_path}")
             ok = self.config.dump(abs_path)
-            if ok:
+            if ok and abs_path != "":
                 print(f"[{self.name}] 随机配置已生成并导出到: {abs_path}")
         else:
             if not os.path.isdir(abs_path):
@@ -215,13 +207,12 @@ class ModuleHelper(ABC):
 
         if filename.endswith(".json"):
             # 加载JSON配置文件
-            self.load_config_json(filename)
-        elif filename.endswith(".dat"):
-            # 加载.dat寄存器配置文件
-            self.load_config_reg(filename, True)
-        elif filename.endswith(".bin"):
-            # 加载.bin寄存器配置文件
-            self.load_config_reg(filename, False)
+            self.config.load(filename)
+            self.config_to_regs()
+        elif filename.endswith(".dat") or filename.endswith(".bin"):
+            # 加载.dat/.bin寄存器配置文件
+            self.reg.load(filename)
+            self.regs_to_config()
         else:
             print(f"[{self.name}] 错误: 不支持的文件类型: {filename}. 仅支持 .json/.dat/.bin")
 
@@ -248,7 +239,7 @@ class ModuleHelper(ABC):
 
     def do_reg(self, args) -> bool:
         """生成寄存器配置值"""
-        reg_value = self.config_to_registers()
+        reg_value = self.config_to_regs()
 
         # 转换为16进制字符串
         reg_hex = f"{reg_value:08x}"
@@ -280,114 +271,68 @@ class ModuleHelper(ABC):
             sys.exit(0)
 
     def do_get(self, args) -> bool:
-        """获取多个参数值"""
+        """获取一个或多个参数值"""
         if not args:
             print(f"[{self.name}] 错误: 需要至少一个参数名！")
             return False
 
         print(f"[{self.name}] \n参数值查询结果:")
         for param_name in args:
-            value = self.get_param(param_name)
-            if value is not None:
-                print(f"[{self.name}]   {param_name}: {value}")
+            if hasattr(self.config, param_name):
+                value = getattr(self.config, param_name)
+                print(f"[{self.name}] get param \'{param_name}\' value: {value}")
             else:
-                print(f"[{self.name}]   {param_name}: 无效参数名！")
+                print(f"[{self.name}] invalid param name: \'{param_name}\'!")
 
         # 不退出
         return False
 
     def do_set(self, args) -> bool:
-        """设置多个参数值"""
-        if len(args) < 2 or len(args) % 2 != 0:
-            print(f"[{self.name}] 错误: 参数格式应为 <param1> <value1> [param2 <value2> ...]")
+        """设置一个或多个参数值"""
+        if not args:
+            print(f"[{self.name}] 错误: 参数设置格式应为 <param1>=<value1> [param2=<value2> ...]")
             return False
 
-        # 成对处理参数
-        results = []
-        for i in range(0, len(args), 2):
-            param_name = args[i]
-            value_str = args[i + 1]
+        arg_str = " ".join(args)
+        if "=" not in arg_str:
+            print(f"[{self.name}] 错误: 参数设置格式应为 <param1>=<value1> [param2=<value2> ...]")
+            return False
 
-            # 尝试类型转换
-            try:
-                # 尝试整数转换
-                value = int(value_str)
-            except ValueError:
-                try:
-                    # 尝试浮点数转换
-                    value = float(value_str)
-                except ValueError:
-                    # 作为字符串处理
-                    value = value_str
+        items = re.findall(r'(\w+)=([^=]+)(?=\s+\w+=|$)', arg_str.strip())
+        for key, value in items:
+            if hasattr(self.config, key):
+                value = value.strip()
+                if value.startswith('[') and value.endswith(']'):
+                    try:
+                        value = literal_eval(value)  # 安全转换为Python对象
+                    except:
+                        value = [x.strip() for x in value[1:-1].split(',')]
+                else:
+                    if value.lower() == 'true':
+                        value = True
+                    elif value.lower() == 'false':
+                        value = False
+                    elif value.isdigit():
+                        value = int(value)
+                    elif value.replace('.', '', 1).isdigit():
+                        value = float(value)
 
-            success = self.set_param(param_name, value)
-            if success:
-                current_value = self.get_param(param_name)
-                results.append(f"{param_name} = {current_value}")
+                setattr(self.config, key, value)
+                print(f"[{self.name}] set param \'{key}\' to {value}")
             else:
-                results.append(f"{param_name}: 设置失败")
-
-        # 显示设置结果
-        print(f"[{self.name}] \n参数设置结果:")
-        for result in results:
-            print(f"[{self.name}]   {result}")
+                print(f"[{self.name}] failed to set param \'{key}\' to {value}")
 
         # 不退出
         return False
 
     ## =============== 通用辅助方法 ===============
-    def load_config_json(self, filename: str):
-        """加载JSON配置文件"""
-        try:
-            with open(filename, "r") as f:
-                data = json.load(f)
-        except Exception as e:
-            print(f"[{self.name}] 错误: 加载JSON配置文件失败: {str(e)}")
-            return False
-
-    def load_config_reg(self, filename: str, is_dat: bool):
-        """加载.dat/.bin寄存器配置文件"""
-        if is_dat:
-            # 加载.dat文件
-            try:
-                with open(filename, "rt") as f:
-                    data = f.read().strip()
-            except Exception as e:
-                print(f"[{self.name}] 错误: 加载.dat文件失败: {str(e)}")
-        else:
-            try:
-                with open(filename, "rb") as f:
-                    data = f.read()
-            except Exception as e:
-                print(f"[{self.name}] 错误: 加载.bin文件失败: {str(e)}")
-                return False
-
-    def get_config_data(self) -> Dict[str, Any]:
-        """获取配置数据的字典形式"""
-        return {"module": self.name, "platform": self.platform, **self.config}
-
-    def generate_random_config(self):
-        """生成随机配置（默认实现，子类可覆盖）"""
-        for key, value in self.config.items():
-            # 根据值的类型生成随机值
-            if isinstance(value, bool):
-                self.config[key] = random.choice([True, False])
-            elif isinstance(value, int):
-                self.config[key] = random.randint(0, 100)
-            elif isinstance(value, float):
-                self.config[key] = round(random.uniform(0, 1), 3)
-            elif isinstance(value, str):
-                self.config[key] = f"random-{random.randint(1, 100)}"
-            elif isinstance(value, list):
-                self.config[key] = [random.randint(1, 10) for _ in range(len(value))]
-            elif isinstance(value, dict):
-                self.config[key] = {k: random.random() for k in value.keys()}
+    def is_valid_module(self, module_name: str) -> bool:
+        return False  # 只给最顶层APP级使用
 
     def apply_platform_config(self):
-        """应用平台相关的配置（默认实现为空，子类可覆盖）"""
+        """应用平台相关的配置(默认实现为空，子类可覆盖)"""
         pass
 
-    ## =============== 便捷方法 ===============
     def add_command(self, name: str, handler, param_desc: str = "", description: str = ""):
         self.commands[name] = (handler, param_desc, description)
 

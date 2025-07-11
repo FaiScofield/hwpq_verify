@@ -4,7 +4,7 @@ FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description : 
-LastEditTime: 2025-07-10
+LastEditTime: 2025-07-11
 """
 
 import os
@@ -53,6 +53,7 @@ class CfaConfig(ModuleConfigCore):
         self.sRoiInfo = [0, 0, 0, 0, 0, 0]  # x6
         self.aReserved = [0, 0, 0, 0, 0, 0, 0, 0]  # x8
 
+    ## =============== overwrite methods  ===============
     def dump(self, filename=None):
         if filename == None or filename == "":
             print(f"[{self.name}] Config parameters shown below:")
@@ -107,10 +108,10 @@ class CfaConfig(ModuleConfigCore):
     def load(self, filename):
         # check config file validity
         if not os.path.exists(filename):
-            print(f"[{self.name}] config file '%s' doesn't exist!" % filename)
+            print(f"[{self.name}] config file '{filename}' doesn't exist!")
             return False
         if not filename.endswith(".json"):
-            print(f"[{self.name}] config file '%s' is not a json file!" % filename)
+            print(f"[{self.name}] config file '{filename}' is not a json file!")
             return False
 
         try:
@@ -155,7 +156,7 @@ class CfaConfig(ModuleConfigCore):
                 self.randSeed = data["randSeed"]
                 return True
         except Exception as e:
-            print(f"[{self.name}] load config file '%s' failed: %s" % (filename, e))
+            print(f"[{self.name}] load config file '{filename}' failed: {e}")
             return False
 
     def check(self):
@@ -180,7 +181,7 @@ class CfaConfig(ModuleConfigCore):
         self.nDstHgtStride = self.nImgHgt
         self.nCurrC2pWidStride = self.nImgWid
         self.nCurrC2pHgtStride = self.nImgHgt
-        self.ePlatform = random.randint(0, 10)
+        self.ePlatform = random.randint(0, 10) # but not 8
         self.ePlatform = 7 if self.ePlatform == 8 else self.ePlatform  # 8 is not supported
         self.eCfaPattern = 0
         self.eAlgoType = random.randint(0, 2)
@@ -194,14 +195,14 @@ class CfaConfig(ModuleConfigCore):
         self.nSharpenGain = random.randint(0, 200)  # [0, 128]
         self.nStretchBlack = random.randint(0, 120)  # [0, 96]
         self.nStretchWhite = random.randint(120, 300)  # [160, 255]
-        self.bDither = random.randint(0, 1) * 2 # 0 or 2
-        self.bDeFalseColor4Gray = random.randint(0, 1)
+        self.bDither = (random.randint(0, 3) > 0) * 2 # 0 or 2, 75% ON
+        self.bDeFalseColor4Gray = int(random.randint(0, 3) > 0) # 75% ON
         self.bContrastEqual = 0
         self.bForceRunWithCpu = random.randint(0, 1)
         self.nRegalType = 0
         self.nA2AlgoType = 0 # always 0 for hardware mode
         self.nA2CompLevel = random.randint(0, 80)  # [0, 64]
-        self.bA2Modulate = random.randint(0, 8)  # [0, 7]
+        self.bA2Modulate = random.randint(0, 10)  # [0, 7]
         self.bClearLow4bits = 1 #random.randint(0, 1)  # [0, 1]
         self.sRoiInfo = [0, 0, 0, 0, 0, 0]  # x6
         self.aReserved = [0, 0, 0, 0, 0, 0, 0, 0]  # x8
