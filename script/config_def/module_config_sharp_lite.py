@@ -41,8 +41,8 @@ class SharpLiteConfig(ModuleConfigCore):
         self.sharp_core_B = 32  # 3x3 gaussian kernel edge   (1,3,5,7), s8 fixed, range: [-128, 127]
         self.sharp_core_C = 64  # 3x3 gaussian kernel center (4),       s8 fixed, range: [-128, 127]
         self.sharp_usm_gain = 303  # u7 fixed, range: [0, 1023]
-        self.ink_enable = 0 # u1
-        self.ink_mode = 0 # u2
+        self.ink_enable = 0  # u1
+        self.ink_mode = 0  # u2
         self.ink_idx_h = 0
         self.ink_idx_v = 0
 
@@ -85,7 +85,8 @@ class SharpLiteConfig(ModuleConfigCore):
                 "i_ink_idx_h": self.ink_idx_h,
                 "i_ink_idx_v": self.ink_idx_v,
             }
-            json.dump(data, f, indent=4, ensure_ascii=False)
+            nest_data = {"pq_tuning_param": {"SHARPNESS_lite": data}}
+            json.dump(nest_data, f, indent=4, ensure_ascii=False)
             return True
 
         return False
@@ -170,7 +171,7 @@ class SharpLiteConfig(ModuleConfigCore):
         self.sharp_roi_xend = random.randint(4, 1200)
         self.sharp_roi_ystart = random.randint(0, 600)
         self.sharp_roi_yend = random.randint(4, 800)
-        self.sharp_force_core_mode = random.randint(0, 1) # %50 be ON
+        self.sharp_force_core_mode = random.randint(0, 1)  # %50 be ON
         self.sharp_core_A = random.randint(0, 255)
         self.sharp_core_B = random.randint(0, 255)
         self.sharp_core_C = random.randint(0, 255)

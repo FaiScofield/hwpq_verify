@@ -10,6 +10,7 @@ LastEditTime: 2025-07-10
 import os
 import sys
 import logging
+import subprocess
 
 ## set encoding to utf-8 to support ✅ & ❌
 if not sys.stdout.encoding or sys.stdout.encoding.upper() != 'UTF-8':
@@ -56,3 +57,19 @@ def setup_logger(name: str = None, output: str = None, loglevel: str = "DEBUG"):
     # file logging: all workers
     add_file_handler(logger, output)
     return logger
+
+def run_cmd(cmd, showOutput=True, logger: logging.Logger=None):
+    # return os.system(cmd)
+    if logger is not None:
+        logger.info('cmd to run: %s' % cmd)
+    else:
+        logging.info('cmd to run: %s' % cmd)
+
+    if showOutput:
+        ret = subprocess.call(cmd, shell=True)
+    else:
+        r = os.popen(cmd)
+        text = r.read()
+        r.close()
+        ret = 0
+    return ret
