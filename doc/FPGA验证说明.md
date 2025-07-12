@@ -41,7 +41,32 @@
 | 0x9F006764 ~ 0x9F006AD4 | YHS_GAIN_BY_S_SEG0 ~ YHS_GAIN_BY_S_SEG220 |  | s_gain表，13x17=221个 |
 | 0x9F006AD8 ~ 0x9F006BD8 | YHS_DEL_BY_H_SEG0 ~ YHS_DEL_BY_H_SEG64    |  | delta表，65个 |
 
-
+#### VOP Cluster layer
+- **0x00001000** `CLUSTER0.WIN0_CTRL0.win0_data_fmt` 输入格式支持说明
+  - `6'b00_0000 | 0x00`: ARGB888 - 32bit MSB ARGB, A高B低,
+  - `6'b00_0001 | 0x01`: RGB888 - 24bit MSB RGB, R高B低
+  - `6'b00_0010 | 0x02`: RGB565 - 16bit MSB RGB, R高B低
+  - `6'b00_0011 | 0x03`: RGBA1010102 - 32bit MSB ARGB, R高A低
+  - `6'b00_0100 | 0x04`: YCbCr420 - YUV420SP_NV21, 先V后U
+  - `6'b00_0101 | 0x05`: YCbCr422 - YUV422SP_NV61, 先V后U
+  - `6'b00_0110 | 0x06`: YCbCr444 - YUV444SP_NV42, 先V后U
+  - `6'b00_0111 | 0x07`: YCbCr400 - Grayscale
+  - `6'b01_0100 | 0x08`: YCbCr420_101010 - YUV420SP_NV15_VU, 先V后U, 10bit-packing
+  - `6'b01_0101 | 0x09`: YCbCr422_101010 - YUV422SP_NV20_VU, 先V后U, 10bit-packing
+  - `6'b01_0110 | 0x0A`: YCbCr444_101010 - YUV444SP_NV30_VU, 先V后U, 10bit-packing
+  - `6'b01_0111 | 0x0B`: YCbCr400_101010 - Grayscale, 10bit-packing
+  - `6'b00_1100 | 0x0C`: Tile4x4_YCbCr420
+  - `6'b00_1101 | 0x0D`: Tile4x4_YCbCr422
+  - `6'b00_1110 | 0x0E`: Tile4x4_YCbCr444
+  - `6'b00_1111 | 0x0F`: Tile4x4_YCbCr400
+  - `6'b01_1100 | 0x10`: Tile4x4_YCbCr420_101010
+  - `6'b01_1101 | 0x11`: Tile4x4_YCbCr422_101010
+  - `6'b01_1110 | 0x12`: Tile4x4_YCbCr444_101010
+  - `6'b01_1111 | 0x13`: Tile4x4_YCbCr400_101010
+- **0x00001000** `CLUSTER0.WIN0_CTRL0.win0_rb_swap`: 0-RGB, 1-BGR
+- **0x00001000** `CLUSTER0.WIN0_CTRL0.win0_rg_swap`: RG交换？是否和`win0_rb_swap`互斥？
+- **0x00001000** `CLUSTER0.WIN0_CTRL0.win0_uv_swap`: 0-YUV, 1-YVU
+- **0x00001000** `CLUSTER0.WIN0_CTRL0.win0_yuv_clip`: 0-noClip, 1-ClipYuvBeforeY2R (Y-[16, 235], UV-[16, **239**]) 这个功能基本没用
 
 ## Debug方法
 ### CRC32 校验
@@ -69,5 +94,3 @@
   - `3'b101`: `((5<<3)|(1<<2)=0x2c)` Sharp_data
 - 支持同时查看4个像素的像素值，设置 `0x6410(ACM.DEBUG_POINT0_CFG)` ~ `0x641C(ACM.DEBUG_POINT3_CFG)`
 - 显示结果位于`0x6430(ACM.DEBUG0_DATA0)` ~ `0x646C(ACM.DEBUG3_DATA3)`
-
-

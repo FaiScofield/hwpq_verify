@@ -12,6 +12,8 @@ import json
 import argparse
 import platform
 import sys
+import re
+import random
 
 # import crcmod
 import filecmp
@@ -30,16 +32,17 @@ def parse_common_args(args):
     parser.add_argument("-e", "--exe", default="", help="module sim_exe file path")
     parser.add_argument("-r", "--root", default="", help="the root dir for data saving")
     parser.add_argument("-p", "--platform", default="RK3572", help="RK3572/RK3576")
-    parser.add_argument("-ni", "--nb_input", default=0, help="generate random input frame number")
-    parser.add_argument("-nc", "--nb_config", default=0, help="generate random config number")
-    parser.add_argument("-si", "--seed_input", default=603893, help="random seed for generating input frames")
-    parser.add_argument("-sc", "--seed_config", default=114514, help="random seed for generating configs")
-    parser.add_argument("-w", "--img_w", default=3840)
-    parser.add_argument("-g", "--img_h", default=2160)
-
-    parser.add_argument("-ys", "--yuv_seed", default=0)
-    parser.add_argument("-yn", "--yuv_num", default=2)
-    # parser.add_argument("-rgb_mode", "--rgb_mode", default=0)
+    parser.add_argument("-in", "--input_num", default=0, help="generate random input frame number")
+    parser.add_argument(
+        "-is", "--input_seed", default=603893, help="random seed for generating input frames, used when input_num > 0"
+    )
+    parser.add_argument("-if", "--input_fmt", default=0, help="input format, 0: YUV444SP, 1: RGBA")
+    parser.add_argument("-iw", "--input_wid", default=0, help="used when input_num > 0")
+    parser.add_argument("-ih", "--input_hgt", default=0, help="used when input_num > 0")
+    parser.add_argument("-cn", "--config_num", default=0, help="generate random config number")
+    parser.add_argument(
+        "-cs", "--config_seed", default=114514, help="random seed for generating configs, used when config_num > 0"
+    )
     args = parser.parse_args(args)
     return args
 
@@ -59,18 +62,20 @@ def run_sharp_lite(args):
     add_file_handler(logger, log_file)
 
     platform = args.platform
-    nb_input = int(args.nb_input)
-    nb_config = int(args.nb_config)
-    input_seed = int(args.seed_input)
-    config_seed = int(args.seed_config)
-    img_w = int(args.img_w)
-    img_h = int(args.img_h)
-    # rgb_mode = int(args.rgb_mode)
+    nb_input = int(args.input_num)
+    nb_config = int(args.config_num)
+    input_seed = int(args.input_seed)
+    config_seed = int(args.config_seed)
+    img_fmt = int(args.input_fmt)
+    img_wid = int(args.input_wid)
+    img_hgt = int(args.input_hgt)
     logger.info(f"Set root_dir: {root_dir}")
     logger.info(f"Set platform: {platform}")
-    logger.info(f"Set nb_input: {nb_input}, input_seed: {input_seed}")
-    logger.info(f"Set nb_config: {nb_config}, config_seed: {config_seed}")
-    logger.info(f"Set image_size: {img_w}x{img_h}")
+    logger.info(f"Set input_num: {nb_input}, config_num: {nb_config}")
+    if nb_input > 0:
+        logger.info(f"Set input seed: {input_seed}, image size: {img_wid}x{img_hgt}, format: {img_fmt}")
+    if nb_config > 0:
+        logger.info(f"Set config seed: {config_seed}")
 
     ## mkdir
     input_dir = os.path.join(root_dir, "input")
@@ -88,28 +93,41 @@ def run_sharp_lite(args):
     #     os.mkdir(temp_path)
 
     ## generate input data
+    input_list = {} # basename: (width, height)
     if nb_input > 0:
         logger.warning(
-            f"about to generate {nb_config} random configs from seed {config_seed}, existing configs will be overwritten!"
+            f"about to generate {nb_config} random input frames from seed {input_seed}, existing frames will be overwritten!"
         )
-        input_list = {}
+        file_suffix = "yuv444sp.yuv" if img_fmt == 0 else "rgba.bin"
         for i in range(nb_input):
+            wid, hgt = img_wid, img_hgt
+            if wid * hgt == 0:
+                wid = img_wid if img_wid > 0 else random.randint(100, 1000) * 4 # 4 pixel align
+                hgt = img_hgt if img_hgt > 0 else random.randint(200, 2000) * 2 # 2 pixel align
+                logger.warning(f"gen a random image size({wid}x{hgt}) instead of the input size({img_wid}x{img_hgt}) !")
             input_file = os.path.join(
-                input_dir, f"sharp_lite_input_{img_w}x{img_h}_seed_{config_seed + i}_yuv444sp.yuv"
+                input_dir, f"sharp_lite_input_{wid}x{hgt}_seed_{config_seed + i}_{file_suffix}"
             )
-            # TODO
-            input_list[input_file] = (img_w, img_h)
+            frame_size = wid * hgt * 3
+            gen_random_frame(frame_size, input_seed + i, input_file)
+            input_list[os.path.basename(input_file)] = (wid, hgt)
+        logger.info(f"generated {len(input_list)} input frames in {input_dir} ...")
     else:
-        input_list = {}
         for basename in os.listdir(input_dir):
-            input_list[basename] = (img_w, img_h)
+            wxh = re.findall(r"(\d+)x(\d+)", basename)
+            if len(wxh) >= 1:
+                input_list[basename] = (wxh[0][0], wxh[0][1])
+            else:
+                logger.warning(
+                    f"ignore file {basename} in input_dir, not match the pattern of '<W>x<H>' in the filename!"
+                )
+        logger.info(f"count {len(input_list)} input frames in {input_dir} ...")
     if len(input_list) == 0:
         logger.error(f"no input frames in {input_dir}, please check!")
         exit(-1)
-    else:
-        logger.info(f"count {len(input_list)} input frames in {input_dir} ...")
 
     ## generate random cfg
+    config_list = [] # basename
     config_handler = SharpLiteConfig()
     if nb_config > 0:
         logger.warning(
@@ -119,23 +137,31 @@ def run_sharp_lite(args):
             config_file = os.path.join(config_dir, f"sharp_lite_cfg_seed_{config_seed + i}.json")
             config_handler.gen(config_seed + i)
             config_handler.dump(config_file)
-    config_list = os.listdir(config_dir)
+            config_list.append(os.path.basename(config_file))
+        logger.info(f"generated {len(config_list)} config files in {config_dir} ...")
+    else:
+        config_list = os.listdir(config_dir)
+        logger.info(f"count {len(config_list)} config files in {config_dir} ...")
     if len(config_list) == 0:
         logger.error(f"no input configs in {config_dir}, please check!")
         exit(-1)
-    else:
-        logger.info(f"count {len(config_list)} config files in {config_dir} ...")
 
     ## run command & get CRC/Reg result
     exe_output_reg_file = os.path.join(output_dir, "sharp_lite_regs.bin")
     run_cmd(f"chmod +x {exe}", False, logger)
-    run_cmd(f"rm {exe_output_reg_file}", False, logger)
-    logger.warning(f"removed the old regs binary file: {exe_output_reg_file} !")
-
     for input_name, (wid, hgt) in input_list.items():
         input_path = os.path.join(input_dir, input_name)
-        final_reg_file = os.path.join(output_dir, f"sharp_lite_reg_from_input_{input_name}_config_num_{len(config_list)}.bin")
-        final_crc_file = os.path.join(output_dir, f"sharp_lite_crc_from_input_{input_name}_config_num_{len(config_list)}.dat")
+        final_reg_file = os.path.join(
+            output_dir, f"sharp_lite_reg_from_input_{input_name.split('.')[0]}_config_num_{len(config_list)}.bin"
+        )
+        final_crc_file = os.path.join(
+            output_dir, f"sharp_lite_crc_from_input_{input_name.split('.')[0]}_config_num_{len(config_list)}.dat"
+        )
+
+        # removed the old regs binary file for each input frame
+        run_cmd(f"rm {exe_output_reg_file}", False, logger)
+        logger.warning(f"removed the old regs binary file: {exe_output_reg_file} !")
+
         for config in config_list:
             config_path = os.path.join(config_dir, config)
             # config_handler.load(config_path)
@@ -157,12 +183,15 @@ def run_sharp_lite(args):
 
         # move output regs file to output_dir
         exe_reg_file_size = os.path.getsize(exe_output_reg_file)
-        theorical_file_size =  NB_REG_PER_FRAME * 4 * len(config_list)
+        theorical_file_size = NB_REG_PER_FRAME * 4 * len(config_list)
         if exe_reg_file_size == theorical_file_size:
             cmd_str = f"cp {exe_output_reg_file} {final_reg_file}"
             run_cmd(cmd_str, False, logger)
+            logger.info(f"got a register binary file: {final_reg_file}")
         else:
-            logger.error(f"register file size = {exe_reg_file_size} != {theorical_file_size} theorical size, please check!")
+            logger.error(
+                f"register file size = {exe_reg_file_size} != {theorical_file_size} theorical size, please check!"
+            )
             exit(-1)
 
     logger.info(f"run sim_exe done. check output data in {output_dir}")

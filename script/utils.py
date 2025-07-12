@@ -11,6 +11,9 @@ import os
 import sys
 import logging
 import subprocess
+import random
+import time
+import numpy as np
 
 ## set encoding to utf-8 to support ✅ & ❌
 if not sys.stdout.encoding or sys.stdout.encoding.upper() != 'UTF-8':
@@ -73,3 +76,16 @@ def run_cmd(cmd, showOutput=True, logger: logging.Logger=None):
         r.close()
         ret = 0
     return ret
+
+def gen_random_frame(size, seed=None, filename=""):
+    if seed is None:
+        seed = int(time.time())
+
+    np.random.seed(seed)
+    data = np.random.randint(0, 256, (1, size), dtype=np.uint8)
+
+    if filename != "":
+        data.tofile(filename)
+        logging.info(f'saved random frame data(size={size}) to: {filename}')
+
+    return seed
