@@ -3,7 +3,7 @@ Copyright   : Copyright (c) by Rockchip. All right reserved.
 FilePath    : run_vop_fpga.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
-Description : 
+Description :
 LastEditTime: 2025-07-11
 """
 
@@ -20,6 +20,8 @@ import filecmp
 import numpy as np
 from datetime import datetime
 from typing import Dict, List
+
+sys.path.append(os.path.normpath(os.path.dirname(__file__)))
 from config_def.module_config_cfa import CfaConfig
 from config_def.module_config_sharp_lite import SharpLiteConfig
 from utils import *
@@ -29,6 +31,7 @@ logger = setup_logger(name="run_vop_fpga")
 
 def parse_common_args(args):
     parser = argparse.ArgumentParser()
+    parser.add_argument("-m", "--module", required=True, help="module name (sharp, acm, dci, csc, ...)")
     parser.add_argument("-e", "--exe", default="", help="module sim_exe file path")
     parser.add_argument("-r", "--root", default="", help="the root dir for data saving")
     parser.add_argument("-p", "--platform", default="RK3572", help="RK3572/RK3576")
@@ -44,7 +47,7 @@ def parse_common_args(args):
         "-cs", "--config_seed", default=114514, help="random seed for generating configs, used when config_num > 0"
     )
     args = parser.parse_args(args)
-    return args
+    return args, parser
 
 
 def run_sharp_lite(args):
@@ -84,16 +87,15 @@ def run_sharp_lite(args):
     os.makedirs(input_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(config_dir, exist_ok=True)
-
-    # fpga_dir = "%s/%s_fpga_dir/" % (root_dir, time_str)
-    # if not (os.path.exists(fpga_dir)):
-    #     os.mkdir(fpga_dir)
-    # temp_path = "./temp_dir_%s/" % (time_str)
-    # if not (os.path.exists(temp_path)):
-    #     os.mkdir(temp_path)
+    if not os.access(root_dir, os.W_OK):
+        logger.error(f"root_dir {root_dir} is not writable, please check!")
+        exit(-1)
+    if not os.access(exe, os.X_OK):
+        logger.error(f"sim_exe {exe} is not executable, please check!")
+        exit(-1)
 
     ## generate input data
-    input_list = {} # basename: (width, height)
+    input_list = {}  # basename: (width, height)
     if nb_input > 0:
         logger.warning(
             f"about to generate {nb_config} random input frames from seed {input_seed}, existing frames will be overwritten!"
@@ -102,12 +104,10 @@ def run_sharp_lite(args):
         for i in range(nb_input):
             wid, hgt = img_wid, img_hgt
             if wid * hgt == 0:
-                wid = img_wid if img_wid > 0 else random.randint(100, 1000) * 4 # 4 pixel align
-                hgt = img_hgt if img_hgt > 0 else random.randint(200, 2000) * 2 # 2 pixel align
+                wid = img_wid if img_wid > 0 else random.randint(100, 1000) * 4  # 4 pixel align
+                hgt = img_hgt if img_hgt > 0 else random.randint(200, 2000) * 2  # 2 pixel align
                 logger.warning(f"gen a random image size({wid}x{hgt}) instead of the input size({img_wid}x{img_hgt}) !")
-            input_file = os.path.join(
-                input_dir, f"sharp_lite_input_{wid}x{hgt}_seed_{config_seed + i}_{file_suffix}"
-            )
+            input_file = os.path.join(input_dir, f"sharp_lite_input_{wid}x{hgt}_seed_{config_seed + i}_{file_suffix}")
             frame_size = wid * hgt * 3
             gen_random_frame(frame_size, input_seed + i, input_file)
             input_list[os.path.basename(input_file)] = (wid, hgt)
@@ -127,7 +127,7 @@ def run_sharp_lite(args):
         exit(-1)
 
     ## generate random cfg
-    config_list = [] # basename
+    config_list = []  # basename
     config_handler = SharpLiteConfig()
     if nb_config > 0:
         logger.warning(
@@ -187,10 +187,10 @@ def run_sharp_lite(args):
         if exe_reg_file_size == theorical_file_size:
             cmd_str = f"cp {exe_output_reg_file} {final_reg_file}"
             run_cmd(cmd_str, False, logger)
-            logger.info(f"got a register binary file: {final_reg_file}")
+            logger.info(f"✅ got a register binary file: {final_reg_file}")
         else:
             logger.error(
-                f"register file size = {exe_reg_file_size} != {theorical_file_size} theorical size, please check!"
+                f"❌ register file size = {exe_reg_file_size} != {theorical_file_size} theorical size, please check!"
             )
             exit(-1)
 
@@ -198,14 +198,14 @@ def run_sharp_lite(args):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python run_vop_fpga.py <module_name> (cfa, sharp_lite, acm, dci, csc ...)")
-        exit(1)
+    args, parser = parse_common_args(sys.argv[1:])
+    if len(sys.argv) < 3:
+        parser.print_help()
+        exit(-1)
 
-    name = sys.argv[1].lower()
-    args = parse_common_args(sys.argv[2:])
-    if name == "sharp_lite":
+    name = args.module.lower()
+    if "sharp" in name:
         run_sharp_lite(args)
     else:
-        print(f"Unsupported module: {name}")
+        print(f"Unsupported module for now: {name}")
         exit(-1)
