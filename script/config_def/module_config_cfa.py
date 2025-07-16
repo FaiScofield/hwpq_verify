@@ -3,7 +3,7 @@ Copyright   : Copyright (c) 2025 by Rockchip. All right reserved.
 FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
-Description : 
+Description :
 LastEditTime: 2025-07-11
 """
 
@@ -170,7 +170,7 @@ class CfaConfig(ModuleConfigCore):
             seed = self.randSeed + 1  # increase rand seed if no argument in
         random.seed(seed)
 
-        self.version = f"RKCFA_0.13.0.4721.random_seed_{seed}"
+        self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
         self.nCallCnt = 0
         self.nFrameIdx = 0
         self.nImgWid = random.randint(4, 4000) // 4 * 4  # align to 4

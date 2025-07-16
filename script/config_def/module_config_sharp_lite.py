@@ -3,7 +3,7 @@ Copyright   : Copyright (c) 2025 by Rockchip. All right reserved.
 FilePath    : module_config_sharp_lite.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-10
-Description : 
+Description :
 LastEditTime: 2025-07-10
 """
 
@@ -152,7 +152,7 @@ class SharpLiteConfig(ModuleConfigCore):
         random.seed(seed)
 
         self.randSeed = seed
-        self.version = f"SharpLite_config_rk3572_random_seed_{seed}"
+        self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
 
         self.sharp_lite_en = int(random.randint(0, 9) > 0)  # %90 be ON
         self.usm_sigma_0 = random.random() * 3 + 1e-3  # [1e-3, 3]
@@ -172,9 +172,16 @@ class SharpLiteConfig(ModuleConfigCore):
         self.sharp_roi_ystart = random.randint(0, 600)
         self.sharp_roi_yend = random.randint(4, 800)
         self.sharp_force_core_mode = random.randint(0, 1)  # %50 be ON
-        self.sharp_core_A = random.randint(0, 255)
-        self.sharp_core_B = random.randint(0, 255)
-        self.sharp_core_C = random.randint(0, 255)
+        self.sharp_core_A = random.randint(-128, 127)
+        self.sharp_core_B = random.randint(-128, 127)
+        self.sharp_core_C = random.randint(-128, 127)
+        # coefSum = (self.sharp_core_A + self.sharp_core_B) * 4 + self.sharp_core_C
+        # while coefSum > 255: # sum nedd to be <= 255!
+        #     delta = (coefSum - 255 + 9) // 9
+        #     self.sharp_core_A = max(self.sharp_core_A - delta * 4, 0)
+        #     self.sharp_core_B = max(self.sharp_core_B - delta * 4, 0)
+        #     self.sharp_core_C = max(self.sharp_core_C - delta * 1, 0)
+        #     coefSum = (self.sharp_core_A + self.sharp_core_B) * 4 + self.sharp_core_C
         self.sharp_usm_gain = random.randint(0, 1023)
         self.ink_enable = 0
         self.ink_mode = 0

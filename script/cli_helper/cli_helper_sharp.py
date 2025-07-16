@@ -20,6 +20,8 @@ from reg_def.module_reg_sharp_lite import SharpLiteRegisters_RK3572
 
 class SharpHelper(ModuleHelper):
     def __init__(self, name: str = "SHARP", platform: str = 'RK3572', parent: Optional['ModuleHelper'] = None):
+        if platform.upper() == 'RK3572':
+            name = 'SHARP_LITE'
         super().__init__(name, platform, parent)
         # self.define_config_and_regs()
 
