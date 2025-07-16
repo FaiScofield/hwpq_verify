@@ -95,24 +95,25 @@ def run_sharp_lite(args):
         exit(-1)
 
     ## generate input data
-    input_list = {}  # basename: (width, height)
+    input_list = {'input_1920x1080_yuv444p_601F_5frames.yuv': (1920, 1080)}  # basename: (width, height)
     if nb_input > 0:
         logger.warning(
             f"about to generate {nb_config} random input frames from seed {input_seed}, existing frames will be overwritten!"
         )
-        file_suffix = "yuv444sp.yuv" if img_fmt == 0 else "rgba.bin"
+        file_suffix = "nv24.yuv" if img_fmt == 0 else "rgba.bin"
+
         for i in range(nb_input):
             wid, hgt = img_wid, img_hgt
             if wid * hgt == 0:
                 wid = img_wid if img_wid > 0 else random.randint(100, 1000) * 4  # 4 pixel align
                 hgt = img_hgt if img_hgt > 0 else random.randint(200, 2000) * 2  # 2 pixel align
                 logger.warning(f"gen a random image size({wid}x{hgt}) instead of the input size({img_wid}x{img_hgt}) !")
-            input_file = os.path.join(input_dir, f"sharp_lite_input_{wid}x{hgt}_seed_{config_seed + i}_{file_suffix}")
+            input_file = os.path.join(input_dir, f"sharp_lite_input_{wid}x{hgt}_seed_{input_seed + i}_{file_suffix}")
             frame_size = wid * hgt * 3
             gen_random_frame(frame_size, input_seed + i, input_file)
             input_list[os.path.basename(input_file)] = (wid, hgt)
         logger.info(f"generated {len(input_list)} input frames in {input_dir} ...")
-    else:
+    elif len(input_list) == 0:
         for basename in os.listdir(input_dir):
             wxh = re.findall(r"(\d+)x(\d+)", basename)
             if len(wxh) >= 1:
@@ -134,21 +135,23 @@ def run_sharp_lite(args):
             f"about to generate {nb_config} random configs from seed {config_seed}, existing configs will be overwritten!"
         )
         for i in range(nb_config):
-            config_file = os.path.join(config_dir, f"sharp_lite_cfg_seed_{config_seed + i}.json")
+            config_file = os.path.join(config_dir, f"sharp_lite_config_seed_{config_seed + i}.json")
             config_handler.gen(config_seed + i)
             config_handler.dump(config_file)
             config_list.append(os.path.basename(config_file))
         logger.info(f"generated {len(config_list)} config files in {config_dir} ...")
-    else:
+    elif len(config_list) == 0:
         config_list = os.listdir(config_dir)
         logger.info(f"count {len(config_list)} config files in {config_dir} ...")
     if len(config_list) == 0:
         logger.error(f"no input configs in {config_dir}, please check!")
         exit(-1)
 
+
     ## run command & get CRC/Reg result
     exe_output_reg_file = os.path.join(output_dir, "sharp_lite_regs.bin")
     run_cmd(f"chmod +x {exe}", False, logger)
+    logger.info(f"num of input frames/configs to run: {len(input_list)}/{len(config_list)}")
     for input_name, (wid, hgt) in input_list.items():
         input_path = os.path.join(input_dir, input_name)
         final_reg_file = os.path.join(

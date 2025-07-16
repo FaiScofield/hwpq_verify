@@ -3,7 +3,7 @@ Copyright   : Copyright (c) by Rockchip. All right reserved.
 FilePath    : check_cmodel_cfa_dither.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-11
-Description : 
+Description :
 LastEditTime: 2025-07-11
 """
 
@@ -14,7 +14,7 @@ import filecmp
 from datetime import datetime
 from typing import Dict, List
 from config_def.module_config_cfa import CfaConfig
-from .utils import *
+from utils import *
 
 logger = setup_logger(name="check_cfa_dither")
 
