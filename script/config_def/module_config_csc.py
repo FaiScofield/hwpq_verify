@@ -4,13 +4,14 @@ FilePath    : module_config_csc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-16
 Description :
-LastEditTime: 2025-07-16
+LastEditTime: 2025-07-17
 """
 
 import os
 import sys
 import json
 import random
+import argparse
 import numpy as np
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
@@ -35,11 +36,10 @@ class CscConfig(ModuleConfigCore):
         self.cscBOffset = 256
         self.cscMatrix = np.identity(3, dtype=np.int16)
         self.cscVector = np.zeros(3, dtype=np.int32)
-        self.cscPassthrough = 0 # use matrix & vector directly
-
+        self.cscPassthrough = 0  # use matrix & vector directly
 
     ## =============== overwrite methods  ===============
-    def dump(self, filename=None):
+    def dump(self, filename=None) -> bool:
         if filename == None or filename == "":
             print(f"[{self.name}] Config parameters shown below:")
             dumpdata = "".join([f"  - %s: %s\n" % item for item in self.__dict__.items()])
@@ -72,7 +72,7 @@ class CscConfig(ModuleConfigCore):
 
         return False
 
-    def load(self, filename):
+    def load(self, filename: str) -> bool:
         # check config file validity
         if not os.path.exists(filename):
             print(f"[{self.name}] config file '{filename}' doesn't exist!")
@@ -109,12 +109,12 @@ class CscConfig(ModuleConfigCore):
             print(f"[{self.name}] load config file '{filename}' failed: {e}")
             return False
 
-    def check(self):
+    def check(self) -> bool:
         # TODO
         self.valid = True
         return self.valid
 
-    def gen(self, seed: int = 114514):
+    def gen(self, seed: int = 114514) -> int:
         ## set random seed
         if seed == None:
             seed = self.randSeed + 1  # increase rand seed if no argument in
@@ -124,7 +124,7 @@ class CscConfig(ModuleConfigCore):
         self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
 
         self.cscEnable = int(random.randint(0, 9) > 0)  # %90 be ON
-        self.cscCctCtrlEn = 0 # always 0 for now
+        self.cscCctCtrlEn = 0  # always 0 for now
         self.cscBrightness = random.randint(0, 511)
         self.cscHue = random.randint(0, 511)
         self.cscContrast = random.randint(0, 511)
@@ -135,31 +135,33 @@ class CscConfig(ModuleConfigCore):
         self.cscROffset = random.randint(0, 511)
         self.cscGOffset = random.randint(0, 511)
         self.cscBOffset = random.randint(0, 511)
-        self.cscMatrix = np.random.randint(-2**15, 2**15-1, size=(3, 3), dtype=np.int16) # s16
-        self.cscVector = np.random.randint(-2**31, 2**31-1, size=3, dtype=np.int32) # s32
-        self.cscPassthrough = 1 # 100% use matrix & vector directly for now!
+        self.cscMatrix = np.random.randint(-(2**15), 2**15 - 1, size=(3, 3), dtype=np.int16)  # s16
+        self.cscVector = np.random.randint(-(2**31), 2**31 - 1, size=3, dtype=np.int32)  # s32
+        self.cscPassthrough = 1  # 100% use matrix & vector directly for now!
         return seed
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: %s load <config_json_file>" % sys.argv[0])
-        print("Usage: %s gen <rand_seed>" % sys.argv[0])
-        exit(-1)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen")
+    parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
+    parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
+    parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
+    parser.print_usage()
+    args = parser.parse_args()
 
     config = CscConfig()
-    if sys.argv[1] == "gen":
-        seed = config.gen(int(sys.argv[2]))
+    if args.interface == "gen":
+        seed = config.gen(args.seed)
         load_ok = True
-    elif sys.argv[1] == "load":
-        load_ok = config.load(sys.argv[2])
-        if not load_ok:
-            exit(-1)
+    elif args.interface == "load":
+        load_ok = config.load(args.file)
+    elif args.interface == "dump":
+        load_ok = config.dump(args.file)
     else:
-        print("Usage: %s load <config_json_file>" % sys.argv[0])
-        print("Usage: %s gen <config_json_file>" % sys.argv[0])
-        exit(-1)
+        print(f"unknown interface '{args.interface}'!")
+        load_ok = False
 
     check_ok = config.check()
     print("load_ok: %s, check_ok: %s" % (load_ok, check_ok))
-    config.dump()

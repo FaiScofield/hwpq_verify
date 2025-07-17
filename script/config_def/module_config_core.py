@@ -3,7 +3,7 @@ Copyright   : Copyright (c) 2025 by Rockchip. All right reserved.
 FilePath    : module_config_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
-Description : 
+Description :
 LastEditTime: 2025-07-07
 '''
 
@@ -17,21 +17,21 @@ class ModuleConfigCore(ABC):
         self.randSeed = 114514
 
     @abstractmethod
-    def dump(self, filename):
+    def dump(self, filename) -> bool:
         return False
 
     @abstractmethod
-    def load(self, filename):
+    def load(self, filename) -> bool:
         return False
 
     @abstractmethod
-    def check(self):
+    def check(self) -> bool:
         return False
 
     @abstractmethod
-    def gen(self, seed: int = 114514):
+    def gen(self, seed: int = 114514) -> int:
         self.randSeed = seed
         return seed
 
-    def get_seed(self):
+    def get_seed(self) -> int:
         return self.randSeed

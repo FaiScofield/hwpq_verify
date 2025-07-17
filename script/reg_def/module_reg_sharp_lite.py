@@ -14,15 +14,6 @@ from typing import TypeVar, Type
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from reg_def.module_reg_core import ModuleRegisterCore
 
-def read_reg(reg: Structure):
-    val = 0
-    bit = 0
-    for i in range(0, reg._fields_.__len__()):
-        name, _, len = reg._fields_[i]
-        bit += len
-        val |= getattr(reg, name) << bit
-    return hex(val)
-
 
 class RK3572_SharpLiteReg_0x00(Structure):
     _fields_ = [

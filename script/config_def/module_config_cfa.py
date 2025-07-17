@@ -54,7 +54,7 @@ class CfaConfig(ModuleConfigCore):
         self.aReserved = [0, 0, 0, 0, 0, 0, 0, 0]  # x8
 
     ## =============== overwrite methods  ===============
-    def dump(self, filename=None):
+    def dump(self, filename=None) -> bool:
         if filename == None or filename == "":
             print(f"[{self.name}] Config parameters shown below:")
             dumpdata = "".join([f"  - %s: %s\n" % item for item in self.__dict__.items()])
@@ -105,7 +105,7 @@ class CfaConfig(ModuleConfigCore):
 
         return False
 
-    def load(self, filename):
+    def load(self, filename) -> bool:
         # check config file validity
         if not os.path.exists(filename):
             print(f"[{self.name}] config file '{filename}' doesn't exist!")
@@ -159,12 +159,12 @@ class CfaConfig(ModuleConfigCore):
             print(f"[{self.name}] load config file '{filename}' failed: {e}")
             return False
 
-    def check(self):
+    def check(self) -> bool:
         # TODO
         self.valid = True
         return self.valid
 
-    def gen(self, seed: int = 114514):
+    def gen(self, seed: int = 114514) -> int:
         ## set random seed
         if seed == None:
             seed = self.randSeed + 1  # increase rand seed if no argument in
