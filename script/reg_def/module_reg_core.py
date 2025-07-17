@@ -7,6 +7,7 @@ Date        : 2025-07-11
 LastEditTime: 2025-07-17
 """
 
+import numpy as np
 from abc import ABC, abstractmethod
 
 
@@ -36,6 +37,14 @@ class ModuleRegisterCore(ABC):
 
     @abstractmethod
     def update(self, **kwargs) -> bool:
+        return False
+
+    @abstractmethod
+    def config2regs(self) -> bool:
+        return False
+
+    @abstractmethod
+    def regs2config(self) -> bool:
         return False
 
     def set(self, value: int, index: int = None, name: str = None, offset: int = None) -> bool:
@@ -85,11 +94,11 @@ class ModuleRegisterCore(ABC):
 
         while key_st <= key_ed:
             valid_line = False
-            line = "0x%08X:" % (key_st + base_address)
+            line = "0x%08X:" % np.uint32(key_st + base_address)
             for j in range(align):
                 key = key_st + j * 4
                 if key in offset_value_dict:
-                    line += " 0x%08X" % offset_value_dict[key]
+                    line += " 0x%08X" % np.uint32(offset_value_dict[key])
                     valid_line = True
                 else:
                     line += " ----------"

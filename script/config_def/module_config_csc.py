@@ -62,8 +62,8 @@ class CscConfig(ModuleConfigCore):
                 "cscROffset": self.cscROffset,
                 "cscGOffset": self.cscGOffset,
                 "cscBOffset": self.cscBOffset,
-                "cscMatrix": self.cscMatrix,
-                "cscVector": self.cscVector,
+                "cscMatrix": self.cscMatrix.tolist(),
+                "cscVector": self.cscVector.tolist(),
                 "cscPassthrough": self.cscPassthrough,
             }
             nest_data = {"pq_tuning_param": {"csc": data}}
@@ -99,8 +99,8 @@ class CscConfig(ModuleConfigCore):
                 self.cscROffset = data["cscROffset"]
                 self.cscGOffset = data["cscGOffset"]
                 self.cscBOffset = data["cscBOffset"]
-                self.cscMatrix = data["cscMatrix"]
-                self.cscVector = data["cscVector"] if "cscVector" in data else [0, 0, 0]
+                self.cscMatrix = np.array(data["cscMatrix"], dtype=np.int16).reshape(3, 3)
+                self.cscVector = np.array(data["cscVector"], dtype=np.int32) if "cscVector" in data else np.zeros(3, dtype=np.int32)
                 self.cscPassthrough = data["cscPassthrough"] if "cscPassthrough" in data else 0
                 self.version = data["version"] if "version" in data else "unknown"
                 self.randSeed = data["rand_seed"] if "rand_seed" in data else -1
@@ -136,7 +136,8 @@ class CscConfig(ModuleConfigCore):
         self.cscGOffset = random.randint(0, 511)
         self.cscBOffset = random.randint(0, 511)
         self.cscMatrix = np.random.randint(-(2**15), 2**15 - 1, size=(3, 3), dtype=np.int16)  # s16
-        self.cscVector = np.random.randint(-(2**31), 2**31 - 1, size=3, dtype=np.int32)  # s32
+        self.cscVector = np.random.randint(-(2**11), 2**11 - 1, size=3, dtype=np.int32)  # s32
+        self.cscVector = np.dot(self.cscMatrix, self.cscVector)  # s32
         self.cscPassthrough = 1  # 100% use matrix & vector directly for now!
         return seed
 

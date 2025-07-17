@@ -22,8 +22,9 @@ from datetime import datetime
 from typing import Dict, List
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__)))
-from config_def.module_config_cfa import CfaConfig
 from config_def.module_config_sharp_lite import SharpLiteConfig
+from config_def.module_config_csc import CscConfig
+from reg_def.module_reg_csc import CscRegister
 from utils import *
 
 logger = setup_logger(name="run_vop_fpga")
@@ -50,18 +51,20 @@ def parse_common_args(args):
     return args, parser
 
 
-def run_sharp_lite(args):
-    NB_REG_PER_FRAME = 14
+def run_common_module(config_handler, reg_handler, args, **kwargs):
+    NB_REG_PER_FRAME = 0
+    if "nb_reg_per_frame" in kwargs:
+        NB_REG_PER_FRAME = int(kwargs["nb_reg_per_frame"])
+    elif reg_handler is not None:
+        NB_REG_PER_FRAME = len(reg_handler.regs)
 
     ## set root dir & exe path
-    root_dir = args.root if args.root != "" else "//172.16.4.246/vop/RKCFA/batch_sim/sim_check_fpga_rk3572_sharp_lite/"
-    exe = os.path.normpath(
-        args.exe if args.exe != "" else "G:/Codes/RkVopAlgos/pub_lib/RkSharpLiteSim/AMD64/bin/sharp_lite_sim_exe.exe"
-    )
+    root_dir = args.root if args.root != "" else "//172.16.4.246/vop/RKCFA/batch_sim/sim_check_fpga_rk3572/"
+    exe = args.exe
+    module_name = config_handler.name.lower()
 
-    ## set log file
     time_str = datetime.now().strftime("%Y%m%d%H%M%S")
-    log_file = os.path.join(root_dir, f"{time_str}_run_fpga_sharp_lite.log")
+    log_file = os.path.join(root_dir, f"{time_str}_run_fpga_{module_name}.log")
     add_file_handler(logger, log_file)
 
     platform = args.platform
@@ -95,10 +98,11 @@ def run_sharp_lite(args):
         exit(-1)
 
     ## generate input data
-    input_list = {'input_1920x1080_yuv444p_601F_5frames.yuv': (1920, 1080)}  # basename: (width, height)
+    # input_list = {'input_1920x1080_yuv444p_601F_5frames.yuv': (1920, 1080)}  # basename: (width, height)
+    input_list = {}  # basename: (width, height)
     if nb_input > 0:
         logger.warning(
-            f"about to generate {nb_config} random input frames from seed {input_seed}, existing frames will be overwritten!"
+            f"about to generate {nb_input} random input frames from seed {input_seed}, existing frames will be overwritten!"
         )
         file_suffix = "nv24.yuv" if img_fmt == 0 else "rgba.bin"
 
@@ -108,7 +112,7 @@ def run_sharp_lite(args):
                 wid = img_wid if img_wid > 0 else random.randint(100, 1000) * 4  # 4 pixel align
                 hgt = img_hgt if img_hgt > 0 else random.randint(200, 2000) * 2  # 2 pixel align
                 logger.warning(f"gen a random image size({wid}x{hgt}) instead of the input size({img_wid}x{img_hgt}) !")
-            input_file = os.path.join(input_dir, f"sharp_lite_input_{wid}x{hgt}_seed_{input_seed + i}_{file_suffix}")
+            input_file = os.path.join(input_dir, f"random_input_{wid}x{hgt}_seed_{input_seed + i}_{file_suffix}")
             frame_size = wid * hgt * 3
             gen_random_frame(frame_size, input_seed + i, input_file)
             input_list[os.path.basename(input_file)] = (wid, hgt)
@@ -129,16 +133,19 @@ def run_sharp_lite(args):
 
     ## generate random cfg
     config_list = []  # basename
-    config_handler = SharpLiteConfig()
     if nb_config > 0:
         logger.warning(
             f"about to generate {nb_config} random configs from seed {config_seed}, existing configs will be overwritten!"
         )
         for i in range(nb_config):
-            config_file = os.path.join(config_dir, f"sharp_lite_config_seed_{config_seed + i}.json")
+            config_file = os.path.join(config_dir, f"{config_handler.name.lower()}_config_seed_{config_seed + i}.json")
             config_handler.gen(config_seed + i)
             config_handler.dump(config_file)
             config_list.append(os.path.basename(config_file))
+            if reg_handler is not None:
+                reg_file = os.path.join(config_dir, f"{config_handler.name.lower()}_config_seed_{config_seed + i}.bin")
+                reg_handler.load(config_file)
+                reg_handler.dump(reg_file)
         logger.info(f"generated {len(config_list)} config files in {config_dir} ...")
     elif len(config_list) == 0:
         config_list = os.listdir(config_dir)
@@ -147,18 +154,17 @@ def run_sharp_lite(args):
         logger.error(f"no input configs in {config_dir}, please check!")
         exit(-1)
 
-
     ## run command & get CRC/Reg result
-    exe_output_reg_file = os.path.join(output_dir, "sharp_lite_regs.bin")
+    exe_output_reg_file = os.path.join(output_dir, f"{module_name}_regs.bin")
     run_cmd(f"chmod +x {exe}", False, logger)
     logger.info(f"num of input frames/configs to run: {len(input_list)}/{len(config_list)}")
     for input_name, (wid, hgt) in input_list.items():
         input_path = os.path.join(input_dir, input_name)
         final_reg_file = os.path.join(
-            output_dir, f"sharp_lite_reg_from_input_{input_name.split('.')[0]}_config_num_{len(config_list)}.bin"
+            output_dir, f"{module_name}_reg_from_input_{input_name.split('.')[0]}_config_num_{len(config_list)}.bin"
         )
         final_crc_file = os.path.join(
-            output_dir, f"sharp_lite_crc_from_input_{input_name.split('.')[0]}_config_num_{len(config_list)}.dat"
+            output_dir, f"{module_name}_crc_from_input_{input_name.split('.')[0]}_config_num_{len(config_list)}.dat"
         )
 
         # removed the old regs binary file for each input frame
@@ -185,17 +191,22 @@ def run_sharp_lite(args):
                 break
 
         # move output regs file to output_dir
-        exe_reg_file_size = os.path.getsize(exe_output_reg_file)
-        theorical_file_size = NB_REG_PER_FRAME * 4 * len(config_list)
-        if exe_reg_file_size == theorical_file_size:
-            cmd_str = f"cp {exe_output_reg_file} {final_reg_file}"
-            run_cmd(cmd_str, False, logger)
-            logger.info(f"✅ got a register binary file: {final_reg_file}")
-        else:
-            logger.error(
-                f"❌ register file size = {exe_reg_file_size} != {theorical_file_size} theorical size, please check!"
-            )
-            exit(-1)
+
+        if NB_REG_PER_FRAME > 0:
+            try:
+                exe_reg_file_size = os.path.getsize(exe_output_reg_file)
+                theorical_file_size = NB_REG_PER_FRAME * 4 * len(config_list)
+                if exe_reg_file_size == theorical_file_size:
+                    cmd_str = f"cp {exe_output_reg_file} {final_reg_file}"
+                    run_cmd(cmd_str, False, logger)
+                    logger.info(f"✅ got a register binary file: {final_reg_file}")
+                else:
+                    logger.error(
+                        f"❌ register file size = {exe_reg_file_size} != {theorical_file_size} theorical size, please check!"
+                    )
+                    exit(-1)
+            except:
+                logger.error(f"❌ copy register file failed for intput={input_name}, exe_output_reg_file={exe_output_reg_file}!")
 
     logger.info(f"run sim_exe done. check output data in {output_dir}")
 
@@ -207,8 +218,23 @@ if __name__ == "__main__":
         exit(-1)
 
     name = args.module.lower()
+    config_handler = None
+    reg_handler = None
+    nb_reg_per_frame = 0
+
     if "sharp" in name:
-        run_sharp_lite(args)
+        config_handler = SharpLiteConfig()
+        nb_reg_per_frame = 14
+        if args.exe == "":
+            args.exe = os.path.normpath("E:/RK/Codes/RkVopAlgos/pub_lib/RkSharpLiteSim/AMD64/bin/sharp_lite_sim_exe.exe")
+    elif "csc" in name:
+        config_handler = CscConfig()
+        reg_handler = CscRegister(platform=args.platform)
+        nb_reg_per_frame = len(reg_handler.regs)
+        if args.exe == "":
+            args.exe = os.path.normpath("E:/RK/Codes/RkVopAlgos/pub_lib/RkCscSim/AMD64/bin/csc_sim_exe.exe")
+    if config_handler is not None:
+        run_common_module(config_handler, reg_handler, args, nb_reg_per_frame=nb_reg_per_frame)
     else:
         print(f"Unsupported module for now: {name}")
         exit(-1)

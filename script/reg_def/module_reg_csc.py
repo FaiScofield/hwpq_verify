@@ -182,11 +182,35 @@ class CscRegister(ModuleRegisterCore):
             for i in range(len(regs)):
                 regs[i].value = data[i]
             return self.dump()
+        elif filename.endswith(".json"):
+            ok = self.config.load(filename)
+            # self.config.dump()
+            ok |= self.config2regs()
+            ok |= self.dump()
+            return ok
         else:
             self.logger.error(f"{filename} is not supported!")
 
         return False
 
+    def config2regs(self) -> bool:
+        regs = self.reg_dicts[self.index]  # [offset, value, name]
+        if self.index == CscModuleIndex.POST0_ACM_Y2R or self.index == CscModuleIndex.POST0_ACM_R2Y:
+            regs[0].value = 0x2 | ((self.config.cscMatrix[0, 0] & 0x3FF) << 16)
+            regs[1].value = (self.config.cscMatrix[0, 1] & 0x3FF) | ((self.config.cscMatrix[0, 2] & 0x3FF) << 16)
+            regs[2].value = (self.config.cscMatrix[1, 0] & 0x3FF) | ((self.config.cscMatrix[1, 1] & 0x3FF) << 16)
+            regs[3].value = (self.config.cscMatrix[1, 2] & 0x3FF) | ((self.config.cscMatrix[2, 0] & 0x3FF) << 16)
+            regs[4].value = (self.config.cscMatrix[2, 1] & 0x3FF) | ((self.config.cscMatrix[2, 2] & 0x3FF) << 16)
+            regs[5].value = self.config.cscVector[0]
+            regs[6].value = self.config.cscVector[1]
+            regs[7].value = self.config.cscVector[2]
+            return True
+
+        return False
+
+    def regs2config(self) -> bool:
+        # TODO
+        return False
 
 if __name__ == "__main__":
 
