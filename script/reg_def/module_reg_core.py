@@ -7,8 +7,10 @@ Date        : 2025-07-11
 LastEditTime: 2025-07-17
 """
 
+import re
 import numpy as np
 from abc import ABC, abstractmethod
+from utils import setup_logger
 
 
 class Reg:
@@ -25,14 +27,77 @@ class ModuleRegisterCore(ABC):
     def __init__(self, name: str, platform: str = "RK3572"):
         self.name = name.upper()
         self.platform = platform
-        self.regs = [Reg(0, 0)]
+        self.logger = setup_logger(self.name)
 
-    @abstractmethod
+        self.regs = []  # set by subclass
+        self.config = None  # set by subclass
+
+    # @abstractmethod
     def dump(self, filename: str = "", align: int = 4, **kwargs) -> bool:
+        if "regs" in kwargs:
+            regs = kwargs["regs"]
+        else:
+            regs = self.regs
+
+        if filename == None or filename == "":
+            self.logger.info(f"dump {self.platform} registers below:")
+            data = self.format_str_regs_array(regs, align, self.base_addr, False)
+            for line in data:
+                self.logger.info(line)
+            return True
+
+        self.logger.info(f"dump {self.platform} registers to {filename} ...")
+        data = self.format_str_regs_array(regs, align, self.base_addr, True)
+        if filename.endswith(".txt") or filename.endswith(".dat"):
+            with open(filename, "w") as f:
+                f.write(data)
+                return True
+        elif filename.endswith(".bin"):
+            data = np.array([val for _, val, _ in regs], dtype=np.uint32)
+            data.tofile(filename)
+            return True
         return False
 
-    @abstractmethod
+    # @abstractmethod
     def load(self, filename, **kwargs) -> bool:
+        self.logger.info(f"loading {self.platform} registers from {filename} ...")
+        if filename.endswith(".txt") or filename.endswith(".dat"):
+            valid_regs_val_pairs = []  # [offset, value]
+            with open(filename, "rt") as f:
+                for _, line in enumerate(f):
+                    pair = self.parse_str_regs_array(line)
+                    if pair is not None:
+                        valid_regs_val_pairs.append(pair)
+                    else:
+                        continue
+            for pos, val in valid_regs_val_pairs:
+                pos_ok = False
+                for i in range(len(self.regs)):
+                    if pos == self.regs[i].offset or pos == self.regs[i].offset + self.base_addr:
+                        self.regs[i].value = val
+                        pos_ok = True
+                        break
+                if not pos_ok:
+                    self.logger.warning(f"offset={pos} is not a valid register!")
+            return self.dump()
+        elif filename.endswith(".bin"):
+            data = np.fromfile(filename, dtype=np.uint32)
+            if len(data) < len(self.regs):
+                self.logger.error(
+                    f"not enough register data in {filename}! require {len(self.regs)} registers, but only get {len(data)}!"
+                )
+                return False
+            for i in range(len(self.regs)):
+                self.regs[i].value = data[i]
+            return self.dump()
+        elif filename.endswith(".json") and self.config is not None:
+            ok = self.config.load(filename)
+            ok |= self.config2regs()
+            ok |= self.dump()
+            return ok
+        else:
+            self.logger.error(f"{filename} is not supported!")
+
         return False
 
     @abstractmethod
@@ -64,7 +129,7 @@ class ModuleRegisterCore(ABC):
 
     def get(self, index: int = None, name: str = None, offset: int = None) -> int or None:
         if index is not None:
-            if index >=0 and index < len(self.regs):
+            if index >= 0 and index < len(self.regs):
                 return self.regs[index].value
         else:
             for reg in self.regs:
@@ -74,13 +139,14 @@ class ModuleRegisterCore(ABC):
                     return reg.value
         return None
 
-    def format_regs_dict(
+    def format_str_regs_array(
         self, regs: list[Reg], align: int = 4, base_address: int = 0, joint_lines: bool = True
     ) -> str or list[str]:
         """
         format string for regs with number align registers, like:
-        0x00000000: 0x00000001 0x000000FF 0x0FCD0008 0x00000000
-        0x00000004: 0x00000000 0x00000000 ---------- 0x00000000
+            0x00000000: 0x00000001 0x000000FF 0x0FCD0008 0x00000000
+            0x00000004: 0x00000000 0x00000000 ---------- 0x00000000
+        return joined string or list[string]
         """
         if align < 1 or len(regs) == 0:
             return None
@@ -107,3 +173,32 @@ class ModuleRegisterCore(ABC):
             key_st += align * 4
 
         return "\n".join(lines) if joint_lines else lines
+
+    def parse_str_regs_array(self, line_str: str) -> list[int, int] or None:
+        """
+        parse regs array from a string like:
+            0x00000000: 0x00000001 0x000000FF 0x0FCD0008 0x00000000
+            0x00000004: 0x00000000 0x00000000 ---------- 0x00000000
+        return list[offset, value] or None
+        """
+        if line_str.strip() == "" or line_str.startswith("#"):
+            return None
+        parts = re.split(r"[: \t]+", line_str.strip())
+        hex_pattern = re.compile(r"^0[xX][0-9a-fA-F]{1,8}$")
+
+        if hex_pattern.match(parts[0]):
+            start_pos = int(parts[0], 16)
+        else:
+            self.logger.error(f"the first column data '{parts[0]}' is not a valid address!")
+            return None
+
+        valid_regs_val_pairs = []
+        invalid_cnt = 0
+        for idx, part in enumerate(parts[1:]):
+            if hex_pattern.match(part):
+                valid_regs_val_pairs.append([start_pos + idx * 4, int(part, 16)])
+            else:
+                invalid_cnt += 1
+        if invalid_cnt > 0:
+            self.logger.warning(f"count {invalid_cnt} invalid value(s) in this line str: {line_str}")
+        return valid_regs_val_pairs

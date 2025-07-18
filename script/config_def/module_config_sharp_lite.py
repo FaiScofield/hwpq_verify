@@ -11,6 +11,7 @@ import os
 import sys
 import json
 import random
+import argparse
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import *
@@ -192,24 +193,27 @@ class SharpLiteConfig(ModuleConfigCore):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: %s load <config_json_file>" % sys.argv[0])
-        print("Usage: %s gen <rand_seed>" % sys.argv[0])
-        exit(-1)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen")
+    parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
+    parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
+    parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
+    parser.print_usage()
+    args = parser.parse_args()
 
     config = SharpLiteConfig()
-    if sys.argv[1] == "gen":
-        seed = config.gen(int(sys.argv[2]))
+    if args.interface == "gen":
+        seed = config.gen(args.seed)
+        config.dump(args.file)
         load_ok = True
-    elif sys.argv[1] == "load":
-        load_ok = config.load(sys.argv[2])
-        if not load_ok:
-            exit(-1)
+    elif args.interface == "load":
+        load_ok = config.load(args.file)
+        config.dump()
+    elif args.interface == "dump":
+        load_ok = config.dump(args.file)
     else:
-        print("Usage: %s load <config_json_file>" % sys.argv[0])
-        print("Usage: %s gen <config_json_file>" % sys.argv[0])
-        exit(-1)
+        print(f"unknown interface '{args.interface}'!")
+        load_ok = False
 
     check_ok = config.check()
     print("load_ok: %s, check_ok: %s" % (load_ok, check_ok))
-    config.dump()

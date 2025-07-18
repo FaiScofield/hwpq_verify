@@ -19,7 +19,7 @@ import random
 import filecmp
 import numpy as np
 from datetime import datetime
-from typing import Dict, List
+# from typing import Dict, List
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__)))
 from config_def.module_config_sharp_lite import SharpLiteConfig
@@ -100,6 +100,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
     ## generate input data
     # input_list = {'input_1920x1080_yuv444p_601F_5frames.yuv': (1920, 1080)}  # basename: (width, height)
     input_list = {}  # basename: (width, height)
+    input_list['input_1920x1080_yuv444p_601F_5frames.yuv'] = (1920, 1080)
     if nb_input > 0:
         logger.warning(
             f"about to generate {nb_input} random input frames from seed {input_seed}, existing frames will be overwritten!"
@@ -132,7 +133,13 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
         exit(-1)
 
     ## generate random cfg
-    config_list = []  # basename
+    config_list = ['sharp_lite_cfg_seed_114514.json',
+                   'sharp_lite_cfg_seed_114515.json',
+                   'sharp_lite_cfg_seed_114516.json',
+                   'sharp_lite_cfg_seed_114517.json',
+                   'sharp_lite_cfg_seed_114518.json',
+                   'sharp_lite_cfg_seed_114519.json',
+                   ]  # basename
     if nb_config > 0:
         logger.warning(
             f"about to generate {nb_config} random configs from seed {config_seed}, existing configs will be overwritten!"

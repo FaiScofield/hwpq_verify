@@ -11,9 +11,11 @@ import os
 import sys
 import json
 import random
+import argparse
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import *
+
 
 class CfaConfig(ModuleConfigCore):
     def __init__(self, name: str = "CFA", version: str = "unknown"):
@@ -181,12 +183,12 @@ class CfaConfig(ModuleConfigCore):
         self.nDstHgtStride = self.nImgHgt
         self.nCurrC2pWidStride = self.nImgWid
         self.nCurrC2pHgtStride = self.nImgHgt
-        self.ePlatform = random.randint(0, 10) # but not 8
+        self.ePlatform = random.randint(0, 10)  # but not 8
         self.ePlatform = 7 if self.ePlatform == 8 else self.ePlatform  # 8 is not supported
         self.eCfaPattern = 0
         self.eAlgoType = random.randint(0, 2)
         self.eImgFormat = 0
-        self.eOutFormat = 11 # random.randint(11, 13)
+        self.eOutFormat = 11  # random.randint(11, 13)
         self.eDisplayMode = 0
         self.nColorDepth = 64
         self.nContrastGain = random.randint(0, 200)  # [0, 128]
@@ -195,15 +197,15 @@ class CfaConfig(ModuleConfigCore):
         self.nSharpenGain = random.randint(0, 200)  # [0, 128]
         self.nStretchBlack = random.randint(0, 120)  # [0, 96]
         self.nStretchWhite = random.randint(120, 300)  # [160, 255]
-        self.bDither = (random.randint(0, 3) > 0) * 2 # 0 or 2, 75% ON
-        self.bDeFalseColor4Gray = int(random.randint(0, 3) > 0) # 75% ON
+        self.bDither = (random.randint(0, 3) > 0) * 2  # 0 or 2, 75% ON
+        self.bDeFalseColor4Gray = int(random.randint(0, 3) > 0)  # 75% ON
         self.bContrastEqual = 0
         self.bForceRunWithCpu = random.randint(0, 1)
         self.nRegalType = 0
-        self.nA2AlgoType = 0 # always 0 for hardware mode
+        self.nA2AlgoType = 0  # always 0 for hardware mode
         self.nA2CompLevel = random.randint(0, 80)  # [0, 64]
         self.bA2Modulate = random.randint(0, 10)  # [0, 7]
-        self.bClearLow4bits = 1 #random.randint(0, 1)  # [0, 1]
+        self.bClearLow4bits = 1  # random.randint(0, 1)  # [0, 1]
         self.sRoiInfo = [0, 0, 0, 0, 0, 0]  # x6
         self.aReserved = [0, 0, 0, 0, 0, 0, 0, 0]  # x8
 
@@ -212,24 +214,27 @@ class CfaConfig(ModuleConfigCore):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: %s load <config_json_file>" % sys.argv[0])
-        print("Usage: %s gen <rand_seed>" % sys.argv[0])
-        exit(-1)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen")
+    parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
+    parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
+    parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
+    parser.print_usage()
+    args = parser.parse_args()
 
     config = CfaConfig()
-    if sys.argv[1] == "gen":
-        seed = config.gen(int(sys.argv[2]))
+    if args.interface == "gen":
+        seed = config.gen(args.seed)
+        config.dump(args.file)
         load_ok = True
-    elif sys.argv[1] == "load":
-        load_ok = config.load(sys.argv[2])
-        if not load_ok:
-            exit(-1)
+    elif args.interface == "load":
+        load_ok = config.load(args.file)
+        config.dump()
+    elif args.interface == "dump":
+        load_ok = config.dump(args.file)
     else:
-        print("Usage: %s load <config_json_file>" % sys.argv[0])
-        print("Usage: %s gen <config_json_file>" % sys.argv[0])
-        exit(-1)
+        print(f"unknown interface '{args.interface}'!")
+        load_ok = False
 
     check_ok = config.check()
     print("load_ok: %s, check_ok: %s" % (load_ok, check_ok))
-    config.dump()

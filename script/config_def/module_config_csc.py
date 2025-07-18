@@ -68,6 +68,7 @@ class CscConfig(ModuleConfigCore):
             }
             nest_data = {"pq_tuning_param": {"csc": data}}
             json.dump(nest_data, f, indent=4, ensure_ascii=False)
+            print(f"[{self.name}] Config parameters saved to file '{filename}'")
             return True
 
         return False
@@ -100,7 +101,9 @@ class CscConfig(ModuleConfigCore):
                 self.cscGOffset = data["cscGOffset"]
                 self.cscBOffset = data["cscBOffset"]
                 self.cscMatrix = np.array(data["cscMatrix"], dtype=np.int16).reshape(3, 3)
-                self.cscVector = np.array(data["cscVector"], dtype=np.int32) if "cscVector" in data else np.zeros(3, dtype=np.int32)
+                self.cscVector = (
+                    np.array(data["cscVector"], dtype=np.int32) if "cscVector" in data else np.zeros(3, dtype=np.int32)
+                )
                 self.cscPassthrough = data["cscPassthrough"] if "cscPassthrough" in data else 0
                 self.version = data["version"] if "version" in data else "unknown"
                 self.randSeed = data["rand_seed"] if "rand_seed" in data else -1
@@ -119,6 +122,7 @@ class CscConfig(ModuleConfigCore):
         if seed == None:
             seed = self.randSeed + 1  # increase rand seed if no argument in
         random.seed(seed)
+        np.random.seed(seed)
 
         self.randSeed = seed
         self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
@@ -143,7 +147,6 @@ class CscConfig(ModuleConfigCore):
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen")
     parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
@@ -155,9 +158,11 @@ if __name__ == "__main__":
     config = CscConfig()
     if args.interface == "gen":
         seed = config.gen(args.seed)
+        config.dump(args.file)
         load_ok = True
     elif args.interface == "load":
         load_ok = config.load(args.file)
+        config.dump()
     elif args.interface == "dump":
         load_ok = config.dump(args.file)
     else:
