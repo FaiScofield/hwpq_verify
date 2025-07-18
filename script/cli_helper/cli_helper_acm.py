@@ -3,7 +3,7 @@ Copyright   : Copyright (c) 2025 by Rockchip. All right reserved.
 FilePath    : cli_helper_acm.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
-Description : 
+Description :
 LastEditTime: 2025-07-18
 '''
 
@@ -12,11 +12,11 @@ import sys
 from typing import Optional, Dict, Any, List, Type
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
-from cli_helper.cli_helper_core import ModuleHelper
+from cli_helper.cli_helper_core import ModuleHelperCore
 # from config_def.module_config_acm import AcmConfig
 
-class AcmHelper(ModuleHelper):
-    def __init__(self, name: str = "ACM", platform: str = 'RK3572', parent: Optional['ModuleHelper'] = None):
+class AcmHelper(ModuleHelperCore):
+    def __init__(self, name: str = "ACM", platform: str = 'RK3572', parent: Optional['ModuleHelperCore'] = None):
         super().__init__(name, platform, parent)
         # self.define_config_and_regs()
 

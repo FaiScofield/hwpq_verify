@@ -19,6 +19,8 @@ class Reg:
         self.value = value
         self.name = name
 
+        self.base_addr = 0x0
+
     def __iter__(self):
         return iter((self.offset, self.value, self.name))
 
@@ -29,8 +31,10 @@ class ModuleRegisterCore(ABC):
         self.platform = platform
         self.logger = setup_logger(self.name)
 
-        self.regs = []  # set by subclass
-        self.config = None  # set by subclass
+        # below attributes should be set by subclass
+        self.base_addr = 0x0
+        self.regs = []
+        self.config = None
 
     # @abstractmethod
     def dump(self, filename: str = "", align: int = 4, **kwargs) -> bool:

@@ -3,7 +3,7 @@ Copyright   : Copyright (c) 2025 by Rockchip. All right reserved.
 FilePath    : cli_helper_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
-Description : 
+Description :
 LastEditTime: 2025-07-11
 """
 
@@ -13,16 +13,16 @@ from tqdm import tqdm
 from typing import Optional, Dict, Any, List, Type
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
-from cli_helper.cli_helper_core import ModuleHelper
+from cli_helper.cli_helper_core import ModuleHelperCore
 from config_def.module_config_cfa import CfaConfig
 
 
-class CfaHelper(ModuleHelper):
+class CfaHelper(ModuleHelperCore):
     def __init__(
         self,
         name: str = "CFA",
         platform: str = "RK3572",
-        parent: Optional["ModuleHelper"] = None,
+        parent: Optional["ModuleHelperCore"] = None,
     ):
         super().__init__(name, platform, parent)
         # self.define_config_and_regs()

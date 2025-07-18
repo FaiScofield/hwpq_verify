@@ -3,7 +3,7 @@ Copyright   : Copyright (c) 2025 by Rockchip. All right reserved.
 FilePath    : cli_helper_main.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
-Description : 
+Description :
 LastEditTime: 2025-07-11
 '''
 
@@ -14,7 +14,7 @@ from cli_helper.cli_helper_cfa import *
 from typing import Any
 
 
-class MainApp(ModuleHelper):
+class MainApp(ModuleHelperCore):
     def __init__(self, platform: str = 'RK3572'):
         super().__init__("MAIN", platform)
 

@@ -15,7 +15,7 @@ from reg_def.module_reg_core import ModuleRegisterCore, Reg
 from config_def.module_config_sharp_lite import SharpLiteConfig
 
 
-class SharpLiteRegisters(ModuleRegisterCore):
+class SharpLiteRegister(ModuleRegisterCore):
     def __init__(self, name: str = "SHARP", platform: str = 'RK3572'):
         super().__init__(name, platform)
 
@@ -133,7 +133,7 @@ if __name__ == "__main__":
     parser.print_usage()
     args = parser.parse_args()
 
-    register = SharpLiteRegisters()
+    register = SharpLiteRegister()
     register.set(name="ENABLE_CTRL", value=0x1)
     register.set(name="USM_CTRL", value=0x300)
     register.set(name="USM_COEF", value=0x10 | (0x20 << 8) | (0x30 << 16))

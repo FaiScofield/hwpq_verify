@@ -146,7 +146,10 @@ class SharpLiteConfig(ModuleConfigCore):
         self.valid = True
         return self.valid
 
-    def gen(self, seed: int = 114514) -> int:
+    def gen(self, seed: int = 114514, **kwargs) -> int:
+        ## check if passthrough mode
+        passthrough = kwargs["passthrough"] if "passthrough" in kwargs else False
+
         ## set random seed
         if seed == None:
             seed = self.randSeed + 1  # increase rand seed if no argument in
@@ -172,7 +175,7 @@ class SharpLiteConfig(ModuleConfigCore):
         self.sharp_roi_xend = random.randint(4, 1200)
         self.sharp_roi_ystart = random.randint(0, 600)
         self.sharp_roi_yend = random.randint(4, 800)
-        self.sharp_force_core_mode = random.randint(0, 1)  # %50 be ON
+        self.sharp_force_core_mode = random.randint(0, 1) if not passthrough else 1 # %50 be ON
         self.sharp_core_A = random.randint(-128, 127)
         self.sharp_core_B = random.randint(-128, 127)
         self.sharp_core_C = random.randint(-128, 127)
@@ -189,6 +192,7 @@ class SharpLiteConfig(ModuleConfigCore):
         self.ink_idx_h = 0
         self.ink_idx_v = 0
 
+        print(f"[{self.name}] generated a random config with seed={seed}, passthrough={passthrough}")
         return seed
 
 
@@ -198,6 +202,7 @@ if __name__ == "__main__":
     parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
     parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
+    parser.add_argument("-s", "--passthrough", type=bool, default=True, help="设置寄存器直通")
     parser.print_usage()
     args = parser.parse_args()
 

@@ -166,7 +166,7 @@ class CfaConfig(ModuleConfigCore):
         self.valid = True
         return self.valid
 
-    def gen(self, seed: int = 114514) -> int:
+    def gen(self, seed: int = 114514, **kwargs) -> int:
         ## set random seed
         if seed == None:
             seed = self.randSeed + 1  # increase rand seed if no argument in

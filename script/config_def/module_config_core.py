@@ -29,7 +29,7 @@ class ModuleConfigCore(ABC):
         return False
 
     @abstractmethod
-    def gen(self, seed: int = 114514) -> int:
+    def gen(self, seed: int = 114514, **kwargs) -> int:
         self.randSeed = seed
         return seed
 

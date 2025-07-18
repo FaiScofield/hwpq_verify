@@ -23,10 +23,10 @@ sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import ModuleConfigCore
 from reg_def.module_reg_core import ModuleRegisterCore
 
-class ModuleHelper(ABC):
+class ModuleHelperCore(ABC):
     """Command-Line Interface Helper base framework"""
 
-    def __init__(self, name: str, platform: str = "RK3572", parent: Optional["ModuleHelper"] = None):
+    def __init__(self, name: str, platform: str = "RK3572", parent: Optional["ModuleHelperCore"] = None):
         self.name = name.upper()
         self.platform = platform.upper()
         self.parent = parent # 无上级窗口则为空
