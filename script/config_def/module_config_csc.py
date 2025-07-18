@@ -118,9 +118,6 @@ class CscConfig(ModuleConfigCore):
         return self.valid
 
     def gen(self, seed: int = 114514, **kwargs) -> int:
-        ## check if passthrough mode
-        passthrough = kwargs["passthrough"] if "passthrough" in kwargs else False
-
         ## set random seed
         if seed == None:
             seed = self.randSeed + 1  # increase rand seed if no argument in
@@ -146,6 +143,12 @@ class CscConfig(ModuleConfigCore):
         self.cscVector = np.random.randint(-(2**11), 2**11 - 1, size=3, dtype=np.int32)  # s32
         self.cscVector = np.dot(self.cscMatrix, self.cscVector)  # s32
         self.cscPassthrough = 1  # 100% use matrix & vector directly for now!
+
+        ## check if passthrough mode
+        # passthrough = None
+        # if "passthrough" in kwargs:
+        #     passthrough = kwargs["passthrough"]
+        #     self.cscPassthrough = passthrough
 
         print(f"[{self.name}] generated a random config with seed={seed}, passthrough={1}")
         return seed

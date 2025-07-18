@@ -105,7 +105,7 @@ class SharpLiteRegister(ModuleRegisterCore):
             name="USM_COEF",
             value=(cfg.sharp_core_A & 0xFF) | ((cfg.sharp_core_B & 0xFF) << 8) | ((cfg.sharp_core_C & 0xFF) << 16),
         )
-        self.set(name="SHOOT_CTRL_REG0", value=(cfg.shoot_ctrl_delta_offset & 0x7F))
+        self.set(name="SHOOT_CTRL_REG0", value=(cfg.shoot_ctrl_delta_offset & 0xFF))
         self.set(
             name="SHOOT_CTRL_REG1", value=(cfg.shoot_ctrl_pos & 0x7F) | ((cfg.shoot_ctrl_pos_unlimit & 0x7F) << 16)
         )

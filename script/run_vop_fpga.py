@@ -47,7 +47,10 @@ def parse_common_args(args):
         "-cs", "--config_seed", default=114514, help="random seed for generating configs, used when config_num > 0"
     )
     parser.add_argument(
-        "-cp", "--config_passthrough", default=False, help="set passthrough mode for randomconfigs, used when config_num > 0"
+        "-cp",
+        "--config_passthrough",
+        default=False,
+        help="set passthrough mode for randomconfigs, used when config_num > 0",
     )
     args = parser.parse_args(args)
     return args, parser
@@ -200,7 +203,8 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
                 try:
                     # run command
                     cmd_str = (
-                        exe + f" -i {input_path} -o {output_dir} -j {config_path} -r {final_crc_file} -w {wid} -g {hgt}"
+                        exe
+                        + f" -i {input_path} -o {output_dir} -j {config_path} -r {final_crc_file} -w {wid} -g {hgt} -f 1"
                     )
                     ret = run_cmd(cmd_str, False, logger)
                     if ret != 0:
