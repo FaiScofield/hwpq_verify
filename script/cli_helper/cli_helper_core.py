@@ -4,7 +4,7 @@ FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-11
+LastEditTime: 2025-07-18
 """
 
 import sys
@@ -13,19 +13,15 @@ import json
 import re
 import random
 import argparse
+import copy
 from ast import literal_eval
 from tqdm import tqdm
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, List, Type
-from ctypes import Structure, c_uint
+from typing import Optional
 
-
-class ModuleRegister:
-    def __init__(self, platform: str, regs: List[Structure]):
-        # super().__init__()
-        self.platform = platform.upper()
-        self.regs = regs
-
+sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
+from config_def.module_config_core import ModuleConfigCore
+from reg_def.module_reg_core import ModuleRegisterCore
 
 class ModuleHelper(ABC):
     """Command-Line Interface Helper base framework"""
@@ -92,19 +88,24 @@ class ModuleHelper(ABC):
     @abstractmethod
     def define_config_and_regs(self):
         """定义模块的配置参数(由子类实现)"""
-        self.config = None
-        self.regs = None
+        self.config = ModuleConfigCore(self.name)
+        self.register = ModuleRegisterCore(self.name, self.platform)
         pass
 
-    @abstractmethod
-    def config_to_regs(self):
-        """将配置转换为32位寄存器值(由子类实现)"""
-        pass
+    # @abstractmethod
+    def config_to_regs(self) -> bool:
+        if self.register is not None:
+            self.register.config = self.config
+            return self.register.config2regs()
+        return False
 
-    @abstractmethod
-    def regs_to_config(self):
-        '''将寄存器的值转为配置参数(由子类实现)'''
-        pass
+    # @abstractmethod
+    def regs_to_config(self) -> bool:
+        if self.register is not None:
+            ok = self.register.regs2config()
+            self.config = self.register.config
+            return ok
+        return False
 
     ## =============== 通用命令处理函数 ===============
     def do_help(self, args) -> bool:
@@ -239,29 +240,13 @@ class ModuleHelper(ABC):
 
     def do_reg(self, args) -> bool:
         """生成寄存器配置值"""
-        reg_value = self.config_to_regs()
-
-        # 转换为16进制字符串
-        reg_hex = f"{reg_value:08x}"
-
-        if args:
-            # 导出到文件
-            target = args[0]
-            try:
-                with open(target, "w") as f:
-                    f.write(reg_hex)
-                print(f"[{self.name}] 寄存器值已导出到: {os.path.abspath(target)}")
-            except Exception as e:
-                print(f"[{self.name}] 导出失败: {str(e)}")
+        ok = self.config_to_regs()
+        if ok:
+            self.register.dump()
         else:
-            # 控制台显示
-            print(f"[{self.name}] \n寄存器值 ({self.platform}平台):")
-            print(f"[{self.name}]   32位: {reg_value}")
-            print(f"[{self.name}]   16进制: 0x{reg_hex}")
-            print(f"[{self.name}]   二进制: {bin(reg_value)}")
-
-        # 不退出
-        return False
+            ok = False
+            print(f"[{self.name}] 错误: 寄存器配置生成失败！")
+        return ok
 
     def do_quit(self, args) -> bool:
         if self.parent:
@@ -298,6 +283,12 @@ class ModuleHelper(ABC):
             print(f"[{self.name}] 错误: 参数设置格式应为 <param1>=<value1> [param2=<value2> ...]")
             return False
 
+        if self.register is not None:
+            self.register.config = copy.deepcopy(self.config)
+            self.register.config2regs()
+            old_regs = copy.deepcopy(self.register.regs) # list[Reg]
+            # self.register.dump()
+
         items = re.findall(r'(\w+)=([^=]+)(?=\s+\w+=|$)', arg_str.strip())
         for key, value in items:
             if hasattr(self.config, key):
@@ -321,6 +312,16 @@ class ModuleHelper(ABC):
                 print(f"[{self.name}] set param \'{key}\' to {value}")
             else:
                 print(f"[{self.name}] failed to set param \'{key}\' to {value}")
+
+        if self.register is not None:
+            self.register.config = copy.deepcopy(self.config)
+            self.register.config2regs()
+            new_regs = copy.deepcopy(self.register.regs)
+            # self.register.dump()
+            for old, new in zip(old_regs, new_regs):
+                assert(old.name == new.name and old.offset == new.offset)
+                if old.value != new.value:
+                    print("[%s] register 0x%08X changed: 0x%08X ==> 0x%08X." % (self.name, old.offset, old.value, new.value))
 
         # 不退出
         return False

@@ -4,7 +4,7 @@ FilePath    : cli_helper_acm.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description : 
-LastEditTime: 2025-07-11
+LastEditTime: 2025-07-18
 '''
 
 import os
@@ -26,14 +26,9 @@ class AcmHelper(ModuleHelper):
 
     ## =============== overwrite methods  ===============
     def define_config_and_regs(self):
-        #TODO
-        pass
-
-    def config_to_regs(self):
-        print("TODO: config_to_regs")
-
-    def regs_to_config(self):
-        print("TODO: regs_to_config")
+        self.config = None
+        self.register = None
+        return self.config, self.register
 
 
 if __name__ == "__main__":

@@ -30,13 +30,8 @@ class CfaHelper(ModuleHelper):
     ## =============== overwrite methods  ===============
     def define_config_and_regs(self):
         self.config = CfaConfig(self.name)
-        return self.config
-
-    def config_to_regs(self):
-        print("TODO: config_to_regs")
-
-    def regs_to_config(self):
-        print("TODO: regs_to_config")
+        self.register = None
+        return self.config, self.register
 
 
 if __name__ == "__main__":

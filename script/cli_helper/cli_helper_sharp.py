@@ -15,7 +15,7 @@ from ctypes import Structure, c_uint
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from cli_helper.cli_helper_core import ModuleHelper
 from config_def.module_config_sharp_lite import SharpLiteConfig
-from reg_def.module_reg_sharp_lite import SharpLiteRegisters_RK3572
+from reg_def.module_reg_sharp_lite import SharpLiteRegisters
 
 
 class SharpHelper(ModuleHelper):
@@ -25,20 +25,12 @@ class SharpHelper(ModuleHelper):
         super().__init__(name, platform, parent)
         # self.define_config_and_regs()
 
-
     ## =============== overwrite methods  ===============
     def define_config_and_regs(self):
         # if self.platform == 'RK3572':
         self.config = SharpLiteConfig(self.name)
-        self.regs = SharpLiteRegisters_RK3572(self.name)
-        return self.config, self.regs
-
-    def config_to_regs(self):
-        print("TODO: config_to_regs")
-
-    def regs_to_config(self):
-        print("TODO: regs_to_config")
-
+        self.register = SharpLiteRegisters(self.name, self.platform)
+        return self.config, self.register
 
 if __name__ == "__main__":
     runner = SharpHelper()
