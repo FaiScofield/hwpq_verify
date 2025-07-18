@@ -19,12 +19,10 @@ import random
 import filecmp
 import numpy as np
 from datetime import datetime
-# from typing import Dict, List
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__)))
-from config_def.module_config_sharp_lite import SharpLiteConfig
-from config_def.module_config_csc import CscConfig
-from reg_def.module_reg_csc import CscRegister
+from config_def import *
+from reg_def import *
 from utils import *
 
 logger = setup_logger(name="run_vop_fpga")
@@ -36,6 +34,7 @@ def parse_common_args(args):
     parser.add_argument("-e", "--exe", default="", help="module sim_exe file path")
     parser.add_argument("-r", "--root", default="", help="the root dir for data saving")
     parser.add_argument("-p", "--platform", default="RK3572", help="RK3572/RK3576")
+    parser.add_argument("-i", "--input_file", default="", help="input file path")
     parser.add_argument("-in", "--input_num", default=0, help="generate random input frame number")
     parser.add_argument(
         "-is", "--input_seed", default=603893, help="random seed for generating input frames, used when input_num > 0"
@@ -46,6 +45,9 @@ def parse_common_args(args):
     parser.add_argument("-cn", "--config_num", default=0, help="generate random config number")
     parser.add_argument(
         "-cs", "--config_seed", default=114514, help="random seed for generating configs, used when config_num > 0"
+    )
+    parser.add_argument(
+        "-cp", "--config_passthrough", default=False, help="set passthrough mode for randomconfigs, used when config_num > 0"
     )
     args = parser.parse_args(args)
     return args, parser
@@ -77,11 +79,12 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
     img_hgt = int(args.input_hgt)
     logger.info(f"Set root_dir: {root_dir}")
     logger.info(f"Set platform: {platform}")
-    logger.info(f"Set input_num: {nb_input}, config_num: {nb_config}")
+    logger.info(f"Set input file: {args.input_file}, size: {img_wid}x{img_hgt}")
+    logger.info(f"Set random input/config num: {nb_input} / {nb_config}")
     if nb_input > 0:
         logger.info(f"Set input seed: {input_seed}, image size: {img_wid}x{img_hgt}, format: {img_fmt}")
     if nb_config > 0:
-        logger.info(f"Set config seed: {config_seed}")
+        logger.info(f"Set config seed: {config_seed}, passthrough: {args.config_passthrough}")
 
     ## mkdir
     input_dir = os.path.join(root_dir, "input")
@@ -93,20 +96,21 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
     if not os.access(root_dir, os.W_OK):
         logger.error(f"root_dir {root_dir} is not writable, please check!")
         exit(-1)
-    if not os.access(exe, os.X_OK):
+    if exe != "" and not os.access(exe, os.X_OK):
         logger.error(f"sim_exe {exe} is not executable, please check!")
         exit(-1)
 
     ## generate input data
-    # input_list = {'input_1920x1080_yuv444p_601F_5frames.yuv': (1920, 1080)}  # basename: (width, height)
     input_list = {}  # basename: (width, height)
-    input_list['input_1920x1080_yuv444p_601F_5frames.yuv'] = (1920, 1080)
+    if 0 == nb_input and args.input_file != "":
+        input_list = {os.path.basename(args.input_file): (img_wid, img_hgt)}
+    # input_list = {'input_1920x1080_yuv444p_601F_5frames.yuv': (1920, 1080)}  # basename: (width, height)
+    # input_list['input_1920x1080_yuv444p_601F_5frames.yuv'] = (1920, 1080)
     if nb_input > 0:
         logger.warning(
             f"about to generate {nb_input} random input frames from seed {input_seed}, existing frames will be overwritten!"
         )
         file_suffix = "nv24.yuv" if img_fmt == 0 else "rgba.bin"
-
         for i in range(nb_input):
             wid, hgt = img_wid, img_hgt
             if wid * hgt == 0:
@@ -133,20 +137,14 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
         exit(-1)
 
     ## generate random cfg
-    config_list = ['sharp_lite_cfg_seed_114514.json',
-                   'sharp_lite_cfg_seed_114515.json',
-                   'sharp_lite_cfg_seed_114516.json',
-                   'sharp_lite_cfg_seed_114517.json',
-                   'sharp_lite_cfg_seed_114518.json',
-                   'sharp_lite_cfg_seed_114519.json',
-                   ]  # basename
+    config_list = []  # basename
     if nb_config > 0:
         logger.warning(
             f"about to generate {nb_config} random configs from seed {config_seed}, existing configs will be overwritten!"
         )
         for i in range(nb_config):
             config_file = os.path.join(config_dir, f"{config_handler.name.lower()}_config_seed_{config_seed + i}.json")
-            config_handler.gen(config_seed + i)
+            config_handler.gen(config_seed + i, passthrough=args.config_passthrough)
             config_handler.dump(config_file)
             config_list.append(os.path.basename(config_file))
             if reg_handler is not None:
@@ -154,66 +152,81 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
                 reg_handler.load(config_file)
                 reg_handler.dump(reg_file)
         logger.info(f"generated {len(config_list)} config files in {config_dir} ...")
+        ## cat reg_files to single bin file
+        if reg_handler is not None:
+            single_reg_file = os.path.join(
+                config_dir, f"{config_handler.name.lower()}_config_num_{nb_config}_from_seed_{config_seed}.bin"
+            )
+            with open(single_reg_file, "ab") as reg_fp:
+                for i in range(nb_config):
+                    reg_file = os.path.join(
+                        config_dir, f"{config_handler.name.lower()}_config_seed_{config_seed + i}.bin"
+                    )
+                    reg_data = np.fromfile(reg_file, dtype=np.uint32).tobytes()
+                    reg_fp.write(reg_data)
+            logger.info(f"cat {nb_config} reg files to single bin file: {single_reg_file} ...")
     elif len(config_list) == 0:
         config_list = os.listdir(config_dir)
+        config_list = [cfg for cfg in config_list if cfg.endswith(".json")]
         logger.info(f"count {len(config_list)} config files in {config_dir} ...")
     if len(config_list) == 0:
         logger.error(f"no input configs in {config_dir}, please check!")
         exit(-1)
 
     ## run command & get CRC/Reg result
-    exe_output_reg_file = os.path.join(output_dir, f"{module_name}_regs.bin")
-    run_cmd(f"chmod +x {exe}", False, logger)
-    logger.info(f"num of input frames/configs to run: {len(input_list)}/{len(config_list)}")
-    for input_name, (wid, hgt) in input_list.items():
-        input_path = os.path.join(input_dir, input_name)
-        final_reg_file = os.path.join(
-            output_dir, f"{module_name}_reg_from_input_{input_name.split('.')[0]}_config_num_{len(config_list)}.bin"
-        )
-        final_crc_file = os.path.join(
-            output_dir, f"{module_name}_crc_from_input_{input_name.split('.')[0]}_config_num_{len(config_list)}.dat"
-        )
+    if exe != "":
+        exe_output_reg_file = os.path.join(output_dir, f"{module_name}_regs.bin")
+        run_cmd(f"chmod +x {exe}", False, logger)
+        logger.info(f"num of input frames/configs to run: {len(input_list)}/{len(config_list)}")
+        for input_name, (wid, hgt) in input_list.items():
+            input_path = os.path.join(input_dir, input_name)
+            final_reg_file = os.path.join(
+                output_dir, f"{module_name}_reg_from_input_{input_name.split('.')[0]}_config_num_{len(config_list)}.bin"
+            )
+            final_crc_file = os.path.join(
+                output_dir, f"{module_name}_crc_from_input_{input_name.split('.')[0]}_config_num_{len(config_list)}.dat"
+            )
 
-        # removed the old regs binary file for each input frame
-        run_cmd(f"rm {exe_output_reg_file}", False, logger)
-        logger.warning(f"removed the old regs binary file: {exe_output_reg_file} !")
+            # removed the old regs binary file for each input frame
+            run_cmd(f"rm {exe_output_reg_file}", False, logger)
+            logger.warning(f"removed the old regs binary file: {exe_output_reg_file} !")
 
-        for config in config_list:
-            config_path = os.path.join(config_dir, config)
-            # config_handler.load(config_path)
-            # seed = config_handler.randSeed
-            # suffix = f"_seed_{seed}"
+            for config in config_list:
+                config_path = os.path.join(config_dir, config)
+                # config_handler.load(config_path)
+                # seed = config_handler.randSeed
+                # suffix = f"_seed_{seed}"
 
-            try:
-                # run command
-                cmd_str = (
-                    exe
-                    + f" -i {input_path} -o {output_dir} -l {output_dir} -c {config_path} -r {final_crc_file} -w {wid} -g {hgt}"
-                )
-                ret = run_cmd(cmd_str, False, logger)
-                if ret != 0:
-                    raise Exception("run sim_exe failed for intput={input_name}, config={config}!")
-            except:
-                logger.error(f"run sim_exe failed for intput={input_name}, config={config}!")
-                break
-
-        # move output regs file to output_dir
-
-        if NB_REG_PER_FRAME > 0:
-            try:
-                exe_reg_file_size = os.path.getsize(exe_output_reg_file)
-                theorical_file_size = NB_REG_PER_FRAME * 4 * len(config_list)
-                if exe_reg_file_size == theorical_file_size:
-                    cmd_str = f"cp {exe_output_reg_file} {final_reg_file}"
-                    run_cmd(cmd_str, False, logger)
-                    logger.info(f"✅ got a register binary file: {final_reg_file}")
-                else:
-                    logger.error(
-                        f"❌ register file size = {exe_reg_file_size} != {theorical_file_size} theorical size, please check!"
+                try:
+                    # run command
+                    cmd_str = (
+                        exe + f" -i {input_path} -o {output_dir} -j {config_path} -r {final_crc_file} -w {wid} -g {hgt}"
                     )
-                    exit(-1)
-            except:
-                logger.error(f"❌ copy register file failed for intput={input_name}, exe_output_reg_file={exe_output_reg_file}!")
+                    ret = run_cmd(cmd_str, False, logger)
+                    if ret != 0:
+                        raise Exception("run sim_exe failed for intput={input_name}, config={config}!")
+                except:
+                    logger.error(f"run sim_exe failed for intput={input_name}, config={config}!")
+                    break
+
+            # move output regs file to output_dir
+            if NB_REG_PER_FRAME > 0:
+                try:
+                    exe_reg_file_size = os.path.getsize(exe_output_reg_file)
+                    theorical_file_size = NB_REG_PER_FRAME * 4 * len(config_list)
+                    if exe_reg_file_size == theorical_file_size:
+                        cmd_str = f"cp {exe_output_reg_file} {final_reg_file}"
+                        run_cmd(cmd_str, False, logger)
+                        logger.info(f"✅ got a register binary file: {final_reg_file}")
+                    else:
+                        logger.error(
+                            f"❌ register file size = {exe_reg_file_size} != {theorical_file_size} theorical size, please check!"
+                        )
+                        exit(-1)
+                except:
+                    logger.error(
+                        f"❌ copy register file failed for intput={input_name}, exe_output_reg_file={exe_output_reg_file}!"
+                    )
 
     logger.info(f"run sim_exe done. check output data in {output_dir}")
 
@@ -231,15 +244,12 @@ if __name__ == "__main__":
 
     if "sharp" in name:
         config_handler = SharpLiteConfig()
+        reg_handler = SharpLiteRegister(platform=args.platform)
         nb_reg_per_frame = 14
-        if args.exe == "":
-            args.exe = os.path.normpath("E:/RK/Codes/RkVopAlgos/pub_lib/RkSharpLiteSim/AMD64/bin/sharp_lite_sim_exe.exe")
     elif "csc" in name:
         config_handler = CscConfig()
         reg_handler = CscRegister(platform=args.platform)
         nb_reg_per_frame = len(reg_handler.regs)
-        if args.exe == "":
-            args.exe = os.path.normpath("E:/RK/Codes/RkVopAlgos/pub_lib/RkCscSim/AMD64/bin/csc_sim_exe.exe")
     if config_handler is not None:
         run_common_module(config_handler, reg_handler, args, nb_reg_per_frame=nb_reg_per_frame)
     else:
