@@ -160,6 +160,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
             single_reg_file = os.path.join(
                 config_dir, f"{config_handler.name.lower()}_config_num_{nb_config}_from_seed_{config_seed}.bin"
             )
+            run_cmd(f"rm {single_reg_file}") # remove old single reg file
             with open(single_reg_file, "ab") as reg_fp:
                 for i in range(nb_config):
                     reg_file = os.path.join(
