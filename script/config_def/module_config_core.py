@@ -4,10 +4,11 @@ FilePath    : module_config_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-07
+LastEditTime: 2025-07-21
 '''
 
 from abc import ABC, abstractmethod
+from utils import setup_logger
 
 class ModuleConfigCore(ABC):
     def __init__(self, name: str, version: str = 'unknown'):
@@ -15,6 +16,7 @@ class ModuleConfigCore(ABC):
         self.valid = False
         self.version = version
         self.randSeed = 114514
+        self.logger = setup_logger(self.name)
 
     @abstractmethod
     def dump(self, filename) -> bool:

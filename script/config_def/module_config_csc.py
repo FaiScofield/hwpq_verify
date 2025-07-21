@@ -4,7 +4,7 @@ FilePath    : module_config_csc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-16
 Description :
-LastEditTime: 2025-07-17
+LastEditTime: 2025-07-21
 """
 
 import os
@@ -41,9 +41,9 @@ class CscConfig(ModuleConfigCore):
     ## =============== overwrite methods  ===============
     def dump(self, filename=None) -> bool:
         if filename == None or filename == "":
-            print(f"[{self.name}] Config parameters shown below:")
+            self.logger.info(f"Config parameters shown below:")
             dumpdata = "".join([f"  - %s: %s\n" % item for item in self.__dict__.items()])
-            print(dumpdata)
+            self.logger.info(dumpdata)
             return True
 
         with open(filename, "w") as f:
@@ -62,13 +62,13 @@ class CscConfig(ModuleConfigCore):
                 "cscROffset": self.cscROffset,
                 "cscGOffset": self.cscGOffset,
                 "cscBOffset": self.cscBOffset,
-                "cscMatrix": self.cscMatrix.tolist(),
-                "cscVector": self.cscVector.tolist(),
+                "cscMatrix": self.cscMatrix.flatten().tolist(),
+                "cscVector": self.cscVector.flatten().tolist(),
                 "cscPassthrough": self.cscPassthrough,
             }
             nest_data = {"pq_tuning_param": {"csc": data}}
             json.dump(nest_data, f, indent=4, ensure_ascii=False)
-            print(f"[{self.name}] Config parameters saved to file '{filename}'")
+            self.logger.info(f"Config parameters saved to file '{filename}'")
             return True
 
         return False
@@ -76,17 +76,17 @@ class CscConfig(ModuleConfigCore):
     def load(self, filename: str) -> bool:
         # check config file validity
         if not os.path.exists(filename):
-            print(f"[{self.name}] config file '{filename}' doesn't exist!")
+            self.logger.error(f"config file '{filename}' doesn't exist!")
             return False
         if not filename.endswith(".json"):
-            print(f"[{self.name}] config file '{filename}' is not a json file!")
+            self.logger.error(f"config file '{filename}' is not a json file!")
             return False
 
         try:
             with open(filename, "r") as f:
                 data = json.load(f)
                 if "pq_tuning_param" in data:
-                    print(f"[{self.name}] load config from pq_tuning_param.csc ...")
+                    self.logger.info(f"load config from pq_tuning_param.csc ...")
                     data = data["pq_tuning_param"]["csc"]
                 self.cscEnable = data["cscEnable"]
                 self.cscCctCtrlEn = data["cscCctCtrlEn"] if "cscCctCtrlEn" in data else 0
@@ -100,7 +100,11 @@ class CscConfig(ModuleConfigCore):
                 self.cscROffset = data["cscROffset"]
                 self.cscGOffset = data["cscGOffset"]
                 self.cscBOffset = data["cscBOffset"]
-                self.cscMatrix = np.array(data["cscMatrix"], dtype=np.int16).reshape(3, 3)
+                self.cscMatrix = (
+                    np.array(data["cscMatrix"], dtype=np.int16).reshape(3, 3)
+                    if "cscMatrix" in data
+                    else np.identity(3, dtype=np.int16)
+                )
                 self.cscVector = (
                     np.array(data["cscVector"], dtype=np.int32) if "cscVector" in data else np.zeros(3, dtype=np.int32)
                 )
@@ -109,7 +113,7 @@ class CscConfig(ModuleConfigCore):
                 self.randSeed = data["rand_seed"] if "rand_seed" in data else -1
                 return True
         except Exception as e:
-            print(f"[{self.name}] load config file '{filename}' failed: {e}")
+            self.logger.error(f"load config file '{filename}' failed: {e}")
             return False
 
     def check(self) -> bool:
@@ -150,7 +154,7 @@ class CscConfig(ModuleConfigCore):
         #     passthrough = kwargs["passthrough"]
         #     self.cscPassthrough = passthrough
 
-        print(f"[{self.name}] generated a random config with seed={seed}, passthrough={1}")
+        self.logger.info(f"generated a random config with seed={seed}, passthrough={1}")
         return seed
 
 
@@ -174,8 +178,8 @@ if __name__ == "__main__":
     elif args.interface == "dump":
         load_ok = config.dump(args.file)
     else:
-        print(f"unknown interface '{args.interface}'!")
+        config.logger.error(f"unknown interface '{args.interface}'!")
         load_ok = False
 
     check_ok = config.check()
-    print("load_ok: %s, check_ok: %s" % (load_ok, check_ok))
+    config.logger.info("load_ok: %s, check_ok: %s" % (load_ok, check_ok))

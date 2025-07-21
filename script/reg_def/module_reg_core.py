@@ -4,7 +4,7 @@ FilePath    : module_reg_core.py
 Description :
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-11
-LastEditTime: 2025-07-17
+LastEditTime: 2025-07-21
 """
 
 import re
@@ -93,11 +93,12 @@ class ModuleRegisterCore(ABC):
                 return False
             for i in range(len(self.regs)):
                 self.regs[i].value = data[i]
-            return self.dump()
+            return self.dump(**kwargs)
         elif filename.endswith(".json") and self.config is not None:
             ok = self.config.load(filename)
             ok |= self.config2regs()
-            ok |= self.dump()
+            # self.config.dump()
+            ok |= self.dump(**kwargs)
             return ok
         else:
             self.logger.error(f"{filename} is not supported!")

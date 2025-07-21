@@ -4,7 +4,7 @@ FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-11
+LastEditTime: 2025-07-21
 """
 
 import os
@@ -58,9 +58,9 @@ class CfaConfig(ModuleConfigCore):
     ## =============== overwrite methods  ===============
     def dump(self, filename=None) -> bool:
         if filename == None or filename == "":
-            print(f"[{self.name}] Config parameters shown below:")
+            self.logger.info(f"Config parameters shown below:")
             dumpdata = "".join([f"  - %s: %s\n" % item for item in self.__dict__.items()])
-            print(dumpdata)
+            self.logger.info(dumpdata)
             return True
 
         with open(filename, "w") as f:
@@ -110,10 +110,10 @@ class CfaConfig(ModuleConfigCore):
     def load(self, filename) -> bool:
         # check config file validity
         if not os.path.exists(filename):
-            print(f"[{self.name}] config file '{filename}' doesn't exist!")
+            self.logger.error(f"config file '{filename}' doesn't exist!")
             return False
         if not filename.endswith(".json"):
-            print(f"[{self.name}] config file '{filename}' is not a json file!")
+            self.logger.error(f"config file '{filename}' is not a json file!")
             return False
 
         try:
@@ -158,7 +158,7 @@ class CfaConfig(ModuleConfigCore):
                 self.randSeed = data["randSeed"]
                 return True
         except Exception as e:
-            print(f"[{self.name}] load config file '{filename}' failed: {e}")
+            self.logger.error(f"load config file '{filename}' failed: {e}")
             return False
 
     def check(self) -> bool:
@@ -233,8 +233,8 @@ if __name__ == "__main__":
     elif args.interface == "dump":
         load_ok = config.dump(args.file)
     else:
-        print(f"unknown interface '{args.interface}'!")
+        config.logger.error(f"unknown interface '{args.interface}'!")
         load_ok = False
 
     check_ok = config.check()
-    print("load_ok: %s, check_ok: %s" % (load_ok, check_ok))
+    config.logger.info("load_ok: %s, check_ok: %s" % (load_ok, check_ok))
