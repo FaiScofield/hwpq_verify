@@ -4,7 +4,7 @@ FilePath    : module_reg_csc.py
 Description :
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-17
-LastEditTime: 2025-07-21
+LastEditTime: 2025-07-22
 """
 
 import os
@@ -17,7 +17,6 @@ from enum import Enum
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from reg_def.module_reg_core import ModuleRegisterCore, Reg
 from config_def.module_config_csc import CscConfig
-from utils import setup_logger
 
 
 class CscModuleIndex(Enum):
@@ -164,9 +163,11 @@ class CscRegister(ModuleRegisterCore):
             return False
 
         self.regs = self.reg_dicts[self.index]  # [offset, value, name]
-        CM = np.uint16(0xFFFF) # coef mask = 0x3FF or 0xFFFF
+        CM = np.uint16(0xFFFF)  # coef mask = 0x3FF or 0xFFFF
+        self.config.cscMatrix = np.clip(self.config.cscMatrix, -(2**12), 2**12 - 1)  # s13
+        self.config.cscVector = np.clip(self.config.cscVector, -(2**22), 2**22 - 1)  # s23
         if self.index in g_csc_new_reg_arrange:
-            self.regs[0].value = 0x2 | ((self.config.cscMatrix[0, 0] & CM) << 16)
+            self.regs[0].value = 0x3 | ((self.config.cscMatrix[0, 0] & CM) << 16)
             self.regs[1].value = (self.config.cscMatrix[0, 1] & CM) | ((self.config.cscMatrix[0, 2] & CM) << 16)
             self.regs[2].value = (self.config.cscMatrix[1, 0] & CM) | ((self.config.cscMatrix[1, 1] & CM) << 16)
             self.regs[3].value = (self.config.cscMatrix[1, 2] & CM) | ((self.config.cscMatrix[2, 0] & CM) << 16)
@@ -183,8 +184,39 @@ class CscRegister(ModuleRegisterCore):
         return True
 
     def regs2config(self) -> bool:
-        # TODO
-        return False
+        if self.index not in self.reg_dicts:
+            self.logger.error(f"HW module {self.index} is invalid on {self.platform} now!")
+            return False
+
+        self.regs = self.reg_dicts[self.index]  # [offset, value, name]
+        CM = np.uint32(0xFFFF)  # coef mask = 0x3FF or 0xFFFF
+        if self.index in g_csc_new_reg_arrange:
+            self.config.cscEnable = (self.regs[0].value >> 1) & 0x1
+            self.config.cscMatrix[0, 0] = np.int16(np.uint16(self.regs[0].value >> 16) & CM)
+            self.config.cscMatrix[0, 1] = np.int16(np.uint16(self.regs[1].value & CM))
+            self.config.cscMatrix[0, 2] = np.int16(np.uint16(self.regs[1].value >> 16) & CM)
+            self.config.cscMatrix[1, 0] = np.int16(np.uint16(self.regs[2].value & CM))
+            self.config.cscMatrix[1, 1] = np.int16(np.uint16(self.regs[2].value >> 16) & CM)
+            self.config.cscMatrix[1, 2] = np.int16(np.uint16(self.regs[3].value & CM))
+            self.config.cscMatrix[2, 0] = np.int16(np.uint16(self.regs[3].value >> 16) & CM)
+            self.config.cscMatrix[2, 1] = np.int16(np.uint16(self.regs[4].value & CM))
+            self.config.cscMatrix[2, 2] = np.int16(np.uint16(self.regs[4].value >> 16) & CM)
+        else:
+            self.config.cscMatrix[0, 0] = np.int16(np.uint16(self.regs[0].value & CM))
+            self.config.cscMatrix[0, 1] = np.int16(np.uint16(self.regs[0].value >> 16) & CM)
+            self.config.cscMatrix[0, 2] = np.int16(np.uint16(self.regs[1].value & CM))
+            self.config.cscMatrix[1, 0] = np.int16(np.uint16(self.regs[1].value >> 16) & CM)
+            self.config.cscMatrix[1, 1] = np.int16(np.uint16(self.regs[2].value & CM))
+            self.config.cscMatrix[1, 2] = np.int16(np.uint16(self.regs[2].value >> 16) & CM)
+            self.config.cscMatrix[2, 0] = np.int16(np.uint16(self.regs[3].value & CM))
+            self.config.cscMatrix[2, 1] = np.int16(np.uint16(self.regs[3].value >> 16) & CM)
+            self.config.cscMatrix[2, 2] = np.int16(np.uint16(self.regs[4].value & CM))
+        self.config.cscVector[0] = self.regs[5].value
+        self.config.cscVector[1] = self.regs[6].value
+        self.config.cscVector[2] = self.regs[7].value
+        self.config.cscMatrix = np.clip(self.config.cscMatrix, -(2**12), 2**12 - 1)  # s13
+        self.config.cscVector = np.clip(self.config.cscVector, -(2**22), 2**22 - 1)  # s23
+        return True
 
 
 if __name__ == "__main__":

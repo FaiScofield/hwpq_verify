@@ -30,7 +30,7 @@ class ModuleHelperCore(ABC):
         self.name = name.upper()
         self.platform = platform.upper()
         self.parent = parent # 无上级窗口则为空
-        self.define_config_and_regs()  # 创建变量 self.config / self.config, 需要复写
+        self.define_config_and_regs()  # 创建变量 self.config / self.register, 需要复写
         self.modules = {}  # 子模块，空的，暂时仅供顶层使用
 
         ## 命令注册表: name, (handler, param_desc, description)
@@ -97,6 +97,8 @@ class ModuleHelperCore(ABC):
         if self.register is not None:
             self.register.config = self.config
             return self.register.config2regs()
+        else:
+            print(f"[{self.name}] self.register not defined!!!")
         return False
 
     # @abstractmethod
@@ -105,6 +107,8 @@ class ModuleHelperCore(ABC):
             ok = self.register.regs2config()
             self.config = self.register.config
             return ok
+        else:
+            print(f"[{self.name}] self.register not defined!!!")
         return False
 
     ## =============== 通用命令处理函数 ===============
@@ -142,7 +146,7 @@ class ModuleHelperCore(ABC):
                 try:
                     if target.endswith(".json"):
                         config.dump(target)
-                    elif target.endswith(".dat"):
+                    elif target.endswith(".dat") or target.endswith(".txt"):
                         regs.dump(target)
                     elif target.endswith(".bin"):
                         regs.dump(target, align=4)
@@ -210,12 +214,12 @@ class ModuleHelperCore(ABC):
             # 加载JSON配置文件
             self.config.load(filename)
             self.config_to_regs()
-        elif filename.endswith(".dat") or filename.endswith(".bin"):
+        elif filename.endswith(".dat") or filename.endswith(".txt") or filename.endswith(".bin"):
             # 加载.dat/.bin寄存器配置文件
-            self.reg.load(filename)
+            self.register.load(filename)
             self.regs_to_config()
         else:
-            print(f"[{self.name}] 错误: 不支持的文件类型: {filename}. 仅支持 .json/.dat/.bin")
+            print(f"[{self.name}] 错误: 不支持的文件类型: {filename}. 仅支持 .json/.dat/.txt/.bin")
 
         return False
 
@@ -240,13 +244,11 @@ class ModuleHelperCore(ABC):
 
     def do_reg(self, args) -> bool:
         """生成寄存器配置值"""
-        ok = self.config_to_regs()
-        if ok:
+        if self.config_to_regs():
             self.register.dump()
         else:
-            ok = False
             print(f"[{self.name}] 错误: 寄存器配置生成失败！")
-        return ok
+        return False
 
     def do_quit(self, args) -> bool:
         if self.parent:

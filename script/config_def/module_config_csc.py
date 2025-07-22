@@ -4,7 +4,7 @@ FilePath    : module_config_csc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-16
 Description :
-LastEditTime: 2025-07-21
+LastEditTime: 2025-07-22
 """
 
 import os
@@ -40,32 +40,32 @@ class CscConfig(ModuleConfigCore):
 
     ## =============== overwrite methods  ===============
     def dump(self, filename=None) -> bool:
+        data = {
+            "version": self.version,
+            "rand_seed": self.randSeed,
+            "cscEnable": self.cscEnable,
+            "cscCctCtrlEn": self.cscCctCtrlEn,
+            "cscBrightness": self.cscBrightness,
+            "cscHue": self.cscHue,
+            "cscContrast": self.cscContrast,
+            "cscSaturation": self.cscSaturation,
+            "cscRGain": self.cscRGain,
+            "cscGGain": self.cscGGain,
+            "cscBGain": self.cscBGain,
+            "cscROffset": self.cscROffset,
+            "cscGOffset": self.cscGOffset,
+            "cscBOffset": self.cscBOffset,
+            "cscMatrix": self.cscMatrix.flatten().tolist(),
+            "cscVector": self.cscVector.flatten().tolist(),
+            "cscPassthrough": self.cscPassthrough,
+        }
         if filename == None or filename == "":
             self.logger.info(f"Config parameters shown below:")
-            dumpdata = "".join([f"  - %s: %s\n" % item for item in self.__dict__.items()])
-            self.logger.info(dumpdata)
+            for k, v in data.items():
+                self.logger.info(f"  - {k}: {v}")
             return True
 
         with open(filename, "w") as f:
-            data = {
-                "version": self.version,
-                "rand_seed": self.randSeed,
-                "cscEnable": self.cscEnable,
-                "cscCctCtrlEn": self.cscCctCtrlEn,
-                "cscBrightness": self.cscBrightness,
-                "cscHue": self.cscHue,
-                "cscContrast": self.cscContrast,
-                "cscSaturation": self.cscSaturation,
-                "cscRGain": self.cscRGain,
-                "cscGGain": self.cscGGain,
-                "cscBGain": self.cscBGain,
-                "cscROffset": self.cscROffset,
-                "cscGOffset": self.cscGOffset,
-                "cscBOffset": self.cscBOffset,
-                "cscMatrix": self.cscMatrix.flatten().tolist(),
-                "cscVector": self.cscVector.flatten().tolist(),
-                "cscPassthrough": self.cscPassthrough,
-            }
             nest_data = {"pq_tuning_param": {"csc": data}}
             json.dump(nest_data, f, indent=4, ensure_ascii=False)
             self.logger.info(f"Config parameters saved to file '{filename}'")
@@ -143,9 +143,9 @@ class CscConfig(ModuleConfigCore):
         self.cscROffset = random.randint(0, 511)
         self.cscGOffset = random.randint(0, 511)
         self.cscBOffset = random.randint(0, 511)
-        self.cscMatrix = np.random.randint(-(2**15), 2**15 - 1, size=(3, 3), dtype=np.int16)  # s16
-        self.cscVector = np.random.randint(-(2**11), 2**11 - 1, size=3, dtype=np.int32)  # s32
-        self.cscVector = np.dot(self.cscMatrix, self.cscVector)  # s32
+        self.cscMatrix = np.random.randint(-(2**12), 2**12 - 1, size=(3, 3), dtype=np.int16)  # s13 in s16
+        self.cscVector = np.random.randint(-(2**10), 2**10 - 1, size=3, dtype=np.int32)  # s10
+        self.cscVector = np.dot(self.cscMatrix, self.cscVector)  # s13*s11->s23 in s32
         self.cscPassthrough = 1  # 100% use matrix & vector directly for now!
 
         ## check if passthrough mode

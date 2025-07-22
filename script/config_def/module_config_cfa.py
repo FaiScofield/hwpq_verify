@@ -4,7 +4,7 @@ FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-21
+LastEditTime: 2025-07-22
 """
 
 import os
@@ -57,51 +57,52 @@ class CfaConfig(ModuleConfigCore):
 
     ## =============== overwrite methods  ===============
     def dump(self, filename=None) -> bool:
+        data = {
+            "Version": self.version,
+            "nCallCnt": self.nCallCnt,
+            "nFrameIdx": self.nFrameIdx,
+            "nImgWid": self.nImgWid,
+            "nImgHgt": self.nImgHgt,
+            "nSrcWidStride": self.nSrcWidStride,
+            "nSrcHgtStride": self.nSrcHgtStride,
+            "nDstWidStride": self.nDstWidStride,
+            "nDstHgtStride": self.nDstHgtStride,
+            "nCurrC2pWidStride": self.nCurrC2pWidStride,
+            "nCurrC2pHgtStride": self.nCurrC2pHgtStride,
+            "ePlatform": self.ePlatform,
+            "eCfaPattern": self.eCfaPattern,
+            "eAlgoType": self.eAlgoType,
+            "eImgFormat": self.eImgFormat,
+            "eOutFormat": self.eOutFormat,
+            "eDisplayMode": self.eDisplayMode,
+            "nColorDepth": self.nColorDepth,
+            "nContrastGain": self.nContrastGain,
+            "nSaturationGain": self.nSaturationGain,
+            "nLuminanceGain": self.nLuminanceGain,
+            "nSharpenGain": self.nSharpenGain,
+            "nStretchBlack": self.nStretchBlack,
+            "nStretchWhite": self.nStretchWhite,
+            "bDither": self.bDither,
+            "bDeFalseColor4Gray": self.bDeFalseColor4Gray,
+            "bContrastEqual": self.bContrastEqual,
+            "bForceRunWithCpu": self.bForceRunWithCpu,
+            "nRegalType": self.nRegalType,
+            "nA2AlgoType": self.nA2AlgoType,
+            "nA2CompLevel": self.nA2CompLevel,
+            "bA2Modulate": self.bA2Modulate,
+            "bClearLow4bits": self.bClearLow4bits,
+            "randSeed": self.randSeed,
+            "sRoiInfo": self.sRoiInfo,
+            "aReserved": self.aReserved,
+        }
+
         if filename == None or filename == "":
             self.logger.info(f"Config parameters shown below:")
-            dumpdata = "".join([f"  - %s: %s\n" % item for item in self.__dict__.items()])
-            self.logger.info(dumpdata)
+            for k, v in data.items():
+                self.logger.info(f"  - {k}: {v}")
             return True
 
         with open(filename, "w") as f:
-            data = {
-                "Version": self.version,
-                "nCallCnt": self.nCallCnt,
-                "nFrameIdx": self.nFrameIdx,
-                "nImgWid": self.nImgWid,
-                "nImgHgt": self.nImgHgt,
-                "nSrcWidStride": self.nSrcWidStride,
-                "nSrcHgtStride": self.nSrcHgtStride,
-                "nDstWidStride": self.nDstWidStride,
-                "nDstHgtStride": self.nDstHgtStride,
-                "nCurrC2pWidStride": self.nCurrC2pWidStride,
-                "nCurrC2pHgtStride": self.nCurrC2pHgtStride,
-                "ePlatform": self.ePlatform,
-                "eCfaPattern": self.eCfaPattern,
-                "eAlgoType": self.eAlgoType,
-                "eImgFormat": self.eImgFormat,
-                "eOutFormat": self.eOutFormat,
-                "eDisplayMode": self.eDisplayMode,
-                "nColorDepth": self.nColorDepth,
-                "nContrastGain": self.nContrastGain,
-                "nSaturationGain": self.nSaturationGain,
-                "nLuminanceGain": self.nLuminanceGain,
-                "nSharpenGain": self.nSharpenGain,
-                "nStretchBlack": self.nStretchBlack,
-                "nStretchWhite": self.nStretchWhite,
-                "bDither": self.bDither,
-                "bDeFalseColor4Gray": self.bDeFalseColor4Gray,
-                "bContrastEqual": self.bContrastEqual,
-                "bForceRunWithCpu": self.bForceRunWithCpu,
-                "nRegalType": self.nRegalType,
-                "nA2AlgoType": self.nA2AlgoType,
-                "nA2CompLevel": self.nA2CompLevel,
-                "bA2Modulate": self.bA2Modulate,
-                "bClearLow4bits": self.bClearLow4bits,
-                "randSeed": self.randSeed,
-                "sRoiInfo": self.sRoiInfo,
-                "aReserved": self.aReserved,
-            }
             json.dump(data, f, indent=4, ensure_ascii=False)
             return True
 

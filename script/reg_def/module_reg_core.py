@@ -4,12 +4,15 @@ FilePath    : module_reg_core.py
 Description :
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-11
-LastEditTime: 2025-07-21
+LastEditTime: 2025-07-22
 """
-
+import os
+import sys
 import re
 import numpy as np
 from abc import ABC, abstractmethod
+
+sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from utils import setup_logger
 
 
@@ -71,7 +74,7 @@ class ModuleRegisterCore(ABC):
                 for _, line in enumerate(f):
                     pair = self.parse_str_regs_array(line)
                     if pair is not None:
-                        valid_regs_val_pairs.append(pair)
+                        valid_regs_val_pairs += pair
                     else:
                         continue
             for pos, val in valid_regs_val_pairs:

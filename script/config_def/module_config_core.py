@@ -4,10 +4,13 @@ FilePath    : module_config_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-21
+LastEditTime: 2025-07-22
 '''
-
+import os
+import sys
 from abc import ABC, abstractmethod
+
+sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from utils import setup_logger
 
 class ModuleConfigCore(ABC):

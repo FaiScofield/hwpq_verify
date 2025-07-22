@@ -4,7 +4,7 @@ FilePath    : module_config_sharp_lite.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-10
 Description :
-LastEditTime: 2025-07-10
+LastEditTime: 2025-07-22
 """
 
 import os
@@ -49,43 +49,43 @@ class SharpLiteConfig(ModuleConfigCore):
 
     ## =============== overwrite methods  ===============
     def dump(self, filename=None) -> bool:
+        data = {
+            "version": self.version,
+            "rand_seed": self.randSeed,
+            "i_sharp_lite_en": self.sharp_lite_en,
+            "f_usm_sigma_0": self.usm_sigma_0,
+            "f_usm_sigma_1": self.usm_sigma_1,
+            "f_usm_gain_0": self.usm_gain_0,
+            "f_usm_gain_1": self.usm_gain_1,
+            "f_usm_coring_thr": self.usm_coring_thr,
+            "i_shoot_ctrl_en": self.shoot_ctrl_en,
+            "i_shoot_ctrl_delta_offset": self.shoot_ctrl_delta_offset,
+            "i_shoot_ctrl_pos": self.shoot_ctrl_pos,
+            "i_shoot_ctrl_neg": self.shoot_ctrl_neg,
+            "i_shoot_ctrl_pos_unlimit": self.shoot_ctrl_pos_unlimit,
+            "i_shoot_ctrl_neg_unlimit": self.shoot_ctrl_neg_unlimit,
+            "i_sharp_roi_enable": self.sharp_roi_enable,
+            "i_sharp_roi_xstart": self.sharp_roi_xstart,
+            "i_sharp_roi_xend": self.sharp_roi_xend,
+            "i_sharp_roi_ystart": self.sharp_roi_ystart,
+            "i_sharp_roi_yend": self.sharp_roi_yend,
+            "i_sharp_force_core_mode": self.sharp_force_core_mode,
+            "i_sharp_core_A": self.sharp_core_A,
+            "i_sharp_core_B": self.sharp_core_B,
+            "i_sharp_core_C": self.sharp_core_C,
+            "i_sharp_usm_gain": self.sharp_usm_gain,
+            "i_ink_enable": self.ink_enable,
+            "i_ink_mode": self.ink_mode,
+            "i_ink_idx_h": self.ink_idx_h,
+            "i_ink_idx_v": self.ink_idx_v,
+        }
         if filename == None or filename == "":
             self.logger.info(f"Config parameters shown below:")
-            dumpdata = "".join([f"  - %s: %s\n" % item for item in self.__dict__.items()])
-            self.logger.info(dumpdata)
+            for k, v in data.items():
+                self.logger.info(f"  - {k}: {v}")
             return True
 
         with open(filename, "w") as f:
-            data = {
-                "version": self.version,
-                "rand_seed": self.randSeed,
-                "i_sharp_lite_en": self.sharp_lite_en,
-                "f_usm_sigma_0": self.usm_sigma_0,
-                "f_usm_sigma_1": self.usm_sigma_1,
-                "f_usm_gain_0": self.usm_gain_0,
-                "f_usm_gain_1": self.usm_gain_1,
-                "f_usm_coring_thr": self.usm_coring_thr,
-                "i_shoot_ctrl_en": self.shoot_ctrl_en,
-                "i_shoot_ctrl_delta_offset": self.shoot_ctrl_delta_offset,
-                "i_shoot_ctrl_pos": self.shoot_ctrl_pos,
-                "i_shoot_ctrl_neg": self.shoot_ctrl_neg,
-                "i_shoot_ctrl_pos_unlimit": self.shoot_ctrl_pos_unlimit,
-                "i_shoot_ctrl_neg_unlimit": self.shoot_ctrl_neg_unlimit,
-                "i_sharp_roi_enable": self.sharp_roi_enable,
-                "i_sharp_roi_xstart": self.sharp_roi_xstart,
-                "i_sharp_roi_xend": self.sharp_roi_xend,
-                "i_sharp_roi_ystart": self.sharp_roi_ystart,
-                "i_sharp_roi_yend": self.sharp_roi_yend,
-                "i_sharp_force_core_mode": self.sharp_force_core_mode,
-                "i_sharp_core_A": self.sharp_core_A,
-                "i_sharp_core_B": self.sharp_core_B,
-                "i_sharp_core_C": self.sharp_core_C,
-                "i_sharp_usm_gain": self.sharp_usm_gain,
-                "i_ink_enable": self.ink_enable,
-                "i_ink_mode": self.ink_mode,
-                "i_ink_idx_h": self.ink_idx_h,
-                "i_ink_idx_v": self.ink_idx_v,
-            }
             nest_data = {"pq_tuning_param": {"SHARPNESS_lite": data}}
             json.dump(nest_data, f, indent=4, ensure_ascii=False)
             return True
@@ -172,7 +172,7 @@ class SharpLiteConfig(ModuleConfigCore):
         self.sharp_roi_xend = random.randint(4, 1200)
         self.sharp_roi_ystart = random.randint(0, 600)
         self.sharp_roi_yend = random.randint(4, 800)
-        self.sharp_force_core_mode = random.randint(0, 1) # %50 be ON
+        self.sharp_force_core_mode = random.randint(0, 1)  # %50 be ON
         self.sharp_core_A = random.randint(-128, 127)
         self.sharp_core_B = random.randint(-128, 127)
         self.sharp_core_C = random.randint(-128, 127)

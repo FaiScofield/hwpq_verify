@@ -7,10 +7,7 @@ Description :
 LastEditTime: 2025-07-11
 '''
 
-from cli_helper.cli_helper_core import *
-from cli_helper.cli_helper_sharp import *
-from cli_helper.cli_helper_acm import *
-from cli_helper.cli_helper_cfa import *
+from cli_helper import *
 from typing import Any
 
 
@@ -23,6 +20,7 @@ class MainApp(ModuleHelperCore):
             "sharp": SharpHelper("sharp", platform, self),
             "acm": AcmHelper("acm", platform, self),
             # "dci": DciHelper("dci", platform, self),
+            "csc": CscHelper("csc", platform, self),
             "cfa": CfaHelper("cfa", platform, self),
         }
 
@@ -96,8 +94,7 @@ class MainApp(ModuleHelperCore):
         return None
 
     def do_csc(self, args) -> str:
-        print(f"[{self.name}] TODO: CSC 模块暂未支持")
-        return None
+        return self.modules['csc'].run()
 
     def do_cfa(self, args) -> str:
         return self.modules['cfa'].run()
