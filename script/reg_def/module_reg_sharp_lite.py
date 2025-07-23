@@ -107,6 +107,7 @@ class SharpLiteRegister(ModuleRegisterCore):
         )
         self.set(name="SHOOT_CTRL_REG0", value=(cfg.shoot_ctrl_delta_offset & 0xFF))
         self.set(
+
             name="SHOOT_CTRL_REG1", value=(cfg.shoot_ctrl_pos & 0x7F) | ((cfg.shoot_ctrl_pos_unlimit & 0x7F) << 16)
         )
         self.set(
@@ -127,9 +128,10 @@ class SharpLiteRegister(ModuleRegisterCore):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/config2regs/regs2config")
+    parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen/config2regs/regs2config")
     parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
+    parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
     parser.print_usage()
     args = parser.parse_args()
 
@@ -141,6 +143,9 @@ if __name__ == "__main__":
     if args.interface == "load":
         register.load(args.file)
     elif args.interface == "dump":
+        register.dump(args.file)
+    elif args.interface == "gen":
+        register.gen(args.seed)
         register.dump(args.file)
     else:
         print(f"interface {args.interface} is not supported!")

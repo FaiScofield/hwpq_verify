@@ -96,17 +96,33 @@ class ModuleRegisterCore(ABC):
                 return False
             for i in range(len(self.regs)):
                 self.regs[i].value = data[i]
+            # if self.config is not None:
+            #     self.regs2config()
+            #     self.config.dump()
             return self.dump(**kwargs)
-        elif filename.endswith(".json") and self.config is not None:
-            ok = self.config.load(filename)
-            ok |= self.config2regs()
-            # self.config.dump()
-            ok |= self.dump(**kwargs)
-            return ok
+        elif filename.endswith(".json"):
+            if self.config is not None:
+                ok = self.config.load(filename)
+                ok |= self.config2regs()
+                # self.config.dump()
+                ok |= self.dump(**kwargs)
+                return ok
+            else:
+                self.logger.error(f"{filename} is not supported since the config handler is not set!")
         else:
             self.logger.error(f"{filename} is not supported!")
 
         return False
+
+    def gen(self, seed=114514, **kwargs) -> bool:
+        if self.config is not None:
+            ok = self.config.gen(seed, **kwargs)
+            # self.config.dump()
+            ok |= self.config2regs()
+            return ok
+        else:
+            self.logger.error(f"failed to run gen(), since the config handler is not set!")
+            return False
 
     @abstractmethod
     def update(self, **kwargs) -> bool:

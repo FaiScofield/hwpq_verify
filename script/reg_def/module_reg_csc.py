@@ -221,9 +221,10 @@ class CscRegister(ModuleRegisterCore):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load")
+    parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen/config2regs/regs2config")
     parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
+    parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
     parser.add_argument(
         "-m",
         "--module",
@@ -255,6 +256,9 @@ if __name__ == "__main__":
         register.load(args.file, index=args.module)
     elif args.interface == "dump":
         register.dump(args.file, index=args.module)
+    elif args.interface == "gen":
+        register.gen(args.seed)
+        register.dump(args.file)
     else:
         register.logger.error(f"interface {args.interface} is not supported!")
         args.print_help()

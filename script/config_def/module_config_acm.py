@@ -60,7 +60,7 @@ class AcmConfig(ModuleConfigCore):
         if filename == None or filename == "":
             self.logger.info(f"Config parameters shown below:")
             for k, v in data.items():
-                self.logger.info(f"  - {k}: {v}")
+                self.pretty_print_dict(k, v)
             return True
 
         with open(filename, "w") as f:

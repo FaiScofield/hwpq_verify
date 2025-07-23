@@ -13,6 +13,7 @@ from abc import ABC, abstractmethod
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from utils import setup_logger
 
+
 class ModuleConfigCore(ABC):
     def __init__(self, name: str, version: str = 'unknown'):
         self.name = name.upper()
@@ -40,3 +41,12 @@ class ModuleConfigCore(ABC):
 
     def get_seed(self) -> int:
         return self.randSeed
+
+    def pretty_print_dict(self, key, val, indent=2):
+        if isinstance(val, dict):
+            self.logger.info(" " * indent + "- %s: {" % key)
+            for k, v in val.items():
+                self.pretty_print_dict(k, v, indent + 2)
+            self.logger.info(" " * indent + "} #%s" % key)
+        else:
+            self.logger.info(" " * indent + f"- {key}: {val}")

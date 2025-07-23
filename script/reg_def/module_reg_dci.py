@@ -1,0 +1,237 @@
+"""
+Copyright   : Copyright (c) 2025 by Rockchip. All right reserved.
+FilePath    : reg_def_dci.py
+Author      : vance.wu@rock-chips.com
+Date        : 2025-07-23
+Description :
+LastEditTime: 2025-07-23
+"""
+import os
+import sys
+import argparse
+
+sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
+from reg_def import *
+from config_def import *
+
+
+class DciRegister(ModuleRegisterCore):
+    def __init__(self, name: str = "DCI", platform: str = 'RK3572'):
+        super().__init__(name, platform)
+
+        self.config = DciConfig(self.name)
+        self.base_addr = 0x0
+        self.update(platform=platform)
+
+    ## =============== overwrite methods  ===============
+    def update(self, **kwargs) -> bool:
+        if self.platform.lower() == "rk3572":
+            self.base_addr = 0xF9000000
+            self.nb_regs = 6 + 1408  # 1408 = 5632 / 4
+            self.regs = [
+                Reg(0x00001104, 0x0, "DCI_BLK_SIZE"),
+                Reg(0x00001108, 0x0, "DCI_BLK_OFFSET"),
+                Reg(0x0000110C, 0x0, "DCI_PIX_REGION"),
+                Reg(0x00001110, 0x0, "DCI_LUMA_SAT_ADJ_0"),
+                Reg(0x00001114, 0x0, "DCI_LUMA_SAT_ADJ_1"),
+                Reg(0x00001118, 0x0, "DCI_CTRL"),
+                # Reg(0x0000111C, 0x0, "DCI_LUT_MST"),
+            ]
+            self.regs += [
+                Reg(addr, 0x0, f"DCI_LUT_DATA{idx}") for addr, idx in zip(range(0x0001124, 0x00002724, 4), range(1408))
+            ]
+            self.packed_lut = np.zeros(5632, dtype=np.uint8)
+            assert len(self.regs) == self.nb_regs
+            return True
+        else:
+            self.logger.error(f"Platform {self.platform} is not supported now!")
+        return False
+
+    # def gen(self, seed=114514, **kwargs) -> bool:
+    #     if
+    #     self.packed_lut = np.random.randint(0, 256, 5632, dtype=np.uint8)
+    #     return True
+
+    def config2regs(self) -> bool:
+        if len(self.regs) < self.nb_regs:
+            self.logger.error(f"current registers num={len(self.regs)} is not equal to required={self.nb_regs}!")
+            return False
+        cfg = self.config
+        self.set(name="DCI_BLK_SIZE", value=(cfg.hw_act_blk_size_h & 0x1FF) | ((cfg.hw_act_blk_size_v & 0x1FF) << 16))
+        self.set(
+            name="DCI_BLK_OFFSET",
+            value=(cfg.hw_act_start_h_offset & 0x1FF) | ((cfg.hw_act_start_v_offset & 0x1FF) << 16),
+        )
+        self.set(
+            name="DCI_PIX_REGION",
+            value=(cfg.hw_blk_size_fix & 0xFFFFF)
+            | ((cfg.hw_act_start_h_idx & 0x1F) << 20)
+            | ((cfg.hw_act_start_v_idx & 0x1F) << 26),
+        )
+        self.set(
+            name="DCI_LUMA_SAT_ADJ_0",
+            value=(cfg.hw_luma_sat_adj_zero & 0xFFFF) | ((cfg.hw_luma_sat_adj_thrd & 0xFFFF) << 16),
+        )
+        self.set(name="DCI_LUMA_SAT_ADJ_1", value=(cfg.hw_luma_sat_adj_k & 0xFFFF) | ((cfg.hw_sat_w & 0x7F) << 16))
+        self.set(name="DCI_CTRL", value=(cfg.hw_dci_enable & 0x1) | ((cfg.hw_ca_enable & 0x1) << 1) | (1 << 2))
+        # self.set(name="DCI_LUT_MST", value=0x0)
+
+        self.packed_lut = self.pack_lut(cfg.hw_dci_global_lut, cfg.hw_dci_locat_ratio, cfg.hw_dci_local_lut)
+        for i in range(1408):
+            self.set(
+                name=f"DCI_LUT_DATA{i}",
+                value=self.packed_lut[i * 4 + 0]
+                | (self.packed_lut[i * 4 + 1] << 8)
+                | (self.packed_lut[i * 4 + 2] << 16)
+                | (self.packed_lut[i * 4 + 3] << 24),
+            )
+        return True
+
+    def regs2config(self) -> bool:
+        val = self.get(name="DCI_BLK_SIZE")
+        self.config.hw_act_blk_size_h = (val >> 0) & 0x1FF
+        self.config.hw_act_blk_size_v = (val >> 16) & 0x1FF
+        val = self.get(name="DCI_BLK_OFFSET")
+        self.config.hw_act_start_h_offset = (val >> 0) & 0x1FF
+        self.config.hw_act_start_v_offset = (val >> 16) & 0x1FF
+        val = self.get(name="DCI_PIX_REGION")
+        self.config.hw_blk_size_fix = (val >> 0) & 0xFFFFF
+        self.config.hw_act_start_h_idx = (val >> 20) & 0x1F
+        self.config.hw_act_start_v_idx = (val >> 26) & 0x1F
+        val = self.get(name="DCI_LUMA_SAT_ADJ_0")
+        self.config.hw_luma_sat_adj_zero = (val >> 0) & 0xFFFF
+        self.config.hw_luma_sat_adj_thrd = (val >> 16) & 0xFFFF
+        val = self.get(name="DCI_LUMA_SAT_ADJ_1")
+        self.config.hw_luma_sat_adj_k = (val >> 0) & 0xFFFF
+        self.config.hw_sat_w = (val >> 16) & 0x7F
+        val = self.get(name="DCI_CTRL")
+        self.config.hw_dci_enable = (val >> 0) & 0x1
+        self.config.hw_ca_enable = (val >> 1) & 0x1
+
+        ## get self.packed_lut then unpack it to global_lut_x256, locat_ratio_x256, local_lut_x4096
+        for i in range(1408):
+            val = self.get(name=f"DCI_LUT_DATA{i}")
+            self.packed_lut[i * 4 + 0] = (val >> 0) & 0xFF
+            self.packed_lut[i * 4 + 1] = (val >> 8) & 0xFF
+            self.packed_lut[i * 4 + 2] = (val >> 16) & 0xFF
+            self.packed_lut[i * 4 + 3] = (val >> 24) & 0xFF
+
+        self.config.hw_dci_global_lut, self.config.hw_dci_locat_ratio, self.config.hw_dci_local_lut = self.unpack_lut(
+            self.packed_lut
+        )
+        return False
+
+    def pack_lut(
+        self, global_lut_x256: np.ndarray, locat_ratio_x256: np.ndarray, local_lut_x4096: np.ndarray
+    ) -> np.ndarray:
+        packed_lut = np.zeros(5632, np.uint8)
+        idx = 0
+        for i in range(len(global_lut_x256) // 4):  # u10_x256 => u8_x320
+            tmp0_u10 = global_lut_x256[i * 4 + 0]
+            tmp1_u10 = global_lut_x256[i * 4 + 1]
+            tmp2_u10 = global_lut_x256[i * 4 + 2]
+            tmp3_u10 = global_lut_x256[i * 4 + 3]
+            packed_lut[idx + 0] = tmp0_u10 & ((1 << 8) - 1)
+            packed_lut[idx + 1] = ((tmp1_u10 & ((1 << 6) - 1)) << 2) + (tmp0_u10 >> 8)
+            packed_lut[idx + 2] = ((tmp2_u10 & ((1 << 4) - 1)) << 4) + (tmp1_u10 >> 6)
+            packed_lut[idx + 3] = ((tmp3_u10 & ((1 << 2) - 1)) << 6) + (tmp2_u10 >> 4)
+            packed_lut[idx + 4] = tmp3_u10 >> 2
+            idx += 5
+        assert idx == 320
+
+        for i in range(len(locat_ratio_x256) // 4):  # u6_x256 => u8_x192
+            tmp0_u6 = locat_ratio_x256[4 * i + 0]
+            tmp1_u6 = locat_ratio_x256[4 * i + 1]
+            tmp2_u6 = locat_ratio_x256[4 * i + 2]
+            tmp3_u6 = locat_ratio_x256[4 * i + 3]
+            packed_lut[idx + 0] = ((tmp1_u6 & ((1 << 2) - 1)) << 6) + (tmp0_u6 >> 0)
+            packed_lut[idx + 1] = ((tmp2_u6 & ((1 << 4) - 1)) << 4) + (tmp1_u6 >> 2)
+            packed_lut[idx + 2] = ((tmp3_u6 & ((1 << 6) - 1)) << 2) + (tmp2_u6 >> 4)
+            idx += 3
+        assert idx == 320 + 192
+
+        for i in range(len(local_lut_x4096) // 4):  # u10_x4096 => u8_x5120
+            tmp0_u10 = local_lut_x4096[4 * i + 0]
+            tmp1_u10 = local_lut_x4096[4 * i + 1]
+            tmp2_u10 = local_lut_x4096[4 * i + 2]
+            tmp3_u10 = local_lut_x4096[4 * i + 3]
+            packed_lut[idx + 0] = tmp0_u10 & ((1 << 8) - 1)
+            packed_lut[idx + 1] = ((tmp1_u10 & ((1 << 6) - 1)) << 2) + (tmp0_u10 >> 8)
+            packed_lut[idx + 2] = ((tmp2_u10 & ((1 << 4) - 1)) << 4) + (tmp1_u10 >> 6)
+            packed_lut[idx + 3] = ((tmp3_u10 & ((1 << 2) - 1)) << 6) + (tmp2_u10 >> 4)
+            packed_lut[idx + 4] = tmp3_u10 >> 2
+            idx += 5
+        assert idx == 5632
+        return packed_lut
+
+    def unpack_lut(self, packed_lut: np.ndarray) -> tuple:
+        global_lut_x256 = np.zeros(256, dtype=np.uint16)
+        locat_ratio_x256 = np.zeros(256, dtype=np.uint8)
+        local_lut_x4096 = np.zeros(4096, dtype=np.uint16)
+
+        idx = 0
+        for i in range(64):  # 256/4=64
+            byte0 = packed_lut[idx + 0]
+            byte1 = packed_lut[idx + 1]
+            byte2 = packed_lut[idx + 2]
+            byte3 = packed_lut[idx + 3]
+            byte4 = packed_lut[idx + 4]
+            global_lut_x256[4 * i + 0] = (byte0 & 0xFF) | ((byte1 & 0x03) << 8)
+            global_lut_x256[4 * i + 1] = ((byte1 >> 2) & 0x3F) | ((byte2 & 0x0F) << 6)
+            global_lut_x256[4 * i + 2] = ((byte2 >> 4) & 0x0F) | ((byte3 & 0x3F) << 4)
+            global_lut_x256[4 * i + 3] = ((byte3 >> 6) & 0x03) | (byte4 << 2)
+            idx += 5
+        assert idx == 320
+
+        for i in range(64):  # 256/4=64
+            byte0 = packed_lut[idx + 0]
+            byte1 = packed_lut[idx + 1]
+            byte2 = packed_lut[idx + 2]
+            locat_ratio_x256[4 * i + 0] = byte0 & 0x3F
+            locat_ratio_x256[4 * i + 1] = ((byte0 >> 6) & 0x03) | ((byte1 & 0x0F) << 2)
+            locat_ratio_x256[4 * i + 2] = ((byte1 >> 4) & 0x0F) | ((byte2 & 0x03) << 4)
+            locat_ratio_x256[4 * i + 3] = (byte2 >> 2) & 0x3F
+            idx += 3
+        assert idx == 320 + 192
+
+        for i in range(1024):  # 4096/4=1024
+            byte0 = packed_lut[idx + 0]
+            byte1 = packed_lut[idx + 1]
+            byte2 = packed_lut[idx + 2]
+            byte3 = packed_lut[idx + 3]
+            byte4 = packed_lut[idx + 4]
+            local_lut_x4096[4 * i + 0] = (byte0 & 0xFF) | ((byte1 & 0x03) << 8)
+            local_lut_x4096[4 * i + 1] = ((byte1 >> 2) & 0x3F) | ((byte2 & 0x0F) << 6)
+            local_lut_x4096[4 * i + 2] = ((byte2 >> 4) & 0x0F) | ((byte3 & 0x3F) << 4)
+            local_lut_x4096[4 * i + 3] = ((byte3 >> 6) & 0x03) | (byte4 << 2)
+            idx += 5
+        assert idx == 5632
+        return global_lut_x256, locat_ratio_x256, local_lut_x4096
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen/config2regs/regs2config"
+    )
+    parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
+    parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
+    parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
+    parser.print_usage()
+    args = parser.parse_args()
+
+    register = DciRegister()
+    register.set(name="ENABLE_CTRL", value=0x1)
+    register.set(name="USM_CTRL", value=0x300)
+    register.set(name="USM_COEF", value=0x10 | (0x20 << 8) | (0x30 << 16))
+
+    if args.interface == "load":
+        register.load(args.file)
+    elif args.interface == "dump":
+        register.dump(args.file)
+    elif args.interface == "gen":
+        register.gen(args.seed)
+        register.dump(args.file)
+    else:
+        print(f"interface {args.interface} is not supported!")
+        args.print_help()
