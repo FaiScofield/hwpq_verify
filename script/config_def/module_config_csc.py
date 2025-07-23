@@ -37,6 +37,7 @@ class CscConfig(ModuleConfigCore):
         self.cscBOffset = 256
         self.cscMatrix = np.identity(3, dtype=np.int16) * 1024
         self.cscVector = np.zeros(3, dtype=np.int32)
+        self.cscVecB4Mul = np.zeros(3, dtype=np.int32)
         self.cscPassthrough = 0  # use matrix & vector directly
 
     ## =============== overwrite methods  ===============
@@ -58,6 +59,7 @@ class CscConfig(ModuleConfigCore):
             "cscBOffset": self.cscBOffset,
             "cscMatrix": self.cscMatrix.flatten().tolist(),
             "cscVector": self.cscVector.flatten().tolist(),
+            "cscVecB4Mul": self.cscVecB4Mul.flatten().tolist(),
             "cscPassthrough": self.cscPassthrough,
         }
         if filename == None or filename == "":
@@ -114,6 +116,9 @@ class CscConfig(ModuleConfigCore):
                 self.cscVector = (
                     np.array(data["cscVector"], dtype=np.int32) if "cscVector" in data else np.zeros(3, dtype=np.int32)
                 )
+                self.cscVecB4Mul = (
+                    np.array(data["cscVecB4Mul"], dtype=np.int32) if "cscVecB4Mul" in data else np.zeros(3, dtype=np.int32)
+                )
                 self.cscPassthrough = data["cscPassthrough"] if "cscPassthrough" in data else 0
                 self.version = data["version"] if "version" in data else "unknown"
                 self.randSeed = data["rand_seed"] if "rand_seed" in data else -1
@@ -134,6 +139,9 @@ class CscConfig(ModuleConfigCore):
         random.seed(seed)
         np.random.seed(seed)
 
+        ## parse other arguments
+        precision = kwargs["precision"] if "precision" in kwargs else 10
+
         self.randSeed = seed
         self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
 
@@ -149,9 +157,18 @@ class CscConfig(ModuleConfigCore):
         self.cscROffset = random.randint(0, 511)
         self.cscGOffset = random.randint(0, 511)
         self.cscBOffset = random.randint(0, 511)
-        self.cscMatrix = np.random.randint(-(2**12), 2**12 - 1, size=(3, 3), dtype=np.int16)  # s13 in s16
-        self.cscVector = np.random.randint(-(2**10), 2**10 - 1, size=3, dtype=np.int32)  # s10
-        self.cscVector = np.dot(self.cscMatrix, self.cscVector)  # s13*s11->s23 in s32
+        if precision == 13:
+            self.cscMatrix = np.random.randint(-(2**13), 2**13 - 1, size=(3, 3), dtype=np.int16)  # s13 in s16
+            self.cscVecB4Mul = np.random.randint(-(2**8*3), 2**8*3, size=3, dtype=np.int32)  # s10
+        elif precision == 10:
+            # self.cscMatrix = np.random.randint(-(2**11), 2**11 - 1, size=(3, 3), dtype=np.int16)  # s13 in s16
+            # self.cscVecB4Mul = np.random.randint(-(2**8*3), 2**8*3, size=3, dtype=np.int32)  # s10
+            self.cscMatrix = np.random.randint(-2200, 2200, size=(3, 3), dtype=np.int16)  # s13 in s16
+            self.cscVecB4Mul = np.random.randint(-512, 512, size=3, dtype=np.int32)  # s10
+        else:
+            self.logger.error(f"unsupported precision '{precision}'!")
+            return -1
+        self.cscVector = np.dot(self.cscMatrix, self.cscVecB4Mul)  # s13*s11->s23 in s32
         self.cscPassthrough = 1  # 100% use matrix & vector directly for now!
 
         ## check if passthrough mode.

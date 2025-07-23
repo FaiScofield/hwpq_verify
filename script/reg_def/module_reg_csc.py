@@ -58,6 +58,10 @@ class CscRegister(ModuleRegisterCore):
             CscModuleIndex.POST0_ACM_Y2R: [],
             CscModuleIndex.POST1_BCSH_Y2R: [],
             CscModuleIndex.CLUSTER0_DCI_CSC: [],
+            # CscModuleIndex.CLUSTER0_WIN0_CSC: [],
+            # CscModuleIndex.CLUSTER0_WIN1_CSC: [],
+            # CscModuleIndex.CLUSTER1_WIN0_CSC: [],
+            # CscModuleIndex.CLUSTER1_WIN1_CSC: [],
         }
         self.base_addr = 0x0
         self.update(platform=platform, index=index)
@@ -157,6 +161,19 @@ class CscRegister(ModuleRegisterCore):
         self.logger.info(f"loading {self.platform} - {index.name} registers from {filename} ...")
         return super().load(filename, **kwargs)
 
+    def gen(self, seed=114514, **kwargs) -> bool:
+        if self.index in [
+            CscModuleIndex.CLUSTER0_DCI_CSC,
+            CscModuleIndex.CLUSTER0_WIN0_CSC,
+            CscModuleIndex.CLUSTER0_WIN1_CSC,
+            CscModuleIndex.CLUSTER1_WIN0_CSC,
+            CscModuleIndex.CLUSTER1_WIN1_CSC,
+        ]:
+            precision = 13
+        else:
+            precision = 10
+        return super().gen(seed, precision=precision, **kwargs)
+
     def config2regs(self) -> bool:
         if self.index not in self.reg_dicts:
             self.logger.error(f"HW module {self.index} is invalid on {self.platform} now!")
@@ -221,7 +238,9 @@ class CscRegister(ModuleRegisterCore):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen/config2regs/regs2config")
+    parser.add_argument(
+        "-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen/config2regs/regs2config"
+    )
     parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
     parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
