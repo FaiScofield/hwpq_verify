@@ -4,7 +4,7 @@ FilePath    : module_config_csc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-16
 Description :
-LastEditTime: 2025-07-22
+LastEditTime: 2025-07-23
 """
 
 import os
@@ -16,6 +16,7 @@ import numpy as np
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import *
+from utils import NoIndent, CompactArrayEncoder
 
 
 class CscConfig(ModuleConfigCore):
@@ -34,7 +35,7 @@ class CscConfig(ModuleConfigCore):
         self.cscROffset = 256
         self.cscGOffset = 256
         self.cscBOffset = 256
-        self.cscMatrix = np.identity(3, dtype=np.int16)
+        self.cscMatrix = np.identity(3, dtype=np.int16) * 1024
         self.cscVector = np.zeros(3, dtype=np.int32)
         self.cscPassthrough = 0  # use matrix & vector directly
 
@@ -66,8 +67,13 @@ class CscConfig(ModuleConfigCore):
             return True
 
         with open(filename, "w") as f:
+            ## keep list data in one line by using NoIndent & CompactArrayEncoder
+            for k, v in data.items():
+                if k in ["cscMatrix", "cscVector"]:
+                    data[k] = NoIndent(v)
             nest_data = {"pq_tuning_param": {"csc": data}}
-            json.dump(nest_data, f, indent=4, ensure_ascii=False)
+            json_data = json.dumps(nest_data, indent=4, ensure_ascii=False, cls=CompactArrayEncoder)
+            f.write(json_data)
             self.logger.info(f"Config parameters saved to file '{filename}'")
             return True
 
@@ -148,7 +154,7 @@ class CscConfig(ModuleConfigCore):
         self.cscVector = np.dot(self.cscMatrix, self.cscVector)  # s13*s11->s23 in s32
         self.cscPassthrough = 1  # 100% use matrix & vector directly for now!
 
-        ## check if passthrough mode
+        ## check if passthrough mode.
         # passthrough = None
         # if "passthrough" in kwargs:
         #     passthrough = kwargs["passthrough"]
@@ -164,6 +170,7 @@ if __name__ == "__main__":
     parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
     parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
+    parser.add_argument("-ps", "--passthrough", action="store_true", help="设置相关参数直通寄存器")
     parser.print_usage()
     args = parser.parse_args()
 

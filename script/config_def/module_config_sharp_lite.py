@@ -4,7 +4,7 @@ FilePath    : module_config_sharp_lite.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-10
 Description :
-LastEditTime: 2025-07-22
+LastEditTime: 2025-07-23
 """
 
 import os
@@ -205,7 +205,7 @@ if __name__ == "__main__":
     parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
     parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
-    parser.add_argument("-s", "--passthrough", type=bool, default=True, help="设置寄存器直通")
+    parser.add_argument("-ps", "--passthrough", action="store_true", help="设置相关参数直通寄存器")
     parser.print_usage()
     args = parser.parse_args()
 

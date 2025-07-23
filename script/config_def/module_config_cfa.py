@@ -4,7 +4,7 @@ FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-22
+LastEditTime: 2025-07-23
 """
 
 import os
@@ -15,6 +15,7 @@ import argparse
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import *
+from utils import NoIndent, CompactArrayEncoder
 
 
 class CfaConfig(ModuleConfigCore):
@@ -103,7 +104,12 @@ class CfaConfig(ModuleConfigCore):
             return True
 
         with open(filename, "w") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
+            ## keep list data in one line by using NoIndent & CompactArrayEncoder
+            for k, v in data.items():
+                if k in ["sRoiInfo", "aReserved"]:
+                    data[k] = NoIndent(v)
+            json_data = json.dumps(data, indent=4, ensure_ascii=False, cls=CompactArrayEncoder)
+            f.write(json_data)
             return True
 
         return False
@@ -156,7 +162,7 @@ class CfaConfig(ModuleConfigCore):
                 self.bClearLow4bits = data["bClearLow4bits"]
                 self.sRoiInfo = data["sRoiInfo"]
                 self.aReserved = data["aReserved"]
-                self.randSeed = data["randSeed"]
+                self.randSeed = data["randSeed"] if "randSeed" in data else -1
                 return True
         except Exception as e:
             self.logger.error(f"load config file '{filename}' failed: {e}")
