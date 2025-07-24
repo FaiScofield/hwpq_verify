@@ -4,7 +4,7 @@ FilePath    : reg_def_dci.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-23
+LastEditTime: 2025-07-24
 """
 import os
 import sys
@@ -15,20 +15,47 @@ from reg_def import *
 from config_def import *
 
 
+class DciModuleIndex(Enum):
+    """enum = (name, ip_address, offset, nb_regs)"""
+
+    VDPP_VEP = ("VDPP_VEP", 0x0, 0x00001004, 7)
+    VOP_CLUSTER0 = ("VOP_CLUSTER0", 0xF90000000, 0x00001104, 6 + 1408)  # 1408=5632/4
+
+
 class DciRegister(ModuleRegisterCore):
-    def __init__(self, name: str = "DCI", platform: str = 'RK3572'):
+    def __init__(
+        self, name: str = "DCI", platform: str = 'RK3572', index: DciModuleIndex = DciModuleIndex.VOP_CLUSTER0
+    ):
         super().__init__(name, platform)
 
+        self.index = index
         self.config = DciConfig(self.name)
+        self.reg_dicts = {DciModuleIndex.VDPP_VEP: [], DciModuleIndex.VOP_CLUSTER0: []}  # DciModuleIndex : list[Reg]
         self.base_addr = 0x0
         self.update(platform=platform)
 
     ## =============== overwrite methods  ===============
     def update(self, **kwargs) -> bool:
+        if "platform" in kwargs:
+            self.platform = kwargs["platform"]
+        if "index" in kwargs:
+            index = kwargs["index"]
+            self.index = index if isinstance(index, DciModuleIndex) else DciModuleIndex[index]
+
         if self.platform.lower() == "rk3572":
-            self.base_addr = 0xF9000000
-            self.nb_regs = 6 + 1408  # 1408 = 5632 / 4
-            self.regs = [
+            self.ip_addr = self.index.value[1]
+            self.base_addr = self.index.value[2]
+            self.nb_regs = self.index.value[3]
+            self.reg_dicts[DciModuleIndex.VDPP_VEP] = [
+                Reg(0x00001004, 0x0, "CONFIG0"),
+                Reg(0x00001008, 0x0, "WORKING_MODE"),
+                Reg(0x000010E0, 0x0, "DCI_YRGB_ADDR"),
+                Reg(0x000010E4, 0x0, "DCI_YRGB_VIR_STRIDE"),
+                Reg(0x000010E8, 0x0, "DCI_IMG_SIZE"),
+                Reg(0x000010EC, 0x0, "DCI_CTRL"),
+                Reg(0x000010F0, 0x0, "DCI_HIST_ADDR"),
+            ]
+            self.reg_dicts[DciModuleIndex.VOP_CLUSTER0] = [
                 Reg(0x00001104, 0x0, "DCI_BLK_SIZE"),
                 Reg(0x00001108, 0x0, "DCI_BLK_OFFSET"),
                 Reg(0x0000110C, 0x0, "DCI_PIX_REGION"),
@@ -37,11 +64,14 @@ class DciRegister(ModuleRegisterCore):
                 Reg(0x00001118, 0x0, "DCI_CTRL"),
                 # Reg(0x0000111C, 0x0, "DCI_LUT_MST"),
             ]
-            self.regs += [
-                Reg(addr, 0x0, f"DCI_LUT_DATA{idx}") for addr, idx in zip(range(0x0001124, 0x00002724, 4), range(1408))
+            self.reg_dicts[DciModuleIndex.VOP_CLUSTER0] += [
+                Reg(0x0001124 + idx * 4, 0x0, f"DCI_LUT_DATA{idx}") for idx in range(1408)
             ]
             self.packed_lut = np.zeros(5632, dtype=np.uint8)
+            self.regs = self.reg_dicts[self.index]
+
             assert len(self.regs) == self.nb_regs
+            assert self.regs[0].offset == self.base_addr
             return True
         else:
             self.logger.error(f"Platform {self.platform} is not supported now!")
@@ -57,26 +87,35 @@ class DciRegister(ModuleRegisterCore):
             self.logger.error(f"current registers num={len(self.regs)} is not equal to required={self.nb_regs}!")
             return False
         cfg = self.config
-        self.set(name="DCI_BLK_SIZE", value=(cfg.hw_act_blk_size_h & 0x1FF) | ((cfg.hw_act_blk_size_v & 0x1FF) << 16))
+        self.set(
+            name="DCI_BLK_SIZE",
+            value=(cfg.cfg_vop.act_blk_size_h & 0x1FF) | ((cfg.cfg_vop.act_blk_size_v & 0x1FF) << 16),
+        )
         self.set(
             name="DCI_BLK_OFFSET",
-            value=(cfg.hw_act_start_h_offset & 0x1FF) | ((cfg.hw_act_start_v_offset & 0x1FF) << 16),
+            value=(cfg.cfg_vop.act_start_h_offset & 0x1FF) | ((cfg.cfg_vop.act_start_v_offset & 0x1FF) << 16),
         )
         self.set(
             name="DCI_PIX_REGION",
-            value=(cfg.hw_blk_size_fix & 0xFFFFF)
-            | ((cfg.hw_act_start_h_idx & 0x1F) << 20)
-            | ((cfg.hw_act_start_v_idx & 0x1F) << 26),
+            value=(cfg.cfg_vop.blk_size_fix & 0xFFFFF)
+            | ((cfg.cfg_vop.act_start_h_idx & 0x1F) << 20)
+            | ((cfg.cfg_vop.act_start_v_idx & 0x1F) << 26),
         )
         self.set(
             name="DCI_LUMA_SAT_ADJ_0",
-            value=(cfg.hw_luma_sat_adj_zero & 0xFFFF) | ((cfg.hw_luma_sat_adj_thrd & 0xFFFF) << 16),
+            value=(cfg.cfg_vop.luma_sat_adj_zero & 0xFFFF) | ((cfg.cfg_vop.luma_sat_adj_thrd & 0xFFFF) << 16),
         )
-        self.set(name="DCI_LUMA_SAT_ADJ_1", value=(cfg.hw_luma_sat_adj_k & 0xFFFF) | ((cfg.hw_sat_w & 0x7F) << 16))
-        self.set(name="DCI_CTRL", value=(cfg.hw_dci_enable & 0x1) | ((cfg.hw_ca_enable & 0x1) << 1) | (1 << 2))
+        self.set(
+            name="DCI_LUMA_SAT_ADJ_1", value=(cfg.cfg_vop.luma_sat_adj_k & 0xFFFF) | ((cfg.cfg_vop.sat_w & 0x7F) << 16)
+        )
+        self.set(
+            name="DCI_CTRL", value=(cfg.cfg_vop.dci_enable & 0x1) | ((cfg.cfg_vop.ca_enable & 0x1) << 1) | (1 << 2)
+        )
         # self.set(name="DCI_LUT_MST", value=0x0)
 
-        self.packed_lut = self.pack_lut(cfg.hw_dci_global_lut, cfg.hw_dci_locat_ratio, cfg.hw_dci_local_lut)
+        self.packed_lut = self.pack_lut(
+            cfg.cfg_vop.dci_global_lut, cfg.cfg_vop.dci_locat_ratio, cfg.cfg_vop.dci_local_lut
+        )
         for i in range(1408):
             self.set(
                 name=f"DCI_LUT_DATA{i}",
@@ -89,24 +128,24 @@ class DciRegister(ModuleRegisterCore):
 
     def regs2config(self) -> bool:
         val = self.get(name="DCI_BLK_SIZE")
-        self.config.hw_act_blk_size_h = (val >> 0) & 0x1FF
-        self.config.hw_act_blk_size_v = (val >> 16) & 0x1FF
+        self.config.cfg_vop.act_blk_size_h = (val >> 0) & 0x1FF
+        self.config.cfg_vop.act_blk_size_v = (val >> 16) & 0x1FF
         val = self.get(name="DCI_BLK_OFFSET")
-        self.config.hw_act_start_h_offset = (val >> 0) & 0x1FF
-        self.config.hw_act_start_v_offset = (val >> 16) & 0x1FF
+        self.config.cfg_vop.act_start_h_offset = (val >> 0) & 0x1FF
+        self.config.cfg_vop.act_start_v_offset = (val >> 16) & 0x1FF
         val = self.get(name="DCI_PIX_REGION")
-        self.config.hw_blk_size_fix = (val >> 0) & 0xFFFFF
-        self.config.hw_act_start_h_idx = (val >> 20) & 0x1F
-        self.config.hw_act_start_v_idx = (val >> 26) & 0x1F
+        self.config.cfg_vop.blk_size_fix = (val >> 0) & 0xFFFFF
+        self.config.cfg_vop.act_start_h_idx = (val >> 20) & 0x1F
+        self.config.cfg_vop.act_start_v_idx = (val >> 26) & 0x1F
         val = self.get(name="DCI_LUMA_SAT_ADJ_0")
-        self.config.hw_luma_sat_adj_zero = (val >> 0) & 0xFFFF
-        self.config.hw_luma_sat_adj_thrd = (val >> 16) & 0xFFFF
+        self.config.cfg_vop.luma_sat_adj_zero = (val >> 0) & 0xFFFF
+        self.config.cfg_vop.luma_sat_adj_thrd = (val >> 16) & 0xFFFF
         val = self.get(name="DCI_LUMA_SAT_ADJ_1")
-        self.config.hw_luma_sat_adj_k = (val >> 0) & 0xFFFF
-        self.config.hw_sat_w = (val >> 16) & 0x7F
+        self.config.cfg_vop.luma_sat_adj_k = (val >> 0) & 0xFFFF
+        self.config.cfg_vop.sat_w = (val >> 16) & 0x7F
         val = self.get(name="DCI_CTRL")
-        self.config.hw_dci_enable = (val >> 0) & 0x1
-        self.config.hw_ca_enable = (val >> 1) & 0x1
+        self.config.cfg_vop.dci_enable = (val >> 0) & 0x1
+        self.config.cfg_vop.ca_enable = (val >> 1) & 0x1
 
         ## get self.packed_lut then unpack it to global_lut_x256, locat_ratio_x256, local_lut_x4096
         for i in range(1408):
@@ -116,10 +155,12 @@ class DciRegister(ModuleRegisterCore):
             self.packed_lut[i * 4 + 2] = (val >> 16) & 0xFF
             self.packed_lut[i * 4 + 3] = (val >> 24) & 0xFF
 
-        self.config.hw_dci_global_lut, self.config.hw_dci_locat_ratio, self.config.hw_dci_local_lut = self.unpack_lut(
-            self.packed_lut
-        )
-        return False
+        (
+            self.config.cfg_vop.dci_global_lut,
+            self.config.cfg_vop.dci_locat_ratio,
+            self.config.cfg_vop.dci_local_lut,
+        ) = self.unpack_lut(self.packed_lut)
+        return True
 
     def pack_lut(
         self, global_lut_x256: np.ndarray, locat_ratio_x256: np.ndarray, local_lut_x4096: np.ndarray
@@ -211,9 +252,7 @@ class DciRegister(ModuleRegisterCore):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen/config2regs/regs2config"
-    )
+    parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen/c2r/r2c")
     parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
     parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
@@ -230,8 +269,14 @@ if __name__ == "__main__":
     elif args.interface == "dump":
         register.dump(args.file)
     elif args.interface == "gen":
-        register.gen(args.seed)
-        register.dump(args.file)
+        if register.gen(args.seed):
+            register.dump(args.file)
+    elif args.interface in ["c2r", "config2regs"]:
+        if register.config2regs():
+            register.dump()
+    elif args.interface in ["r2c", "regs2config"]:
+        if register.regs2config():
+            register.config.dump()
     else:
         print(f"interface {args.interface} is not supported!")
-        args.print_help()
+        parser.print_help()
