@@ -231,9 +231,9 @@ class CscRegister(ModuleRegisterCore):
         self.config.cscVector[0] = self.regs[5].value.astype(np.int32)
         self.config.cscVector[1] = self.regs[6].value.astype(np.int32)
         self.config.cscVector[2] = self.regs[7].value.astype(np.int32)
-        self.config.cscMatrix = np.clip(self.config.cscMatrix, -(2**12), 2**12 - 1)  # s13
-        self.config.cscVector = np.clip(self.config.cscVector, -(2**22), 2**22 - 1)  # s23
-        self.config.cscVecB4Mul = np.linalg.solve(self.config.cscMatrix, self.config.cscVector).astype(np.int32)
+        # self.config.cscMatrix = np.clip(self.config.cscMatrix, -(2**12), 2**12 - 1)  # s13
+        # self.config.cscVector = np.clip(self.config.cscVector, -(2**22), 2**22 - 1)  # s23
+        # self.config.cscVecB4Mul = np.linalg.solve(self.config.cscMatrix, self.config.cscVector).astype(np.int32)
         return True
 
 

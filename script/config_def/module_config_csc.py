@@ -13,10 +13,26 @@ import json
 import random
 import argparse
 import numpy as np
+from enum import Enum
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import *
 from utils import NoIndent, CompactArrayEncoder
+
+
+class CscColorSpace(Enum):
+    """(enum_val, offset_r/y, offset_g/u, offset_b/v)"""
+
+    # LIMIT = 0x0
+    # FULL = 0x1
+    RGBL = (0x02, 16, 16, 16)
+    RGBF = (0x03, 0, 0, 0)
+    YUV601L = (0x04, 16, 128, 128)
+    YUV601F = (0x05, 0, 128, 128)
+    YUV709L = (0x08, 16, 128, 128)
+    YUV709F = (0x09, 0, 128, 128)
+    YUV2020L = (0x10, 16, 128, 128)
+    YUV2020F = (0x11, 0, 128, 128)
 
 
 class CscConfig(ModuleConfigCore):
@@ -37,7 +53,8 @@ class CscConfig(ModuleConfigCore):
         self.cscBOffset = 256
         self.cscMatrix = np.identity(3, dtype=np.int16) * 1024
         self.cscVector = np.zeros(3, dtype=np.int32)
-        self.cscVecB4Mul = np.zeros(3, dtype=np.int32)
+        self.cscSrcOffset = np.zeros(3, dtype=np.int32)
+        self.cscDstOffset = np.zeros(3, dtype=np.int32)
         self.cscPassthrough = 0  # use matrix & vector directly
 
     ## =============== overwrite methods  ===============
@@ -59,7 +76,8 @@ class CscConfig(ModuleConfigCore):
             "cscBOffset": self.cscBOffset,
             "cscMatrix": self.cscMatrix.flatten().tolist(),
             "cscVector": self.cscVector.flatten().tolist(),
-            "cscVecB4Mul": self.cscVecB4Mul.flatten().tolist(),
+            "cscSrcOffset": self.cscSrcOffset.flatten().tolist(),
+            "cscDstOffset": self.cscDstOffset.flatten().tolist(),
             "cscPassthrough": self.cscPassthrough,
         }
         if filename == None or filename == "":
@@ -71,7 +89,7 @@ class CscConfig(ModuleConfigCore):
         with open(filename, "w") as f:
             ## keep list data in one line by using NoIndent & CompactArrayEncoder
             for k, v in data.items():
-                if k in ["cscMatrix", "cscVector"]:
+                if k in ["cscMatrix", "cscVector", "cscSrcOffset", "cscDstOffset"]:
                     data[k] = NoIndent(v)
             nest_data = {"pq_tuning_param": {"csc": data}}
             json_data = json.dumps(nest_data, indent=4, ensure_ascii=False, cls=CompactArrayEncoder)
@@ -116,9 +134,14 @@ class CscConfig(ModuleConfigCore):
                 self.cscVector = (
                     np.array(data["cscVector"], dtype=np.int32) if "cscVector" in data else np.zeros(3, dtype=np.int32)
                 )
-                self.cscVecB4Mul = (
-                    np.array(data["cscVecB4Mul"], dtype=np.int32)
-                    if "cscVecB4Mul" in data
+                self.cscSrcOffset = (
+                    np.array(data["cscSrcOffset"], dtype=np.int32)
+                    if "cscSrcOffset" in data
+                    else np.zeros(3, dtype=np.int32)
+                )
+                self.cscDstOffset = (
+                    np.array(data["cscDstOffset"], dtype=np.int32)
+                    if "cscDstOffset" in data
                     else np.zeros(3, dtype=np.int32)
                 )
                 self.cscPassthrough = data["cscPassthrough"] if "cscPassthrough" in data else 0
@@ -143,6 +166,7 @@ class CscConfig(ModuleConfigCore):
 
         ## parse other arguments
         precision = kwargs["precision"] if "precision" in kwargs else 10
+        assert precision in [10, 13]
 
         self.randSeed = seed
         self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
@@ -159,28 +183,35 @@ class CscConfig(ModuleConfigCore):
         self.cscROffset = random.randint(0, 511)
         self.cscGOffset = random.randint(0, 511)
         self.cscBOffset = random.randint(0, 511)
-        if precision == 13:
-            self.cscMatrix = np.random.randint(-(2**13), 2**13 - 1, size=(3, 3), dtype=np.int16)  # s13 in s16
-            self.cscVecB4Mul = np.random.randint(-(2**8 * 3), 2**8 * 3, size=3, dtype=np.int32)  # s10
-        elif precision == 10:
-            # self.cscMatrix = np.random.randint(-(2**11), 2**11 - 1, size=(3, 3), dtype=np.int16)  # s13 in s16
-            # self.cscVecB4Mul = np.random.randint(-(2**8 * 3), 2**8 * 3, size=3, dtype=np.int32)  # s10
-            self.cscMatrix = np.random.randint(-2200, 2200, size=(3, 3), dtype=np.int16)  # s13 in s16
-            self.cscVecB4Mul = np.random.randint(-512, 512, size=3, dtype=np.int32)  # s10
-        else:
-            self.logger.error(f"unsupported precision '{precision}'!")
-            return -1
-        self.cscVector = np.dot(self.cscMatrix, self.cscVecB4Mul)  # s13*s11->s23 in s32
-        self.cscPassthrough = 1  # 100% use matrix & vector directly for now!
 
         ## check if passthrough mode.
-        # passthrough = None
-        # if "passthrough" in kwargs:
-        #     passthrough = kwargs["passthrough"]
-        #     self.cscPassthrough = passthrough
+        if False:  # "passthrough" in kwargs:
+            self.cscPassthrough = int(kwargs["passthrough"])
+        else:
+            self.cscPassthrough = 1  # 100% use matrix & vector directly for now!
+
+        if self.cscPassthrough:
+            src_clr = random.choice(list(CscColorSpace))
+            dst_clr = random.choice(list(CscColorSpace))
+            self.cscSrcOffset = np.array(src_clr.value[1:], dtype=np.int32) << (precision - 8)
+            self.cscDstOffset = np.array(dst_clr.value[1:], dtype=np.int32) << (precision - 8)
+            if precision == 13:
+                self.cscMatrix = np.random.randint(-(2**15), 2**15 - 1, size=(3, 3), dtype=np.int16)  # s16
+            else:  # precision == 10:
+                self.cscMatrix = np.random.randint(-(2**12), 2**12 - 1, size=(3, 3), dtype=np.int16)  # s13 in s16
+                # self.cscMatrix = np.random.randint(-2200, 2200, size=(3, 3), dtype=np.int16)  # s13 in s16
+            self.cscVector = (
+                np.identity(3, dtype=np.int32) << precision
+            ) @ self.cscDstOffset + self.cscMatrix @ self.cscSrcOffset  # s13*s11->s23 in s32
+        else:
+            self.gen_coef_from_param()
 
         self.logger.info(f"generated a random config with seed={seed}, passthrough={self.cscPassthrough}")
         return seed
+
+    def gen_coef_from_param(self):
+        # TODO
+        pass
 
 
 if __name__ == "__main__":
