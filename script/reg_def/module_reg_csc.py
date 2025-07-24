@@ -184,7 +184,7 @@ class CscRegister(ModuleRegisterCore):
         self.config.cscMatrix = np.clip(self.config.cscMatrix, -(2**12), 2**12 - 1)  # s13
         self.config.cscVector = np.clip(self.config.cscVector, -(2**22), 2**22 - 1)  # s23
         if self.index in g_csc_new_reg_arrange:
-            self.regs[0].value = 0x3 | ((self.config.cscMatrix[0, 0] & CM) << 16)
+            self.regs[0].value = 0x1 | ((self.config.cscEnable * 0x1) << 1) | ((self.config.cscMatrix[0, 0] & CM) << 16)
             self.regs[1].value = (self.config.cscMatrix[0, 1] & CM) | ((self.config.cscMatrix[0, 2] & CM) << 16)
             self.regs[2].value = (self.config.cscMatrix[1, 0] & CM) | ((self.config.cscMatrix[1, 1] & CM) << 16)
             self.regs[3].value = (self.config.cscMatrix[1, 2] & CM) | ((self.config.cscMatrix[2, 0] & CM) << 16)

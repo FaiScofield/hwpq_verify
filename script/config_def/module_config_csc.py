@@ -171,7 +171,7 @@ class CscConfig(ModuleConfigCore):
         self.randSeed = seed
         self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
 
-        self.cscEnable = int(random.randint(0, 9) > 0)  # %90 be ON
+        self.cscEnable = 1  # int(random.randint(0, 9) > 0)  # %90 be ON
         self.cscCctCtrlEn = 0  # always 0 for now
         self.cscBrightness = random.randint(0, 511)
         self.cscHue = random.randint(0, 511)
@@ -193,16 +193,21 @@ class CscConfig(ModuleConfigCore):
         if self.cscPassthrough:
             src_clr = random.choice(list(CscColorSpace))
             dst_clr = random.choice(list(CscColorSpace))
-            self.cscSrcOffset = np.array(src_clr.value[1:], dtype=np.int32) << (precision - 8)
-            self.cscDstOffset = np.array(dst_clr.value[1:], dtype=np.int32) << (precision - 8)
+            self.cscSrcOffset = -np.array(src_clr.value[1:], dtype=np.int32) << (precision - 8)
+            self.cscDstOffset = +np.array(dst_clr.value[1:], dtype=np.int32) << (precision - 8)
             if precision == 13:
                 self.cscMatrix = np.random.randint(-(2**15), 2**15 - 1, size=(3, 3), dtype=np.int16)  # s16
+                self.cscVector = (
+                    np.identity(3, dtype=np.int32) << precision
+                ) @ self.cscDstOffset + self.cscMatrix @ self.cscSrcOffset  # s13*s11->s23 in s32
+                # self.cscVector = np.clip(self.cscVector, -(2**25), 2**25 - 1)  # s26->s32
             else:  # precision == 10:
                 self.cscMatrix = np.random.randint(-(2**12), 2**12 - 1, size=(3, 3), dtype=np.int16)  # s13 in s16
                 # self.cscMatrix = np.random.randint(-2200, 2200, size=(3, 3), dtype=np.int16)  # s13 in s16
-            self.cscVector = (
-                np.identity(3, dtype=np.int32) << precision
-            ) @ self.cscDstOffset + self.cscMatrix @ self.cscSrcOffset  # s13*s11->s23 in s32
+                self.cscVector = (
+                    np.identity(3, dtype=np.int32) << precision
+                ) @ self.cscDstOffset + self.cscMatrix @ self.cscSrcOffset  # s13*s11->s23 in s32
+                self.cscVector = np.clip(self.cscVector, -(2**22), 2**22 - 1)  # s23->s32
         else:
             self.gen_coef_from_param()
 
