@@ -191,7 +191,8 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
         logger.info(f"num of input frames/configs to run: {len(input_list)}/{len(config_list)}")
         input_cnt = 0
         for input_name, (wid, hgt) in input_list.items():
-            # if input_cnt <= 603942 - 603893:
+            input_cnt += 1
+            # if input_cnt <= 603975 - 603893:
             #     logger.info(f"skip running input file: {input_name}...")
             #     continue
             input_path = os.path.join(input_dir, input_name)
@@ -247,7 +248,6 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
                         f"❌ copy register file failed for intput={input_name}, exe_output_reg_file={exe_output_reg_file}!"
                     )
 
-            input_cnt += 1
 
     logger.info(f"run sim_exe done. check output data in {output_dir}")
 
