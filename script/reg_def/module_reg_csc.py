@@ -4,7 +4,7 @@ FilePath    : module_reg_csc.py
 Description :
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-17
-LastEditTime: 2025-07-22
+LastEditTime: 2025-07-24
 """
 
 import os
@@ -209,37 +209,38 @@ class CscRegister(ModuleRegisterCore):
         CM = np.uint32(0xFFFF)  # coef mask = 0x3FF or 0xFFFF
         if self.index in g_csc_new_reg_arrange:
             self.config.cscEnable = (self.regs[0].value >> 1) & 0x1
-            self.config.cscMatrix[0, 0] = np.int16(np.uint16(self.regs[0].value >> 16) & CM)
-            self.config.cscMatrix[0, 1] = np.int16(np.uint16(self.regs[1].value & CM))
-            self.config.cscMatrix[0, 2] = np.int16(np.uint16(self.regs[1].value >> 16) & CM)
-            self.config.cscMatrix[1, 0] = np.int16(np.uint16(self.regs[2].value & CM))
-            self.config.cscMatrix[1, 1] = np.int16(np.uint16(self.regs[2].value >> 16) & CM)
-            self.config.cscMatrix[1, 2] = np.int16(np.uint16(self.regs[3].value & CM))
-            self.config.cscMatrix[2, 0] = np.int16(np.uint16(self.regs[3].value >> 16) & CM)
-            self.config.cscMatrix[2, 1] = np.int16(np.uint16(self.regs[4].value & CM))
-            self.config.cscMatrix[2, 2] = np.int16(np.uint16(self.regs[4].value >> 16) & CM)
+            self.config.cscMatrix[0, 0] = ((self.regs[0].value >> 16) & CM).astype(np.int16)
+            self.config.cscMatrix[0, 1] = ((self.regs[1].value & CM)).astype(np.int16)
+            self.config.cscMatrix[0, 2] = ((self.regs[1].value >> 16) & CM).astype(np.int16)
+            self.config.cscMatrix[1, 0] = ((self.regs[2].value & CM)).astype(np.int16)
+            self.config.cscMatrix[1, 1] = ((self.regs[2].value >> 16) & CM).astype(np.int16)
+            self.config.cscMatrix[1, 2] = ((self.regs[3].value & CM)).astype(np.int16)
+            self.config.cscMatrix[2, 0] = ((self.regs[3].value >> 16) & CM).astype(np.int16)
+            self.config.cscMatrix[2, 1] = ((self.regs[4].value & CM)).astype(np.int16)
+            self.config.cscMatrix[2, 2] = ((self.regs[4].value >> 16) & CM).astype(np.int16)
         else:
-            self.config.cscMatrix[0, 0] = np.int16(np.uint16(self.regs[0].value & CM))
-            self.config.cscMatrix[0, 1] = np.int16(np.uint16(self.regs[0].value >> 16) & CM)
-            self.config.cscMatrix[0, 2] = np.int16(np.uint16(self.regs[1].value & CM))
-            self.config.cscMatrix[1, 0] = np.int16(np.uint16(self.regs[1].value >> 16) & CM)
-            self.config.cscMatrix[1, 1] = np.int16(np.uint16(self.regs[2].value & CM))
-            self.config.cscMatrix[1, 2] = np.int16(np.uint16(self.regs[2].value >> 16) & CM)
-            self.config.cscMatrix[2, 0] = np.int16(np.uint16(self.regs[3].value & CM))
-            self.config.cscMatrix[2, 1] = np.int16(np.uint16(self.regs[3].value >> 16) & CM)
-            self.config.cscMatrix[2, 2] = np.int16(np.uint16(self.regs[4].value & CM))
-        self.config.cscVector[0] = self.regs[5].value
-        self.config.cscVector[1] = self.regs[6].value
-        self.config.cscVector[2] = self.regs[7].value
+            self.config.cscMatrix[0, 0] = ((self.regs[0].value & CM)).astype(np.int16)
+            self.config.cscMatrix[0, 1] = ((self.regs[0].value >> 16) & CM).astype(np.int16)
+            self.config.cscMatrix[0, 2] = ((self.regs[1].value & CM)).astype(np.int16)
+            self.config.cscMatrix[1, 0] = ((self.regs[1].value >> 16) & CM).astype(np.int16)
+            self.config.cscMatrix[1, 1] = ((self.regs[2].value & CM)).astype(np.int16)
+            self.config.cscMatrix[1, 2] = ((self.regs[2].value >> 16) & CM).astype(np.int16)
+            self.config.cscMatrix[2, 0] = ((self.regs[3].value & CM)).astype(np.int16)
+            self.config.cscMatrix[2, 1] = ((self.regs[3].value >> 16) & CM).astype(np.int16)
+            self.config.cscMatrix[2, 2] = ((self.regs[4].value & CM)).astype(np.int16)
+        self.config.cscVector[0] = self.regs[5].value.astype(np.int32)
+        self.config.cscVector[1] = self.regs[6].value.astype(np.int32)
+        self.config.cscVector[2] = self.regs[7].value.astype(np.int32)
         self.config.cscMatrix = np.clip(self.config.cscMatrix, -(2**12), 2**12 - 1)  # s13
         self.config.cscVector = np.clip(self.config.cscVector, -(2**22), 2**22 - 1)  # s23
+        self.config.cscVecB4Mul = np.linalg.solve(self.config.cscMatrix, self.config.cscVector).astype(np.int32)
         return True
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen/config2regs/regs2config"
+        "-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen/c2r/r2c"
     )
     parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
@@ -276,8 +277,14 @@ if __name__ == "__main__":
     elif args.interface == "dump":
         register.dump(args.file, index=args.module)
     elif args.interface == "gen":
-        register.gen(args.seed)
-        register.dump(args.file)
+        if register.gen(args.seed):
+            register.dump(args.file)
+    elif args.interface in ["c2r", "config2regs"]:
+        if register.config2regs():
+            register.dump()
+    elif args.interface in ["r2c", "regs2config"]:
+        if register.regs2config():
+            register.config.dump()
     else:
         register.logger.error(f"interface {args.interface} is not supported!")
-        args.print_help()
+        parser.print_help()

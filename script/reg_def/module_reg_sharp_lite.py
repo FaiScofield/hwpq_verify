@@ -4,7 +4,7 @@ FilePath    : reg_def_sharp_lite.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-11
+LastEditTime: 2025-07-24
 """
 import os
 import sys
@@ -123,12 +123,13 @@ class SharpLiteRegister(ModuleRegisterCore):
         return True
 
     def regs2config(self) -> bool:
+        self.logger.error("TODO: regs2config() is not implement yet!")
         return False
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen/config2regs/regs2config")
+    parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen/c2r/r2c")
     parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
     parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
@@ -145,8 +146,14 @@ if __name__ == "__main__":
     elif args.interface == "dump":
         register.dump(args.file)
     elif args.interface == "gen":
-        register.gen(args.seed)
-        register.dump(args.file)
+        if register.gen(args.seed):
+            register.dump(args.file)
+    elif args.interface in ["c2r", "config2regs"]:
+        if register.config2regs():
+            register.dump()
+    elif args.interface in ["r2c", "regs2config"]:
+        if register.regs2config():
+            register.config.dump()
     else:
-        print(f"interface {args.interface} is not supported!")
-        args.print_help()
+        print(f"interface '{args.interface}' is not supported!")
+        parser.print_help()

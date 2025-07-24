@@ -117,7 +117,9 @@ class CscConfig(ModuleConfigCore):
                     np.array(data["cscVector"], dtype=np.int32) if "cscVector" in data else np.zeros(3, dtype=np.int32)
                 )
                 self.cscVecB4Mul = (
-                    np.array(data["cscVecB4Mul"], dtype=np.int32) if "cscVecB4Mul" in data else np.zeros(3, dtype=np.int32)
+                    np.array(data["cscVecB4Mul"], dtype=np.int32)
+                    if "cscVecB4Mul" in data
+                    else np.zeros(3, dtype=np.int32)
                 )
                 self.cscPassthrough = data["cscPassthrough"] if "cscPassthrough" in data else 0
                 self.version = data["version"] if "version" in data else "unknown"
@@ -159,10 +161,10 @@ class CscConfig(ModuleConfigCore):
         self.cscBOffset = random.randint(0, 511)
         if precision == 13:
             self.cscMatrix = np.random.randint(-(2**13), 2**13 - 1, size=(3, 3), dtype=np.int16)  # s13 in s16
-            self.cscVecB4Mul = np.random.randint(-(2**8*3), 2**8*3, size=3, dtype=np.int32)  # s10
+            self.cscVecB4Mul = np.random.randint(-(2**8 * 3), 2**8 * 3, size=3, dtype=np.int32)  # s10
         elif precision == 10:
             # self.cscMatrix = np.random.randint(-(2**11), 2**11 - 1, size=(3, 3), dtype=np.int16)  # s13 in s16
-            # self.cscVecB4Mul = np.random.randint(-(2**8*3), 2**8*3, size=3, dtype=np.int32)  # s10
+            # self.cscVecB4Mul = np.random.randint(-(2**8 * 3), 2**8 * 3, size=3, dtype=np.int32)  # s10
             self.cscMatrix = np.random.randint(-2200, 2200, size=(3, 3), dtype=np.int16)  # s13 in s16
             self.cscVecB4Mul = np.random.randint(-512, 512, size=3, dtype=np.int32)  # s10
         else:
@@ -177,7 +179,7 @@ class CscConfig(ModuleConfigCore):
         #     passthrough = kwargs["passthrough"]
         #     self.cscPassthrough = passthrough
 
-        self.logger.info(f"generated a random config with seed={seed}, passthrough={1}")
+        self.logger.info(f"generated a random config with seed={seed}, passthrough={self.cscPassthrough}")
         return seed
 
 

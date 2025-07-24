@@ -4,7 +4,7 @@ FilePath    : module_reg_core.py
 Description :
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-11
-LastEditTime: 2025-07-22
+LastEditTime: 2025-07-24
 """
 import os
 import sys
@@ -19,7 +19,7 @@ from utils import setup_logger
 class Reg:
     def __init__(self, offset: int, value: int, name: str = ""):
         self.offset = offset
-        self.value = value
+        self.value = np.uint32(value)
         self.name = name
 
         self.base_addr = 0x0
@@ -95,7 +95,7 @@ class ModuleRegisterCore(ABC):
                 )
                 return False
             for i in range(len(self.regs)):
-                self.regs[i].value = data[i]
+                self.regs[i].value = np.uint32(data[i])
             # if self.config is not None:
             #     self.regs2config()
             #     self.config.dump()
@@ -144,7 +144,7 @@ class ModuleRegisterCore(ABC):
                 or (name is not None and self.regs[i].name == name)
                 or (offset is not None and self.regs[i].offset == offset)
             ):
-                self.regs[i].value = value
+                self.regs[i].value = np.uint32(value)
                 ret = True
                 break
             else:

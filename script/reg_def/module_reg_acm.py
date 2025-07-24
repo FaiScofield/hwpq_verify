@@ -4,7 +4,7 @@ FilePath    : reg_def_acm.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-23
+LastEditTime: 2025-07-24
 """
 import os
 import sys
@@ -19,7 +19,7 @@ class AcmRegister(ModuleRegisterCore):
     def __init__(self, name: str = "ACM", platform: str = 'RK3572'):
         super().__init__(name, platform)
 
-        # self.config = AcmConfig(self.name)
+        self.config = AcmConfig(self.name)
         self.base_addr = 0x0
         self.update(platform=platform)
 
@@ -34,9 +34,9 @@ class AcmRegister(ModuleRegisterCore):
                 # Reg(0x00006408, 0x0, "FETCH_START"),
                 # Reg(0x00006420, 0x0, "FETCH_DONE"),
             ]
-            self.regs += [Reg(addr, 0x0, f"YHS_GAIN_BY_Y_SEG{idx}") for addr, idx in zip(range(0x00006500, 0x00006760, 4), range(153))]
-            self.regs += [Reg(addr, 0x0, f"YHS_GAIN_BY_S_SEG{idx}") for addr, idx in zip(range(0x00006764, 0x00006AD4, 4), range(221))]
-            self.regs += [Reg(addr, 0x0, f"YHS_DEL_BY_H_SEG{idx}") for addr, idx in zip(range(0x00006AD8, 0x00006BD8, 4), range(65))]
+            self.regs += [Reg(0x00006500 + idx * 4, 0x0, f"YHS_GAIN_BY_Y_SEG{idx}") for idx in range(153)]
+            self.regs += [Reg(0x00006764 + idx * 4, 0x0, f"YHS_GAIN_BY_S_SEG{idx}") for idx in range(221)]
+            self.regs += [Reg(0x00006AD8 + idx * 4, 0x0, f"YHS_DEL_BY_H_SEG{idx}") for idx in range(65)]
             assert len(self.regs) == self.nb_regs
             return True
         else:
@@ -48,6 +48,7 @@ class AcmRegister(ModuleRegisterCore):
             self.logger.error(f"current registers num={len(self.regs)} is not equal to required={self.nb_regs}!")
             return False
         cfg = self.config
+        self.logger.error("TODO: config2regs() is not implement yet!")
         # self.set(name="ENABLE_CTRL", value=(cfg.acm_en & 0x1) | ((cfg.shoot_ctrl_en & 0x1) << 1))
         # self.set(name="USM_CTRL", value=(cfg.sharp_usm_gain & 0x3FF) | ((cfg.usm_coring_thr & 0x7F) << 16))
         # self.set(
@@ -69,15 +70,16 @@ class AcmRegister(ModuleRegisterCore):
         #     | ((cfg.sharp_roi_enable & 0x1) << 31),
         # )
         # self.set(name="ROI_CTRL1", value=(cfg.sharp_roi_xend & 0xFFF) | ((cfg.sharp_roi_yend & 0xFFF) << 16))
-        return True
+        return False
 
     def regs2config(self) -> bool:
+        self.logger.error("TODO: regs2config() is not implement yet!")
         return False
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen/config2regs/regs2config")
+    parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen/c2r/r2c")
     parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
     parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
@@ -94,8 +96,14 @@ if __name__ == "__main__":
     elif args.interface == "dump":
         register.dump(args.file)
     elif args.interface == "gen":
-        register.gen(args.seed)
-        register.dump(args.file)
+        if register.gen(args.seed):
+            register.dump(args.file)
+    elif args.interface in ["c2r", "config2regs"]:
+        if register.config2regs():
+            register.dump()
+    elif args.interface in ["r2c", "regs2config"]:
+        if register.regs2config():
+            register.config.dump()
     else:
         print(f"interface {args.interface} is not supported!")
-        args.print_help()
+        parser.print_help()
