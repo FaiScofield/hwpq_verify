@@ -115,8 +115,8 @@ if __name__ == '__main__':
 
             mat = get_mat(color_space_i, range_i, color_space_o, range_o, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits)
             offset = get_offset(color_space_i, range_i, color_space_o, range_o, mat, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits)
-            print(f"matrix_{color_space_i}_{range_i}_{color_space_o}_{range_o} = {mat.flatten()}")
-            print(f"offset_{color_space_i}_{range_i}_{color_space_o}_{range_o} = {offset.flatten()}")
+            print(f"matrix_{color_space_i}_{range_i}_{color_space_o}_{range_o} = {np.array2string(mat.flatten(), separator=', ')}")
+            print(f"offset_{color_space_i}_{range_i}_{color_space_o}_{range_o} = {np.array2string(offset.flatten(), separator=', ')}")
 
             fp.write(f"matrix_{color_space_i}_{range_i}_{color_space_o}_{range_o} = {mat.flatten()}\n")
             fp.write(f"offset_{color_space_i}_{range_i}_{color_space_o}_{range_o} = {offset.flatten()}\n")

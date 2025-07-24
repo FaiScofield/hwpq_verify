@@ -4,7 +4,7 @@ FilePath    : run_vop_fpga.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-11
+LastEditTime: 2025-07-24
 """
 
 import os
@@ -62,6 +62,13 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
         NB_REG_PER_FRAME = int(kwargs["nb_reg_per_frame"])
     elif reg_handler is not None:
         NB_REG_PER_FRAME = len(reg_handler.regs)
+    logger.info(f"Set nb_reg_per_frame: {NB_REG_PER_FRAME}")
+
+    if "module_args" in kwargs:
+        module_args = kwargs["module_args"]
+    else:
+        module_args = ""
+    logger.info(f"Set module_args: '{module_args}'")
 
     ## set root dir & exe path
     root_dir = args.root if args.root != "" else "//172.16.4.246/vop/RKCFA/batch_sim/sim_check_fpga_rk3572/"
@@ -160,7 +167,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
             single_reg_file = os.path.join(
                 config_dir, f"{config_handler.name.lower()}_config_num_{nb_config}_from_seed_{config_seed}.bin"
             )
-            run_cmd(f"rm {single_reg_file}") # remove old single reg file
+            run_cmd(f"rm {single_reg_file}")  # remove old single reg file
             with open(single_reg_file, "ab") as reg_fp:
                 for i in range(nb_config):
                     reg_file = os.path.join(
@@ -182,7 +189,11 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
         exe_output_reg_file = os.path.join(output_dir, f"{module_name}_regs.bin")
         run_cmd(f"chmod +x {exe}", False, logger)
         logger.info(f"num of input frames/configs to run: {len(input_list)}/{len(config_list)}")
+        input_cnt = 0
         for input_name, (wid, hgt) in input_list.items():
+            # if input_cnt <= 603942 - 603893:
+            #     logger.info(f"skip running input file: {input_name}...")
+            #     continue
             input_path = os.path.join(input_dir, input_name)
             final_reg_file = os.path.join(
                 output_dir, f"{module_name}_reg_from_input_{input_name.split('.')[0]}_config_num_{len(config_list)}.bin"
@@ -195,6 +206,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
             run_cmd(f"rm {exe_output_reg_file}", False, logger)
             logger.warning(f"removed the old regs binary file: {exe_output_reg_file} !")
 
+            config_idx = 0
             for config in config_list:
                 config_path = os.path.join(config_dir, config)
                 # config_handler.load(config_path)
@@ -205,7 +217,8 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
                     # run command
                     cmd_str = (
                         exe
-                        + f" -i {input_path} -o {output_dir} -j {config_path} -r {final_crc_file} -w {wid} -g {hgt} -f 1"
+                        + f" -i {input_path} -o {output_dir} -j {config_path} -r {final_crc_file} -w {wid} -g {hgt} -f 1 {module_args}"
+                        # + f" -i {input_path} -o {output_dir} -m {config_idx} -r {final_crc_file} -w {wid} -g {hgt} -f 1 {module_args}"
                     )
                     ret = run_cmd(cmd_str, False, logger)
                     if ret != 0:
@@ -213,6 +226,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
                 except:
                     logger.error(f"run sim_exe failed for intput={input_name}, config={config}!")
                     break
+                config_idx += 1
 
             # move output regs file to output_dir
             if NB_REG_PER_FRAME > 0:
@@ -233,6 +247,8 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
                         f"❌ copy register file failed for intput={input_name}, exe_output_reg_file={exe_output_reg_file}!"
                     )
 
+            input_cnt += 1
+
     logger.info(f"run sim_exe done. check output data in {output_dir}")
 
 
@@ -246,6 +262,7 @@ if __name__ == "__main__":
     config_handler = None
     reg_handler = None
     nb_reg_per_frame = 0
+    module_args = ""
 
     if "sharp" in name:
         config_handler = SharpLiteConfig()
@@ -255,8 +272,11 @@ if __name__ == "__main__":
         config_handler = CscConfig()
         reg_handler = CscRegister(platform=args.platform)
         nb_reg_per_frame = len(reg_handler.regs)
+        # if reg_handler.index == CscModuleIndex.POST0_ACM_Y2R:
+        # module_args = "-s" # vyu order to calc CRC
+
     if config_handler is not None:
-        run_common_module(config_handler, reg_handler, args, nb_reg_per_frame=nb_reg_per_frame)
+        run_common_module(config_handler, reg_handler, args, nb_reg_per_frame=nb_reg_per_frame, module_args=module_args)
     else:
         print(f"Unsupported module for now: {name}")
         exit(-1)
