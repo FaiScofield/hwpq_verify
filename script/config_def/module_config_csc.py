@@ -61,7 +61,7 @@ class CscConfig(ModuleConfigCore):
     def dump(self, filename=None) -> bool:
         data = {
             "version": self.version,
-            "rand_seed": self.randSeed,
+            "randSeed": self.randSeed,
             "cscEnable": self.cscEnable,
             "cscCctCtrlEn": self.cscCctCtrlEn,
             "cscBrightness": self.cscBrightness,
@@ -146,7 +146,7 @@ class CscConfig(ModuleConfigCore):
                 )
                 self.cscPassthrough = data["cscPassthrough"] if "cscPassthrough" in data else 0
                 self.version = data["version"] if "version" in data else "unknown"
-                self.randSeed = data["rand_seed"] if "rand_seed" in data else -1
+                self.randSeed = data["randSeed"] if "randSeed" in data else -1
                 return True
         except Exception as e:
             self.logger.error(f"load config file '{filename}' failed: {e}")

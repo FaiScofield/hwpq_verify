@@ -4,7 +4,7 @@ FilePath    : module_config_acm.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-23
+LastEditTime: 2025-07-25
 """
 
 import os
@@ -42,7 +42,7 @@ class AcmConfig(ModuleConfigCore):
     def dump(self, filename=None) -> bool:
         data = {
             "version": self.version,
-            "rand_seed": self.randSeed,
+            "randSeed": self.randSeed,
             "acmEnable": self.acmEnable,
             "acmTableDeltaYbyH": self.acmTableDeltaYbyH.flatten().tolist(),
             "acmTableDeltaHbyH": self.acmTableDeltaHbyH.flatten().tolist(),
@@ -115,7 +115,7 @@ class AcmConfig(ModuleConfigCore):
                 self.hueGain = data["hueGain"]
                 self.satGain = data["satGain"]
                 self.version = data["version"] if "version" in data else "unknown"
-                self.randSeed = data["rand_seed"] if "rand_seed" in data else -1
+                self.randSeed = data["randSeed"] if "randSeed" in data else -1
                 return True
         except Exception as e:
             self.logger.error(f"load config file '{filename}' failed: {e}")

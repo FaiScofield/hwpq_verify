@@ -4,7 +4,7 @@ FilePath    : module_config_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-22
+LastEditTime: 2025-07-25
 '''
 import os
 import sys

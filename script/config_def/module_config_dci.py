@@ -150,7 +150,7 @@ class DciConfig(ModuleConfigCore):
     def dump(self, filename=None) -> bool:
         data = {
             "version": self.version,
-            "rand_seed": self.randSeed,
+            "randSeed": self.randSeed,
             "vdpp_config": {
                 "working_mode": self.cfg_vdpp.working_mode,
                 "dci_csc_range": self.cfg_vdpp.dci_csc_range,
@@ -216,7 +216,7 @@ class DciConfig(ModuleConfigCore):
                     self.logger.info(f"load config from pq_tuning_param.dci ...")
                     data = data["pq_tuning_param"]["dci"]
                 self.version = data["version"] if "version" in data else "unknown"
-                self.randSeed = data["rand_seed"] if "rand_seed" in data else -1
+                self.randSeed = data["randSeed"] if "randSeed" in data else -1
 
                 vdpp_data = data["vdpp_config"]
                 self.cfg_vdpp.working_mode = vdpp_data["working_mode"]

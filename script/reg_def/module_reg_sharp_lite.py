@@ -4,7 +4,7 @@ FilePath    : reg_def_sharp_lite.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-24
+LastEditTime: 2025-07-25
 """
 import os
 import sys
@@ -99,27 +99,28 @@ class SharpLiteRegister(ModuleRegisterCore):
             self.logger.error(f"current registers num={len(self.regs)} is not equal to required={self.nb_regs}!")
             return False
         cfg = self.config
-        self.set(name="ENABLE_CTRL", value=(cfg.sharp_lite_en & 0x1) | ((cfg.shoot_ctrl_en & 0x1) << 1))
-        self.set(name="USM_CTRL", value=(cfg.sharp_usm_gain & 0x3FF) | ((cfg.usm_coring_thr & 0x7F) << 16))
+        self.set(name="ENABLE_CTRL", value=(cfg.i_sharp_lite_en & 0x1) | ((cfg.i_shoot_ctrl_en & 0x1) << 1))
+        self.set(name="USM_CTRL", value=(cfg.i_sharp_usm_gain & 0x3FF) | ((cfg.f_usm_coring_thr & 0x7F) << 16))
         self.set(
             name="USM_COEF",
-            value=(cfg.sharp_core_A & 0xFF) | ((cfg.sharp_core_B & 0xFF) << 8) | ((cfg.sharp_core_C & 0xFF) << 16),
+            value=(cfg.i_sharp_core_A & 0xFF)
+            | ((cfg.i_sharp_core_B & 0xFF) << 8)
+            | ((cfg.i_sharp_core_C & 0xFF) << 16),
         )
-        self.set(name="SHOOT_CTRL_REG0", value=(cfg.shoot_ctrl_delta_offset & 0xFF))
+        self.set(name="SHOOT_CTRL_REG0", value=(cfg.i_shoot_ctrl_delta_offset & 0xFF))
         self.set(
-
-            name="SHOOT_CTRL_REG1", value=(cfg.shoot_ctrl_pos & 0x7F) | ((cfg.shoot_ctrl_pos_unlimit & 0x7F) << 16)
+            name="SHOOT_CTRL_REG1", value=(cfg.i_shoot_ctrl_pos & 0x7F) | ((cfg.i_shoot_ctrl_pos_unlimit & 0x7F) << 16)
         )
         self.set(
-            name="SHOOT_CTRL_REG2", value=(cfg.shoot_ctrl_neg & 0x7F) | ((cfg.shoot_ctrl_neg_unlimit & 0x7F) << 16)
+            name="SHOOT_CTRL_REG2", value=(cfg.i_shoot_ctrl_neg & 0x7F) | ((cfg.i_shoot_ctrl_neg_unlimit & 0x7F) << 16)
         )
         self.set(
             name="ROI_CTRL0",
-            value=(cfg.sharp_roi_xstart & 0xFFF)
-            | ((cfg.sharp_roi_ystart & 0xFFF) << 16)
-            | ((cfg.sharp_roi_enable & 0x1) << 31),
+            value=(cfg.i_sharp_roi_xstart & 0xFFF)
+            | ((cfg.i_sharp_roi_ystart & 0xFFF) << 16)
+            | ((cfg.i_sharp_roi_enable & 0x1) << 31),
         )
-        self.set(name="ROI_CTRL1", value=(cfg.sharp_roi_xend & 0xFFF) | ((cfg.sharp_roi_yend & 0xFFF) << 16))
+        self.set(name="ROI_CTRL1", value=(cfg.i_sharp_roi_xend & 0xFFF) | ((cfg.i_sharp_roi_yend & 0xFFF) << 16))
         return True
 
     def regs2config(self) -> bool:

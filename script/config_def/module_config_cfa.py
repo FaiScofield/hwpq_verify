@@ -4,7 +4,7 @@ FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-23
+LastEditTime: 2025-07-25
 """
 
 import os
@@ -59,7 +59,7 @@ class CfaConfig(ModuleConfigCore):
     ## =============== overwrite methods  ===============
     def dump(self, filename=None) -> bool:
         data = {
-            "Version": self.version,
+            "version": self.version,
             "nCallCnt": self.nCallCnt,
             "nFrameIdx": self.nFrameIdx,
             "nImgWid": self.nImgWid,
@@ -127,7 +127,7 @@ class CfaConfig(ModuleConfigCore):
             with open(filename, "r") as f:
                 data = json.load(f)
 
-                self.version = data["Version"]
+                self.version = data["version"]
                 self.nCallCnt = data["nCallCnt"]
                 self.nFrameIdx = data["nFrameIdx"]
                 self.nImgWid = data["nImgWid"]
