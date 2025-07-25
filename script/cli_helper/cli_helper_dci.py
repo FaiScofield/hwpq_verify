@@ -1,10 +1,10 @@
 '''
 Copyright   : Copyright (c) 2025 by Rockchip. All right reserved.
-FilePath    : cli_helper_csc.py
+FilePath    : cli_helper_dci.py
 Author      : vance.wu@rock-chips.com
-Date        : 2025-07-22
+Date        : 2025-07-25
 Description :
-LastEditTime: 2025-07-22
+LastEditTime: 2025-07-25
 '''
 
 import os
@@ -13,21 +13,21 @@ from typing import Optional
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from cli_helper import ModuleHelperCore
-from config_def import ModuleConfigCore, CscConfig
-from reg_def import ModuleRegisterCore, CscRegister
+from config_def import ModuleConfigCore, DciConfig
+from reg_def import ModuleRegisterCore, DciRegister
 
 
-class CscHelper(ModuleHelperCore):
-    def __init__(self, name: str = "CSC", platform: str = 'RK3572', parent: Optional[ModuleHelperCore] = None):
+class DciHelper(ModuleHelperCore):
+    def __init__(self, name: str = "DCI", platform: str = 'RK3572', parent: Optional[ModuleHelperCore] = None):
         super().__init__(name, platform, parent)
 
     ## =============== overwrite methods  ===============
     def define_config_and_regs(self) -> tuple[Optional[ModuleConfigCore], Optional[ModuleRegisterCore]]:
-        self.config = CscConfig(self.name)
-        self.register = CscRegister(self.name, self.platform)
+        self.config = DciConfig(self.name)
+        self.register = DciRegister(self.name, self.platform)
         return self.config, self.register
 
 
 if __name__ == "__main__":
-    runner = CscHelper()
+    runner = DciHelper()
     runner.run()

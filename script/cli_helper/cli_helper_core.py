@@ -4,14 +4,13 @@ FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-18
+LastEditTime: 2025-07-25
 """
 
 import sys
 import os
-import json
 import re
-import random
+import numpy as np
 import argparse
 import copy
 from ast import literal_eval
@@ -20,88 +19,98 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
-from config_def.module_config_core import ModuleConfigCore
-from reg_def.module_reg_core import ModuleRegisterCore
+from config_def.module_config_core import ModuleConfigCore  # 配置参数基类，新增模块需要在`config_def`中增加对应的参数定义文件
+from reg_def.module_reg_core import ModuleRegisterCore  # 寄存器基类，新增模块需要在`reg_def`中增加对应的寄存器定义文件
+
 
 class ModuleHelperCore(ABC):
-    """Command-Line Interface Helper base framework"""
+    """Command-Line Interface Helper base framework CLI基类框架。
+    * 有新的模块请继承此类，并在`cli_helper_main.py`文件中加入该新模块。
+    * 成员函数说明：
+    *   `do_xxx`形式的函数返回值表示执行后是否退出脚本，固除了`do_quit`函数返回True, 其他函数均返回False.
+    * 成员变量说明：
+    *   `self.parent`: 模块名称，用于提示和命令提示。
+    *   `self.config`: 基于`ModuleConfigCore`类的配置参数类，实现了对`.json`格式配置（含软软件/硬件参数）的加载、保存、生成、打印等功能。
+    *   `self.register`: 基于`ModuleRegisterCore`类的寄存器参数类，实现了对`.bin/.txt/.dat`格式寄存器配置的加载、保存、生成、打印等功能。
+    """
 
     def __init__(self, name: str, platform: str = "RK3572", parent: Optional["ModuleHelperCore"] = None):
         self.name = name.upper()
         self.platform = platform.upper()
-        self.parent = parent # 无上级窗口则为空
-        self.define_config_and_regs()  # 创建变量 self.config / self.register, 需要复写
-        self.modules = {}  # 子模块，空的，暂时仅供顶层使用
+        self.parent = parent  # 无上级窗口则为空
+        self.config, self.register = self.define_config_and_regs()  # 子类需要复写`define_config_and_regs`的实现
+        self.submodules = {}  # 空的子模块，仅供顶层Main模块使用
 
-        ## 命令注册表: name, (handler, param_desc, description)
+        ## 常驻命令注册表: name, (handler, param_desc, description)
         self.commands = {
             "help": (self.do_help, "", "显示命令帮助信息"),
             "quit": (self.do_quit, "", "退出或返回上一级"),
             "plat": (self.do_plat, "<name>", "设置平台: (Only RK3572 for now!)"),
             "load": (self.do_load, "<file>", "加载 .json 配置文件或 .dat/.bin 寄存器文件"),
-            "gen": (self.do_gen, "[-n num] [-o filename/directory] [-s rand_seed]", "生成 num 个随机配置, 可输出到文件(num=1)或文件夹(num>1)"),
+            "gen": (
+                self.do_gen,
+                "[-n num] [-o filename/directory] [-s rand_seed]",
+                "生成 num 个随机配置, 可输出到文件(num=1)或文件夹(num>1)",
+            ),
             "dump": (self.do_dump, "[filenames]", "指定文件名(.json/.dat/.bin, 可多个)时则导出当前配置到对应文件, 否则打印到控制台"),
-            "reg": (self.do_reg, "[target]", "生成寄存器配置值 (TODO)"),
+            "reg": (self.do_reg, "[target]", "生成寄存器配置值"),
             "get": (self.do_get, "<name1> [name2 name3 ...]", "获取配置参数的值"),
             "set": (self.do_set, "<name1=value1> [name2=value2 name3=value3 ...]", "设置配置参数的值"),
         }
 
-    def run(self):
+    def run(self) -> str:
         """运行模块的主循环"""
         print(f"\n=== 进入 {self.name.upper()} 模块 ===")
         self.do_help([])  # 显示初始帮助信息
 
         while True:
             try:
-                user_input = input(f"({self.name}_{self.platform})> ").strip()
+                ## 等待用户输入命令
+                user_input = input(f"[{self.name}_{self.platform}] >> ").strip()
                 if not user_input:
                     continue
 
-                # 解析命令和参数
+                ## 解析命令和参数
                 parts = user_input.split()
-                command = parts[0].lower()
-                args = parts[1:] if len(parts) > 1 else []
+                command = parts[0].lower()  # 第一个参数总是被解析为常驻命令
+                args = parts[1:] if len(parts) > 1 else []  # 剩下的参数被解析为该常驻命令的子参数
 
                 # 处理命令
                 if command in self.commands:
-                    handler = self.commands[command][0]
-                    should_exit = handler(args)
+                    cmd_handler = self.commands[command][0]
+                    should_exit = cmd_handler(args)
                     if should_exit:
-                        return None  # 返回上一级
+                        return ""  # 返回上一级
                 elif command == self.name.lower():
                     print(f"[{self.name}] 正处于当前模块中，无需切换")
                     continue
-                elif self.parent is not None and self.parent.is_valid_module(command):
+                elif self.parent is not None and command in self.parent.submodules:
                     return command  # 返回上一级并由上一级切换到另一个模块
                 else:
                     print(f"[{self.name}] 无效命令: {command}。输入 'help' 查看帮助")
-
             except KeyboardInterrupt:
                 print(f"[{self.name}] \n操作已取消")
             except Exception as e:
                 print(f"[{self.name}] 错误: {str(e)}")
-                # 详细的调试信息(调试模式下)
-                # import traceback
-                # traceback.print_exc()
 
-    ## =============== 虚函数，需要继承实现 ===============
+    ## =============== 虚函数，需要派生的子类实现 ===============
     @abstractmethod
-    def define_config_and_regs(self):
+    def define_config_and_regs(self) -> tuple[Optional[ModuleConfigCore], Optional[ModuleRegisterCore]]:
         """定义模块的配置参数(由子类实现)"""
-        self.config = ModuleConfigCore(self.name)
-        self.register = ModuleRegisterCore(self.name, self.platform)
-        pass
+        config = None
+        register = None
+        return config, register
 
-    # @abstractmethod
+    ## =============== 通用命令处理函数，子模块可按需复写 ===============
     def config_to_regs(self) -> bool:
         if self.register is not None:
             self.register.config = self.config
-            return self.register.config2regs()
+            ok = self.register.config2regs()
+            return ok
         else:
             print(f"[{self.name}] self.register not defined!!!")
         return False
 
-    # @abstractmethod
     def regs_to_config(self) -> bool:
         if self.register is not None:
             ok = self.register.regs2config()
@@ -111,10 +120,9 @@ class ModuleHelperCore(ABC):
             print(f"[{self.name}] self.register not defined!!!")
         return False
 
-    ## =============== 通用命令处理函数 ===============
+    ## =============== 常驻命令处理函数，子模块一般不用复写 ===============
     def do_help(self, args) -> bool:
         print(f"\n[{self.name}] 可用命令如下:")
-        # max_desc_len = max(len(pipe[1]) for _, pipe in self.commands)
 
         for cmd, (_, param_desc, description) in self.commands.items():
             cmd_args = f"{cmd.ljust(8)}{param_desc.ljust(24)}"
@@ -128,7 +136,7 @@ class ModuleHelperCore(ABC):
         if not self.platform:
             print(f"[{self.name}] Platform not set!")
 
-        return False
+        return False  # 总是返回False表示不退出
 
     def do_dump(self, args) -> bool:
         """导出配置到文件或控制台"""
@@ -156,7 +164,7 @@ class ModuleHelperCore(ABC):
                 except Exception as e:
                     print(f"[{self.name}] 导出配置信息至文件 {os.path.abspath(target)} 失败: {str(e)}")
 
-        return False
+        return False  # 总是返回False表示不退出
 
     def do_gen(self, args) -> bool:
         ## parse args & check
@@ -203,12 +211,12 @@ class ModuleHelperCore(ABC):
     def do_load(self, args) -> bool:
         if not args:
             print(f"[{self.name}] 错误: 需要一个额外的参数来指定文件路径！")
-            return False
+            return False  # 不退出
 
         filename = args[0]
         if not os.path.isfile(filename):
             print(f"[{self.name}] 错误: 文件不存在: {filename}")
-            return False
+            return False  # 不退出
 
         if filename.endswith(".json"):
             # 加载JSON配置文件
@@ -221,24 +229,21 @@ class ModuleHelperCore(ABC):
         else:
             print(f"[{self.name}] 错误: 不支持的文件类型: {filename}. 仅支持 .json/.dat/.txt/.bin")
 
-        return False
+        return False  # 不退出
 
     def do_plat(self, args) -> bool:
         """设置平台属性"""
         if not args:
             print(f"[{self.name}] Error: 需要一个额外的参数来指定平台名称！")
-            return False
+            return False  # 不退出
 
-        platform_name = args[0]
+        platform_name = args[0].upper()
         self.platform = platform_name
         print(f"[{self.name}] Set platform to: {platform_name}")
 
-        # 更新平台相关的配置
-        self.apply_platform_config()
-
         ## 给子模块也全部设置新的平台
-        for mod in self.modules:
-            self.modules[mod].do_plat(args)
+        for mod in self.submodules:
+            self.submodules[mod].do_plat(args)
 
         return False  # 不退出
 
@@ -248,47 +253,50 @@ class ModuleHelperCore(ABC):
             self.register.dump()
         else:
             print(f"[{self.name}] 错误: 寄存器配置生成失败！")
-        return False
+        return False  # 不退出
 
     def do_quit(self, args) -> bool:
         if self.parent:
             print(f"[{self.name}] 返回 {self.parent.name.upper()} 模块...")
-            return True  # 退出当前模块
+            return True  # 如果有上层则退出当前模块返回上一层
         else:
-            sys.exit(0)
+            sys.exit(0)  # 直接退出程序
 
     def do_get(self, args) -> bool:
         """获取一个或多个参数值"""
         if not args:
             print(f"[{self.name}] 错误: 需要至少一个参数名！")
-            return False
+            return False  # 不退出
 
         print(f"[{self.name}] \n参数值查询结果:")
         for param_name in args:
             if hasattr(self.config, param_name):
                 value = getattr(self.config, param_name)
+                if type(value) is np.ndarray:
+                    value = np.array2string(value.flatten(), separator=",")
+                elif type(value) is list:
+                    value = ",".join(str(x) for x in value)
                 print(f"[{self.name}] get param \'{param_name}\' value: {value}")
             else:
-                print(f"[{self.name}] invalid param name: \'{param_name}\'!")
+                print(f"[{self.name}] invalid param name: \'{param_name}\'! use \'dump\' to check all params.")
 
-        # 不退出
-        return False
+        return False  # 不退出
 
     def do_set(self, args) -> bool:
         """设置一个或多个参数值"""
         if not args:
             print(f"[{self.name}] 错误: 参数设置格式应为 <param1>=<value1> [param2=<value2> ...]")
-            return False
+            return False  # 不退出
 
         arg_str = " ".join(args)
         if "=" not in arg_str:
             print(f"[{self.name}] 错误: 参数设置格式应为 <param1>=<value1> [param2=<value2> ...]")
-            return False
+            return False  # 不退出
 
         if self.register is not None:
             self.register.config = copy.deepcopy(self.config)
             self.register.config2regs()
-            old_regs = copy.deepcopy(self.register.regs) # list[Reg]
+            old_regs = copy.deepcopy(self.register.regs)  # list[Reg]
             # self.register.dump()
 
         items = re.findall(r'(\w+)=([^=]+)(?=\s+\w+=|$)', arg_str.strip())
@@ -311,31 +319,30 @@ class ModuleHelperCore(ABC):
                         value = float(value)
 
                 setattr(self.config, key, value)
-                print(f"[{self.name}] set param \'{key}\' to {value}")
+                print(f"[{self.name}] set param \'{key}\' value: {value}")
             else:
-                print(f"[{self.name}] failed to set param \'{key}\' to {value}")
+                print(f"[{self.name}] invalid param name: \'{key}\'! use \'dump\' to check all params.")
 
         if self.register is not None:
             self.register.config = copy.deepcopy(self.config)
             self.register.config2regs()
             new_regs = copy.deepcopy(self.register.regs)
             # self.register.dump()
+            cnt_changed = 0
             for old, new in zip(old_regs, new_regs):
-                assert(old.name == new.name and old.offset == new.offset)
+                assert old.name == new.name and old.offset == new.offset
                 if old.value != new.value:
-                    print("[%s] register 0x%08X changed: 0x%08X ==> 0x%08X." % (self.name, old.offset, old.value, new.value))
+                    print(
+                        "[%s] register 0x%08X changed: 0x%08X ==> 0x%08X"
+                        % (self.name, old.offset, old.value, new.value)
+                    )
+                    cnt_changed += 1
+            if cnt_changed == 0:
+                print(f"[{self.name}] the value of no register has changed!")
 
-        # 不退出
-        return False
+        return False  # 不退出
 
     ## =============== 通用辅助方法 ===============
-    def is_valid_module(self, module_name: str) -> bool:
-        return False  # 只给最顶层APP级使用
-
-    def apply_platform_config(self):
-        """应用平台相关的配置(默认实现为空，子类可覆盖)"""
-        pass
-
     def add_command(self, name: str, handler, param_desc: str = "", description: str = ""):
         self.commands[name] = (handler, param_desc, description)
 
