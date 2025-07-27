@@ -21,6 +21,7 @@ from utils import NoIndent, CompactArrayEncoder
 class CfaConfig(ModuleConfigCore):
     def __init__(self, name: str = "CFA", version: str = "unknown"):
         super().__init__(name, version)
+
         self.nCallCnt = 0
         self.nFrameIdx = 0
         self.nImgWid = 0
@@ -173,7 +174,7 @@ class CfaConfig(ModuleConfigCore):
         self.valid = True
         return self.valid
 
-    def gen(self, seed: int = 114514, **kwargs) -> int:
+    def gen(self, seed: int = 114514, **kwargs) -> bool:
         ## set random seed
         if seed == None:
             seed = self.randSeed + 1  # increase rand seed if no argument in
@@ -217,7 +218,7 @@ class CfaConfig(ModuleConfigCore):
         self.aReserved = [0, 0, 0, 0, 0, 0, 0, 0]  # x8
 
         self.randSeed = seed
-        return seed
+        return True
 
 
 if __name__ == "__main__":

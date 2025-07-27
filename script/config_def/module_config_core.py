@@ -35,9 +35,9 @@ class ModuleConfigCore(ABC):
         return False
 
     @abstractmethod
-    def gen(self, seed: int = 114514, **kwargs) -> int:
+    def gen(self, seed: int = 114514, **kwargs) -> bool:
         self.randSeed = seed
-        return seed
+        return False
 
     def get_seed(self) -> int:
         return self.randSeed

@@ -258,7 +258,7 @@ class DciConfig(ModuleConfigCore):
         self.valid = True
         return self.valid
 
-    def gen(self, seed: int = 114514, **kwargs) -> int:
+    def gen(self, seed: int = 114514, **kwargs) -> bool:
         ## set random seed
         if seed == None:
             seed = self.randSeed + 1  # increase rand seed if no argument in
@@ -322,7 +322,7 @@ class DciConfig(ModuleConfigCore):
         self.cfg_vop.dci_locat_ratio = np.random.randint(0, 32, size=16 * 16, dtype=np.uint8)
         self.cfg_vop.dci_global_lut = np.random.randint(0, 1023, size=256, dtype=np.uint16)
         self.logger.info(f"generated a random config with seed={seed}")
-        return seed
+        return True
 
 
 if __name__ == "__main__":

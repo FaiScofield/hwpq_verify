@@ -157,7 +157,7 @@ class CscConfig(ModuleConfigCore):
         self.valid = True
         return self.valid
 
-    def gen(self, seed: int = 114514, **kwargs) -> int:
+    def gen(self, seed: int = 114514, **kwargs) -> bool:
         ## set random seed
         if seed == None:
             seed = self.randSeed + 1  # increase rand seed if no argument in
@@ -212,7 +212,7 @@ class CscConfig(ModuleConfigCore):
             self.gen_coef_from_param()
 
         self.logger.info(f"generated a random config with seed={seed}, passthrough={self.cscPassthrough}")
-        return seed
+        return True
 
     def gen_coef_from_param(self):
         # TODO

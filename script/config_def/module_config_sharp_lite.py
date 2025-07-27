@@ -20,6 +20,7 @@ from config_def.module_config_core import *
 class SharpLiteConfig(ModuleConfigCore):
     def __init__(self, name: str = "SharpLite", version: str = "unknown"):
         super().__init__(name, version)
+
         self.i_sharp_lite_en = 1  # u1
         self.f_usm_sigma_0 = 0.7  # for gaussian 2D kernel0
         self.f_usm_sigma_1 = 0.7  # for gaussian 2D kernel1
@@ -147,7 +148,7 @@ class SharpLiteConfig(ModuleConfigCore):
         self.valid = True
         return self.valid
 
-    def gen(self, seed: int = 114514, **kwargs) -> int:
+    def gen(self, seed: int = 114514, **kwargs) -> bool:
         ## set random seed
         if seed == None:
             seed = self.randSeed + 1  # increase rand seed if no argument in
@@ -197,7 +198,7 @@ class SharpLiteConfig(ModuleConfigCore):
             self.i_sharp_force_core_mode = passthrough
 
         self.logger.info(f"generated a random config with seed={seed}, passthrough={passthrough}")
-        return seed
+        return True
 
 
 if __name__ == "__main__":

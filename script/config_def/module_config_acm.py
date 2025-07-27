@@ -4,7 +4,7 @@ FilePath    : module_config_acm.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-25
+LastEditTime: 2025-07-27
 """
 
 import os
@@ -23,20 +23,19 @@ class AcmConfig(ModuleConfigCore):
     def __init__(self, name: str = "ACM", version: str = "unknown"):
         super().__init__(name, version)
 
-        self.gen()
-        # self.acmEnable = 1
-        # self.acmTableDeltaYbyH = np.zeros(65, dtype=np.int16)  # [-255, 255]
-        # self.acmTableDeltaHbyH = np.zeros(65, dtype=np.int16)  # [- 64,  64]
-        # self.acmTableDeltaSbyH = np.zeros(65, dtype=np.int16)  # [-255, 255]
-        # self.acmTableGainYbyY = np.zeros(17 * 9, dtype=np.int8)  # [-127, 127]
-        # self.acmTableGainHbyY = np.zeros(17 * 9, dtype=np.int8)  # [-127, 127]
-        # self.acmTableGainSbyY = np.zeros(17 * 9, dtype=np.int8)  # [-127, 127]
-        # self.acmTableGainYbyS = np.zeros(17 * 13, dtype=np.int8)  # [-127, 127]
-        # self.acmTableGainHbyS = np.zeros(17 * 13, dtype=np.int8)  # [-127, 127]
-        # self.acmTableGainSbyS = np.zeros(17 * 13, dtype=np.int8)  # [-127, 127]
-        # self.lumGain = 256  # [0, (256), 1023]
-        # self.hueGain = 256  # [0, (256), 1023]
-        # self.satGain = 256  # [0, (256), 1023]
+        self.acmEnable = 1
+        self.acmTableDeltaYbyH = np.zeros(65, dtype=np.int16)  # [-255, 255]
+        self.acmTableDeltaHbyH = np.zeros(65, dtype=np.int8)  # [- 64,  64]
+        self.acmTableDeltaSbyH = np.zeros(65, dtype=np.int16)  # [-255, 255]
+        self.acmTableGainYbyY = np.zeros(17 * 9, dtype=np.int8)  # [-127, 127]
+        self.acmTableGainHbyY = np.zeros(17 * 9, dtype=np.int8)  # [-127, 127]
+        self.acmTableGainSbyY = np.zeros(17 * 9, dtype=np.int8)  # [-127, 127]
+        self.acmTableGainYbyS = np.zeros(17 * 13, dtype=np.int8)  # [-127, 127]
+        self.acmTableGainHbyS = np.zeros(17 * 13, dtype=np.int8)  # [-127, 127]
+        self.acmTableGainSbyS = np.zeros(17 * 13, dtype=np.int8)  # [-127, 127]
+        self.lumGain = 256  # [0, (256), 1023]
+        self.hueGain = 256  # [0, (256), 1023]
+        self.satGain = 256  # [0, (256), 1023]
 
     ## =============== overwrite methods  ===============
     def dump(self, filename=None) -> bool:
@@ -103,7 +102,7 @@ class AcmConfig(ModuleConfigCore):
                     data = data["pq_tuning_param"]["acm"]
                 self.acmEnable = data["acmEnable"]
                 self.acmTableDeltaYbyH = np.array(data["acmTableDeltaYbyH"], dtype=np.int16)
-                self.acmTableDeltaHbyH = np.array(data["acmTableDeltaHbyH"], dtype=np.int16)
+                self.acmTableDeltaHbyH = np.array(data["acmTableDeltaHbyH"], dtype=np.int8)
                 self.acmTableDeltaSbyH = np.array(data["acmTableDeltaSbyH"], dtype=np.int16)
                 self.acmTableGainYbyY = np.array(data["acmTableGainYbyY"], dtype=np.int8)
                 self.acmTableGainHbyY = np.array(data["acmTableGainHbyY"], dtype=np.int8)
@@ -126,7 +125,7 @@ class AcmConfig(ModuleConfigCore):
         self.valid = True
         return self.valid
 
-    def gen(self, seed: int = 114514, **kwargs) -> int:
+    def gen(self, seed: int = 114514, **kwargs) -> bool:
         ## set random seed
         if seed == None:
             seed = self.randSeed + 1  # increase rand seed if no argument in
@@ -141,7 +140,7 @@ class AcmConfig(ModuleConfigCore):
         self.hueGain = random.randint(0, 1023)
         self.satGain = random.randint(0, 1023)
         self.acmTableDeltaYbyH = np.random.randint(-255, 255, size=65, dtype=np.int16)
-        self.acmTableDeltaHbyH = np.random.randint(-64, 64, size=65, dtype=np.int16)
+        self.acmTableDeltaHbyH = np.random.randint(-64, 64, size=65, dtype=np.int8)
         self.acmTableDeltaSbyH = np.random.randint(-255, 255, size=65, dtype=np.int16)
         self.acmTableGainYbyY = np.random.randint(-127, 127, size=17 * 9, dtype=np.int8)
         self.acmTableGainHbyY = np.random.randint(-127, 127, size=17 * 9, dtype=np.int8)
@@ -150,7 +149,7 @@ class AcmConfig(ModuleConfigCore):
         self.acmTableGainHbyS = np.random.randint(-127, 127, size=17 * 13, dtype=np.int8)
         self.acmTableGainSbyS = np.random.randint(-127, 127, size=17 * 13, dtype=np.int8)
         self.logger.info(f"generated a random config with seed={seed}")
-        return seed
+        return True
 
 
 if __name__ == "__main__":
