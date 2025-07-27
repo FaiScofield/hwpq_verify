@@ -3,8 +3,8 @@ Copyright   : Copyright (c) 2025 by Rockchip. All right reserved.
 FilePath    : setup_logger.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-10
-Description : 
-LastEditTime: 2025-07-23
+Description :
+LastEditTime: 2025-07-27
 """
 
 import os
@@ -25,7 +25,7 @@ if not sys.stdout.encoding or sys.stdout.encoding.upper() != 'UTF-8':
 ## basic config
 logging.basicConfig(
     stream=sys.stdout,
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="[%(asctime)s] [%(name)s] %(levelname)-8s: %(message)s",
     datefmt="%m/%d %H:%M:%S",
     encoding='utf-8',
