@@ -4,7 +4,7 @@ FilePath    : check_crc_result.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-24
+LastEditTime: 2025-07-27
 '''
 
 import os
@@ -125,6 +125,9 @@ def check_crc_result(file1_path, file2_path, module_name):
 
     # 找到连续的匹配行
     matches = find_consecutive_matches(data1, data2)
+    if len(matches) == 0:
+        print("❌ No valid pairs of crc lines found!")
+        return -1
     print(f"find {len(matches)} valid pairs of crc lines.")
 
     # 比较CRC值
@@ -182,7 +185,7 @@ if __name__ == '__main__':
         total_errors = check_crc_result(fpga_crc_file, cmodel_crc_file, args.module.lower())
         if total_errors != 0:
             print(f"❌ CRC values mismatch for {os.path.basename(cmodel_crc_file)}!")
-            break
+            # break
         else:
             nb_pass += 1
     print(f"\nTotal {nb_pass} / {len(cmodel_crc_files)} cmodel crc files pass!")

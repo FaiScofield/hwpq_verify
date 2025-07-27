@@ -4,7 +4,7 @@ FilePath    : run_vop_fpga.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-24
+LastEditTime: 2025-07-27
 """
 
 import os
@@ -49,7 +49,7 @@ def parse_common_args(args):
     parser.add_argument(
         "-cp",
         "--config_passthrough",
-        default=False,
+        action="store_true",
         help="set passthrough mode for randomconfigs, used when config_num > 0",
     )
     args = parser.parse_args(args)

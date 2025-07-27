@@ -90,14 +90,18 @@ if __name__ == '__main__':
     ]
     pix_bits = 10
     coef_fix_bits = 10 if len(sys.argv) < 2 else int(sys.argv[1]) # 10 / 13
+    platform = "rk3572" if len(sys.argv) < 3 else sys.argv[2].lower() # rk3572 / rk3576
     assert(coef_fix_bits == 10 or coef_fix_bits == 13)
+    print(f" - get coef_fix_bits: {coef_fix_bits}")
+    print(f" - get platform: {platform}")
 
     max_abs_coef = 0
     max_abs_offset = 0
     max_coef_idx = (0, 0)
     max_offset_idx = (0, 0)
 
-    fp = open("rk3572_csc_coef_for_%dbit_pix_%dbits_coef.txt" % (pix_bits, coef_fix_bits), "w")
+    out_file = f"{platform}_csc_coef_for_%dbit_pix_%dbits_coef.txt" % (pix_bits, coef_fix_bits)
+    fp = open(out_file, "w")
     for idx_i in range(len(supported_list)):
         for idx_o in range(len(supported_list)):
             if idx_i == idx_o:
@@ -118,8 +122,8 @@ if __name__ == '__main__':
             print(f"matrix_{color_space_i}_{range_i}_{color_space_o}_{range_o} = {np.array2string(mat.flatten(), separator=', ')}")
             print(f"offset_{color_space_i}_{range_i}_{color_space_o}_{range_o} = {np.array2string(offset.flatten(), separator=', ')}")
 
-            fp.write(f"matrix_{color_space_i}_{range_i}_{color_space_o}_{range_o} = {mat.flatten()}\n")
-            fp.write(f"offset_{color_space_i}_{range_i}_{color_space_o}_{range_o} = {offset.flatten()}\n")
+            fp.write(f"matrix_{color_space_i}_{range_i}_{color_space_o}_{range_o} = {np.array2string(mat.flatten(), separator=', ')}\n")
+            fp.write(f"offset_{color_space_i}_{range_i}_{color_space_o}_{range_o} = {np.array2string(offset.flatten(), separator=', ')}\n")
             fp.write("\n")
 
             max_coef = max(abs(mat.max()), abs(mat.min()))
@@ -130,6 +134,6 @@ if __name__ == '__main__':
             max_offset_idx = (idx_i, idx_o) if max_offset == max_abs_offset else max_offset_idx
 
     fp.close()
-
+    print(f"csc coef list written to: {out_file}")
     print(f"max_abs_coef = {max_abs_coef} ({supported_list[max_coef_idx[0]][0]}_{supported_list[max_coef_idx[0]][1]}_{supported_list[max_coef_idx[1]][0]}_{supported_list[max_coef_idx[1]][1]})")
     print(f"max_abs_offset = {max_abs_offset} ({supported_list[max_offset_idx[0]][0]}_{supported_list[max_offset_idx[0]][1]}_{supported_list[max_offset_idx[1]][0]}_{supported_list[max_offset_idx[1]][1]})")
