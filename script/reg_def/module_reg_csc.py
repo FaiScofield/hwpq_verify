@@ -4,7 +4,7 @@ FilePath    : module_reg_csc.py
 Description :
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-17
-LastEditTime: 2025-07-24
+LastEditTime: 2025-07-27
 """
 
 import os
@@ -125,55 +125,6 @@ class CscRegister(ModuleRegisterCore):
             self.logger.error(f"Platform {self.platform} is not supported now!")
         return False
 
-    def dump(self, filename: str = "", align: int = 4, **kwargs) -> bool:
-        index = self.index
-        if "index" in kwargs:
-            arg_idx = CscModuleIndex[kwargs["index"]]
-            if arg_idx in self.reg_dicts:
-                index = arg_idx
-                self.logger.info(f"about to dump regs of {index.name}, self.index={self.index.name}")
-            else:
-                self.logger.error(f"{arg_idx} is invalid on {self.platform} now!")
-        if index in self.reg_dicts:
-            regs = self.reg_dicts[index]  # [offset, value, name]
-        else:
-            self.logger.error(f"HW module {index} is invalid on {self.platform} now!")
-            return False
-
-        self.logger.info(f"dump {self.platform} - {index.name} registers...")
-        return super().dump(filename, align, regs=regs)
-
-    def load(self, filename, **kwargs) -> bool:
-        index = self.index
-        if "index" in kwargs:
-            arg_idx = CscModuleIndex[kwargs["index"]]
-            if arg_idx in self.reg_dicts:
-                index = arg_idx
-                self.logger.info(f"about to load regs of {index.name}, self.index={self.index.name}")
-            else:
-                self.logger.error(f"{arg_idx} is invalid on {self.platform} now!")
-        if index in self.reg_dicts:
-            self.regs = self.reg_dicts[index]  # [offset, value, name]
-        else:
-            self.logger.error(f"HW module {index} is invalid on {self.platform} now!")
-            return False
-
-        self.logger.info(f"loading {self.platform} - {index.name} registers from {filename} ...")
-        return super().load(filename, **kwargs)
-
-    def gen(self, seed=114514, **kwargs) -> bool:
-        if self.index in [
-            CscModuleIndex.CLUSTER0_DCI_CSC,
-            CscModuleIndex.CLUSTER0_WIN0_CSC,
-            CscModuleIndex.CLUSTER0_WIN1_CSC,
-            CscModuleIndex.CLUSTER1_WIN0_CSC,
-            CscModuleIndex.CLUSTER1_WIN1_CSC,
-        ]:
-            precision = 13
-        else:
-            precision = 10
-        return super().gen(seed, precision=precision, **kwargs)
-
     def config2regs(self) -> bool:
         if self.index not in self.reg_dicts:
             self.logger.error(f"HW module {self.index} is invalid on {self.platform} now!")
@@ -235,6 +186,56 @@ class CscRegister(ModuleRegisterCore):
         # self.config.cscVector = np.clip(self.config.cscVector, -(2**22), 2**22 - 1)  # s23
         # self.config.cscVecB4Mul = np.linalg.solve(self.config.cscMatrix, self.config.cscVector).astype(np.int32)
         return True
+
+    def dump(self, filename: str = "", align: int = 4, **kwargs) -> bool:
+        index = self.index
+        if "index" in kwargs:
+            arg_idx = CscModuleIndex[kwargs["index"]]
+            if arg_idx in self.reg_dicts:
+                index = arg_idx
+                self.logger.info(f"about to dump regs of {index.name}, self.index={self.index.name}")
+            else:
+                self.logger.error(f"{arg_idx} is invalid on {self.platform} now!")
+        if index in self.reg_dicts:
+            regs = self.reg_dicts[index]  # [offset, value, name]
+        else:
+            self.logger.error(f"HW module {index} is invalid on {self.platform} now!")
+            return False
+
+        self.logger.info(f"dump {self.platform} - {index.name} registers...")
+        return super().dump(filename, align, regs=regs)
+
+    def load(self, filename, **kwargs) -> bool:
+        index = self.index
+        if "index" in kwargs:
+            arg_idx = CscModuleIndex[kwargs["index"]]
+            if arg_idx in self.reg_dicts:
+                index = arg_idx
+                self.logger.info(f"about to load regs of {index.name}, self.index={self.index.name}")
+            else:
+                self.logger.error(f"{arg_idx} is invalid on {self.platform} now!")
+        if index in self.reg_dicts:
+            self.regs = self.reg_dicts[index]  # [offset, value, name]
+        else:
+            self.logger.error(f"HW module {index} is invalid on {self.platform} now!")
+            return False
+
+        self.logger.info(f"loading {self.platform} - {index.name} registers from {filename} ...")
+        return super().load(filename, **kwargs)
+
+    def gen(self, seed=114514, **kwargs) -> bool:
+        if self.index in [
+            CscModuleIndex.CLUSTER0_DCI_CSC,
+            CscModuleIndex.CLUSTER0_WIN0_CSC,
+            CscModuleIndex.CLUSTER0_WIN1_CSC,
+            CscModuleIndex.CLUSTER1_WIN0_CSC,
+            CscModuleIndex.CLUSTER1_WIN1_CSC,
+        ]:
+            precision = 13
+        else:
+            precision = 10
+        return super().gen(seed, precision=precision, **kwargs)
+
 
 
 if __name__ == "__main__":

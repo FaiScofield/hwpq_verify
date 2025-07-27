@@ -4,11 +4,13 @@ FilePath    : reg_def_sharp_lite.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-25
+LastEditTime: 2025-07-27
 """
+
 import os
 import sys
 import argparse
+import numpy as np
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from reg_def.module_reg_core import ModuleRegisterCore, Reg
@@ -24,50 +26,6 @@ class SharpLiteRegister(ModuleRegisterCore):
         self.update(platform=platform)
 
     ## =============== overwrite methods  ===============
-    '''
-    def load(self, filename, **kwargs) -> bool:
-        try:
-            if filename.endswith(".bin"):
-                data = np.fromfile(filename, dtype=np.uint32)
-                if len(data) < len(self.regs):
-                    self.logger.error(
-                        f"not enough register data in {filename}! require {len(self.regs)} registers, but only get {len(data)}!"
-                    )
-                    return False
-                for i in range(len(self.regs)):
-                    self.regs[i].value = data[i]
-                return self.dump()
-            elif filename.endswith(".txt") or filename.endswith(".dat"):
-                valid_regs_val_pairs = []  # [offset, value]
-                with open(filename, "rt") as f:
-                    for _, line in enumerate(f):
-                        pair = self.parse_str_regs_array(line)
-                        if pair is not None:
-                            valid_regs_val_pairs.append(pair)
-                        else:
-                            continue
-                for pos, val in valid_regs_val_pairs:
-                    pos_ok = False
-                    for i in range(len(self.regs)):
-                        if pos == self.regs[i].offset or pos == self.regs[i].offset + self.base_addr:
-                            self.regs[i].value = val
-                            pos_ok = True
-                            break
-                    if not pos_ok:
-                        self.logger.warning(f"offset={pos} is not a valid register!")
-                return self.dump()
-            elif filename.endswith(".json") and self.config is not None:
-                ok = self.config.load(filename)
-                ok |= self.config2regs()
-                ok |= self.dump()
-                return ok
-            else:
-                self.logger.errorint(f"{filename} is not supported!")
-        except Exception as e:
-            self.logger.error(f"failed to load {filename}! {str(e)}")
-        return False
-    '''
-
     def update(self, **kwargs) -> bool:
         if self.platform.lower() == "rk3572":
             self.base_addr = 0xF9000000
@@ -100,6 +58,9 @@ class SharpLiteRegister(ModuleRegisterCore):
             return False
         cfg = self.config
         self.set(name="ENABLE_CTRL", value=(cfg.i_sharp_lite_en & 0x1) | ((cfg.i_shoot_ctrl_en & 0x1) << 1))
+        self.set(name="GATING_CTRL", value=0x0)
+        self.set(name="RESERVED_08", value=0x0)
+        self.set(name="RESERVED_0C", value=0x0)
         self.set(name="USM_CTRL", value=(cfg.i_sharp_usm_gain & 0x3FF) | ((cfg.f_usm_coring_thr & 0x7F) << 16))
         self.set(
             name="USM_COEF",
@@ -107,6 +68,8 @@ class SharpLiteRegister(ModuleRegisterCore):
             | ((cfg.i_sharp_core_B & 0xFF) << 8)
             | ((cfg.i_sharp_core_C & 0xFF) << 16),
         )
+        self.set(name="RESERVED_18", value=0x0)
+        self.set(name="RESERVED_1C", value=0x0)
         self.set(name="SHOOT_CTRL_REG0", value=(cfg.i_shoot_ctrl_delta_offset & 0xFF))
         self.set(
             name="SHOOT_CTRL_REG1", value=(cfg.i_shoot_ctrl_pos & 0x7F) | ((cfg.i_shoot_ctrl_pos_unlimit & 0x7F) << 16)
@@ -124,8 +87,34 @@ class SharpLiteRegister(ModuleRegisterCore):
         return True
 
     def regs2config(self) -> bool:
-        self.logger.error("TODO: regs2config() is not implement yet!")
-        return False
+        val = self.get(name="ENABLE_CTRL")
+        self.config.i_sharp_lite_en = (val >> 0) & 0x1
+        self.config.i_shoot_ctrl_en = (val >> 1) & 0x1
+        val = self.get(name="USM_CTRL")
+        self.config.i_sharp_usm_gain = (val >> 0) & 0x3FF
+        self.config.f_usm_coring_thr = (val >> 16) & 0x7F
+        val = self.get(name="USM_COEF")
+        self.config.i_sharp_core_A = int(val >> 0) & 0xFF
+        self.config.i_sharp_core_B = int(val >> 8) & 0xFF
+        self.config.i_sharp_core_C = int(val >> 16) & 0xFF
+        val = self.get(name="SHOOT_CTRL_REG0")
+        self.config.i_shoot_ctrl_delta_offset = val & 0x7F
+        val = self.get(name="SHOOT_CTRL_REG1")
+        self.config.i_shoot_ctrl_pos = (val >> 0) & 0x7F
+        self.config.i_shoot_ctrl_pos_unlimit = (val >> 16) & 0x7F
+        val = self.get(name="SHOOT_CTRL_REG2")
+        self.config.i_shoot_ctrl_neg = (val >> 0) & 0x7F
+        self.config.i_shoot_ctrl_neg_unlimit = (val >> 16) & 0x7F
+        val = self.get(name="ROI_CTRL0")
+        self.config.i_sharp_roi_xstart = (val >> 0) & 0xFFF
+        self.config.i_sharp_roi_xend = (val >> 16) & 0xFFF
+        self.config.i_sharp_roi_enable = (val >> 31) & 0x1
+        val = self.get(name="ROI_CTRL1")
+        self.config.i_sharp_roi_xend = (val >> 0) & 0xFFF
+        self.config.i_sharp_roi_yend = (val >> 16) & 0xFFF
+        # TODO: parse INK_CTRL register
+        # val = self.get(name="INK_CTRL")
+        return True
 
 
 if __name__ == "__main__":

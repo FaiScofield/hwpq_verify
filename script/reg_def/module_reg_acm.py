@@ -4,8 +4,9 @@ FilePath    : reg_def_acm.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-24
+LastEditTime: 2025-07-27
 """
+
 import os
 import sys
 import argparse
@@ -34,8 +35,8 @@ class AcmRegister(ModuleRegisterCore):
                 # Reg(0x00006408, 0x0, "FETCH_START"),
                 # Reg(0x00006420, 0x0, "FETCH_DONE"),
             ]
-            self.regs += [Reg(0x00006500 + idx * 4, 0x0, f"YHS_GAIN_BY_Y_SEG{idx}") for idx in range(153)]
-            self.regs += [Reg(0x00006764 + idx * 4, 0x0, f"YHS_GAIN_BY_S_SEG{idx}") for idx in range(221)]
+            self.regs += [Reg(0x00006500 + idx * 4, 0x0, f"YHS_GAIN_BY_Y_SEG{idx}") for idx in range(153)]  # 17*9
+            self.regs += [Reg(0x00006764 + idx * 4, 0x0, f"YHS_GAIN_BY_S_SEG{idx}") for idx in range(221)]  # 17*13
             self.regs += [Reg(0x00006AD8 + idx * 4, 0x0, f"YHS_DEL_BY_H_SEG{idx}") for idx in range(65)]
             assert len(self.regs) == self.nb_regs
             return True
@@ -48,33 +49,59 @@ class AcmRegister(ModuleRegisterCore):
             self.logger.error(f"current registers num={len(self.regs)} is not equal to required={self.nb_regs}!")
             return False
         cfg = self.config
-        self.logger.error("TODO: config2regs() is not implement yet!")
-        # self.set(name="ENABLE_CTRL", value=(cfg.acm_en & 0x1) | ((cfg.shoot_ctrl_en & 0x1) << 1))
-        # self.set(name="USM_CTRL", value=(cfg.sharp_usm_gain & 0x3FF) | ((cfg.usm_coring_thr & 0x7F) << 16))
-        # self.set(
-        #     name="USM_COEF",
-        #     value=(cfg.sharp_core_A & 0xFF) | ((cfg.sharp_core_B & 0xFF) << 8) | ((cfg.sharp_core_C & 0xFF) << 16),
-        # )
-        # self.set(name="SHOOT_CTRL_REG0", value=(cfg.shoot_ctrl_delta_offset & 0xFF))
-        # self.set(
-
-        #     name="SHOOT_CTRL_REG1", value=(cfg.shoot_ctrl_pos & 0x7F) | ((cfg.shoot_ctrl_pos_unlimit & 0x7F) << 16)
-        # )
-        # self.set(
-        #     name="SHOOT_CTRL_REG2", value=(cfg.shoot_ctrl_neg & 0x7F) | ((cfg.shoot_ctrl_neg_unlimit & 0x7F) << 16)
-        # )
-        # self.set(
-        #     name="ROI_CTRL0",
-        #     value=(cfg.sharp_roi_xstart & 0xFFF)
-        #     | ((cfg.sharp_roi_ystart & 0xFFF) << 16)
-        #     | ((cfg.sharp_roi_enable & 0x1) << 31),
-        # )
-        # self.set(name="ROI_CTRL1", value=(cfg.sharp_roi_xend & 0xFFF) | ((cfg.sharp_roi_yend & 0xFFF) << 16))
-        return False
+        self.set(name="ACM_CTRL", value=(cfg.acmEnable & 0x1))
+        self.set(
+            name="DELTA_RANGE",
+            value=(cfg.lumGain & 0x3FF) | ((cfg.hueGain & 0x3FF) << 10) | ((cfg.satGain & 0x3FF) << 20),
+        )
+        for i in range(153):
+            self.set(
+                name=f"YHS_GAIN_BY_Y_SEG{i}",
+                value=np.int32(cfg.acmTableGainYbyY[i])
+                | (np.int32(cfg.acmTableGainHbyY[i]) << 8)
+                | (np.int32(cfg.acmTableGainSbyY[i]) << 16),
+            )
+        for i in range(221):
+            self.set(
+                name=f"YHS_GAIN_BY_S_SEG{i}",
+                value=(np.int32(cfg.acmTableGainYbyS[i]))
+                | (np.int32(cfg.acmTableGainHbyS[i]) << 8)
+                | (np.int32(cfg.acmTableGainSbyS[i]) << 16),
+            )
+        for i in range(65):
+            self.set(
+                name=f"YHS_DEL_BY_H_SEG{i}",
+                value=np.int32(cfg.acmTableDeltaYbyH[i] & 0x3FF)
+                | (np.int32(cfg.acmTableDeltaHbyH[i]) << 12)
+                | (np.int32((cfg.acmTableDeltaSbyH[i] & 0x3FF)) << 20),
+            )
+        return True
 
     def regs2config(self) -> bool:
-        self.logger.error("TODO: regs2config() is not implement yet!")
-        return False
+        if len(self.regs) < self.nb_regs:
+            self.logger.error(f"current registers num={len(self.regs)} is not equal to required={self.nb_regs}!")
+            return False
+
+        self.config.acmEnable = self.regs[0].value & 0x1
+        self.config.lumGain = (self.regs[1].value >> 0) & 0x3FF
+        self.config.hueGain = (self.regs[1].value >> 10) & 0x3FF
+        self.config.satGain = (self.regs[1].value >> 20) & 0x3FF
+        for i in range(153):
+            reg = self.regs[2 + i]
+            self.config.acmTableGainYbyY[i] = (reg.value >> 0) & 0xFF
+            self.config.acmTableGainHbyY[i] = (reg.value >> 8) & 0xFF
+            self.config.acmTableGainSbyY[i] = (reg.value >> 16) & 0xFF
+        for i in range(221):
+            reg = self.regs[2 + 153 + i]
+            self.config.acmTableGainYbyS[i] = (reg.value >> 0) & 0xFF
+            self.config.acmTableGainHbyS[i] = (reg.value >> 8) & 0xFF
+            self.config.acmTableGainSbyS[i] = (reg.value >> 16) & 0xFF
+        for i in range(65):
+            reg = self.regs[2 + 153 + 221 + i]
+            self.config.acmTableDeltaYbyH[i] = (reg.value >> 0) & 0x3FF
+            self.config.acmTableDeltaHbyH[i] = (reg.value >> 12) & 0xFF
+            self.config.acmTableDeltaSbyH[i] = (reg.value >> 20) & 0x3FF
+        return True
 
 
 if __name__ == "__main__":

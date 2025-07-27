@@ -4,13 +4,15 @@ FilePath    : module_reg_core.py
 Description :
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-11
-LastEditTime: 2025-07-24
+LastEditTime: 2025-07-27
 """
+
 import os
 import sys
 import re
 import numpy as np
 from abc import ABC, abstractmethod
+from typing import Optional, Union
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from utils import setup_logger
@@ -39,7 +41,20 @@ class ModuleRegisterCore(ABC):
         self.regs = []
         self.config = None
 
-    # @abstractmethod
+    ## =============== abstract methods  ===============
+    @abstractmethod
+    def update(self, **kwargs) -> bool:
+        return False
+
+    @abstractmethod
+    def config2regs(self) -> bool:
+        return False
+
+    @abstractmethod
+    def regs2config(self) -> bool:
+        return False
+
+    ## =============== common methods  ===============
     def dump(self, filename: str = "", align: int = 4, **kwargs) -> bool:
         if "regs" in kwargs:
             regs = kwargs["regs"]
@@ -49,23 +64,26 @@ class ModuleRegisterCore(ABC):
         if filename == None or filename == "":
             self.logger.info(f"dump {self.platform} registers below:")
             data = self.format_str_regs_array(regs, align, self.base_addr, False)
+            if data == "":
+                return False
             for line in data:
                 self.logger.info(line)
             return True
 
         self.logger.info(f"dump {self.platform} registers to {filename} ...")
-        data = self.format_str_regs_array(regs, align, self.base_addr, True)
+
         if filename.endswith(".txt") or filename.endswith(".dat"):
             with open(filename, "w") as f:
-                f.write(data)
-                return True
+                data = self.format_str_regs_array(regs, align, self.base_addr, True)
+                if data != "":
+                    f.write(data)
+                    return True
         elif filename.endswith(".bin"):
             data = np.array([val for _, val, _ in regs], dtype=np.uint32)
             data.tofile(filename)
             return True
         return False
 
-    # @abstractmethod
     def load(self, filename, **kwargs) -> bool:
         self.logger.info(f"loading {self.platform} registers from {filename} ...")
         if filename.endswith(".txt") or filename.endswith(".dat"):
@@ -118,26 +136,18 @@ class ModuleRegisterCore(ABC):
         if self.config is not None:
             ok = self.config.gen(seed, **kwargs)
             # self.config.dump()
-            ok |= self.config2regs()
+            ok &= self.config2regs()
             return ok
         else:
             self.logger.error(f"failed to run gen(), since the config handler is not set!")
             return False
 
-    @abstractmethod
-    def update(self, **kwargs) -> bool:
-        return False
-
-    @abstractmethod
-    def config2regs(self) -> bool:
-        return False
-
-    @abstractmethod
-    def regs2config(self) -> bool:
-        return False
-
-    def set(self, value: int, index: int = None, name: str = None, offset: int = None) -> bool:
+    def set(
+        self, value, index: Optional[int] = None, name: Optional[str] = None, offset: Optional[int] = None
+    ) -> bool:
         ret = False
+        # if type is None:
+        #     type = np.uint32
         for i in range(len(self.regs)):
             if (
                 (index is not None and i == index)
@@ -151,7 +161,9 @@ class ModuleRegisterCore(ABC):
                 continue
         return ret
 
-    def get(self, index: int = None, name: str = None, offset: int = None) -> int or None:
+    def get(
+        self, index: Optional[int] = None, name: Optional[str] = None, offset: Optional[int] = None
+    ) -> Optional[np.uint32]:
         if index is not None:
             if index >= 0 and index < len(self.regs):
                 return self.regs[index].value
@@ -165,7 +177,7 @@ class ModuleRegisterCore(ABC):
 
     def format_str_regs_array(
         self, regs: list[Reg], align: int = 4, base_address: int = 0, joint_lines: bool = True
-    ) -> str or list[str]:
+    ) -> Union[str, list[str]]:
         """
         format string for regs with number align registers, like:
             0x00000000: 0x00000001 0x000000FF 0x0FCD0008 0x00000000
@@ -173,10 +185,11 @@ class ModuleRegisterCore(ABC):
         return joined string or list[string]
         """
         if align < 1 or len(regs) == 0:
-            return None
+            self.logger.warning(f"invalid align={align} or regs={regs}!")
+            return ""
 
         offsets = [o for o, v, n in regs]
-        offset_value_dict = {o: v for o, v, _ in regs}
+        offset_value_dict = {o: v for o, v, n in regs}
 
         key_st = min(offsets)
         key_ed = max(offsets)
@@ -198,7 +211,7 @@ class ModuleRegisterCore(ABC):
 
         return "\n".join(lines) if joint_lines else lines
 
-    def parse_str_regs_array(self, line_str: str) -> list[int, int] or None:
+    def parse_str_regs_array(self, line_str: str) -> Optional[list[int]]:
         """
         parse regs array from a string like:
             0x00000000: 0x00000001 0x000000FF 0x0FCD0008 0x00000000

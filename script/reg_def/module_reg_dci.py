@@ -4,8 +4,9 @@ FilePath    : reg_def_dci.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-24
+LastEditTime: 2025-07-27
 """
+
 import os
 import sys
 import argparse
@@ -76,11 +77,6 @@ class DciRegister(ModuleRegisterCore):
         else:
             self.logger.error(f"Platform {self.platform} is not supported now!")
         return False
-
-    # def gen(self, seed=114514, **kwargs) -> bool:
-    #     if
-    #     self.packed_lut = np.random.randint(0, 256, 5632, dtype=np.uint8)
-    #     return True
 
     def config2regs(self) -> bool:
         if len(self.regs) < self.nb_regs:
@@ -154,14 +150,12 @@ class DciRegister(ModuleRegisterCore):
             self.packed_lut[i * 4 + 1] = (val >> 8) & 0xFF
             self.packed_lut[i * 4 + 2] = (val >> 16) & 0xFF
             self.packed_lut[i * 4 + 3] = (val >> 24) & 0xFF
-
-        (
-            self.config.cfg_vop.dci_global_lut,
-            self.config.cfg_vop.dci_locat_ratio,
-            self.config.cfg_vop.dci_local_lut,
-        ) = self.unpack_lut(self.packed_lut)
+        (self.config.cfg_vop.dci_global_lut, self.config.cfg_vop.dci_locat_ratio, self.config.cfg_vop.dci_local_lut) = (
+            self.unpack_lut(self.packed_lut)
+        )
         return True
 
+    ## =============== adiitional auxiliary methods  ===============
     def pack_lut(
         self, global_lut_x256: np.ndarray, locat_ratio_x256: np.ndarray, local_lut_x4096: np.ndarray
     ) -> np.ndarray:
