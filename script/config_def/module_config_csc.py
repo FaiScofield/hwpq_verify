@@ -22,17 +22,14 @@ from utils import NoIndent, CompactArrayEncoder
 
 class CscColorSpace(Enum):
     """(enum_val, offset_r/y, offset_g/u, offset_b/v)"""
-
-    # LIMIT = 0x0
-    # FULL = 0x1
-    RGBL = (0x02, 16, 16, 16)
-    RGBF = (0x03, 0, 0, 0)
-    YUV601L = (0x04, 16, 128, 128)
-    YUV601F = (0x05, 0, 128, 128)
-    YUV709L = (0x08, 16, 128, 128)
-    YUV709F = (0x09, 0, 128, 128)
-    YUV2020L = (0x10, 16, 128, 128)
-    YUV2020F = (0x11, 0, 128, 128)
+    RGBL = (0x00, 16, 16, 16)
+    RGBF = (0x01, 0, 0, 0)
+    YUV601L = (0x02, 16, 128, 128)
+    YUV601F = (0x03, 0, 128, 128)
+    YUV709L = (0x04, 16, 128, 128)
+    YUV709F = (0x05, 0, 128, 128)
+    YUV2020L = (0x08, 16, 128, 128)
+    YUV2020F = (0x09, 0, 128, 128)
 
 
 class CscConfig(ModuleConfigCore):
