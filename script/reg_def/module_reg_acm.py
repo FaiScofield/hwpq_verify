@@ -4,7 +4,7 @@ FilePath    : reg_def_acm.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-27
+LastEditTime: 2025-07-28
 """
 
 import os
@@ -57,23 +57,23 @@ class AcmRegister(ModuleRegisterCore):
         for i in range(153):
             self.set(
                 name=f"YHS_GAIN_BY_Y_SEG{i}",
-                value=np.int32(cfg.acmTableGainYbyY[i])
-                | (np.int32(cfg.acmTableGainHbyY[i]) << 8)
-                | (np.int32(cfg.acmTableGainSbyY[i]) << 16),
+                value=((cfg.acmTableGainYbyY[i].astype(np.int32) & 0xFF) << 0)
+                | ((cfg.acmTableGainHbyY[i].astype(np.int32) & 0xFF) << 8)
+                | ((cfg.acmTableGainSbyY[i].astype(np.int32) & 0xFF) << 16),
             )
         for i in range(221):
             self.set(
                 name=f"YHS_GAIN_BY_S_SEG{i}",
-                value=(np.int32(cfg.acmTableGainYbyS[i]))
-                | (np.int32(cfg.acmTableGainHbyS[i]) << 8)
-                | (np.int32(cfg.acmTableGainSbyS[i]) << 16),
+                value=((cfg.acmTableGainYbyS[i].astype(np.int32) & 0xFF) << 0)
+                | ((cfg.acmTableGainHbyS[i].astype(np.int32) & 0xFF) << 8)
+                | ((cfg.acmTableGainSbyS[i].astype(np.int32) & 0xFF) << 16),
             )
         for i in range(65):
             self.set(
                 name=f"YHS_DEL_BY_H_SEG{i}",
-                value=np.int32(cfg.acmTableDeltaYbyH[i] & 0x3FF)
-                | (np.int32(cfg.acmTableDeltaHbyH[i]) << 12)
-                | (np.int32((cfg.acmTableDeltaSbyH[i] & 0x3FF)) << 20),
+                value=((cfg.acmTableDeltaYbyH[i].astype(np.int32) & 0x3FF) << 0)
+                | ((cfg.acmTableDeltaHbyH[i].astype(np.int32) & 0xFF) << 12)
+                | ((cfg.acmTableDeltaSbyH[i].astype(np.int32) & 0x3FF) << 20),
             )
         return True
 
@@ -88,19 +88,19 @@ class AcmRegister(ModuleRegisterCore):
         self.config.satGain = (self.regs[1].value >> 20) & 0x3FF
         for i in range(153):
             reg = self.regs[2 + i]
-            self.config.acmTableGainYbyY[i] = (reg.value >> 0) & 0xFF
-            self.config.acmTableGainHbyY[i] = (reg.value >> 8) & 0xFF
-            self.config.acmTableGainSbyY[i] = (reg.value >> 16) & 0xFF
+            self.config.acmTableGainYbyY[i] = (reg.value.astype(np.int32) >> 0) & 0xFF
+            self.config.acmTableGainHbyY[i] = (reg.value.astype(np.int32) >> 8) & 0xFF
+            self.config.acmTableGainSbyY[i] = (reg.value.astype(np.int32) >> 16) & 0xFF
         for i in range(221):
             reg = self.regs[2 + 153 + i]
-            self.config.acmTableGainYbyS[i] = (reg.value >> 0) & 0xFF
-            self.config.acmTableGainHbyS[i] = (reg.value >> 8) & 0xFF
-            self.config.acmTableGainSbyS[i] = (reg.value >> 16) & 0xFF
+            self.config.acmTableGainYbyS[i] = (reg.value.astype(np.int32) >> 0) & 0xFF
+            self.config.acmTableGainHbyS[i] = (reg.value.astype(np.int32) >> 8) & 0xFF
+            self.config.acmTableGainSbyS[i] = (reg.value.astype(np.int32) >> 16) & 0xFF
         for i in range(65):
             reg = self.regs[2 + 153 + 221 + i]
-            self.config.acmTableDeltaYbyH[i] = (reg.value >> 0) & 0x3FF
-            self.config.acmTableDeltaHbyH[i] = (reg.value >> 12) & 0xFF
-            self.config.acmTableDeltaSbyH[i] = (reg.value >> 20) & 0x3FF
+            self.config.acmTableDeltaYbyH[i] = (reg.value.astype(np.int32) >> 0) & 0x3FF
+            self.config.acmTableDeltaHbyH[i] = (reg.value.astype(np.int32) >> 12) & 0xFF
+            self.config.acmTableDeltaSbyH[i] = (reg.value.astype(np.int32) >> 20) & 0x3FF
         return True
 
 

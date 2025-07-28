@@ -4,7 +4,7 @@ FilePath    : module_config_sharp_lite.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-10
 Description :
-LastEditTime: 2025-07-25
+LastEditTime: 2025-07-28
 """
 
 import os
@@ -58,6 +58,11 @@ class SharpLiteConfig(ModuleConfigCore):
             "f_usm_sigma_1": self.f_usm_sigma_1,
             "f_usm_gain_0": self.f_usm_gain_0,
             "f_usm_gain_1": self.f_usm_gain_1,
+            "i_sharp_force_core_mode": self.i_sharp_force_core_mode,
+            "i_sharp_usm_gain": self.i_sharp_usm_gain,
+            "i_sharp_core_A": self.i_sharp_core_A,
+            "i_sharp_core_B": self.i_sharp_core_B,
+            "i_sharp_core_C": self.i_sharp_core_C,
             "f_usm_coring_thr": self.f_usm_coring_thr,
             "i_shoot_ctrl_en": self.i_shoot_ctrl_en,
             "i_shoot_ctrl_delta_offset": self.i_shoot_ctrl_delta_offset,
@@ -70,11 +75,6 @@ class SharpLiteConfig(ModuleConfigCore):
             "i_sharp_roi_xend": self.i_sharp_roi_xend,
             "i_sharp_roi_ystart": self.i_sharp_roi_ystart,
             "i_sharp_roi_yend": self.i_sharp_roi_yend,
-            "i_sharp_force_core_mode": self.i_sharp_force_core_mode,
-            "i_sharp_core_A": self.i_sharp_core_A,
-            "i_sharp_core_B": self.i_sharp_core_B,
-            "i_sharp_core_C": self.i_sharp_core_C,
-            "i_sharp_usm_gain": self.i_sharp_usm_gain,
             "i_ink_enable": self.i_ink_enable,
             "i_ink_mode": self.i_ink_mode,
             "i_ink_idx_h": self.i_ink_idx_h,

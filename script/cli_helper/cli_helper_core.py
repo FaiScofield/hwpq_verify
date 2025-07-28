@@ -4,7 +4,7 @@ FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-25
+LastEditTime: 2025-07-28
 """
 
 import sys
@@ -141,12 +141,13 @@ class ModuleHelperCore(ABC):
     def do_dump(self, args) -> bool:
         """导出配置到文件或控制台"""
         config = self.config
-        regs = self.config_to_regs()
+        reg_ok = self.config_to_regs()
 
         if not args:
             ## 控制台显示
             config.dump()
-            # regs.dump()
+            if reg_ok:
+                self.register.dump()
         else:
             ## 导出到文件
             targets = args
@@ -154,10 +155,10 @@ class ModuleHelperCore(ABC):
                 try:
                     if target.endswith(".json"):
                         config.dump(target)
-                    elif target.endswith(".dat") or target.endswith(".txt"):
-                        regs.dump(target)
-                    elif target.endswith(".bin"):
-                        regs.dump(target, align=4)
+                    elif reg_ok and (target.endswith(".dat") or target.endswith(".txt")):
+                        self.register.dump(target, align=4)
+                    elif reg_ok and target.endswith(".bin"):
+                        self.register.dump(target)
                     else:
                         print(f"[{self.name}] 错误: 不支持的输出文件类型: {target}. 仅支持 .json/.dat/.bin")
                     print(f"[{self.name}] 配置已导出到: {os.path.abspath(target)}")
@@ -270,7 +271,8 @@ class ModuleHelperCore(ABC):
 
         print(f"[{self.name}] \n参数值查询结果:")
         for param_name in args:
-            if hasattr(self.config, param_name):
+            # vars(self.config).items()
+            if hasattr(self.config, param_name):  # case sensitive
                 value = getattr(self.config, param_name)
                 if type(value) is np.ndarray:
                     value = np.array2string(value.flatten(), separator=",")

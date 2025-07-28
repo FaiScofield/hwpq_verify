@@ -4,7 +4,7 @@ FilePath    : reg_def_sharp_lite.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-27
+LastEditTime: 2025-07-28
 """
 
 import os
@@ -84,6 +84,7 @@ class SharpLiteRegister(ModuleRegisterCore):
             | ((cfg.i_sharp_roi_enable & 0x1) << 31),
         )
         self.set(name="ROI_CTRL1", value=(cfg.i_sharp_roi_xend & 0xFFF) | ((cfg.i_sharp_roi_yend & 0xFFF) << 16))
+        self.set(name="INK_CTRL", value=(cfg.i_ink_mode & 0xF) | ((cfg.i_ink_enable & 0x1) << 31))
         return True
 
     def regs2config(self) -> bool:
@@ -113,7 +114,9 @@ class SharpLiteRegister(ModuleRegisterCore):
         self.config.i_sharp_roi_xend = (val >> 0) & 0xFFF
         self.config.i_sharp_roi_yend = (val >> 16) & 0xFFF
         # TODO: parse INK_CTRL register
-        # val = self.get(name="INK_CTRL")
+        val = self.get(name="INK_CTRL")
+        self.config.i_ink_mode = (val >> 0) & 0xF
+        self.config.i_ink_enable = (val >> 31) & 0x1
         return True
 
 
