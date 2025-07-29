@@ -4,7 +4,7 @@ FilePath    : module_config_csc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-16
 Description :
-LastEditTime: 2025-07-23
+LastEditTime: 2025-07-29
 """
 
 import os
@@ -55,7 +55,7 @@ class CscConfig(ModuleConfigCore):
         self.cscPassthrough = 0  # use matrix & vector directly
 
     ## =============== overwrite methods  ===============
-    def dump(self, filename=None) -> bool:
+    def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
         data = {
             "version": self.version,
             "randSeed": self.randSeed,
@@ -77,10 +77,10 @@ class CscConfig(ModuleConfigCore):
             "cscDstOffset": self.cscDstOffset.flatten().tolist(),
             "cscPassthrough": self.cscPassthrough,
         }
-        if filename == None or filename == "":
+        if filename == "":
             self.logger.info(f"Config parameters shown below:")
             for k, v in data.items():
-                self.pretty_print_dict(k, v)
+                self.pretty_print_dict(k, v, 2, pretty_array_stdout)
             return True
 
         with open(filename, "w") as f:

@@ -4,7 +4,7 @@ FilePath    : module_config_dci.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-24
+LastEditTime: 2025-07-29
 """
 
 import os
@@ -12,12 +12,13 @@ import sys
 import json
 import random
 import argparse
+import math
 from matplotlib.pylab import rand
 import numpy as np
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import *
-from utils import NoIndent, CompactArrayEncoder
+from utils import NoIndent, CompactArrayEncoder, clamp
 
 
 class DciHWParam_VDPP:
@@ -143,49 +144,49 @@ class DciConfig(ModuleConfigCore):
         # self.ca_adj_luma_coring_thrd = 16
 
         ## for RK3572 VOP HW regs config
-        self.cfg_vdpp = DciHWParam_VDPP("RK3572")
-        self.cfg_vop = DciHWParam_VOP("RK3572")
+        self.vdpp_config = DciHWParam_VDPP("RK3572")
+        self.vop_config = DciHWParam_VOP("RK3572")
 
     ## =============== overwrite methods  ===============
-    def dump(self, filename=None) -> bool:
+    def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
         data = {
             "version": self.version,
             "randSeed": self.randSeed,
             "vdpp_config": {
-                "working_mode": self.cfg_vdpp.working_mode,
-                "dci_csc_range": self.cfg_vdpp.dci_csc_range,
-                "dci_vsd_mode": self.cfg_vdpp.dci_vsd_mode,
-                "dci_hsd_mode": self.cfg_vdpp.dci_hsd_mode,
-                "dci_alpha_swap": self.cfg_vdpp.dci_alpha_swap,
-                "dci_rb_swap": self.cfg_vdpp.dci_rb_swap,
-                "dci_blk_hsize": self.cfg_vdpp.dci_blk_hsize,
-                "dci_blk_vsize": self.cfg_vdpp.dci_blk_vsize,
+                "working_mode": self.vdpp_config.working_mode,
+                "dci_csc_range": self.vdpp_config.dci_csc_range,
+                "dci_vsd_mode": self.vdpp_config.dci_vsd_mode,
+                "dci_hsd_mode": self.vdpp_config.dci_hsd_mode,
+                "dci_alpha_swap": self.vdpp_config.dci_alpha_swap,
+                "dci_rb_swap": self.vdpp_config.dci_rb_swap,
+                "dci_blk_hsize": self.vdpp_config.dci_blk_hsize,
+                "dci_blk_vsize": self.vdpp_config.dci_blk_vsize,
             },
             "vop_config": {
-                "dci_enable": self.cfg_vop.dci_enable,
-                "blk_size_fix": self.cfg_vop.blk_size_fix,
-                "act_width": self.cfg_vop.act_width,
-                "act_height": self.cfg_vop.act_height,
-                "act_start_h_idx": self.cfg_vop.act_start_h_idx,
-                "act_start_v_idx": self.cfg_vop.act_start_v_idx,
-                "act_start_h_offset": self.cfg_vop.act_start_h_offset,
-                "act_start_v_offset": self.cfg_vop.act_start_v_offset,
-                "act_blk_size_h": self.cfg_vop.act_blk_size_h,
-                "act_blk_size_v": self.cfg_vop.act_blk_size_v,
-                "ca_enable": self.cfg_vop.ca_enable,
-                "sat_w": self.cfg_vop.sat_w,
-                "luma_sat_adj_zero": self.cfg_vop.luma_sat_adj_zero,
-                "luma_sat_adj_thrd": self.cfg_vop.luma_sat_adj_thrd,
-                "luma_sat_adj_k": self.cfg_vop.luma_sat_adj_k,
-                "dci_local_lut": self.cfg_vop.dci_local_lut.flatten().tolist(),
-                "dci_locat_ratio": self.cfg_vop.dci_locat_ratio.flatten().tolist(),
-                "dci_global_lut": self.cfg_vop.dci_global_lut.flatten().tolist(),
+                "dci_enable": self.vop_config.dci_enable,
+                "blk_size_fix": self.vop_config.blk_size_fix,
+                "act_width": self.vop_config.act_width,
+                "act_height": self.vop_config.act_height,
+                "act_start_h_idx": self.vop_config.act_start_h_idx,
+                "act_start_v_idx": self.vop_config.act_start_v_idx,
+                "act_start_h_offset": self.vop_config.act_start_h_offset,
+                "act_start_v_offset": self.vop_config.act_start_v_offset,
+                "act_blk_size_h": self.vop_config.act_blk_size_h,
+                "act_blk_size_v": self.vop_config.act_blk_size_v,
+                "ca_enable": self.vop_config.ca_enable,
+                "sat_w": self.vop_config.sat_w,
+                "luma_sat_adj_zero": self.vop_config.luma_sat_adj_zero,
+                "luma_sat_adj_thrd": self.vop_config.luma_sat_adj_thrd,
+                "luma_sat_adj_k": self.vop_config.luma_sat_adj_k,
+                "dci_local_lut": self.vop_config.dci_local_lut.flatten().tolist(),
+                "dci_locat_ratio": self.vop_config.dci_locat_ratio.flatten().tolist(),
+                "dci_global_lut": self.vop_config.dci_global_lut.flatten().tolist(),
             },
         }
-        if filename == None or filename == "":
+        if filename == "":
             self.logger.info(f"Config parameters shown below:")
             for k, v in data.items():
-                self.pretty_print_dict(k, v)
+                self.pretty_print_dict(k, v, 2, pretty_array_stdout)
             return True
 
         with open(filename, "w") as f:
@@ -219,35 +220,35 @@ class DciConfig(ModuleConfigCore):
                 self.randSeed = data["randSeed"] if "randSeed" in data else -1
 
                 vdpp_data = data["vdpp_config"]
-                self.cfg_vdpp.working_mode = vdpp_data["working_mode"]
-                self.cfg_vdpp.dci_data_format = vdpp_data["dci_data_format"]
-                self.cfg_vdpp.dci_csc_range = vdpp_data["dci_csc_range"]
-                self.cfg_vdpp.dci_vsd_mode = vdpp_data["dci_vsd_mode"]
-                self.cfg_vdpp.dci_hsd_mode = vdpp_data["dci_hsd_mode"]
-                self.cfg_vdpp.dci_alpha_swap = vdpp_data["dci_alpha_swap"]
-                self.cfg_vdpp.dci_rb_swap = vdpp_data["dci_rb_swap"]
-                self.cfg_vdpp.dci_blk_hsize = vdpp_data["dci_blk_hsize"]
-                self.cfg_vdpp.dci_blk_vsize = vdpp_data["dci_blk_vsize"]
+                self.vdpp_config.working_mode = vdpp_data["working_mode"]
+                self.vdpp_config.dci_data_format = vdpp_data["dci_data_format"]
+                self.vdpp_config.dci_csc_range = vdpp_data["dci_csc_range"]
+                self.vdpp_config.dci_vsd_mode = vdpp_data["dci_vsd_mode"]
+                self.vdpp_config.dci_hsd_mode = vdpp_data["dci_hsd_mode"]
+                self.vdpp_config.dci_alpha_swap = vdpp_data["dci_alpha_swap"]
+                self.vdpp_config.dci_rb_swap = vdpp_data["dci_rb_swap"]
+                self.vdpp_config.dci_blk_hsize = vdpp_data["dci_blk_hsize"]
+                self.vdpp_config.dci_blk_vsize = vdpp_data["dci_blk_vsize"]
 
                 vop_data = data["vop_config"]
-                self.cfg_vop.dci_enable = vop_data["dci_enable"]
-                self.cfg_vop.blk_size_fix = vop_data["blk_size_fix"]
-                self.cfg_vop.act_width = vop_data["act_width"]
-                self.cfg_vop.act_height = vop_data["act_height"]
-                self.cfg_vop.act_start_h_idx = vop_data["act_start_h_idx"]
-                self.cfg_vop.act_start_v_idx = vop_data["act_start_v_idx"]
-                self.cfg_vop.act_start_h_offset = vop_data["act_start_h_offset"]
-                self.cfg_vop.act_start_v_offset = vop_data["act_start_v_offset"]
-                self.cfg_vop.act_blk_size_h = vop_data["act_blk_size_h"]
-                self.cfg_vop.act_blk_size_v = vop_data["act_blk_size_v"]
-                self.cfg_vop.ca_enable = vop_data["ca_enable"]
-                self.cfg_vop.sat_w = vop_data["sat_w"]
-                self.cfg_vop.luma_sat_adj_zero = vop_data["luma_sat_adj_zero"]
-                self.cfg_vop.luma_sat_adj_thrd = vop_data["luma_sat_adj_thrd"]
-                self.cfg_vop.luma_sat_adj_k = vop_data["luma_sat_adj_k"]
-                self.cfg_vop.dci_local_lut = np.array(vop_data["dci_local_lut"], dtype=np.uint16)
-                self.cfg_vop.dci_locat_ratio = np.array(vop_data["dci_locat_ratio"], dtype=np.uint8)
-                self.cfg_vop.dci_global_lut = np.array(vop_data["dci_global_lut"], dtype=np.uint16)
+                self.vop_config.dci_enable = vop_data["dci_enable"]
+                self.vop_config.blk_size_fix = vop_data["blk_size_fix"]
+                self.vop_config.act_width = vop_data["act_width"]
+                self.vop_config.act_height = vop_data["act_height"]
+                self.vop_config.act_start_h_idx = vop_data["act_start_h_idx"]
+                self.vop_config.act_start_v_idx = vop_data["act_start_v_idx"]
+                self.vop_config.act_start_h_offset = vop_data["act_start_h_offset"]
+                self.vop_config.act_start_v_offset = vop_data["act_start_v_offset"]
+                self.vop_config.act_blk_size_h = vop_data["act_blk_size_h"]
+                self.vop_config.act_blk_size_v = vop_data["act_blk_size_v"]
+                self.vop_config.ca_enable = vop_data["ca_enable"]
+                self.vop_config.sat_w = vop_data["sat_w"]
+                self.vop_config.luma_sat_adj_zero = vop_data["luma_sat_adj_zero"]
+                self.vop_config.luma_sat_adj_thrd = vop_data["luma_sat_adj_thrd"]
+                self.vop_config.luma_sat_adj_k = vop_data["luma_sat_adj_k"]
+                self.vop_config.dci_local_lut = np.array(vop_data["dci_local_lut"], dtype=np.uint16)
+                self.vop_config.dci_locat_ratio = np.array(vop_data["dci_locat_ratio"], dtype=np.uint8)
+                self.vop_config.dci_global_lut = np.array(vop_data["dci_global_lut"], dtype=np.uint16)
                 return True
         except Exception as e:
             self.logger.error(f"load config file '{filename}' failed: {e}")
@@ -284,43 +285,47 @@ class DciConfig(ModuleConfigCore):
         lum_thr *= 4
 
         ## random config for vdpp
-        self.cfg_vdpp.working_mode = 2 if (img_wid <= 1920 and img_hgt <= 2048) else 3
-        self.cfg_vdpp.dci_data_format = 4
-        self.cfg_vdpp.dci_csc_range = int(random.randint(0, 1) > 0)  # 50%
-        self.cfg_vdpp.dci_vsd_mode = random.randint(0, 2) if self.cfg_vdpp.working_mode == 3 else 0
-        self.cfg_vdpp.dci_hsd_mode = random.randint(0, 1) if self.cfg_vdpp.working_mode == 3 else 0
-        hsd_sample_num = 2 ** (self.cfg_vdpp.dci_hsd_mode + 1)  # 2,4
-        vsd_sample_num = 2**self.cfg_vdpp.dci_vsd_mode  # 1,2,4
-        self.cfg_vdpp.dci_alpha_swap = 0
-        self.cfg_vdpp.dci_rb_swap = 0
-        self.cfg_vdpp.dci_blk_hsize = img_wid / hsd_sample_num / 16
-        self.cfg_vdpp.dci_blk_vsize = img_hgt / vsd_sample_num / 16
-        self.cfg_vdpp.dci_blk_hsize = np.floor(self.cfg_vdpp.dci_blk_hsize) if img_wid < 1080 else np.ceil(self.cfg_vdpp.dci_blk_hsize)
-        self.cfg_vdpp.dci_blk_vsize = np.floor(self.cfg_vdpp.dci_blk_vsize) if img_hgt < 1080 else np.ceil(self.cfg_vdpp.dci_blk_vsize)
+        self.vdpp_config.working_mode = 2 if (img_wid <= 1920 and img_hgt <= 2048) else 3
+        self.vdpp_config.dci_data_format = 4
+        self.vdpp_config.dci_csc_range = int(random.randint(0, 1) > 0)  # 50%
+        self.vdpp_config.dci_vsd_mode = random.randint(0, 2) if self.vdpp_config.working_mode == 3 else 0
+        self.vdpp_config.dci_hsd_mode = random.randint(0, 1) if self.vdpp_config.working_mode == 3 else 0
+        hsd_sample_num = 2 ** (self.vdpp_config.dci_hsd_mode + 1)  # 2,4
+        vsd_sample_num = 2**self.vdpp_config.dci_vsd_mode  # 1,2,4
+        self.vdpp_config.dci_alpha_swap = 0
+        self.vdpp_config.dci_rb_swap = 0
+        self.vdpp_config.dci_blk_hsize = img_wid / hsd_sample_num / 16
+        self.vdpp_config.dci_blk_vsize = img_hgt / vsd_sample_num / 16
+        self.vdpp_config.dci_blk_hsize = (
+            math.floor(self.vdpp_config.dci_blk_hsize) if img_wid < 1080 else math.ceil(self.vdpp_config.dci_blk_hsize)
+        )
+        self.vdpp_config.dci_blk_vsize = (
+            math.floor(self.vdpp_config.dci_blk_vsize) if img_hgt < 1080 else math.ceil(self.vdpp_config.dci_blk_vsize)
+        )
 
         ## random config for vop
-        self.cfg_vop.dci_enable = int(random.randint(0, 95) > 0)  # 95% enable
-        self.cfg_vop.blk_size_fix = round(2**25 / ((blk_size_hor - 1) * (blk_size_ver - 1)))
-        self.cfg_vop.act_width = img_wid # TODO: could be smaller than img_wid
-        self.cfg_vop.act_height = img_hgt # TODO: could be smaller than img_hgt
-        self.cfg_vop.act_start_h_idx = 0
-        self.cfg_vop.act_start_v_idx = 0
-        self.cfg_vop.act_start_h_offset = np.clip(
-            0 - blk_size_hor_half - (self.cfg_vop.act_start_h_idx - 1) * blk_size_hor, 0, img_wid
+        self.vop_config.dci_enable = int(random.randint(0, 95) > 0)  # 95% enable
+        self.vop_config.blk_size_fix = round(2**25 / ((blk_size_hor - 1) * (blk_size_ver - 1)))
+        self.vop_config.act_width = img_wid  # TODO: could be smaller than img_wid
+        self.vop_config.act_height = img_hgt  # TODO: could be smaller than img_hgt
+        self.vop_config.act_start_h_idx = 0
+        self.vop_config.act_start_v_idx = 0
+        self.vop_config.act_start_h_offset = clamp(
+            0 - blk_size_hor_half - (self.vop_config.act_start_h_idx - 1) * blk_size_hor, 0, img_wid
         )
-        self.cfg_vop.act_start_v_offset = np.clip(
-            0 - blk_size_ver_half - (self.cfg_vop.act_start_v_idx - 1) * blk_size_ver, 0, img_hgt
+        self.vop_config.act_start_v_offset = clamp(
+            0 - blk_size_ver_half - (self.vop_config.act_start_v_idx - 1) * blk_size_ver, 0, img_hgt
         )
-        self.cfg_vop.act_blk_size_h = blk_size_hor
-        self.cfg_vop.act_blk_size_v = blk_size_ver
-        self.cfg_vop.ca_enable = int(random.randint(0, 1) > 0)  # 50% enable
-        self.cfg_vop.sat_w = random.randint(0, 64)  # u7
-        self.cfg_vop.luma_sat_adj_zero = lum_zero
-        self.cfg_vop.luma_sat_adj_thrd = lum_thr
-        self.cfg_vop.luma_sat_adj_k = round(2**10 / max(1.0, lum_thr - lum_zero))
-        self.cfg_vop.dci_local_lut = np.random.randint(0, 1023, size=16 * 16 * 16, dtype=np.uint16)
-        self.cfg_vop.dci_locat_ratio = np.random.randint(0, 32, size=16 * 16, dtype=np.uint8)
-        self.cfg_vop.dci_global_lut = np.random.randint(0, 1023, size=256, dtype=np.uint16)
+        self.vop_config.act_blk_size_h = blk_size_hor
+        self.vop_config.act_blk_size_v = blk_size_ver
+        self.vop_config.ca_enable = int(random.randint(0, 1) > 0)  # 50% enable
+        self.vop_config.sat_w = random.randint(0, 64)  # u7
+        self.vop_config.luma_sat_adj_zero = lum_zero
+        self.vop_config.luma_sat_adj_thrd = lum_thr
+        self.vop_config.luma_sat_adj_k = round(2**10 / max(1.0, lum_thr - lum_zero))
+        self.vop_config.dci_local_lut = np.random.randint(0, 1023, size=16 * 16 * 16, dtype=np.uint16)
+        self.vop_config.dci_locat_ratio = np.random.randint(0, 32, size=16 * 16, dtype=np.uint8)
+        self.vop_config.dci_global_lut = np.random.randint(0, 1023, size=256, dtype=np.uint16)
         self.logger.info(f"generated a random config with seed={seed}")
         return True
 

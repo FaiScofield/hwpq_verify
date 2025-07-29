@@ -4,7 +4,7 @@ FilePath    : module_reg_core.py
 Description :
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-11
-LastEditTime: 2025-07-27
+LastEditTime: 2025-07-29
 """
 
 import os
@@ -55,7 +55,12 @@ class ModuleRegisterCore(ABC):
         return False
 
     ## =============== common methods  ===============
-    def dump(self, filename: str = "", align: int = 4, **kwargs) -> bool:
+    def dump(self, filename: str = "", align: int = 4, pretty_lines_stdout: int = 16, **kwargs) -> bool:
+        """
+        @param: filename - 输出文件名，如果为空则输出到控制台
+        @param: align - 格式化输出每行的对齐寄存器数
+        @param: pretty_lines_stdout - 当输出到控制台时的最大行数，省略中间部分行输出，<=0时表示不限制
+        """
         if "regs" in kwargs:
             regs = kwargs["regs"]
         else:
@@ -63,7 +68,7 @@ class ModuleRegisterCore(ABC):
 
         if filename == None or filename == "":
             self.logger.info(f"dump {self.platform} registers below:")
-            data = self.format_str_regs_array(regs, align, self.base_addr, False)
+            data = self.format_str_regs_array(regs, align, self.base_addr, False, pretty_lines_stdout)
             if data == "":
                 return False
             for line in data:
@@ -142,9 +147,7 @@ class ModuleRegisterCore(ABC):
             self.logger.error(f"failed to run gen(), since the config handler is not set!")
             return False
 
-    def set(
-        self, value, index: Optional[int] = None, name: Optional[str] = None, offset: Optional[int] = None
-    ) -> bool:
+    def set(self, value, index: Optional[int] = None, name: Optional[str] = None, offset: Optional[int] = None) -> bool:
         ret = False
         # if type is None:
         #     type = np.uint32
@@ -176,7 +179,12 @@ class ModuleRegisterCore(ABC):
         return None
 
     def format_str_regs_array(
-        self, regs: list[Reg], align: int = 4, base_address: int = 0, joint_lines: bool = True
+        self,
+        regs: list[Reg],
+        align: int = 4,
+        base_address: int = 0,
+        joint_lines: bool = True,
+        pretty_lines_stdout: int = 16,
     ) -> Union[str, list[str]]:
         """
         format string for regs with number align registers, like:
@@ -205,9 +213,16 @@ class ModuleRegisterCore(ABC):
                     valid_line = True
                 else:
                     line += " ----------"
-            if valid_line:
+            if valid_line:  # skip empty line
                 lines.append(line)
             key_st += align * 4
+
+        if pretty_lines_stdout >= 4 and len(lines) > pretty_lines_stdout:
+            half_lines = (pretty_lines_stdout + 1) // 2
+            new_lines = lines[: half_lines]
+            new_lines.append(f"..... omit middle lines since `max_lines_stdout={pretty_lines_stdout}` .....")
+            new_lines += lines[-half_lines:]
+            lines = new_lines
 
         return "\n".join(lines) if joint_lines else lines
 

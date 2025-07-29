@@ -49,7 +49,7 @@ class SharpLiteConfig(ModuleConfigCore):
         self.i_ink_idx_v = 0
 
     ## =============== overwrite methods  ===============
-    def dump(self, filename=None) -> bool:
+    def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
         data = {
             "version": self.version,
             "randSeed": self.randSeed,
@@ -80,10 +80,10 @@ class SharpLiteConfig(ModuleConfigCore):
             "i_ink_idx_h": self.i_ink_idx_h,
             "i_ink_idx_v": self.i_ink_idx_v,
         }
-        if filename == None or filename == "":
+        if filename == "":
             self.logger.info(f"Config parameters shown below:")
             for k, v in data.items():
-                self.pretty_print_dict(k, v)
+                self.pretty_print_dict(k, v, 2, pretty_array_stdout)
             return True
 
         with open(filename, "w") as f:

@@ -4,7 +4,7 @@ FilePath    : setup_logger.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-10
 Description :
-LastEditTime: 2025-07-27
+LastEditTime: 2025-07-29
 """
 
 import os
@@ -96,6 +96,10 @@ def gen_random_frame(size, seed=None, filename=""):
         logging.info(f'saved random frame data(size={size}) to: {filename}')
 
     return seed
+
+
+def clamp(value, min_value, max_value):
+    return min(max(value, min_value), max_value)
 
 
 ## using this by `json.dump(data, fp, cls=CompactArrayEncoder)` to dump json array in a single line

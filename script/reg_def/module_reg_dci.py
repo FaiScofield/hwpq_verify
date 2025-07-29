@@ -4,7 +4,7 @@ FilePath    : reg_def_dci.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-27
+LastEditTime: 2025-07-29
 """
 
 import os
@@ -85,63 +85,67 @@ class DciRegister(ModuleRegisterCore):
         cfg = self.config
         self.set(
             name="DCI_BLK_SIZE",
-            value=(cfg.cfg_vop.act_blk_size_h & 0x1FF) | ((cfg.cfg_vop.act_blk_size_v & 0x1FF) << 16),
+            value=(cfg.vop_config.act_blk_size_h & 0x1FF) | ((cfg.vop_config.act_blk_size_v & 0x1FF) << 16),
         )
         self.set(
             name="DCI_BLK_OFFSET",
-            value=(cfg.cfg_vop.act_start_h_offset & 0x1FF) | ((cfg.cfg_vop.act_start_v_offset & 0x1FF) << 16),
+            value=(cfg.vop_config.act_start_h_offset & 0x1FF) | ((cfg.vop_config.act_start_v_offset & 0x1FF) << 16),
         )
         self.set(
             name="DCI_PIX_REGION",
-            value=(cfg.cfg_vop.blk_size_fix & 0xFFFFF)
-            | ((cfg.cfg_vop.act_start_h_idx & 0x1F) << 20)
-            | ((cfg.cfg_vop.act_start_v_idx & 0x1F) << 26),
+            value=(cfg.vop_config.blk_size_fix & 0xFFFFF)
+            | ((cfg.vop_config.act_start_h_idx & 0x1F) << 20)
+            | ((cfg.vop_config.act_start_v_idx & 0x1F) << 26),
         )
         self.set(
             name="DCI_LUMA_SAT_ADJ_0",
-            value=(cfg.cfg_vop.luma_sat_adj_zero & 0xFFFF) | ((cfg.cfg_vop.luma_sat_adj_thrd & 0xFFFF) << 16),
+            value=(cfg.vop_config.luma_sat_adj_zero & 0xFFFF) | ((cfg.vop_config.luma_sat_adj_thrd & 0xFFFF) << 16),
         )
         self.set(
-            name="DCI_LUMA_SAT_ADJ_1", value=(cfg.cfg_vop.luma_sat_adj_k & 0xFFFF) | ((cfg.cfg_vop.sat_w & 0x7F) << 16)
+            name="DCI_LUMA_SAT_ADJ_1", value=(cfg.vop_config.luma_sat_adj_k & 0xFFFF) | ((cfg.vop_config.sat_w & 0x7F) << 16)
         )
         self.set(
-            name="DCI_CTRL", value=(cfg.cfg_vop.dci_enable & 0x1) | ((cfg.cfg_vop.ca_enable & 0x1) << 1) | (1 << 2)
+            name="DCI_CTRL", value=(cfg.vop_config.dci_enable & 0x1) | ((cfg.vop_config.ca_enable & 0x1) << 1) | (1 << 2)
         )
         # self.set(name="DCI_LUT_MST", value=0x0)
 
         self.packed_lut = self.pack_lut(
-            cfg.cfg_vop.dci_global_lut, cfg.cfg_vop.dci_locat_ratio, cfg.cfg_vop.dci_local_lut
+            cfg.vop_config.dci_global_lut, cfg.vop_config.dci_locat_ratio, cfg.vop_config.dci_local_lut
         )
         for i in range(1408):
             self.set(
                 name=f"DCI_LUT_DATA{i}",
-                value=self.packed_lut[i * 4 + 0]
-                | (self.packed_lut[i * 4 + 1] << 8)
-                | (self.packed_lut[i * 4 + 2] << 16)
-                | (self.packed_lut[i * 4 + 3] << 24),
+                value=self.packed_lut[i * 4 + 0].astype(np.uint32)
+                | (self.packed_lut[i * 4 + 1].astype(np.uint32) << 8)
+                | (self.packed_lut[i * 4 + 2].astype(np.uint32) << 16)
+                | (self.packed_lut[i * 4 + 3].astype(np.uint32) << 24),
             )
         return True
 
     def regs2config(self) -> bool:
-        val = self.get(name="DCI_BLK_SIZE")
-        self.config.cfg_vop.act_blk_size_h = (val >> 0) & 0x1FF
-        self.config.cfg_vop.act_blk_size_v = (val >> 16) & 0x1FF
-        val = self.get(name="DCI_BLK_OFFSET")
-        self.config.cfg_vop.act_start_h_offset = (val >> 0) & 0x1FF
-        self.config.cfg_vop.act_start_v_offset = (val >> 16) & 0x1FF
-        val = self.get(name="DCI_PIX_REGION")
-        self.config.cfg_vop.blk_size_fix = (val >> 0) & 0xFFFFF
-        self.config.cfg_vop.act_start_h_idx = (val >> 20) & 0x1F
-        self.config.cfg_vop.act_start_v_idx = (val >> 26) & 0x1F
-        val = self.get(name="DCI_LUMA_SAT_ADJ_0")
-        self.config.cfg_vop.luma_sat_adj_zero = (val >> 0) & 0xFFFF
-        self.config.cfg_vop.luma_sat_adj_thrd = (val >> 16) & 0xFFFF
-        val = self.get(name="DCI_LUMA_SAT_ADJ_1")
-        self.config.cfg_vop.luma_sat_adj_k = (val >> 0) & 0xFFFF
-        self.config.cfg_vop.sat_w = (val >> 16) & 0x7F
-        val = self.get(name="DCI_CTRL")
-        self.config.cfg_vop.dci_enable = (val >> 0) & 0x1
-        self.config.cfg_vop.ca_enable = (val >> 1) & 0x1
+        try:
+            val = self.get(name="DCI_BLK_SIZE")
+            self.config.vop_config.act_blk_size_h = (val >> 0) & 0x1FF
+            self.config.vop_config.act_blk_size_v = (val >> 16) & 0x1FF
+            val = self.get(name="DCI_BLK_OFFSET")
+            self.config.vop_config.act_start_h_offset = (val >> 0) & 0x1FF
+            self.config.vop_config.act_start_v_offset = (val >> 16) & 0x1FF
+            val = self.get(name="DCI_PIX_REGION")
+            self.config.vop_config.blk_size_fix = (val >> 0) & 0xFFFFF
+            self.config.vop_config.act_start_h_idx = (val >> 20) & 0x1F
+            self.config.vop_config.act_start_v_idx = (val >> 26) & 0x1F
+            val = self.get(name="DCI_LUMA_SAT_ADJ_0")
+            self.config.vop_config.luma_sat_adj_zero = (val >> 0) & 0xFFFF
+            self.config.vop_config.luma_sat_adj_thrd = (val >> 16) & 0xFFFF
+            val = self.get(name="DCI_LUMA_SAT_ADJ_1")
+            self.config.vop_config.luma_sat_adj_k = (val >> 0) & 0xFFFF
+            self.config.vop_config.sat_w = (val >> 16) & 0x7F
+            val = self.get(name="DCI_CTRL")
+            self.config.vop_config.dci_enable = (val >> 0) & 0x1
+            self.config.vop_config.ca_enable = (val >> 1) & 0x1
+        except Exception as e:
+            self.logger.error(f"get register value error: {e}")
+            return False
 
         ## get self.packed_lut then unpack it to global_lut_x256, locat_ratio_x256, local_lut_x4096
         for i in range(1408):
@@ -150,7 +154,7 @@ class DciRegister(ModuleRegisterCore):
             self.packed_lut[i * 4 + 1] = (val >> 8) & 0xFF
             self.packed_lut[i * 4 + 2] = (val >> 16) & 0xFF
             self.packed_lut[i * 4 + 3] = (val >> 24) & 0xFF
-        (self.config.cfg_vop.dci_global_lut, self.config.cfg_vop.dci_locat_ratio, self.config.cfg_vop.dci_local_lut) = (
+        (self.config.vop_config.dci_global_lut, self.config.vop_config.dci_locat_ratio, self.config.vop_config.dci_local_lut) = (
             self.unpack_lut(self.packed_lut)
         )
         return True

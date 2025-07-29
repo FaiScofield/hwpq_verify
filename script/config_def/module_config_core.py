@@ -4,10 +4,11 @@ FilePath    : module_config_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-25
+LastEditTime: 2025-07-29
 '''
 import os
 import sys
+import numpy as np
 from abc import ABC, abstractmethod
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
@@ -23,11 +24,11 @@ class ModuleConfigCore(ABC):
         self.logger = setup_logger(self.name)
 
     @abstractmethod
-    def dump(self, filename) -> bool:
+    def dump(self, filename: str = "", pretty_array_stdout: int = 128) -> bool:
         return False
 
     @abstractmethod
-    def load(self, filename) -> bool:
+    def load(self, filename: str) -> bool:
         return False
 
     @abstractmethod
@@ -42,11 +43,16 @@ class ModuleConfigCore(ABC):
     def get_seed(self) -> int:
         return self.randSeed
 
-    def pretty_print_dict(self, key, val, indent=2):
+    def pretty_print_dict(self, key, val, indent=2, pretty_array_stdout=32):
         if isinstance(val, dict):
             self.logger.info(" " * indent + "- %s: {" % key)
             for k, v in val.items():
-                self.pretty_print_dict(k, v, indent + 2)
+                self.pretty_print_dict(k, v, indent + 2, pretty_array_stdout)
             self.logger.info(" " * indent + "} #%s" % key)
         else:
-            self.logger.info(" " * indent + f"- {key}: {val}")
+            if isinstance(val, (list, tuple, set, np.ndarray)) and len(val) > pretty_array_stdout:
+                half_len = (pretty_array_stdout + 1) // 2
+                val_str = f"{val[:half_len]}... (omit items between [{half_len}, {len(val) - half_len}] since `pretty_array_stdout={pretty_array_stdout}`) ...{val[-pretty_array_stdout:]}"
+                self.logger.info(" " * indent + f"- {key}: {val_str}")
+            else:
+                self.logger.info(" " * indent + f"- {key}: {val}")

@@ -4,7 +4,7 @@ FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-28
+LastEditTime: 2025-07-29
 """
 
 import sys
@@ -140,18 +140,28 @@ class ModuleHelperCore(ABC):
 
     def do_dump(self, args) -> bool:
         """导出配置到文件或控制台"""
+        ## parse args & check
+        try:
+            parser = argparse.ArgumentParser()
+            parser.add_argument("-a", "--pretty_array_stdout", default=64, type=int, help="控制台美观输出：限制数组类型参数的输出元素量")
+            parser.add_argument("-l", "--pretty_lines_stdout", default=16, type=int, help="控制台美观输出：限制寄存器输出最大行数")
+            parser.add_argument("-n", "--align", default=4, type=int, help="控制台与文件美观输出：设置寄存器输出每行的对齐数")
+            parser.add_argument("-f", "--files", default="", type=str, nargs='?', help="导出的目标文件，可指定多个")
+            args = parser.parse_args(args)
+        except:
+            return False  # 不退出
+
         config = self.config
         reg_ok = self.config_to_regs()
 
-        if not args:
+        if args.files == "":
             ## 控制台显示
-            config.dump()
+            config.dump(pretty_array_stdout=args.pretty_array_stdout)
             if reg_ok:
-                self.register.dump()
+                self.register.dump(align=args.align, pretty_lines_stdout=args.pretty_lines_stdout)
         else:
             ## 导出到文件
-            targets = args
-            for target in targets:
+            for target in args.files:
                 try:
                     if target.endswith(".json"):
                         config.dump(target)
@@ -161,6 +171,7 @@ class ModuleHelperCore(ABC):
                         self.register.dump(target)
                     else:
                         print(f"[{self.name}] 错误: 不支持的输出文件类型: {target}. 仅支持 .json/.dat/.bin")
+                        break
                     print(f"[{self.name}] 配置已导出到: {os.path.abspath(target)}")
                 except Exception as e:
                     print(f"[{self.name}] 导出配置信息至文件 {os.path.abspath(target)} 失败: {str(e)}")
@@ -251,7 +262,8 @@ class ModuleHelperCore(ABC):
     def do_reg(self, args) -> bool:
         """生成寄存器配置值"""
         if self.config_to_regs():
-            self.register.dump()
+            target = args[0] if len(args) > 0 else ""
+            self.register.dump(target)
         else:
             print(f"[{self.name}] 错误: 寄存器配置生成失败！")
         return False  # 不退出
@@ -268,30 +280,53 @@ class ModuleHelperCore(ABC):
         if not args:
             print(f"[{self.name}] 错误: 需要至少一个参数名！")
             return False  # 不退出
+        for part in args:
+            if not self.check_attr_str_validate(part, False):
+                print(f"[{self.name}] 忽略错误的参数格式: {part}")
+                args.remove(part)
+        if len(args) == 0:
+            return False  # 不退出
 
-        print(f"[{self.name}] \n参数值查询结果:")
+        print(f"[{self.name}] 获取到{len(args)}个有效参数对象，查询结果如下:")
         for param_name in args:
-            # vars(self.config).items()
-            if hasattr(self.config, param_name):  # case sensitive
-                value = getattr(self.config, param_name)
+            full_name = param_name
+            ## 解析嵌套参数: 'xxx.yyy.zzz'
+            var_dict = vars(self.config)
+            while '.' in param_name:
+                names = param_name.split('.')
+                if names[0] in var_dict:
+                    var_dict = vars(var_dict[names[0]])
+                    param_name = '.'.join(names[1:])  # ['yyy', 'zzz'] to 'yyy.zzz'
+                else:
+                    print(f"[{self.name}] invalid param name: \'{full_name}\'! use \'dump\' to check all params.")
+                    param_name = ""
+                    break
+            ## 格式化输出参数值
+            if param_name in var_dict:
+                value = var_dict[param_name]
                 if type(value) is np.ndarray:
                     value = np.array2string(value.flatten(), separator=",")
                 elif type(value) is list:
                     value = ",".join(str(x) for x in value)
-                print(f"[{self.name}] get param \'{param_name}\' value: {value}")
-            else:
-                print(f"[{self.name}] invalid param name: \'{param_name}\'! use \'dump\' to check all params.")
+                print(f"[{self.name}] get param \'{full_name}\' value: {value}")
+            elif param_name != "":
+                print(f"[{self.name}] invalid param name: \'{full_name}\'! use \'dump\' to check all params.")
 
         return False  # 不退出
 
-    def do_set(self, args) -> bool:
+    def do_set(self, args: list[str]) -> bool:
         """设置一个或多个参数值"""
         if not args:
             print(f"[{self.name}] 错误: 参数设置格式应为 <param1>=<value1> [param2=<value2> ...]")
             return False  # 不退出
 
-        arg_str = " ".join(args)
-        if "=" not in arg_str:
+        # arg_str = " ".join(args)
+        valid_args = args.copy()
+        for part in args:
+            if not self.check_attr_str_validate(part, True):
+                print(f"[{self.name}] 忽略错误的参数格式: {part}")
+                valid_args.remove(part)
+        if len(valid_args) == 0:
             print(f"[{self.name}] 错误: 参数设置格式应为 <param1>=<value1> [param2=<value2> ...]")
             return False  # 不退出
 
@@ -301,15 +336,42 @@ class ModuleHelperCore(ABC):
             old_regs = copy.deepcopy(self.register.regs)  # list[Reg]
             # self.register.dump()
 
-        items = re.findall(r'(\w+)=([^=]+)(?=\s+\w+=|$)', arg_str.strip())
-        for key, value in items:
-            if hasattr(self.config, key):
+        for part in valid_args:
+            full_key, value = part.split('=')
+            obj = self.config
+
+            ## 检查嵌套属性是否存在
+            if '.' in full_key:
+                keys = full_key.split('.')
+                b_valid_key = True
+                for key in keys[0:-1]:
+                    if not hasattr(obj, key):
+                        print(f"[{self.name}] invalid param name: \'{full_key}\'! use \'dump\' to check all params.")
+                        b_valid_key = False
+                        break
+                    obj = getattr(obj, key)
+                if b_valid_key:
+                    key = keys[-1]
+                else:
+                    continue
+            else:
+                key = full_key
+
+            ## 设置值
+            if hasattr(obj, key):
+                if type(getattr(obj, key)) not in (bool, int, float, str, list[int], np.ndarray):
+                    print(f"[{self.name}] ignore to set param \'{part}\' since it is an object!")
+                    continue
+
                 value = value.strip()
                 if value.startswith('[') and value.endswith(']'):
                     try:
                         value = literal_eval(value)  # 安全转换为Python对象
                     except:
                         value = [x.strip() for x in value[1:-1].split(',')]
+                    array_obj = getattr(obj, key)
+                    for i, x in enumerate(value):
+                        array_obj[i] = x
                 else:
                     if value.lower() == 'true':
                         value = True
@@ -319,11 +381,10 @@ class ModuleHelperCore(ABC):
                         value = int(value)
                     elif value.replace('.', '', 1).isdigit():
                         value = float(value)
-
-                setattr(self.config, key, value)
-                print(f"[{self.name}] set param \'{key}\' value: {value}")
+                    setattr(obj, key, value)
+                print(f"[{self.name}] set param \'{full_key}\' value: {value}")
             else:
-                print(f"[{self.name}] invalid param name: \'{key}\'! use \'dump\' to check all params.")
+                print(f"[{self.name}] invalid param name: \'{full_key}\'! use \'dump\' to check all params.")
 
         if self.register is not None:
             self.register.config = copy.deepcopy(self.config)
@@ -351,3 +412,35 @@ class ModuleHelperCore(ABC):
     def remove_command(self, name: str):
         if name in self.commands:
             del self.commands[name]
+
+    def check_attr_str_validate(self, kv_str: str, check_equal_mark: bool = False) -> bool:
+        """
+        @param: check_equal_mark - 用在 set() 函数中，有以下逻辑
+        1. 判断字符串中有且仅有一个'='号
+        2. '='号左边的子字符串以'.'号分割(如果存在的话)后的子字符串必须不含特殊字符且以字母或下划线开头，多个'.'号不可连续
+        3. '='号右边可以是数字，也可以是数字列表；如果是数字列表，元素间必须全部以','或者空白字符间隔。
+        """
+        if not check_equal_mark:
+            if re.search(r'[^a-zA-Z0-9_.]', kv_str):
+                return False
+            return True
+
+        if kv_str.count('=') != 1:
+            return False
+
+        left, right = kv_str.split('=')
+
+        if re.search(r'[^a-zA-Z0-9_.]', left):
+            return False
+        if '..' in left:
+            return False
+
+        part_names = left.split('.') if '.' in left else [left]
+        for part_name in part_names:
+            if not re.fullmatch(r'^[a-zA-Z_][a-zA-Z0-9_]*$', part_name):
+                return False
+
+        if not re.fullmatch(r'^\d+$', right) and not re.fullmatch(r'^\[\s*(\d+(\s*,\s*\d+)*)?\s*\]$', right):
+            return False
+
+        return True
