@@ -4,7 +4,7 @@ FilePath    : check_crc_result.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-27
+LastEditTime: 2025-07-30
 '''
 
 import os
@@ -92,7 +92,6 @@ def find_consecutive_matches(data1, data2):
 def compare_crc(data1, data2, matches):
     """比较匹配行的CRC值"""
     errors = []
-    error_count = 0
 
     for match in matches:
         start1 = match['start_idx1']
@@ -104,17 +103,15 @@ def compare_crc(data1, data2, matches):
             entry2 = data2[start2 + i]
 
             if entry1['crc_value'] != entry2['crc_value']:
-                error_count += 1
-                if len(errors) < 5:
-                    errors.append(
-                        f"❌ CRC mismatch at {entry1['input_name']}/{entry1['config_name']}: "
-                        f" ({entry1['crc_value']} != {entry2['crc_value']})"
-                    )
+                errors.append(
+                    f"❌ CRC mismatch at {entry1['input_name']}/{entry1['config_name']}: "
+                    f" ({entry1['crc_value']} != {entry2['crc_value']})"
+                )
 
-    return errors, error_count
+    return errors
 
 
-def check_crc_result(file1_path, file2_path, module_name):
+def check_crc_result(file1_path, file2_path, module_name, nb_max_errors):
     # 读取并解析两个文件
     data1 = read_and_parse(file1_path, parse_file1, module_name)
     data2 = read_and_parse(file2_path, parse_file2, module_name)
@@ -131,16 +128,18 @@ def check_crc_result(file1_path, file2_path, module_name):
     print(f"find {len(matches)} valid pairs of crc lines.")
 
     # 比较CRC值
-    errors, total_errors = compare_crc(data1, data2, matches)
+    errors = compare_crc(data1, data2, matches)
+    total_errors = len(errors)
 
     # 输出结果
-    if not errors and total_errors == 0:
+    if total_errors == 0:
         print("✅ All CRC values match!")
     else:
-        for error in errors:
+        for idx, error in enumerate(errors):
             print(error)
-        if total_errors > 5:
-            print(f"❌ ... and {total_errors - 5} more errors")
+            if nb_max_errors > 0 and idx >= nb_max_errors:
+                print(f"❌ ... and {total_errors - nb_max_errors} more errors")
+                break
 
     # 输出统计信息
     # print(f"\nStatistics:")
@@ -155,6 +154,7 @@ if __name__ == '__main__':
     arg_parser.add_argument("-c1", "--crc1", default="", help="a single total crc file from fpga")
     arg_parser.add_argument("-c2", "--crc2", default="", help="the first crc file from cmodel")
     arg_parser.add_argument("-n", "--num", type=int, default=1, help="cmodel crc files number")
+    arg_parser.add_argument("-e", "--max_errors", type=int, default=5, help="show max errors per frame")
     arg_parser.print_usage()
     args = arg_parser.parse_args()
 
@@ -182,9 +182,9 @@ if __name__ == '__main__':
             break
 
         print(f"\nChecking CRC values for {os.path.basename(cmodel_crc_file)}...")
-        total_errors = check_crc_result(fpga_crc_file, cmodel_crc_file, args.module.lower())
+        total_errors = check_crc_result(fpga_crc_file, cmodel_crc_file, args.module.lower(), args.max_errors)
         if total_errors != 0:
-            print(f"❌ CRC values mismatch for {os.path.basename(cmodel_crc_file)}!")
+            print(f"❌ {total_errors} CRC values mismatch for {os.path.basename(cmodel_crc_file)}!")
             # break
         else:
             nb_pass += 1

@@ -4,7 +4,7 @@ FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-29
+LastEditTime: 2025-07-30
 """
 
 import sys
@@ -13,13 +13,16 @@ import re
 import numpy as np
 import argparse
 import copy
+import traceback
 from ast import literal_eval
 from tqdm import tqdm
 from abc import ABC, abstractmethod
 from typing import Optional
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
-from config_def.module_config_core import ModuleConfigCore  # 配置参数基类，新增模块需要在`config_def`中增加对应的参数定义文件
+from config_def.module_config_core import (
+    ModuleConfigCore,
+)  # 配置参数基类，新增模块需要在`config_def`中增加对应的参数定义文件
 from reg_def.module_reg_core import ModuleRegisterCore  # 寄存器基类，新增模块需要在`reg_def`中增加对应的寄存器定义文件
 
 
@@ -52,8 +55,16 @@ class ModuleHelperCore(ABC):
                 "[-n num] [-o filename/directory] [-s rand_seed]",
                 "生成 num 个随机配置, 可输出到文件(num=1)或文件夹(num>1)",
             ),
-            "dump": (self.do_dump, "[filenames]", "指定文件名(.json/.dat/.bin, 可多个)时则导出当前配置到对应文件, 否则打印到控制台"),
-            "reg": (self.do_reg, "[target]", "生成寄存器配置值"),
+            "dump": (
+                self.do_dump,
+                "[-f filenames] / [-n align] [-l pretty_lines_stdout] [-a pretty_array_stdout]",
+                "指定文件名(.json/.dat/.bin, 可多个)时则导出当前配置到对应文件, 否则打印到控制台(此时支持-n/l/a参数)",
+            ),
+            "reg": (
+                self.do_reg,
+                "[-f filenames] / [-n align] [-l pretty_lines_stdout]",
+                "生成寄存器配置值(到指定文件，支持.dat/.bin), 或者打印到控制台(此时支持-n/l参数)",
+            ),
             "get": (self.do_get, "<name1> [name2 name3 ...]", "获取配置参数的值"),
             "set": (self.do_set, "<name1=value1> [name2=value2 name3=value3 ...]", "设置配置参数的值"),
         }
@@ -142,13 +153,23 @@ class ModuleHelperCore(ABC):
         """导出配置到文件或控制台"""
         ## parse args & check
         try:
-            parser = argparse.ArgumentParser()
-            parser.add_argument("-a", "--pretty_array_stdout", default=64, type=int, help="控制台美观输出：限制数组类型参数的输出元素量")
-            parser.add_argument("-l", "--pretty_lines_stdout", default=16, type=int, help="控制台美观输出：限制寄存器输出最大行数")
-            parser.add_argument("-n", "--align", default=4, type=int, help="控制台与文件美观输出：设置寄存器输出每行的对齐数")
-            parser.add_argument("-f", "--files", default="", type=str, nargs='?', help="导出的目标文件，可指定多个")
+            parser = argparse.ArgumentParser(exit_on_error=False)
+            parser.add_argument(
+                "-a", "--pretty_array_stdout", default=64, type=int, help="控制台美观输出：限制数组类型参数的输出元素量"
+            )
+            parser.add_argument(
+                "-l", "--pretty_lines_stdout", default=16, type=int, help="控制台美观输出：限制寄存器输出最大行数"
+            )
+            parser.add_argument(
+                "-n", "--align", default=4, type=int, help="控制台与文件美观输出：设置寄存器输出每行的对齐数"
+            )
+            parser.add_argument("-f", "--files", default="", type=str, nargs='+', help="导出的目标文件，可指定多个")
             args = parser.parse_args(args)
-        except:
+        except Exception as e:
+            tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
+            lineno = tb.lineno
+            filename = os.path.basename(tb.filename)
+            print(f"[{self.name}] error in {filename}:{lineno}: {e}")
             return False  # 不退出
 
         config = self.config
@@ -181,12 +202,16 @@ class ModuleHelperCore(ABC):
     def do_gen(self, args) -> bool:
         ## parse args & check
         try:
-            parser = argparse.ArgumentParser()
+            parser = argparse.ArgumentParser(exit_on_error=False)
             parser.add_argument("-n", "--num", default=1, type=int, help="生成随机配置的数量")
             parser.add_argument("-s", "--rand_seed", type=int, help="起始随机种子(n>1时随机种子自增1)")
             parser.add_argument("-o", "--file_or_dir", default="", type=str, help="生成的配置文件或目录(n>1时指定目录)")
             args = parser.parse_args(args)
-        except:
+        except Exception as e:
+            tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
+            lineno = tb.lineno
+            filename = os.path.basename(tb.filename)
+            print(f"[{self.name}] error in {filename}:{lineno}: {e}")
             return False  # 不退出
 
         args.num = max(1, args.num)
@@ -261,9 +286,30 @@ class ModuleHelperCore(ABC):
 
     def do_reg(self, args) -> bool:
         """生成寄存器配置值"""
+        ## parse args & check
+        try:
+            parser = argparse.ArgumentParser(exit_on_error=False)
+            parser.add_argument(
+                "-l", "--pretty_lines_stdout", default=16, type=int, help="控制台美观输出：限制寄存器输出最大行数"
+            )
+            parser.add_argument(
+                "-n", "--align", default=4, type=int, help="控制台与文件美观输出：设置寄存器输出每行的对齐数"
+            )
+            parser.add_argument("-f", "--files", default="", type=str, nargs='+', help="导出的目标文件，可指定多个")
+            args = parser.parse_args(args)
+        except Exception as e:
+            tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
+            lineno = tb.lineno
+            filename = os.path.basename(tb.filename)
+            print(f"[{self.name}] error in {filename}:{lineno}: {e}")
+            return False  # 不退出
+
         if self.config_to_regs():
-            target = args[0] if len(args) > 0 else ""
-            self.register.dump(target)
+            if args.files == "":
+                self.register.dump(align=args.align, pretty_lines_stdout=args.pretty_lines_stdout)
+            else:
+                for file in args.files:
+                    self.register.dump(file, align=args.align)
         else:
             print(f"[{self.name}] 错误: 寄存器配置生成失败！")
         return False  # 不退出
