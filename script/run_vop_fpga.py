@@ -218,7 +218,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
                     # run command
                     cmd_str = (
                         exe
-                        + f" -i {input_path} -o {output_dir} -c {config_path} -R {final_crc_file} -w {wid} -g {hgt} -f 1 {module_args}"
+                        + f" -i {input_path} -o {output_dir} -c {config_path} -C {final_crc_file} -w {wid} -g {hgt} -f 1 {module_args}"
                     )
                     ret = run_cmd(cmd_str, False, logger)
                     if ret != 0:
