@@ -14,7 +14,7 @@ from typing import Optional
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from cli_helper.cli_helper_core import ModuleHelperCore
 from config_def import ModuleConfigCore, SharpLiteConfig
-from reg_def import ModuleRegisterCore, SharpLiteRegister
+from reg_def import ModuleRegisterCore, SharpRegister
 
 
 class SharpHelper(ModuleHelperCore):
@@ -27,7 +27,7 @@ class SharpHelper(ModuleHelperCore):
     def define_config_and_regs(self) -> tuple[Optional[ModuleConfigCore], Optional[ModuleRegisterCore]]:
         # if self.platform == 'RK3572':
         self.config = SharpLiteConfig(self.name)
-        self.register = SharpLiteRegister(self.name, self.platform)
+        self.register = SharpRegister(self.name, self.platform)
         return self.config, self.register
 
 

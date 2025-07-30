@@ -266,7 +266,7 @@ if __name__ == "__main__":
 
     if "sharp" in name:
         config_handler = SharpLiteConfig()
-        reg_handler = SharpLiteRegister(platform=args.platform)
+        reg_handler = SharpRegister(platform=args.platform)
         nb_reg_per_frame = 14
     elif "csc" in name:
         config_handler = CscConfig()
