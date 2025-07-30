@@ -77,8 +77,8 @@ class CgcConfig(ModuleConfigCore):
                     "eotf_diff_shift_tab",
                     "cgc_oetf_tab",
                 ]:
-                    data[k] = NoIndent(v)
-            nest_data = {"pq_tuning_param": {"HDR": data}}
+                    data["HDRvivid"]["cgc_params"][k] = NoIndent(v)
+            nest_data = {"HDR": data}
             json_data = json.dumps(nest_data, indent=4, ensure_ascii=False, cls=CompactArrayEncoder)
             f.write(json_data)
             self.logger.info(f"Config parameters saved to file '{filename}'")

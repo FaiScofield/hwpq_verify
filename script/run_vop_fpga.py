@@ -4,7 +4,7 @@ FilePath    : run_vop_fpga.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-27
+LastEditTime: 2025-07-30
 """
 
 import os
@@ -154,13 +154,13 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
         )
         for i in range(nb_config):
             config_file = os.path.join(config_dir, f"{config_handler.name.lower()}_config_seed_{config_seed + i}.json")
-            config_handler.gen(config_seed + i, passthrough=args.config_passthrough)
-            config_handler.dump(config_file)
+            config_handler.gen(seed=config_seed + i, passthrough=args.config_passthrough)
+            config_handler.dump(filename=config_file)
             config_list.append(os.path.basename(config_file))
             if reg_handler is not None:
                 reg_file = os.path.join(config_dir, f"{config_handler.name.lower()}_config_seed_{config_seed + i}.bin")
-                reg_handler.load(config_file)
-                reg_handler.dump(reg_file)
+                reg_handler.load(filename=config_file)
+                reg_handler.dump(filename=reg_file)
         logger.info(f"generated {len(config_list)} config files in {config_dir} ...")
         ## cat reg_files to single bin file
         if reg_handler is not None:
@@ -218,8 +218,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
                     # run command
                     cmd_str = (
                         exe
-                        + f" -i {input_path} -o {output_dir} -j {config_path} -r {final_crc_file} -w {wid} -g {hgt} -f 1 {module_args}"
-                        # + f" -i {input_path} -o {output_dir} -m {config_idx} -r {final_crc_file} -w {wid} -g {hgt} -f 1 {module_args}"
+                        + f" -i {input_path} -o {output_dir} -c {config_path} -R {final_crc_file} -w {wid} -g {hgt} -f 1 {module_args}"
                     )
                     ret = run_cmd(cmd_str, False, logger)
                     if ret != 0:
@@ -273,7 +272,19 @@ if __name__ == "__main__":
         reg_handler = CscRegister(platform=args.platform)
         nb_reg_per_frame = len(reg_handler.regs)
         # if reg_handler.index == CscModuleIndex.POST0_ACM_Y2R:
-        # module_args = "-s" # vyu order to calc CRC
+        module_args = "-F 13" # vyu order to calc CRC
+    elif "acm" in name:
+        config_handler = AcmConfig()
+        reg_handler = AcmRegister(platform=args.platform)
+        nb_reg_per_frame = len(reg_handler.regs)
+    elif "dci" in name:
+        config_handler = DciConfig()
+        reg_handler = DciRegister(platform=args.platform)
+        nb_reg_per_frame = len(reg_handler.regs)
+    elif "cgc" in name:
+        config_handler = CgcConfig()
+        reg_handler = CgcRegister(platform=args.platform)
+        nb_reg_per_frame = len(reg_handler.regs)
 
     if config_handler is not None:
         run_common_module(config_handler, reg_handler, args, nb_reg_per_frame=nb_reg_per_frame, module_args=module_args)

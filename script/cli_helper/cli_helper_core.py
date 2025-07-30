@@ -164,7 +164,7 @@ class ModuleHelperCore(ABC):
                 "-n", "--align", default=4, type=int, help="控制台与文件美观输出：设置寄存器输出每行的对齐数"
             )
             parser.add_argument("-f", "--files", default="", type=str, nargs='+', help="导出的目标文件，可指定多个")
-            args = parser.parse_args(args)
+            args, _ = parser.parse_known_args(args)
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
             lineno = tb.lineno
@@ -206,7 +206,7 @@ class ModuleHelperCore(ABC):
             parser.add_argument("-n", "--num", default=1, type=int, help="生成随机配置的数量")
             parser.add_argument("-s", "--rand_seed", type=int, help="起始随机种子(n>1时随机种子自增1)")
             parser.add_argument("-o", "--file_or_dir", default="", type=str, help="生成的配置文件或目录(n>1时指定目录)")
-            args = parser.parse_args(args)
+            args, _ = parser.parse_known_args(args)
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
             lineno = tb.lineno
@@ -296,7 +296,7 @@ class ModuleHelperCore(ABC):
                 "-n", "--align", default=4, type=int, help="控制台与文件美观输出：设置寄存器输出每行的对齐数"
             )
             parser.add_argument("-f", "--files", default="", type=str, nargs='+', help="导出的目标文件，可指定多个")
-            args = parser.parse_args(args)
+            args, _ = parser.parse_known_args(args)
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
             lineno = tb.lineno

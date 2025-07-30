@@ -4,7 +4,7 @@ FilePath    : module_config_csc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-16
 Description :
-LastEditTime: 2025-07-29
+LastEditTime: 2025-07-30
 """
 
 import os
@@ -22,6 +22,7 @@ from utils import NoIndent, CompactArrayEncoder
 
 class CscColorSpace(Enum):
     """(enum_val, offset_r/y, offset_g/u, offset_b/v)"""
+
     RGBL = (0x00, 16, 16, 16)
     RGBF = (0x01, 0, 0, 0)
     YUV601L = (0x02, 16, 128, 128)
@@ -48,8 +49,8 @@ class CscConfig(ModuleConfigCore):
         self.cscROffset = 256
         self.cscGOffset = 256
         self.cscBOffset = 256
-        self.cscMatrix = np.identity(3, dtype=np.int16) * 1024
-        self.cscVector = np.zeros(3, dtype=np.int32)
+        self.cscMatrix = np.identity(3, dtype=np.int16) * 1024  # s13
+        self.cscVector = np.zeros(3, dtype=np.int32)  # s23
         self.cscSrcOffset = np.zeros(3, dtype=np.int32)
         self.cscDstOffset = np.zeros(3, dtype=np.int32)
         self.cscPassthrough = 0  # use matrix & vector directly
@@ -196,15 +197,16 @@ class CscConfig(ModuleConfigCore):
                 self.cscMatrix = np.random.randint(-(2**15), 2**15 - 1, size=(3, 3), dtype=np.int16)  # s16
                 self.cscVector = (
                     np.identity(3, dtype=np.int32) << precision
-                ) @ self.cscDstOffset + self.cscMatrix @ self.cscSrcOffset  # s13*s11->s23 in s32
-                # self.cscVector = np.clip(self.cscVector, -(2**25), 2**25 - 1)  # s26->s32
+                ) @ self.cscDstOffset + self.cscMatrix @ self.cscSrcOffset  # s16*s11->s26
+                self.cscVector = np.clip(self.cscVector, -(2**25), 2**25 - 1 - 4096)  # -4096 for hw + offset
+                # self.cscVector = np.clip(self.cscVector, -(2**25), 2**25 - 1 - 4096)
             else:  # precision == 10:
-                self.cscMatrix = np.random.randint(-(2**12), 2**12 - 1, size=(3, 3), dtype=np.int16)  # s13 in s16
-                # self.cscMatrix = np.random.randint(-2200, 2200, size=(3, 3), dtype=np.int16)  # s13 in s16
+                self.cscMatrix = np.random.randint(-(2**12), 2**12 - 1, size=(3, 3), dtype=np.int16)  # s13
                 self.cscVector = (
                     np.identity(3, dtype=np.int32) << precision
-                ) @ self.cscDstOffset + self.cscMatrix @ self.cscSrcOffset  # s13*s11->s23 in s32
-                self.cscVector = np.clip(self.cscVector, -(2**22), 2**22 - 1)  # s23->s32
+                ) @ self.cscDstOffset + self.cscMatrix @ self.cscSrcOffset  # s13*s11->s23
+                # self.cscVector = np.clip(self.cscVector, -(2**22), 2**22 - 1 - 512)  # -512 for hw + offset
+                self.cscVector = np.random.randint(-(2**22), 2**22 - 1 - 512, size=3, dtype=np.int32)
         else:
             self.gen_coef_from_param()
 
@@ -213,6 +215,7 @@ class CscConfig(ModuleConfigCore):
 
     def gen_coef_from_param(self):
         # TODO
+        self.logger.error("TODO: 'gen_coef_from_param' not implemented yet!")
         pass
 
 

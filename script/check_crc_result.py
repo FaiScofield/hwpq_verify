@@ -169,7 +169,7 @@ if __name__ == '__main__':
     ## <module>_crc_from_input_random_input_1920x1080_seed_{seed}_nv24_config_num_<nb_config>.dat
     match = re.match(r'(.+)_seed_(\d+)_nv24_(.+)', cmodel_crc_file)
     if match:
-        for k in range(nb_files):
+        for k in range(1, nb_files):
             seed = int(match.group(2))
             next_file = match.group(1) + f"_seed_{seed+k}_nv24_" + match.group(3)
             cmodel_crc_files.append(next_file)
@@ -188,4 +188,4 @@ if __name__ == '__main__':
             # break
         else:
             nb_pass += 1
-    print(f"\nTotal {nb_pass} / {len(cmodel_crc_files)} cmodel crc files pass!")
+    print(f"\nCheck result: {nb_pass}/{len(cmodel_crc_files)} cmodel crc files pass!")
