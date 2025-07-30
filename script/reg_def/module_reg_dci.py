@@ -4,7 +4,7 @@ FilePath    : reg_def_dci.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-29
+LastEditTime: 2025-07-30
 """
 
 import os
@@ -258,9 +258,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     register = DciRegister()
-    register.set(name="ENABLE_CTRL", value=0x1)
-    register.set(name="USM_CTRL", value=0x300)
-    register.set(name="USM_COEF", value=0x10 | (0x20 << 8) | (0x30 << 16))
 
     if args.interface == "load":
         register.load(args.file)
@@ -270,9 +267,13 @@ if __name__ == "__main__":
         if register.gen(args.seed):
             register.dump(args.file)
     elif args.interface in ["c2r", "config2regs"]:
+        register.config.gen(args.seed)
+        register.config.dump()
         if register.config2regs():
             register.dump()
     elif args.interface in ["r2c", "regs2config"]:
+        register.gen(args.seed)
+        register.dump()
         if register.regs2config():
             register.config.dump()
     else:

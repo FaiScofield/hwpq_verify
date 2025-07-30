@@ -4,7 +4,7 @@ FilePath    : module_reg_core.py
 Description :
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-11
-LastEditTime: 2025-07-29
+LastEditTime: 2025-07-30
 """
 
 import os
@@ -220,7 +220,7 @@ class ModuleRegisterCore(ABC):
         if pretty_lines_stdout >= 4 and len(lines) > pretty_lines_stdout:
             half_lines = (pretty_lines_stdout + 1) // 2
             new_lines = lines[: half_lines]
-            new_lines.append(f"..... omit middle lines since `max_lines_stdout={pretty_lines_stdout}` .....")
+            new_lines.append(f"...omit middle {len(lines)-pretty_lines_stdout} lines since `max_lines_stdout={pretty_lines_stdout}`...")
             new_lines += lines[-half_lines:]
             lines = new_lines
 

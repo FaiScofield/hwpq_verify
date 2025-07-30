@@ -4,7 +4,7 @@ FilePath    : module_config_cgc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-29
 Description :
-LastEditTime: 2025-07-29
+LastEditTime: 2025-07-30
 """
 
 import os
@@ -27,9 +27,9 @@ class CgcHWParam_VOP:
         self.log10_r_ootf_fix = 0  # s12, [-512, 1024]
         self.log10_t_fix_params = 0  # u14, [0, 9826]
         self.Mat_R2R = np.zeros((3, 3), dtype=np.int16)  # s16
-        self.eotf_attbits_change_idx_tab = np.zeros(11, dtype=np.uint8)  # u8
-        self.eotf_start_idx_tab = np.zeros(11, dtype=np.uint16)  # u11
         self.eotf_diff_shift_tab = np.zeros(137, dtype=np.uint16)  # u13
+        self.eotf_start_idx_tab = np.zeros(11, dtype=np.uint16)  # u11
+        self.eotf_attbits_change_idx_tab = np.zeros(11, dtype=np.uint16)  # u10
         self.cgc_oetf_tab = np.zeros(117, dtype=np.uint32)  # u32: [31:0]=[value:bits:seg=16:4:12]
 
 
@@ -54,9 +54,9 @@ class CgcConfig(ModuleConfigCore):
                     "log10_r_ootf_fix": self.cgc_params.log10_r_ootf_fix,
                     "log10_t_fix_params": self.cgc_params.log10_t_fix_params,
                     "Mat_R2R": self.cgc_params.Mat_R2R.flatten().tolist(),
-                    "eotf_attbits_change_idx_tab": self.cgc_params.eotf_attbits_change_idx_tab.flatten().tolist(),
-                    "eotf_start_idx_tab": self.cgc_params.eotf_start_idx_tab.flatten().tolist(),
                     "eotf_diff_shift_tab": self.cgc_params.eotf_diff_shift_tab.flatten().tolist(),
+                    "eotf_start_idx_tab": self.cgc_params.eotf_start_idx_tab.flatten().tolist(),
+                    "eotf_attbits_change_idx_tab": self.cgc_params.eotf_attbits_change_idx_tab.flatten().tolist(),
                     "cgc_oetf_tab": self.cgc_params.cgc_oetf_tab.flatten().tolist(),
                 }
             },
@@ -111,7 +111,7 @@ class CgcConfig(ModuleConfigCore):
                 self.cgc_params.log10_t_fix_params = data["log10_t_fix_params"]
                 self.cgc_params.Mat_R2R = np.array(data["Mat_R2R"], dtype=np.int16)
                 self.cgc_params.eotf_attbits_change_idx_tab = np.array(
-                    data["eotf_attbits_change_idx_tab"], dtype=np.uint8
+                    data["eotf_attbits_change_idx_tab"], dtype=np.uint16
                 )
                 self.cgc_params.eotf_start_idx_tab = np.array(data["eotf_start_idx_tab"], dtype=np.uint16)
                 self.cgc_params.eotf_diff_shift_tab = np.array(data["eotf_diff_shift_tab"], dtype=np.uint16)
@@ -145,9 +145,9 @@ class CgcConfig(ModuleConfigCore):
         self.cgc_params.log10_r_ootf_fix = random.randint(-512, 1024)
         self.cgc_params.log10_t_fix_params = random.randint(0, 9826)
         self.cgc_params.Mat_R2R = np.random.randint(-(2**15), 2**15 - 1, size=(3, 3), dtype=np.int16)  # s16
-        self.cgc_params.eotf_attbits_change_idx_tab = np.random.randint(0, 2**8 - 1, size=11, dtype=np.uint8)  # u8
-        self.cgc_params.eotf_start_idx_tab = np.random.randint(0, 2**11 - 1, size=11, dtype=np.uint16)  # u11
         self.cgc_params.eotf_diff_shift_tab = np.random.randint(0, 2**13 - 1, size=137, dtype=np.uint16)  # u13
+        self.cgc_params.eotf_start_idx_tab = np.random.randint(0, 2**11 - 1, size=11, dtype=np.uint16)  # u11
+        self.cgc_params.eotf_attbits_change_idx_tab = np.random.randint(0, 2**10 - 1, size=11, dtype=np.uint16)  # u10
         self.cgc_params.cgc_oetf_tab = np.random.randint(0, 2**32 - 1, size=117, dtype=np.uint32)  # u32
 
         self.logger.info(f"generated a random config with seed={seed}")

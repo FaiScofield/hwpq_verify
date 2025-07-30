@@ -4,7 +4,7 @@ FilePath    : module_config_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-29
+LastEditTime: 2025-07-30
 '''
 import os
 import sys
@@ -44,6 +44,7 @@ class ModuleConfigCore(ABC):
         return self.randSeed
 
     def pretty_print_dict(self, key, val, indent=2, pretty_array_stdout=32):
+        # TODO: 传入`parent_attr`参数，检查`if key in parent_attr`，以便在打印时标记出不属于config属性的嵌套层
         if isinstance(val, dict):
             self.logger.info(" " * indent + "- %s: {" % key)
             for k, v in val.items():
@@ -52,7 +53,14 @@ class ModuleConfigCore(ABC):
         else:
             if isinstance(val, (list, tuple, set, np.ndarray)) and len(val) > pretty_array_stdout:
                 half_len = (pretty_array_stdout + 1) // 2
-                val_str = f"{val[:half_len]}... (omit items between [{half_len}, {len(val) - half_len}] since `pretty_array_stdout={pretty_array_stdout}`) ...{val[-pretty_array_stdout:]}"
-                self.logger.info(" " * indent + f"- {key}: {val_str}")
+                self.logger.info(" " * indent + f"- {key}[0, {half_len-1}]: {val[:half_len]}")
+                self.logger.info(
+                    " " * indent
+                    + f"- {key}[{half_len}, {len(val)-half_len-1}]: ...omit middle {len(val)-pretty_array_stdout} items since `pretty_array_stdout={pretty_array_stdout}`..."
+                )
+                self.logger.info(
+                    " " * indent
+                    + f"- {key}[{len(val)-half_len}, {len(val)-1}]: {val[-pretty_array_stdout:]}"
+                )
             else:
                 self.logger.info(" " * indent + f"- {key}: {val}")
