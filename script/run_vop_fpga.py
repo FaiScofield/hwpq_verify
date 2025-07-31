@@ -4,7 +4,7 @@ FilePath    : run_vop_fpga.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-30
+LastEditTime: 2025-07-31
 """
 
 import os
@@ -30,25 +30,41 @@ logger = setup_logger(name="run_vop_fpga")
 
 def parse_common_args(args):
     parser = argparse.ArgumentParser()
-    parser.add_argument("-m", "--module", required=True, help="module name (sharp, acm, dci, csc, ...)")
-    parser.add_argument("-e", "--exe", default="", help="module sim_exe file path")
-    parser.add_argument("-r", "--root", default="", help="the root dir for data saving")
-    parser.add_argument("-p", "--platform", default="RK3572", help="RK3572/RK3576")
-    parser.add_argument("-i", "--input_file", default="", help="input file path")
-    parser.add_argument("-in", "--input_num", default=0, help="generate random input frame number")
+    parser.add_argument("-m", "--module", type=str, required=True, help="module name (sharp, acm, dci, csc, ...)")
+    parser.add_argument("-e", "--exe", type=str, default="", help="module sim_exe file path")
+    parser.add_argument("-r", "--root", type=str, default="", help="the root dir for data saving")
+    parser.add_argument("-p", "--platform", type=str, default="RK3572", help="RK3572/RK3576")
+    parser.add_argument("-i", "--input_file", type=str, default="", help="input file path")
+    parser.add_argument("-in", "--input_num", type=int, default=0, help="generate random input frame number")
     parser.add_argument(
-        "-is", "--input_seed", default=603893, help="random seed for generating input frames, used when input_num > 0"
+        "-is",
+        "--input_seed",
+        type=int,
+        default=603893,
+        help="random seed for generating input frames, used when input_num > 0",
     )
-    parser.add_argument("-if", "--input_fmt", default=0, help="input format, 0: YUV444SP, 1: RGBA")
-    parser.add_argument("-iw", "--input_wid", default=0, help="used when input_num > 0")
-    parser.add_argument("-ih", "--input_hgt", default=0, help="used when input_num > 0")
-    parser.add_argument("-cn", "--config_num", default=0, help="generate random config number")
     parser.add_argument(
-        "-cs", "--config_seed", default=114514, help="random seed for generating configs, used when config_num > 0"
+        "-if",
+        "--input_fmt",
+        type=int,
+        default=0,
+        help="input format: {rgb: 0-rgba, 1-rgb, 2-rgb_planar; yuv: 3-444p, 4-444sp, 5-444i, 6-422p, 7-422sp, 8-420p, 9-420sp}"
+        "(+10 for 10bit unpacked; +20 for 10bit packed)",
+    )
+    parser.add_argument("-iw", "--input_wid", type=int, default=0, help="used when input_num > 0")
+    parser.add_argument("-ih", "--input_hgt", type=int, default=0, help="used when input_num > 0")
+    parser.add_argument("-cn", "--config_num", type=int, default=0, help="generate random config number")
+    parser.add_argument(
+        "-cs",
+        "--config_seed",
+        type=int,
+        default=114514,
+        help="random seed for generating configs, used when config_num > 0",
     )
     parser.add_argument(
         "-cp",
         "--config_passthrough",
+        type=bool,
         action="store_true",
         help="set passthrough mode for randomconfigs, used when config_num > 0",
     )
@@ -57,37 +73,47 @@ def parse_common_args(args):
 
 
 def run_common_module(config_handler, reg_handler, args, **kwargs):
+    ## mkdir & set file handler for logger
+    exe = args.exe
+    module_name = config_handler.name.lower()
+    root_dir = args.root if args.root != "" else "//172.16.4.246/vop/RKCFA/batch_sim/sim_check_fpga_rk3572/"
+    input_dir = os.path.join(root_dir, "input")
+    output_dir = os.path.join(root_dir, "output")
+    config_dir = os.path.join(root_dir, "config")
+    log_dir = os.path.join(root_dir, "log")
+    os.makedirs(input_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(config_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
+    time_str = datetime.now().strftime("%Y%m%d%H%M%S")
+    log_file = os.path.join(log_dir, f"{time_str}_run_fpga_{module_name}.log")
+    add_file_handler(logger, log_file)
+    if not os.access(root_dir, os.W_OK):
+        logger.error(f"root_dir {root_dir} is not writable, please check!")
+        exit(-1)
+    if exe != "" and not os.access(exe, os.X_OK):
+        logger.error(f"sim_exe {exe} is not executable, please check!")
+        exit(-1)
+
+    ## get other args
     NB_REG_PER_FRAME = 0
     if "nb_reg_per_frame" in kwargs:
         NB_REG_PER_FRAME = int(kwargs["nb_reg_per_frame"])
     elif reg_handler is not None:
         NB_REG_PER_FRAME = len(reg_handler.regs)
-    logger.info(f"Set nb_reg_per_frame: {NB_REG_PER_FRAME}")
-
-    if "module_args" in kwargs:
-        module_args = kwargs["module_args"]
-    else:
-        module_args = ""
-    logger.info(f"Set module_args: '{module_args}'")
-
-    ## set root dir & exe path
-    root_dir = args.root if args.root != "" else "//172.16.4.246/vop/RKCFA/batch_sim/sim_check_fpga_rk3572/"
-    exe = args.exe
-    module_name = config_handler.name.lower()
-
-    time_str = datetime.now().strftime("%Y%m%d%H%M%S")
-    log_file = os.path.join(root_dir, f"{time_str}_run_fpga_{module_name}.log")
-    add_file_handler(logger, log_file)
-
+    module_args = kwargs["module_args"] if "module_args" in kwargs else ""
     platform = args.platform
     nb_input = int(args.input_num)
     nb_config = int(args.config_num)
     input_seed = int(args.input_seed)
     config_seed = int(args.config_seed)
-    img_fmt = int(args.input_fmt)
+    img_fmt = IMG_FMT.from_int(args.input_fmt)
+    is_rgb_fmt = img_fmt.value[0] % 10 < 2
     img_wid = int(args.input_wid)
     img_hgt = int(args.input_hgt)
+    logger.info(f"Set nb_reg_per_frame: {NB_REG_PER_FRAME}")
     logger.info(f"Set root_dir: {root_dir}")
+    logger.info(f"Set module_args: '{module_args}'")
     logger.info(f"Set platform: {platform}")
     logger.info(f"Set input file: {args.input_file}, size: {img_wid}x{img_hgt}")
     logger.info(f"Set random input/config num: {nb_input} / {nb_config}")
@@ -95,20 +121,6 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
         logger.info(f"Set input seed: {input_seed}, image size: {img_wid}x{img_hgt}, format: {img_fmt}")
     if nb_config > 0:
         logger.info(f"Set config seed: {config_seed}, passthrough: {args.config_passthrough}")
-
-    ## mkdir
-    input_dir = os.path.join(root_dir, "input")
-    output_dir = os.path.join(root_dir, "output")
-    config_dir = os.path.join(root_dir, "config")
-    os.makedirs(input_dir, exist_ok=True)
-    os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(config_dir, exist_ok=True)
-    if not os.access(root_dir, os.W_OK):
-        logger.error(f"root_dir {root_dir} is not writable, please check!")
-        exit(-1)
-    if exe != "" and not os.access(exe, os.X_OK):
-        logger.error(f"sim_exe {exe} is not executable, please check!")
-        exit(-1)
 
     ## generate input data
     input_list = {}  # basename: (width, height)
@@ -120,7 +132,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
         logger.warning(
             f"about to generate {nb_input} random input frames from seed {input_seed}, existing frames will be overwritten!"
         )
-        file_suffix = "nv24.yuv" if img_fmt == 0 else "rgba.bin"
+        file_suffix = f"{img_fmt.value[1]}.rgb" if is_rgb_fmt else f"{img_fmt.value[1]}.yuv"
         for i in range(nb_input):
             wid, hgt = img_wid, img_hgt
             if wid * hgt == 0:
@@ -128,7 +140,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
                 hgt = img_hgt if img_hgt > 0 else random.randint(200, 2000) * 2  # 2 pixel align
                 logger.warning(f"gen a random image size({wid}x{hgt}) instead of the input size({img_wid}x{img_hgt}) !")
             input_file = os.path.join(input_dir, f"random_input_{wid}x{hgt}_seed_{input_seed + i}_{file_suffix}")
-            frame_size = wid * hgt * 3
+            frame_size = wid * hgt * img_fmt.value[2]
             gen_random_frame(frame_size, input_seed + i, input_file)
             input_list[os.path.basename(input_file)] = (wid, hgt)
         logger.info(f"generated {len(input_list)} input frames in {input_dir} ...")
@@ -247,7 +259,6 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
                         f"❌ copy register file failed for intput={input_name}, exe_output_reg_file={exe_output_reg_file}!"
                     )
 
-
     logger.info(f"run sim_exe done. check output data in {output_dir}")
 
 
@@ -272,7 +283,7 @@ if __name__ == "__main__":
         reg_handler = CscRegister(platform=args.platform)
         nb_reg_per_frame = len(reg_handler.regs)
         # if reg_handler.index == CscModuleIndex.POST0_ACM_Y2R:
-        module_args = "-F 13" # vyu order to calc CRC
+        module_args = "-F 12"  # vyu order to calc CRC
     elif "acm" in name:
         config_handler = AcmConfig()
         reg_handler = AcmRegister(platform=args.platform)

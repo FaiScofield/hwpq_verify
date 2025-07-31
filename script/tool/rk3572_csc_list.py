@@ -78,6 +78,7 @@ def get_offset(color_space_i, range_i, color_space_o, range_o, csc_mat, pix_bits
     return final_offset.astype(np.int32)
 
 if __name__ == '__main__':
+    print(f"Usage: {sys.argv[0]} [coef_fix_bits(10/13)] [platform(RK3572/RK3576)]")
     supported_list = [
         ["RGB", "L"],
         ["RGB", "F"],
@@ -91,7 +92,7 @@ if __name__ == '__main__':
     pix_bits = 10
     coef_fix_bits = 10 if len(sys.argv) < 2 else int(sys.argv[1]) # 10 / 13
     platform = "rk3572" if len(sys.argv) < 3 else sys.argv[2].lower() # rk3572 / rk3576
-    assert(coef_fix_bits == 10 or coef_fix_bits == 13)
+    assert(coef_fix_bits in [10, 13])
     print(f" - get coef_fix_bits: {coef_fix_bits}")
     print(f" - get platform: {platform}")
 

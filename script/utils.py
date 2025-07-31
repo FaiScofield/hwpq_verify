@@ -4,7 +4,7 @@ FilePath    : setup_logger.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-10
 Description :
-LastEditTime: 2025-07-29
+LastEditTime: 2025-07-31
 """
 
 import os
@@ -16,7 +16,62 @@ import time
 import json
 import re
 import numpy as np
+from enum import Enum
 from _ctypes import PyObj_FromPtr
+
+
+class IMG_FMT(Enum):
+    ## idx, name, frame_size_ratio
+    RGBA = (0, "rgba", 4)
+    RGB = (1, "rgb", 3)
+    RGB_PLANAR = (2, "rgb_planar", 3)
+    YUV444P = (3, "yuv444p", 3)
+    YUV444SP = (4, "nv24", 3)
+    YUV444I = (5, "yuv444i", 3)
+    YUV422P = (6, "yuv422p", 2)
+    YUV422SP = (7, "nv16", 2)
+    YUV420P = (8, "yuv420p", 1.5)
+    YUV420SP = (9, "nv12", 1.5)
+
+    RGB_101010LSB = (11, "rgb101010l", 3 * 2)
+    RGB_PLANAR10LSB = (12, "rgb10l_planar", 3 * 2)
+    YUV444P_10LSB = (13, "yuv444p10l", 3 * 2)
+    YUV444SP_10LSB = (14, "yuv444sp10l", 3 * 2)
+    YUV444I_10LSB = (15, "yuv444i10l", 3 * 2)
+    YUV422P_10LSB = (16, "yuv422p10l", 2 * 2)
+    YUV422SP_10LSB = (17, "yuv422sp10l", 2 * 2)
+    YUV420P_10LSB = (18, "yuv420p10l", 1.5 * 2)
+    YUV420SP_10LSB = (19, "yuv420sp10l", 1.5 * 2)
+
+    RGBA_1010102 = (20, "rgba1010102", 4 / 4 * 5)
+    RGB_10PACKED = (21, "rgb10pack", 3 / 4 * 5)
+    RGB_PLANAR10PACKED = (22, "rgb10pack_planar", 3 / 4 * 5)
+    YUV444P_10PACKED = (23, "yuv444p10pack", 3 / 4 * 5)
+    YUV444SP_10PACKED = (24, "yuv444sp10pack", 3 / 4 * 5)
+    YUV444I_10PACKED = (25, "yuv444i10pack", 3 / 4 * 5)
+    YUV422P_10PACKED = (26, "yuv422p10pack", 2 / 4 * 5)
+    YUV422SP_10PACKED = (27, "yuv422sp10pack", 2 / 4 * 5)
+    YUV420P_10PACKED = (28, "yuv420p10pack", 1.5 / 4 * 5)
+    YUV420SP_10PACKED = (29, "yuv420sp10pack", 1.5 / 4 * 5)
+
+    @classmethod
+    def _init_cache(cls):
+        cls._int_to_enum = {ele.value[0]: ele for ele in cls}
+        cls._name_to_enum = {ele.value[1]: ele for ele in cls}
+
+    @classmethod
+    def from_int(cls, value: int):
+        if not hasattr(cls, '_int_to_enum'):
+            cls._init_cache()
+        return cls._int_to_enum[value]
+
+    @classmethod
+    def from_name(cls, name: str):
+        if not hasattr(cls, '_name_to_enum'):
+            cls._init_cache()
+        return cls._name_to_enum[name]
+
+
 
 ## set encoding to utf-8 to support ✅ & ❌
 if not sys.stdout.encoding or sys.stdout.encoding.upper() != 'UTF-8':
@@ -89,7 +144,7 @@ def gen_random_frame(size, seed=None, filename=""):
         seed = int(time.time())
 
     np.random.seed(seed)
-    data = np.random.randint(0, 256, (1, size), dtype=np.uint8)
+    data = np.random.randint(0, 255, (1, size), dtype=np.uint8)
 
     if filename != "":
         data.tofile(filename)
