@@ -1,0 +1,215 @@
+{
+    "sharp_mask": {
+        "i_EnabledSharpen": [0, 0, 1, 1], 
+        "i_SharpSimMode": [0, 0, 0, 1], 
+        "r_SharpHwCfgPath": [1, 0, 0, 1, "XXXX"], 
+        "s_sharp_hw_config": {
+            "lti_gating_en": [0, 0, 1, 1], 
+            "cti_gating_en": [0, 0, 1, 1], 
+            "peaking_gating_en": [0, 0, 1, 1], 
+            "peaking_ctrl_gating_en": [0, 0, 1, 1], 
+            "peaking_shoot_ctrl_gating_en": [0, 0, 1, 1], 
+            "edge_proc_gating_en": [0, 0, 1, 1], 
+            "shoot_ctrl_gating_en": [0, 0, 1, 1], 
+            "gain_ctrl_gating_en": [0, 0, 1, 1], 
+            "color_adj_gating_en": [0, 0, 1, 1], 
+            "texture_adj_gating_en": [0, 0, 1, 1]
+        }, 
+        "s_sharp_en_ctrl": {
+            "i_lti_h_en": [0, 0, 1, 1], 
+            "i_lti_v_en": [0, 0, 1, 1], 
+            "i_cti_h_en": [0, 0, 1, 1], 
+            "i_cti_v_en": [0, 0, 1, 1], 
+            "i_peaking_en": [0, 0, 1, 1], 
+            "i_peaking_gain_en": [0, 0, 1, 1], 
+            "i_peaking_coring_en": [0, 0, 1, 1], 
+            "i_peaking_limit_ctrl_en": [0, 0, 1, 1], 
+            "i_peaking_shoot_ctrl_en": [0, 0, 1, 1], 
+            "i_peaking_edge_ctrl_en": [0, 0, 1, 1], 
+            "i_peaking_edge_shoot_ctrl_en": [0, 0, 1, 1], 
+            "i_shoot_ctrl_en": [0, 0, 1, 1], 
+            "i_global_gain_en": [0, 0, 1, 1], 
+            "i_color_adj_en": [0, 0, 1, 1], 
+            "i_texture_adj_en": [0, 0, 1, 1]
+        }, 
+        "s_lti_h": {
+            "i_Radius": [0, 0, 1, 1], 
+            "i_Slope": [0, 0, 511, 1], 
+            "i_Thresold": [0, 0, 511, 1], 
+            "i_Gain": [0, 0, 31, 1], 
+            "i_noiseThrPos": [0, 0, 1023, 1], 
+            "i_noiseThrNeg": [0, 0, 1023, 1]
+        }, 
+        "s_cti_h": {
+            "i_Radius": [0, 0, 1, 1], 
+            "i_Slope": [0, 0, 511, 1], 
+            "i_Thresold": [0, 0, 511, 1], 
+            "i_Gain": [0, 0, 31, 1], 
+            "i_noiseThrPos": [0, 0, 1023, 1], 
+            "i_noiseThrNeg": [0, 0, 1023, 1]
+        }, 
+        "s_lti_v": {
+            "i_Radius": [0, 0, 1, 1], 
+            "i_Slope": [0, 0, 511, 1], 
+            "i_Thresold": [0, 0, 511, 1], 
+            "i_Gain": [0, 0, 31, 1], 
+            "i_noiseThrPos": [0, 0, 1023, 1], 
+            "i_noiseThrNeg": [0, 0, 1023, 1]
+        }, 
+        "s_cti_v": {
+            "i_Radius": [0, 0, 1, 1], 
+            "i_Slope": [0, 0, 511, 1], 
+            "i_Thresold": [0, 0, 511, 1], 
+            "i_Gain": [0, 0, 31, 1], 
+            "i_noiseThrPos": [0, 0, 1023, 1], 
+            "i_noiseThrNeg": [0, 0, 1023, 1]
+        }, 
+        "s_peaking": {
+            "s_gain": {
+                "t_GainPos": [0, 0, 2047, 8], 
+                "t_GainNeg": [0, 0, 2047, 8]
+            }, 
+            "s_coring": {
+                "t_CoringThreshold": [0, 0, 1023, 8], 
+                "t_CoringRatio": [0, 0, 2047, 8], 
+                "t_CoringZero": [0, 0, 1023, 8]
+            }, 
+            "s_limitCtrl": {
+                "t_LimitPos0": [0, 0, 1023, 8], 
+                "t_LimitPos1": [0, 0, 1023, 8], 
+                "t_LimitNeg0": [0, 0, 1023, 8], 
+                "t_LimitNeg1": [0, 0, 1023, 8], 
+                "t_LimitRatio": [0, 0, 1024, 8], 
+                "t_LimitboundPos": [0, 0, 1023, 8], 
+                "t_LimitboundNeg": [0, 0, 1023, 8]
+            }, 
+            "s_shootAdj": {
+                "t_ShootAdjDeltaOffset": [0, 0, 255, 8], 
+                "t_ShootAdjAlphaOver": [0, 0, 127, 8], 
+                "t_ShootAdjAlphaUnder": [0, 0, 127, 8], 
+                "t_ShootAdjAlphaOverUnlimit": [0, 0, 127, 8], 
+                "t_ShootAdjAlphaUnderUnlimit": [0, 0, 127, 8]
+            }, 
+            "s_edgeCtrl": {
+                "s_edge_ctrl_param": {
+                    "i_non_dir_thr": [0, 0, 127, 1], 
+                    "i_dir_cmp_ratio": [0, 0, 15, 1], 
+                    "i_non_dir_wgt_offset": [0, 0, 255, 1], 
+                    "i_non_dir_wgt_ratio": [0, 0, 31, 1], 
+                    "i_dir_cnt_thr": [0, 0, 12, 1], 
+                    "i_dir_cnt_avg": [0, 0, 7, 1], 
+                    "i_dir_cnt_offset": [0, 0, 15, 1], 
+                    "i_diag_dir_thr": [0, 0, 127, 1], 
+                    "t_diag_adj_gain_tab": [0, 0, 15, 8]
+                }, 
+                "s_edge_shoot_ctrl_param": {
+                    "s_direct_h": {
+                        "i_delta_offset": [0, 0, 255, 1], 
+                        "i_alpha_over": [0, 0, 127, 1], 
+                        "i_alpha_under": [0, 0, 127, 1], 
+                        "i_alpha_over_unlimit": [0, 0, 127, 1], 
+                        "i_alpha_under_unlimit": [0, 0, 127, 1]
+                    }, 
+                    "s_direct_v": {
+                        "i_delta_offset": [0, 0, 255, 1], 
+                        "i_alpha_over": [0, 0, 127, 1], 
+                        "i_alpha_under": [0, 0, 127, 1], 
+                        "i_alpha_over_unlimit": [0, 0, 127, 1], 
+                        "i_alpha_under_unlimit": [0, 0, 127, 1]
+                    }, 
+                    "s_direct_d0": {
+                        "i_delta_offset": [0, 0, 255, 1], 
+                        "i_alpha_over": [0, 0, 127, 1], 
+                        "i_alpha_under": [0, 0, 127, 1], 
+                        "i_alpha_over_unlimit": [0, 0, 127, 1], 
+                        "i_alpha_under_unlimit": [0, 0, 127, 1]
+                    }, 
+                    "s_direct_d1": {
+                        "i_delta_offset": [0, 0, 255, 1], 
+                        "i_alpha_over": [0, 0, 127, 1], 
+                        "i_alpha_under": [0, 0, 127, 1], 
+                        "i_alpha_over_unlimit": [0, 0, 127, 1], 
+                        "i_alpha_under_unlimit": [0, 0, 127, 1]
+                    }, 
+                    "s_direct_non": {
+                        "i_delta_offset": [0, 0, 255, 1], 
+                        "i_alpha_over": [0, 0, 127, 1], 
+                        "i_alpha_under": [0, 0, 127, 1], 
+                        "i_alpha_over_unlimit": [0, 0, 127, 1], 
+                        "i_alpha_under_unlimit": [0, 0, 127, 1]
+                    }
+                }
+            }, 
+            "s_filter_cfg": {
+                "i_diag_enh_coef": [0, 0, 7, 1], 
+                "t_filt_core_H0": [0, -1024, 1023, 6], 
+                "t_filt_core_H1": [0, -1024, 1023, 6], 
+                "t_filt_core_H2": [0, -1024, 1023, 6], 
+                "t_filt_core_H3": [0, -1024, 1023, 6], 
+                "t_filt_core_V0": [0, -16, 15, 3], 
+                "t_filt_core_V1": [0, -16, 15, 3], 
+                "t_filt_core_V2": [0, -16, 15, 3], 
+                "t_filt_core_USM": [0, -7, 7, 3]
+            }, 
+            "i_peakingGain": [0, 0, 1023, 1]
+        }, 
+        "s_shootCtrl": {
+            "i_FilterRadius": [0, 0, 1, 1], 
+            "i_Delta_offset": [0, 0, 255, 1], 
+            "i_Alpha_over": [0, 0, 127, 1], 
+            "i_Alpha_under": [0, 0, 127, 1], 
+            "i_Alpha_over_unlimit": [0, 0, 127, 1], 
+            "i_Alpha_under_unlimit": [0, 0, 127, 1]
+        }, 
+        "s_globalGain": {
+            "s_lum_gain": {
+                "i_lum_mode": [0, 0, 2, 1], 
+                "t_lum_grd": [0, 0, 1023, 6], 
+                "t_lum_val": [0, 0, 127, 6]
+            }, 
+            "s_adp_gain": {
+                "t_adp_grd": [0, 0, 1023, 6], 
+                "t_adp_val": [0, 0, 127, 6]
+            }, 
+            "s_var_gain": {
+                "t_var_grd": [0, 0, 1023, 6], 
+                "t_var_val": [0, 0, 127, 6]
+            }
+        }, 
+        "s_colorCtrl": {
+            "s_ctrl_point_0": {
+                "i_ctrl_scaling": [0, 0, 6, 1], 
+                "t_ctrl_point": [0, 0, 1023, 2], 
+                "t_ctrl_rolltab": [0, 0, 31, 16]
+            }, 
+            "s_ctrl_point_1": {
+                "i_ctrl_scaling": [0, 0, 6, 1], 
+                "t_ctrl_point": [0, 0, 1023, 2], 
+                "t_ctrl_rolltab": [0, 0, 31, 16]
+            }, 
+            "s_ctrl_point_2": {
+                "i_ctrl_scaling": [0, 0, 6, 1], 
+                "t_ctrl_point": [0, 0, 1023, 2], 
+                "t_ctrl_rolltab": [0, 0, 31, 16]
+            }, 
+            "s_ctrl_point_3": {
+                "i_ctrl_scaling": [0, 0, 6, 1], 
+                "t_ctrl_point": [0, 0, 1023, 2], 
+                "t_ctrl_rolltab": [0, 0, 31, 16]
+            }
+        }, 
+        "s_textureAdj": {
+            "i_y_mode_select": [0, 0, 3, 1], 
+            "i_idx_mode_select": [0, 0, 1, 1], 
+            "t_texture_grd": [0, 0, 1023, 6], 
+            "t_texture_val": [0, 0, 127, 6]
+        }, 
+        "s_sharpRoiCfg": {
+              "i_roi_enable": [0, 0, 1, 1], 
+              "i_roi_xstart": [0, 0, 4095, 1], 
+              "i_roi_ystart": [0, 0, 4095, 1], 
+              "i_roi_xend": [0, 0, 4095, 1], 
+              "i_roi_yend": [0, 0, 4095, 1]
+        }
+    }
+}
