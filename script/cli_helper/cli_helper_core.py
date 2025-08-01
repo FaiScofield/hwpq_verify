@@ -49,7 +49,7 @@ class ModuleHelperCore(ABC):
         self.commands = {
             "help": (self.do_help, "", "显示命令帮助信息"),
             "quit": (self.do_quit, "", "退出或返回上一级"),
-            "plat": (self.do_plat, "<name>", "设置平台: (Only RK3572 for now!)"),
+            "plat": (self.do_plat, "<-p name> [-x index]", "设置平台: (Only RK3572 for now!) 和硬件通路的位置"),
             "load": (self.do_load, "<file>", "加载 .json 配置文件或 .dat/.bin 寄存器文件"),
             "gen": (
                 self.do_gen,
@@ -275,17 +275,23 @@ class ModuleHelperCore(ABC):
 
     def do_plat(self, args) -> bool:
         """设置平台属性"""
-        if not args:
-            print(f"[{self.name}] Error: 需要一个额外的参数来指定平台名称！")
-            return False  # 不退出
+        parser = argparse.ArgumentParser(exit_on_error=False)
+        parser.add_argument("-p", "--platform", type=str, default="", help="set RK platform")
+        parser.add_argument("-x", "--index", type=int, help="XxxModuleIndex")
+        param, _ = parser.parse_known_args(args)
 
-        platform_name = args[0].upper()
-        self.platform = platform_name
-        print(f"[{self.name}] Set platform to: {platform_name}")
-
-        ## 给子模块也全部设置新的平台
-        for mod in self.submodules:
-            self.submodules[mod].do_plat(args)
+        platform_name = param.platform.upper()
+        if platform_name == "RK3572":
+            self.platform = platform_name
+            print(f"[{self.name}] Set platform to: {platform_name}")
+            if self.register is None:
+                print(f"[{self.name}] Set index to: {param.index}")
+                self.register.update(platform=platform_name, index=param.index)
+            ## 给子模块也全部设置新的平台
+            for mod in self.submodules:
+                self.submodules[mod].do_plat(args)
+        else:
+            print(f"[{self.name}] Error: 当前仅支持 RK3572 平台！")
 
         return False  # 不退出
 

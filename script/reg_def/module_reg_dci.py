@@ -10,6 +10,7 @@ LastEditTime: 2025-07-30
 import os
 import sys
 import argparse
+from enum import Enum
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from reg_def import *
