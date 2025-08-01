@@ -4,7 +4,7 @@ FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-30
+LastEditTime: 2025-08-01
 """
 
 import sys
@@ -20,10 +20,11 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
-from config_def.module_config_core import (
-    ModuleConfigCore,
-)  # 配置参数基类，新增模块需要在`config_def`中增加对应的参数定义文件
-from reg_def.module_reg_core import ModuleRegisterCore  # 寄存器基类，新增模块需要在`reg_def`中增加对应的寄存器定义文件
+# 配置参数基类，新增模块需要在`config_def`中增加对应的参数定义文件
+from config_def.module_config_core import ModuleConfigCore
+# 寄存器基类，新增模块需要在`reg_def`中增加对应的寄存器定义文件
+from reg_def.module_reg_core import ModuleRegisterCore
+from utils import run_cmd
 
 
 class ModuleHelperCore(ABC):
@@ -52,18 +53,23 @@ class ModuleHelperCore(ABC):
             "load": (self.do_load, "<file>", "加载 .json 配置文件或 .dat/.bin 寄存器文件"),
             "gen": (
                 self.do_gen,
-                "[-n num] [-o filename/directory] [-s rand_seed]",
+                "[-n num] [-o file/dir] [-s rand_seed]",
                 "生成 num 个随机配置, 可输出到文件(num=1)或文件夹(num>1)",
             ),
             "dump": (
                 self.do_dump,
-                "[-f filenames] / [-n align] [-l pretty_lines_stdout] [-a pretty_array_stdout]",
+                "[-o files] / [-n align] [-l pretty_lines_stdout] [-a pretty_array_stdout]",
                 "指定文件名(.json/.dat/.bin, 可多个)时则导出当前配置到对应文件, 否则打印到控制台(此时支持-n/l/a参数)",
             ),
-            "reg": (
-                self.do_reg,
-                "[-f filenames] / [-n align] [-l pretty_lines_stdout]",
-                "生成寄存器配置值(到指定文件，支持.dat/.bin), 或者打印到控制台(此时支持-n/l参数)",
+            "c2r": (
+                self.do_c2r,
+                "[-i files/dir] [-o files/dir] [-s suffix] [-c cat_regs] / [-n align] [-l pretty_lines_stdout]",
+                "config2register, 读入配置文件(-i)转到寄存器文件(-o), 或者打印到控制台(此时支持-n/l参数)",
+            ),
+            "r2c": (
+                self.do_r2c,
+                "[-i files/dir] [-o files/dir] / [-a pretty_array_stdout]",
+                "register2config, 读入寄存器文件(-i)转到配置文件(-o), 或者打印到控制台(此时支持-n/l参数)",
             ),
             "get": (self.do_get, "<name1> [name2 name3 ...]", "获取配置参数的值"),
             "set": (self.do_set, "<name1=value1> [name2=value2 name3=value3 ...]", "设置配置参数的值"),
@@ -108,8 +114,8 @@ class ModuleHelperCore(ABC):
     @abstractmethod
     def define_config_and_regs(self) -> tuple[Optional[ModuleConfigCore], Optional[ModuleRegisterCore]]:
         """定义模块的配置参数(由子类实现)"""
-        config = None
-        register = None
+        config: Optional[ModuleConfigCore] = None
+        register: Optional[ModuleRegisterCore] = None
         return config, register
 
     ## =============== 通用命令处理函数，子模块可按需复写 ===============
@@ -163,7 +169,7 @@ class ModuleHelperCore(ABC):
             parser.add_argument(
                 "-n", "--align", default=4, type=int, help="控制台与文件美观输出：设置寄存器输出每行的对齐数"
             )
-            parser.add_argument("-f", "--files", default="", type=str, nargs='+', help="导出的目标文件，可指定多个")
+            parser.add_argument("-o", "--output", default="", type=str, nargs='+', help="导出的目标文件，可指定多个")
             args, _ = parser.parse_known_args(args)
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
@@ -172,20 +178,19 @@ class ModuleHelperCore(ABC):
             print(f"[{self.name}] error in {filename}:{lineno}: {e}")
             return False  # 不退出
 
-        config = self.config
         reg_ok = self.config_to_regs()
 
-        if args.files == "":
+        if args.output == "":
             ## 控制台显示
-            config.dump(pretty_array_stdout=args.pretty_array_stdout)
+            self.config.dump(pretty_array_stdout=args.pretty_array_stdout)
             if reg_ok:
                 self.register.dump(align=args.align, pretty_lines_stdout=args.pretty_lines_stdout)
         else:
             ## 导出到文件
-            for target in args.files:
+            for target in args.output:
                 try:
                     if target.endswith(".json"):
-                        config.dump(target)
+                        self.config.dump(target)
                     elif reg_ok and (target.endswith(".dat") or target.endswith(".txt")):
                         self.register.dump(target, align=4)
                     elif reg_ok and target.endswith(".bin"):
@@ -205,7 +210,7 @@ class ModuleHelperCore(ABC):
             parser = argparse.ArgumentParser(exit_on_error=False)
             parser.add_argument("-n", "--num", default=1, type=int, help="生成随机配置的数量")
             parser.add_argument("-s", "--rand_seed", type=int, help="起始随机种子(n>1时随机种子自增1)")
-            parser.add_argument("-o", "--file_or_dir", default="", type=str, help="生成的配置文件或目录(n>1时指定目录)")
+            parser.add_argument("-o", "--output", default="", type=str, help="生成的配置文件或目录(n>1时指定目录)")
             args, _ = parser.parse_known_args(args)
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
@@ -215,8 +220,8 @@ class ModuleHelperCore(ABC):
             return False  # 不退出
 
         args.num = max(1, args.num)
-        abs_path = os.path.abspath(args.file_or_dir)
-        if args.file_or_dir == "":
+        abs_path = os.path.abspath(args.output)
+        if args.output == "":
             args.num = 1
             abs_path = dirname = ""
         elif os.path.isdir(abs_path):
@@ -284,34 +289,146 @@ class ModuleHelperCore(ABC):
 
         return False  # 不退出
 
-    def do_reg(self, args) -> bool:
-        """生成寄存器配置值"""
-        ## parse args & check
-        try:
-            parser = argparse.ArgumentParser(exit_on_error=False)
-            parser.add_argument(
-                "-l", "--pretty_lines_stdout", default=16, type=int, help="控制台美观输出：限制寄存器输出最大行数"
-            )
-            parser.add_argument(
-                "-n", "--align", default=4, type=int, help="控制台与文件美观输出：设置寄存器输出每行的对齐数"
-            )
-            parser.add_argument("-f", "--files", default="", type=str, nargs='+', help="导出的目标文件，可指定多个")
-            args, _ = parser.parse_known_args(args)
-        except Exception as e:
-            tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
-            lineno = tb.lineno
-            filename = os.path.basename(tb.filename)
-            print(f"[{self.name}] error in {filename}:{lineno}: {e}")
+    def do_c2r(self, args) -> bool:
+        if self.register is None:
+            print(f"[{self.name}] self.register not defined!!!")
             return False  # 不退出
 
-        if self.config_to_regs():
-            if args.files == "":
-                self.register.dump(align=args.align, pretty_lines_stdout=args.pretty_lines_stdout)
+        ## parse args & check
+        parser = argparse.ArgumentParser(exit_on_error=False)
+        parser.add_argument("-i", "--input", default="", type=str, nargs='+', help="指定输入配置文件或文件夹")
+        parser.add_argument("-o", "--output", default="", type=str, nargs='+', help="导出的目标文件(可多个)或文件夹")
+        parser.add_argument("-s", "--suffix", default="bin", type=str, help="多个导出目标文件的后缀: bin(默认)/dat/txt")
+        parser.add_argument("-c", "--cat_regs", action="store_true", help="多个导出.bin文件合并为单个.bin文件")
+        parser.add_argument(
+            "-n", "--align", default=4, type=int, help="控制台与文件美观输出：设置寄存器输出每行的对齐数"
+        )
+        parser.add_argument(
+            "-l", "--pretty_lines_stdout", default=16, type=int, help="控制台美观输出：限制寄存器输出最大行数"
+        )
+        args, _ = parser.parse_known_args(args)
+        if args.suffix not in ["bin", "dat", "txt"]:
+            print(f"[{self.name}] 错误: 不支持的导出文件类型: {args.suffix}. 仅支持 bin/dat/txt")
+            return False  # 不退出
+        args.suffix = "." + args.suffix
+
+        ## 确定输入/输出数量
+        inputs = []
+        if args.input != "":
+            if os.path.isdir(args.input[0]):
+                inputs += [os.path.join(args.input[0], f) for f in os.listdir(args.input[0])]
             else:
-                for file in args.files:
-                    self.register.dump(file, align=args.align)
+                inputs += args.input
+            inputs = [f for f in inputs if f.endswith(".json")]  # 只读入json文件
+            print(f"[{self.name}] 读取到{len(inputs)}个'.json'配置文件")
+        if len(inputs) == 0:
+            inputs = [""]
+        outputs = []
+        output_dir = ""
+        if args.output != "":
+            if len(inputs) > 1:  # n to n
+                if not os.path.isdir(args.output[0]):
+                    print(f"[{self.name}] 错误: 多个输入文件时，输出应该为目录！")
+                    return False  # 不退出
+                output_dir = args.output[0]
+                outputs += [os.path.join(output_dir, os.path.basename(f).replace(".json", args.suffix)) for f in inputs]
+            else:  # 1 to n
+                if os.path.isdir(args.output[0]):
+                    print(f"[{self.name}] 错误: 单个输入时，输出应该为文件名！")
+                    return False  # 不退出
+                outputs += args.output
+                outputs = [f for f in outputs if f.endswith(".dat") or f.endswith(".bin") or f.endswith(".txt")]
+        if len(outputs) == 0:
+            outputs = [""] * len(inputs)
+            print(f"[{self.name}] 输出文件(夹)未指定或无效，输出到控制台...")
+
+        ## 转至寄存器并输出
+        if len(inputs) == 1:  # 1 to n
+            self.register.config = self.config
+            if inputs[0] != "":
+                self.register.load(inputs[0])
+            if self.register.config2regs():
+                for output in outputs:
+                    self.register.dump(output, args.align, args.pretty_lines_stdout)
+            else:
+                print(f"[{self.name}] 错误: 寄存器配置转换失败！{inputs[0]}")
+        else:  # n to n
+            for input, output in zip(inputs, outputs):
+                self.register.load(input)
+                if self.register.config2regs():
+                    self.register.dump(output, args.align, args.pretty_lines_stdout)
+                else:
+                    print(f"[{self.name}] 错误: 寄存器配置转换失败！{input} => {output}")
+
+        ## 合并寄存器文件
+        if args.cat_regs and len(outputs) > 0 and args.suffix == ".bin":
+            cat_file = os.path.join(output_dir, f"{self.name.lower()}_cat_regs_num_{len(outputs)}.bin")
+            with open(cat_file, "wb") as fp:
+                for output in outputs:
+                    data = np.fromfile(output, dtype=np.uint32)
+                    fp.write(data.tobytes())
+                    run_cmd(f"rm {output}")
+            print(f"[{self.name}] 合并{len(outputs)}个寄存器文件至: {cat_file}")
+        return False  # 不退出
+
+    def do_r2c(self, args) -> bool:
+        if self.register is None:
+            print(f"[{self.name}] self.register not defined!!!")
+            return False  # 不退出
+
+        ## parse args & check
+        parser = argparse.ArgumentParser(exit_on_error=False)
+        parser.add_argument("-i", "--input", type=str, default="", nargs='+', help="输入配置文件(允许多个)或文件夹")
+        parser.add_argument("-o", "--output", type=str, default="", nargs='+', help="输出寄存器文件(允许多个)或文件夹")
+        parser.add_argument(
+            "-a", "--pretty_array_stdout", default=64, type=int, help="控制台美观输出：限制数组类型参数的输出元素量"
+        )
+        args, _ = parser.parse_known_args(args)
+
+        ## 确定输入/输出数量
+        inputs = []
+        if args.input != "":
+            if os.path.isdir(args.input[0]):
+                ## 按'.bin'/'.dat'/'.txt'优先级读取
+                inputs += [os.path.join(args.input[0], f) for f in os.listdir(args.input[0]) if f.endswith(".bin")]
+                if len(inputs) == 0:
+                    inputs += [os.path.join(args.input[0], f) for f in os.listdir(args.input[0]) if f.endswith(".dat")]
+                if len(inputs) == 0:
+                    inputs += [os.path.join(args.input[0], f) for f in os.listdir(args.input[0]) if f.endswith(".txt")]
+            else:
+                inputs += args.input
+            inputs = [f for f in inputs if f.endswith(".bin") or f.endswith(".dat") or f.endswith(".txt")]
+            print(f"[{self.name}] 读取到{len(inputs)}个'.bin/.dat/.txt'寄存器文件")
         else:
-            print(f"[{self.name}] 错误: 寄存器配置生成失败！")
+            inputs = [""]
+        outputs = []
+        output_dir = ""
+        if args.output != "":
+            if len(inputs) > 1:  # n to n
+                if not os.path.isdir(args.output[0]):
+                    print(f"[{self.name}] 错误: 多个输入文件时，输出应该为目录！")
+                    return False  # 不退出
+                output_dir = args.output[0]
+                outputs += [os.path.join(output_dir, os.path.basename(f) + ".dat") for f in inputs]
+            else:  # 1 to 1
+                if os.path.isdir(args.output[0]):
+                    print(f"[{self.name}] 错误: 单个输入时，输出应该为文件名！")
+                    return False  # 不退出
+                outputs.append(args.output[0])
+            outputs = [f for f in outputs if f.endswith(".json")]
+        if len(outputs) == 0:
+            outputs = [""]
+        print(f"[{self.name}] 识别到{len(inputs)}个'.json'输出配置文件")
+
+        ## 转至配置结构体并输出
+        for input, output in zip(inputs, outputs):
+            if input != "":
+                self.register.load(input)
+            if self.register.regs2config():
+                self.register.config.dump(output, args.pretty_array_stdout)
+            else:
+                print(f"[{self.name}] 错误: 寄存器到配置转换失败！ {input} => {output}")
+
         return False  # 不退出
 
     def do_quit(self, args) -> bool:

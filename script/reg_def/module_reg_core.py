@@ -4,7 +4,7 @@ FilePath    : module_reg_core.py
 Description :
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-11
-LastEditTime: 2025-07-30
+LastEditTime: 2025-08-01
 """
 
 import os
@@ -15,6 +15,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Union
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
+from config_def import ModuleConfigCore
 from utils import setup_logger
 
 
@@ -39,7 +40,7 @@ class ModuleRegisterCore(ABC):
         # below attributes should be set by subclass
         self.base_addr = 0x0
         self.regs = []
-        self.config = None
+        self.config: Optional[ModuleConfigCore] = None
 
     ## =============== abstract methods  ===============
     @abstractmethod
@@ -79,7 +80,7 @@ class ModuleRegisterCore(ABC):
 
         if filename.endswith(".txt") or filename.endswith(".dat"):
             with open(filename, "w") as f:
-                data = self.format_str_regs_array(regs, align, self.base_addr, True)
+                data = self.format_str_regs_array(regs, align, self.base_addr, True, 0)
                 if data != "":
                     f.write(data)
                     return True

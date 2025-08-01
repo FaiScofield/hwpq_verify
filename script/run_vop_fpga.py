@@ -64,7 +64,6 @@ def parse_common_args(args):
     parser.add_argument(
         "-cp",
         "--config_passthrough",
-        type=bool,
         action="store_true",
         help="set passthrough mode for randomconfigs, used when config_num > 0",
     )
