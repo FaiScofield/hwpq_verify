@@ -4,7 +4,7 @@ FilePath    : reg_def_cgc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-30
 Description :
-LastEditTime: 2025-07-30
+LastEditTime: 2025-08-04
 """
 
 import os
@@ -22,8 +22,8 @@ from config_def import CgcConfig
 class CgcModuleIndex(Enum):
     """enum = (name, ip_address, offset, nb_regs)"""
 
-    VOP_HDRVIVID_S2H = ("VOP_HDRVIVID_S2H", 0xF90000000, 0x00002010, 206)
-    VOP_HDRVIVID_CGC = ("VOP_HDRVIVID_CGC", 0xF90000000, 0x000020C0, 206)
+    VOP_HDRVIVID_S2H = ("VOP_HDRVIVID_S2H", 0xF9000000, 0x00002010, 206)
+    VOP_HDRVIVID_CGC = ("VOP_HDRVIVID_CGC", 0xF9000000, 0x000020C0, 206)
 
 
 class CgcRegister(ModuleRegisterCore):
@@ -51,8 +51,8 @@ class CgcRegister(ModuleRegisterCore):
 
         if self.platform.lower() == "rk3572":
             self.ip_addr = self.index.value[1]
-            self.base_addr = self.index.value[2]
-            self.nb_regs = self.index.value[3] # 206 = 8 + (69) + (6) + (6) + (117)
+            self.base_addr = self.index.value[1]
+            self.nb_regs = self.index.value[3]  # 206 = 8 + (69) + (6) + (6) + (117)
             self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_S2H] = [
                 Reg(0x00002010, 0x0, "SDR2HDR_CTRL"),
                 Reg(0x00002014, 0x0, "SDR_CFG_COE0"),
@@ -74,17 +74,33 @@ class CgcRegister(ModuleRegisterCore):
                 Reg(0x000020DC, 0x0, "CGC_CSC_COE22"),
             ]
             # shift_tab, u13. total elements/regs: 137/69 (0xb00 - 0xc10)
-            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_CGC] += [Reg(0x00002B00 + idx * 4, 0x0, f"CGCINVGAMMA_CURVE{idx}") for idx in range(69)]
-            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_S2H] += [Reg(0x00002700 + idx * 4, 0x0, f"SDRINVGAMMA_CURVE{idx}") for idx in range(69)]
+            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_CGC] += [
+                Reg(0x00002B00 + idx * 4, 0x0, f"CGCINVGAMMA_CURVE{idx}") for idx in range(69)
+            ]
+            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_S2H] += [
+                Reg(0x00002700 + idx * 4, 0x0, f"SDRINVGAMMA_CURVE{idx}") for idx in range(69)
+            ]
             # start_idx, u11. total elements/regs: 11/6 (0xc20 - 0xc34)
-            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_CGC] += [Reg(0x00002C20 + idx * 4, 0x0, f"CGCINVGAMMA_STARTIDX{idx}") for idx in range(6)]
-            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_S2H] += [Reg(0x00002820 + idx * 4, 0x0, f"SDRINVGAMMA_STARTIDX{idx}") for idx in range(6)]
+            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_CGC] += [
+                Reg(0x00002C20 + idx * 4, 0x0, f"CGCINVGAMMA_STARTIDX{idx}") for idx in range(6)
+            ]
+            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_S2H] += [
+                Reg(0x00002820 + idx * 4, 0x0, f"SDRINVGAMMA_STARTIDX{idx}") for idx in range(6)
+            ]
             # change_idx, u10. total elements/regs: 11/6 (0xc40 - 0xc54)
-            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_CGC] += [Reg(0x00002C40 + idx * 4, 0x0, f"CGCINVGAMMA_CHANGEIDX{idx}") for idx in range(6)]
-            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_S2H] += [Reg(0x00002840 + idx * 4, 0x0, f"SDRINVGAMMA_CHANGEIDX{idx}") for idx in range(6)]
+            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_CGC] += [
+                Reg(0x00002C40 + idx * 4, 0x0, f"CGCINVGAMMA_CHANGEIDX{idx}") for idx in range(6)
+            ]
+            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_S2H] += [
+                Reg(0x00002840 + idx * 4, 0x0, f"SDRINVGAMMA_CHANGEIDX{idx}") for idx in range(6)
+            ]
             # oetf_tab, u32. total elements/regs: 117/117 (0xd00 - 0xed0)
-            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_CGC] += [Reg(0x00002D00 + idx * 4, 0x0, f"CGCOEFT_CURVE{idx}") for idx in range(117)]
-            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_S2H] += [Reg(0x00002900 + idx * 4, 0x0, f"SDROEFT_CURVE{idx}") for idx in range(117)]
+            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_CGC] += [
+                Reg(0x00002D00 + idx * 4, 0x0, f"CGCOEFT_CURVE{idx}") for idx in range(117)
+            ]
+            self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_S2H] += [
+                Reg(0x00002900 + idx * 4, 0x0, f"SDROEFT_CURVE{idx}") for idx in range(117)
+            ]
 
             self.regs = self.reg_dicts[self.index]
             assert len(self.regs) == self.nb_regs
@@ -104,7 +120,7 @@ class CgcRegister(ModuleRegisterCore):
         self.set(name="CGC_CFG_COE0", value=val)
         val = (param.log10_t_fix_params & 0x3FFF) << 0
         self.set(name="CGC_CFG_COE1", value=val)
-        mat = param.Mat_R2R.flatten().astype(np.uint32)
+        mat = param.Mat_R2R.flatten().astype(np.uint32)  # s16->u32 first
         val = ((mat[0] & 0xFFFF) << 0) | ((mat[1] & 0xFFFF) << 16)
         self.set(name="CGC_CSC_COE00_01", value=val)
         val = ((mat[2] & 0xFFFF) << 0) | ((mat[3] & 0xFFFF) << 16)
@@ -115,26 +131,31 @@ class CgcRegister(ModuleRegisterCore):
         self.set(name="CGC_CSC_COE20_21", value=val)
         val = (mat[8] & 0xFFFF) << 0
         self.set(name="CGC_CSC_COE22", value=val)
+
+        tab_u32 = param.eotf_diff_shift_tab.astype(np.uint32)  # u13->u32 first
         for i in range(137 // 2):  # [0,135]=>[0,67]
             j = i * 2
-            val = (param.eotf_diff_shift_tab[j] & 0x1FFF) | ((param.eotf_diff_shift_tab[j + 1] & 0x1FFF) << 16)
+            val = (tab_u32[j] & 0x1FFF) | ((tab_u32[j + 1] & 0x1FFF) << 16)
             self.set(name=f"CGCINVGAMMA_CURVE{i}", value=val)
-        val = param.eotf_diff_shift_tab[136] & 0x1FFF
-        self.set(name="CGCINVGAMMA_CURVE68", value=val)  # 68th
+        self.set(name="CGCINVGAMMA_CURVE68", value=tab_u32[136] & 0x1FFF)  # 68th
+
+        tab_u32 = param.eotf_start_idx_tab.astype(np.uint32)  # u11->u32 first
         for i in range(11 // 2):  # [0,9]=>[0,4]
             j = i * 2
-            val = (param.eotf_start_idx_tab[j] & 0x7FF) | ((param.eotf_start_idx_tab[j + 1] & 0x7FF) << 16)
+            val = (tab_u32[j] & 0x7FF) | ((tab_u32[j + 1] & 0x7FF) << 16)
             self.set(name=f"CGCINVGAMMA_STARTIDX{i}", value=val)
-            val = (param.eotf_attbits_change_idx_tab[j] & 0x3FF) | (
-                (param.eotf_attbits_change_idx_tab[j + 1] & 0x3FF) << 16
-            )
+        self.set(name="CGCINVGAMMA_STARTIDX5", value=tab_u32[10] & 0x7FF)  # 5th
+
+        tab_u32 = param.eotf_attbits_change_idx_tab.astype(np.uint32)  # u10->u32 first
+        for i in range(11 // 2):  # [0,9]=>[0,4]
+            j = i * 2
+            val = (tab_u32[j] & 0x3FF) | ((tab_u32[j + 1] & 0x3FF) << 16)
             self.set(name=f"CGCINVGAMMA_CHANGEIDX{i}", value=val)
-        val = param.eotf_start_idx_tab[10] & 0x7FF
-        self.set(name="CGCINVGAMMA_STARTIDX5", value=val)  # 5th
-        val = param.eotf_attbits_change_idx_tab[10] & 0x3FF
-        self.set(name="CGCINVGAMMA_CHANGEIDX5", value=val)  # 5th
+        self.set(name="CGCINVGAMMA_CHANGEIDX5", value=tab_u32[10] & 0x3FF)  # 5th
+
+        tab_u32 = param.cgc_oetf_tab.astype(np.uint32)  # u32->u32 first
         for i in range(117):  # [0,117]=>[0,117]
-            self.set(name=f"CGCOEFT_CURVE{i}", value=param.cgc_oetf_tab[i])
+            self.set(name=f"CGCOEFT_CURVE{i}", value=tab_u32[i])
         return True
 
     def regs2config(self) -> bool:

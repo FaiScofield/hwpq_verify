@@ -46,7 +46,7 @@ class DciRegister(ModuleRegisterCore):
 
         if self.platform.lower() == "rk3572":
             self.ip_addr = self.index.value[1]
-            self.base_addr = self.index.value[2]
+            self.base_addr = self.index.value[1]
             self.nb_regs = self.index.value[3]
             self.reg_dicts[DciModuleIndex.VDPP_VEP] = [
                 Reg(0x00001004, 0x0, "CONFIG0"),
@@ -103,23 +103,23 @@ class DciRegister(ModuleRegisterCore):
             value=(cfg.vop_config.luma_sat_adj_zero & 0xFFFF) | ((cfg.vop_config.luma_sat_adj_thrd & 0xFFFF) << 16),
         )
         self.set(
-            name="DCI_LUMA_SAT_ADJ_1", value=(cfg.vop_config.luma_sat_adj_k & 0xFFFF) | ((cfg.vop_config.sat_w & 0x7F) << 16)
+            name="DCI_LUMA_SAT_ADJ_1",
+            value=(cfg.vop_config.luma_sat_adj_k & 0xFFFF) | ((cfg.vop_config.sat_w & 0x7F) << 16),
         )
         self.set(
-            name="DCI_CTRL", value=(cfg.vop_config.dci_enable & 0x1) | ((cfg.vop_config.ca_enable & 0x1) << 1) | (1 << 2)
+            name="DCI_CTRL",
+            value=(cfg.vop_config.dci_enable & 0x1) | ((cfg.vop_config.ca_enable & 0x1) << 1) | (1 << 2),
         )
         # self.set(name="DCI_LUT_MST", value=0x0)
 
         self.packed_lut = self.pack_lut(
             cfg.vop_config.dci_global_lut, cfg.vop_config.dci_locat_ratio, cfg.vop_config.dci_local_lut
         )
+        lut = self.packed_lut.astype(np.uint32)
         for i in range(1408):
+            j = i * 4
             self.set(
-                name=f"DCI_LUT_DATA{i}",
-                value=self.packed_lut[i * 4 + 0].astype(np.uint32)
-                | (self.packed_lut[i * 4 + 1].astype(np.uint32) << 8)
-                | (self.packed_lut[i * 4 + 2].astype(np.uint32) << 16)
-                | (self.packed_lut[i * 4 + 3].astype(np.uint32) << 24),
+                name=f"DCI_LUT_DATA{i}", value=lut[j] | (lut[j + 1] << 8) | (lut[j + 2] << 16) | (lut[j + 3] << 24)
             )
         return True
 
@@ -155,9 +155,11 @@ class DciRegister(ModuleRegisterCore):
             self.packed_lut[i * 4 + 1] = (val >> 8) & 0xFF
             self.packed_lut[i * 4 + 2] = (val >> 16) & 0xFF
             self.packed_lut[i * 4 + 3] = (val >> 24) & 0xFF
-        (self.config.vop_config.dci_global_lut, self.config.vop_config.dci_locat_ratio, self.config.vop_config.dci_local_lut) = (
-            self.unpack_lut(self.packed_lut)
-        )
+        (
+            self.config.vop_config.dci_global_lut,
+            self.config.vop_config.dci_locat_ratio,
+            self.config.vop_config.dci_local_lut,
+        ) = self.unpack_lut(self.packed_lut)
         return True
 
     ## =============== adiitional auxiliary methods  ===============

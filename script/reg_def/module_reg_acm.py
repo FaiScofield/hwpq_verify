@@ -4,7 +4,7 @@ FilePath    : reg_def_acm.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-30
+LastEditTime: 2025-08-04
 """
 
 import os
@@ -54,26 +54,29 @@ class AcmRegister(ModuleRegisterCore):
             name="DELTA_RANGE",
             value=(cfg.lumGain & 0x3FF) | ((cfg.hueGain & 0x3FF) << 10) | ((cfg.satGain & 0x3FF) << 20),
         )
+        tabY = cfg.acmTableGainYbyY.astype(np.int32)
+        tabH = cfg.acmTableGainHbyY.astype(np.int32)
+        tabS = cfg.acmTableGainSbyY.astype(np.int32)
         for i in range(153):
             self.set(
                 name=f"YHS_GAIN_BY_Y_SEG{i}",
-                value=((cfg.acmTableGainYbyY[i].astype(np.int32) & 0xFF) << 0)
-                | ((cfg.acmTableGainHbyY[i].astype(np.int32) & 0xFF) << 8)
-                | ((cfg.acmTableGainSbyY[i].astype(np.int32) & 0xFF) << 16),
+                value=((tabY[i] & 0xFF) << 0) | ((tabH[i] & 0xFF) << 8) | ((tabS[i] & 0xFF) << 16),
             )
+        tabY = cfg.acmTableGainYbyS.astype(np.int32)
+        tabH = cfg.acmTableGainHbyS.astype(np.int32)
+        tabS = cfg.acmTableGainSbyS.astype(np.int32)
         for i in range(221):
             self.set(
                 name=f"YHS_GAIN_BY_S_SEG{i}",
-                value=((cfg.acmTableGainYbyS[i].astype(np.int32) & 0xFF) << 0)
-                | ((cfg.acmTableGainHbyS[i].astype(np.int32) & 0xFF) << 8)
-                | ((cfg.acmTableGainSbyS[i].astype(np.int32) & 0xFF) << 16),
+                value=((tabY[i] & 0xFF) << 0) | ((tabH[i] & 0xFF) << 8) | ((tabS[i] & 0xFF) << 16),
             )
+        tabY = cfg.acmTableDeltaYbyH.astype(np.int32)
+        tabH = cfg.acmTableDeltaHbyH.astype(np.int32)
+        tabS = cfg.acmTableDeltaSbyH.astype(np.int32)
         for i in range(65):
             self.set(
                 name=f"YHS_DEL_BY_H_SEG{i}",
-                value=((cfg.acmTableDeltaYbyH[i].astype(np.int32) & 0x3FF) << 0)
-                | ((cfg.acmTableDeltaHbyH[i].astype(np.int32) & 0xFF) << 12)
-                | ((cfg.acmTableDeltaSbyH[i].astype(np.int32) & 0x3FF) << 20),
+                value=((tabY[i] & 0x3FF) << 0) | ((tabH[i] & 0xFF) << 12) | ((tabS[i] & 0x3FF) << 20),
             )
         return True
 

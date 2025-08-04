@@ -134,21 +134,23 @@ class CscRegister(ModuleRegisterCore):
         CM = np.uint16(0xFFFF)  # coef mask = 0x3FF or 0xFFFF
         self.config.cscMatrix = np.clip(self.config.cscMatrix, -(2**12), 2**12 - 1)  # s13
         self.config.cscVector = np.clip(self.config.cscVector, -(2**22), 2**22 - 1)  # s23
+        cscMatrix = self.config.cscMatrix.astype(np.int32)  # s16->s32 first
+        cscVector = self.config.cscVector.astype(np.int32)  # s32->s32 first
         if self.index in g_csc_new_reg_arrange:
-            self.regs[0].value = 0x1 | ((self.config.cscEnable * 0x1) << 1) | ((self.config.cscMatrix[0, 0] & CM) << 16)
-            self.regs[1].value = (self.config.cscMatrix[0, 1] & CM) | ((self.config.cscMatrix[0, 2] & CM) << 16)
-            self.regs[2].value = (self.config.cscMatrix[1, 0] & CM) | ((self.config.cscMatrix[1, 1] & CM) << 16)
-            self.regs[3].value = (self.config.cscMatrix[1, 2] & CM) | ((self.config.cscMatrix[2, 0] & CM) << 16)
-            self.regs[4].value = (self.config.cscMatrix[2, 1] & CM) | ((self.config.cscMatrix[2, 2] & CM) << 16)
+            self.regs[0].value = 0x1 | ((self.config.cscEnable * 0x1) << 1) | ((cscMatrix[0, 0] & CM) << 16)
+            self.regs[1].value = (cscMatrix[0, 1] & CM) | ((cscMatrix[0, 2] & CM) << 16)
+            self.regs[2].value = (cscMatrix[1, 0] & CM) | ((cscMatrix[1, 1] & CM) << 16)
+            self.regs[3].value = (cscMatrix[1, 2] & CM) | ((cscMatrix[2, 0] & CM) << 16)
+            self.regs[4].value = (cscMatrix[2, 1] & CM) | ((cscMatrix[2, 2] & CM) << 16)
         else:
-            self.regs[0].value = (self.config.cscMatrix[0, 0] & CM) | ((self.config.cscMatrix[0, 1] & CM) << 16)
-            self.regs[1].value = (self.config.cscMatrix[0, 2] & CM) | ((self.config.cscMatrix[1, 0] & CM) << 16)
-            self.regs[2].value = (self.config.cscMatrix[1, 1] & CM) | ((self.config.cscMatrix[1, 2] & CM) << 16)
-            self.regs[3].value = (self.config.cscMatrix[2, 0] & CM) | ((self.config.cscMatrix[2, 1] & CM) << 16)
-            self.regs[4].value = self.config.cscMatrix[2, 2] & CM
-        self.regs[5].value = self.config.cscVector[0]
-        self.regs[6].value = self.config.cscVector[1]
-        self.regs[7].value = self.config.cscVector[2]
+            self.regs[0].value = (cscMatrix[0, 0] & CM) | ((cscMatrix[0, 1] & CM) << 16)
+            self.regs[1].value = (cscMatrix[0, 2] & CM) | ((cscMatrix[1, 0] & CM) << 16)
+            self.regs[2].value = (cscMatrix[1, 1] & CM) | ((cscMatrix[1, 2] & CM) << 16)
+            self.regs[3].value = (cscMatrix[2, 0] & CM) | ((cscMatrix[2, 1] & CM) << 16)
+            self.regs[4].value = cscMatrix[2, 2] & CM
+        self.regs[5].value = cscVector[0]
+        self.regs[6].value = cscVector[1]
+        self.regs[7].value = cscVector[2]
         return True
 
     def regs2config(self) -> bool:
@@ -237,12 +239,9 @@ class CscRegister(ModuleRegisterCore):
         return super().gen(seed, precision=precision, **kwargs)
 
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen/c2r/r2c"
-    )
+    parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen/c2r/r2c")
     parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
     parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
