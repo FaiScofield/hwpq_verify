@@ -25,12 +25,12 @@ class IMG_FMT(Enum):
     RGBA = (0, "rgba", 4)
     RGB = (1, "rgb", 3)
     RGB_PLANAR = (2, "rgb_planar", 3)
-    YUV444P = (3, "yuv444p", 3)
+    YUV444P = (3, "yu24", 3)
     YUV444SP = (4, "nv24", 3)
     YUV444I = (5, "yuv444i", 3)
-    YUV422P = (6, "yuv422p", 2)
+    YUV422P = (6, "yu16", 2)
     YUV422SP = (7, "nv16", 2)
-    YUV420P = (8, "yuv420p", 1.5)
+    YUV420P = (8, "yu12", 1.5)
     YUV420SP = (9, "nv12", 1.5)
 
     RGB_101010LSB = (11, "rgb101010l", 3 * 2)
@@ -47,12 +47,12 @@ class IMG_FMT(Enum):
     RGB_10PACKED = (21, "rgb10pack", 3 / 4 * 5)
     RGB_PLANAR10PACKED = (22, "rgb10pack_planar", 3 / 4 * 5)
     YUV444P_10PACKED = (23, "yuv444p10pack", 3 / 4 * 5)
-    YUV444SP_10PACKED = (24, "yuv444sp10pack", 3 / 4 * 5)
+    YUV444SP_10PACKED = (24, "nv30", 3 / 4 * 5)
     YUV444I_10PACKED = (25, "yuv444i10pack", 3 / 4 * 5)
     YUV422P_10PACKED = (26, "yuv422p10pack", 2 / 4 * 5)
-    YUV422SP_10PACKED = (27, "yuv422sp10pack", 2 / 4 * 5)
+    YUV422SP_10PACKED = (27, "nv20", 2 / 4 * 5)
     YUV420P_10PACKED = (28, "yuv420p10pack", 1.5 / 4 * 5)
-    YUV420SP_10PACKED = (29, "yuv420sp10pack", 1.5 / 4 * 5)
+    YUV420SP_10PACKED = (29, "nv15", 1.5 / 4 * 5)
 
     @classmethod
     def _init_cache(cls):

@@ -48,8 +48,8 @@ def parse_common_args(args):
         "--input_fmt",
         type=int,
         default=0,
-        help="input format: {rgb: 0-rgba, 1-rgb, 2-rgb_planar; yuv: 3-444p, 4-444sp, 5-444i, 6-422p, 7-422sp, 8-420p, 9-420sp}"
-        "(+10 for 10bit unpacked; +20 for 10bit packed)",
+        help="input format: {rgb(1)[a(0)|planar(2)]; yuv[444p(3)|444sp(4)|444i(5)|422p(6)|422sp(7)|420p(8)|420sp(9)}"
+        "(+10 for 10bit unpacked(LSB); +20 for 10bit packed)",
     )
     parser.add_argument("-iw", "--input_wid", type=int, default=0, help="used when input_num > 0")
     parser.add_argument("-ih", "--input_hgt", type=int, default=0, help="used when input_num > 0")
