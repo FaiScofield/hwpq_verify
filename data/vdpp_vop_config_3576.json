@@ -1,0 +1,1397 @@
+{
+  "global_param": {
+    "input": "D:\\code\\cpp\\RkVopAlgos_latest_0608\\data_test_debug\\2_pattern_images_noise_0.0005.yuv",
+    "output": "D:\\code\\cpp\\RkVopAlgos_latest_0608\\data_test_debug\\test_0615\\out.yuv",
+    "log_dir": "D:\\code\\cpp\\RkVopAlgos_ES_0323\\data\\debug_log",
+    "format": 0,
+    "frame": 1,
+    "inwidvirtual": 1920,
+    "inwidreal": 1920,
+    "inwidvalid": 1920,
+    "inhgtvirtual": 1080,
+    "inhgtreal": 1080,
+    "inhgtvalid": 1080,
+    "outwidreal": 3840,
+    "outwidvalid": 3840,
+    "outwidvirtual": 3840,
+    "outhgtreal": 2160,
+    "outhgtvalid": 2160,
+    "uv_swap": 0,
+    "out_fmt": 0, 
+    "type": 1, 
+    "yuv_diff_out_size": 0, 
+    "outwidvirtualUV": 960, 
+    "outwidrealUV": 960, 
+    "outwidvalidUV": 960, 
+    "outhgtvalidUV": 540
+  },
+  "pq_tuning_param": {
+    "csc": {
+      "cscEnable": 1,
+      "cscBrightness": 256,
+      "cscHue": 256,
+      "cscContrast": 256,
+      "cscSaturation": 256,
+      "cscRGain": 256,
+      "cscGGain": 256,
+      "cscBGain": 256,
+      "cscMatrix": [ 1, 1, 1, 1, 1, 1, 1, 1, 1 ]
+    },
+    "dci": {
+      "s_vdpp_hist_cnt": {
+        "#i_pre_vhsd_mode_auto_config": "0-MANUAL_CONFIG, 1-AUTO_CONFIG",
+        "i_pre_vhsd_mode_auto_config": 1,
+        "#dci_hsd_mode": "0-disable, 1-x2",
+        "#dci_vsd_mode": "0-disable, 1-x2, 2-x4",
+        "dci_hsd_mode": 1,
+        "dci_vsd_mode": 1
+      }, 
+      "s_vop_dci_interp_params": {
+        "s_vop_dci_ctrl": {
+          "i_dciEnable": 1,
+          "#i_vopIn_csc_range": "0-LIMIT, 1-FULL",
+          "i_vopIn_csc_range": 1,
+          "i_vop_srand_seed": 645,
+          "i_dci_CF_HE_ratio": 20,
+          "i_dci_ACT_area_l": 0,
+          "i_dci_ACT_area_r": 3840,
+          "i_dci_ACT_area_u": 0,
+          "i_dci_ACT_area_d": 2160
+        }, 
+        "s_curve_fitting_params": {
+          "t_dciWgtCoef_low": [ 0, 32, 64, 96, 128, 162, 197, 233, 275, 319, 359, 393, 429, 467, 507, 542, 578, 618, 662, 706, 744, 776, 804, 832, 861, 889, 915, 941, 963, 981, 997, 1005, 1024 ],
+          "t_dciWgtCoef_mid": [ 0, 34, 62, 80, 102, 120, 142, 160, 179, 199, 229, 273, 319, 385, 437, 479, 520, 558, 594, 627, 667, 704, 736, 773, 805, 834, 870, 904, 935, 966, 990, 1013, 1024 ],
+          "t_dciWgtCoef_high": [ 0, 22, 48, 74, 100, 128, 156, 183, 209, 233, 260, 288, 314, 343, 372, 402, 433, 465, 500, 534, 568, 603, 635, 670, 700, 730, 764, 793, 829, 864, 907, 963, 1023 ],
+          "t_dciWeight_low": [ 19, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ],
+          "t_dciWeight_mid": [ 0, 4, 8, 12, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 14, 12, 10, 8, 6, 4, 2, 0, 0, 0 ],
+          "t_dciWeight_high": [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 5, 9, 13, 17, 20, 20, 20, 20, 20, 20 ],
+          "i_gain_low": 32, 
+          "i_gain_mid": 32, 
+          "i_gain_high": 32, 
+          "i_hist_cor_thr0": 0, 
+          "i_hist_cor_thr1": 0, 
+          "i_hist_cor_thr2": 0 
+        }, 
+        "s_he_params": {
+          "i_dci_HE_splitPoint": 125,
+          "i_dci_HE_leftClip": 1.0,
+          "i_dci_HE_rightClip": 1.0,
+          "i_dci_HE_overLap": 16
+        }, 
+        "s_bs_params": {
+          "i_dci_BS_enable": 1,
+          "i_dci_BS_set_point": 80,
+          "i_dci_BS_ratio": 64, 
+          "i_dci_BS_overlap": 0
+        }, 
+        "s_ws_params": {
+          "i_dci_WS_enable": 0,
+          "i_dci_WS_set_point": 80,
+          "i_dci_WS_ratio": 64, 
+          "i_dci_WS_overlap": 8
+        }, 
+        "s_clahe_params": {
+          "i_dci_CLAHE_en": 1, 
+          "i_dci_CLAHE_clip_value": 1.0,
+          "i_dci_CLAHE_LocalRatio": 19,
+          "i_left_alpha": 3.0,
+          "i_left_ThrLmin": 0.5, 
+          "i_left_ThrLmax": 2.3, 
+          "i_left_lumRatio": 0.7, 
+          "i_right_alpha": 1.5, 
+          "i_right_ThrRmin": 0.7, 
+          "i_right_ThrRmax": 3.0
+        }, 
+        "s_time_abld_params": {
+          "i_dci_hist_abld_ratio": 8,
+          "i_dci_clahe_abld_ratio": 0.93,
+          "i_dci_hist_wgt_high": 0,
+          "i_dci_hist_wgt_mid": 0,
+          "i_dci_hist_wgt_low": 0,
+          "i_dci_metricAbldCoef0": 8,
+          "i_dci_metricAbldCoef1": 8,
+          "i_dci_metricAbldCoef2": 8,
+          "i_dci_minLuma": 0,
+          "i_dci_maxLuma": 1023,
+          "i_dci_minLuma_abld_ratio": 26,
+          "i_dci_maxLuma_abld_ratio": 26,
+          "i_scd_flag": 1,
+          "i_dci_scd_thr": 896,
+          "i_dci_clahe_scd_thr_max": 896,
+          "i_dci_clahe_scd_thr_min": 384
+        }, 
+        "s_color_adjust_params": {
+          "i_dci_CA_enable": 1,
+          "i_dci_CA_saturation_w": 56,
+          "i_dci_CA_adj_luma_coring_zero": 8,
+          "i_dci_CA_adj_luma_coring_thrd": 16
+        }
+      }
+    },
+    "DBMSR": {
+      "DMSR": {
+        "mode": [ "*_to_*" ],
+        "mode_params": {
+          "*_to_*": {
+            "bEnabledDMSR": true,
+            "iStrPriY": 10,
+            "iStrSecY": 4,
+            "iDumpingY": 6,
+            "iWgtPriGainEven1": 12,
+            "iWgtPriGainEven2": 12,
+            "iWgtPriGainOdd1": 8,
+            "iWgtPriGainOdd2": 16,
+            "iWgtSecGain": 5,
+            "iBlkFlatTh": 20,
+            "iContrastToConfMappingX0": 1680,
+            "iContrastToConfMappingX1": 6720,
+            "iContrastToConfMappingY0": 0,
+            "iContrastToConfMappingY1": 65535,
+            "iEdgeStrideX": 1,
+            "iEdgeStrideY": 1,
+            "iDiffCoringTh0": 1,
+            "iDiffCoringTh1": 5,
+            "iDiffCoringWgt0": 16,
+            "iDiffCoringWgt1": 16,
+            "iDiffCoringWgt2": 16,
+            "iEdgeThLowArray": [ 30, 10, 0, 0, 0, 0, 0 ],
+            "iEdgeThHighArray": [ 60, 40, 20, 10, 10, 10, 10 ]
+          }
+        },
+        "debug_params": {
+          "dmsrLogLevel": 0
+        }
+      }
+    },
+    "ES": {
+      "bEnabledES": 1,
+      "iAngleDelta": 17,
+      "iAngleDeltaExtra": 5,
+      "iGradNoDirTh": 37,
+      "iGradFlatTh": 75,
+      "iWgtGain": 128,
+      "iWgtDecay": 128,
+      "iLowConfTh": 96,
+      "iLowConfRatio": 32,
+      "iConfCntTh": 4,
+      "iWgtLocalTh": 64,
+      "iK1": 4096,
+      "iK2": 7168,
+      "iDeltaLimit": 65280,
+      "iDiff2conf_lut_x": [ 0, 1024, 2048, 3072, 4096, 6144, 8192, 12288, 65535 ],
+      "iDiff2conf_lut_y": [ 0, 84, 141, 179, 204, 233, 246, 253, 255 ],
+      "bEndpointCheckEnable": 1
+    },
+    "acm":	{
+        "acmEnable":	0,
+        "acmTableDeltaYbyH":	[128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128],
+        "acmTableDeltaHbyH":	[0, 1, 2, 2, 2, 2, 2, 2, 1, 2, 3, 2, 0, -3, -5, -8, -11, -14, -17, -16, -12, -10, -12, -12, -12, -10, -8, -6, -4, -5, -5, -6, -7, -2, 2, 6, 10, 9, 8, 10, 11, 13, 13, 14, 13, 12, 11, 10, 10, 11, 11, 8, 5, 1, -2, -3, -3, -2, -1, 0, 0, -2, -3, -1, 0],
+        "acmTableDeltaSbyH":	[149, 149, 149, 149, 149, 149, 149, 149, 110, 70, 110, 148, 148, 148, 148, 148, 120, 80, 57, 51, 50, 61, 80, 100, 110, 70, 110, 100, 125, 147, 147, 147, 148, 147, 147, 147, 146, 110, 86, 110, 148, 148, 149, 114, 86, 69, 86, 110, 120, 80, 50, 75, 80, 55, 35, 35, 55, 80, 80, 90, 120, 148, 149, 149, 149],
+        "acmTableGainYbyY":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                            32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,
+                            64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,
+                            96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127],
+        "acmTableGainHbyY":[96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,
+                            96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,
+                            96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,
+                            96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,
+                            96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,
+                            96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,
+                            96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,
+                            96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,
+                            96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96,96],
+        "acmTableGainSbyY":[127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127],
+        "acmTableGainYbyS":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                            10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,
+                            20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+                            30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,
+                            40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,
+                            50,50,50,50,50,50,50,50,50,50,50,50,50,50,50,50,50,
+                            60,60,60,60,60,60,60,60,60,60,60,60,60,60,60,60,60,
+                            70,70,70,70,70,70,70,70,70,70,70,70,70,70,70,70,70,
+                            80,80,80,80,80,80,80,80,80,80,80,80,80,80,80,80,80,
+                            90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,
+                            100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,
+                            110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,110,
+                            120,120,120,120,120,120,120,120,120,120,120,120,120,120,120,120,120],
+        "acmTableGainHbyS":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                            30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,
+                            60,60,60,60,60,60,60,60,60,60,60,60,60,60,60,60,60,
+                            90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,
+                            120,120,120,120,120,120,120,120,120,120,120,120,120,120,120,120,120,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+                            127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127],
+        "acmTableGainSbyS":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                            20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,
+                            40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,
+                            56,56,56,56,56,56,56,56,56,56,56,56,56,56,56,56,56,
+                            76,76,76,76,76,76,76,76,76,76,76,76,76,76,76,76,76,
+                            90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,90,
+                            74,74,74,74,74,74,74,74,74,74,74,74,74,74,74,74,74,
+                            52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,
+                            30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,
+                            2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+                            0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                            0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                            0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        "lumGain":	256,
+        "hueGain":	256,
+        "satGain":	256
+    },
+    "ZME_MAIN": {
+      "mode": [ "*_to_*" ],
+      "mode_params": {
+        "*_to_*": {
+          "#sMode": "type='enum', alias='sMode', default='taps', range=['taps,'nearest','bilinear','bicubic']",
+          "sMode": "taps",
+          "#deRinging": "type='struct', alias='deRinging'",
+          "deRinging": [
+            {
+              "#iSensitivity0": "type='u8', alias='iSensitivity0', default='16', range='[1,2,...,31]',' is deringing detection max threhold",
+              "iSensitivity0": 16,
+              "#iSensitivity1": "type='u8', alias='iSensitivity1', default='4',  range='[1,2,...,31]',' is deringing detection min threhold, lower than <iSensitivity0>",
+              "iSensitivity1": 4,
+              "#iBlendingAlpha": "type='u8', alias='iBlendingAlpha', default='16',  range='[1,2,...,16]',' is offset for blending out",
+              "iBlendingAlpha": 16,
+              "#iBlendingBeta": "type='u8', alias='iBlendingBeta', default='13',  range='[1,2,...,16]',' is gain for blending out",
+              "iBlendingBeta": 13,
+              "bEnabledDeringing": true
+            }
+          ],
+          "#sPolyPhase": "type='enum', alias='sPolyPhase', default='ZME_POLYPHASE_CENTER_ALIGN', range='['ZME_POLYPHASE_PRE_ALIGN', 'ZME_POLYPHASE_CENTER_ALIGN', 'ZME_POLYPHASE_POST_ALIGN']",
+          "sPolyPhase": "ZME_POLYPHASE_CENTER_ALIGN",
+          "#sFilterModes": "type='enum', alias='sFilterModes', default='8LH_6LV_8CH_6CV', range='['8LH_6LV_8CH_6CV', '8LH_6LV_8CH_4CV', '8LH_4LV_8CH_4CV', '4LH_4LV_4CH_4CV']",
+          "sFilterModes": "8LH_6LV_8CH_6CV",
+          "#iPassBandFreq": "type='u8', alias='iPassBandFreq', default=30', range='[10-50]', <iPassBandFreq> FIR filter parameter for pass band point (dB), default 30 dB. ",
+          "iPassBandFreq": 30,
+          "#iStopBandFreq": "type='u8', alias='iPassBandFreq', default=120', range='[100-140]', <iStopBandFreq> FIR filter parameter for stop band point (dB), default 30 dB. ",
+          "iStopBandFreq": 120,
+          "bEnabledZME_MAIN": true
+        }
+      }
+    },
+    "SHARPNESS_cutoff": {
+      "i_EnabledSharpen": 1, 
+      "i_ColorAdjBypasEn": 0, 
+      "s_sharp_hw_config": {
+          "mem_gating_en": 1, 
+          "lti_gating_en": 1, 
+          "cti_gating_en": 1, 
+          "peaking_gating_en": 1, 
+          "peaking_ctrl_gating_en": 1, 
+          "edge_proc_gating_en": 1, 
+          "shoot_ctrl_gating_en": 1, 
+          "gain_ctrl_gating_en": 1, 
+          "color_adj_gating_en": 1, 
+          "texture_adj_gating_en": 1
+      }, 
+      "s_sharp_en_ctrl": {
+          "i_lti_h_en": 1, 
+          "i_lti_v_en": 1, 
+          "i_cti_h_en": 1, 
+          "i_peaking_en": 1, 
+          "i_peaking_gain_en": 1, 
+          "i_peaking_coring_en": 1, 
+          "i_peaking_limit_ctrl_en": 1, 
+          "i_peaking_edge_ctrl_en": 1, 
+          "i_peaking_edge_shoot_ctrl_en": 1, 
+          "i_shoot_ctrl_en": 1, 
+          "i_global_gain_en": 1, 
+          "i_color_adj_en": 1, 
+          "i_texture_adj_en": 1
+      }, 
+      "s_lti_h": {
+          "i_Radius": 1, 
+          "i_Slope": 100, 
+          "i_Thresold": 21, 
+          "i_Gain": 8, 
+          "i_noiseThrPos": 1023, 
+          "i_noiseThrNeg": 1023
+      }, 
+      "s_cti_h": {
+          "i_Radius": 1, 
+          "i_Slope": 100, 
+          "i_Thresold": 21, 
+          "i_Gain": 8, 
+          "i_noiseThrPos": 1023, 
+          "i_noiseThrNeg": 1023
+      }, 
+      "s_lti_v": {
+          "i_Radius": 1, 
+          "i_Slope": 100, 
+          "i_Thresold": 21, 
+          "i_Gain": 8, 
+          "i_noiseThrPos": 1023, 
+          "i_noiseThrNeg": 1023
+      }, 
+      "s_peaking": {
+          "s_gain": {
+              "t_GainPos": [
+                  128, 
+                  256, 
+                  512, 
+                  256, 
+                  512, 
+                  256, 
+                  256
+              ], 
+              "t_GainNeg": [
+                  128, 
+                  256, 
+                  512, 
+                  256, 
+                  512, 
+                  256, 
+                  256
+              ]
+          }, 
+          "s_coring": {
+              "t_CoringThreshold": [
+                  40, 
+                  40, 
+                  40, 
+                  24, 
+                  26, 
+                  30, 
+                  26
+              ], 
+              "t_CoringRatio": [
+                  1479, 
+                  1188, 
+                  1024, 
+                  1422, 
+                  1024, 
+                  1024, 
+                  1024
+              ], 
+              "t_CoringZero": [
+                  5, 
+                  5, 
+                  8, 
+                  5, 
+                  8, 
+                  5, 
+                  5
+              ]
+          }, 
+          "s_limitCtrl": {
+              "t_LimitPos0": [
+                  64, 
+                  64, 
+                  64, 
+                  64, 
+                  64, 
+                  64, 
+                  64
+              ], 
+              "t_LimitPos1": [
+                  120, 
+                  120, 
+                  120, 
+                  120, 
+                  120, 
+                  120, 
+                  120
+              ], 
+              "t_LimitNeg0": [
+                  64, 
+                  64, 
+                  64, 
+                  64, 
+                  64, 
+                  64, 
+                  64
+              ], 
+              "t_LimitNeg1": [
+                  120, 
+                  120, 
+                  120, 
+                  120, 
+                  120, 
+                  120, 
+                  120
+              ], 
+              "t_LimitRatio": [
+                  128, 
+                  128, 
+                  128, 
+                  128, 
+                  128, 
+                  128, 
+                  128
+              ], 
+              "t_LimitboundPos": [
+                  81, 
+                  131, 
+                  63, 
+                  81, 
+                  63, 
+                  63, 
+                  63
+              ], 
+              "t_LimitboundNeg": [
+                  81, 
+                  131, 
+                  63, 
+                  81, 
+                  63, 
+                  63, 
+                  63
+              ]
+          }, 
+          "s_edgeCtrl": {
+              "s_edge_ctrl_param": {
+                  "i_non_dir_thr": 16, 
+                  "i_dir_cmp_ratio": 4, 
+                  "i_non_dir_wgt_offset": 64, 
+                  "i_non_dir_wgt_ratio": 16, 
+                  "i_dir_cnt_thr": 2, 
+                  "i_dir_cnt_avg": 3, 
+                  "i_dir_cnt_offset": 2, 
+                  "i_diag_dir_thr": 16, 
+                  "t_diag_adj_gain_tab": [
+                      6, 
+                      7, 
+                      8, 
+                      9, 
+                      10, 
+                      11, 
+                      12, 
+                      13
+                  ]
+              }, 
+              "s_edge_shoot_ctrl_param": {
+                  "s_direct_h": {
+                      "i_delta_offset": 4, 
+                      "i_alpha_over": 8, 
+                      "i_alpha_under": 16, 
+                      "i_alpha_over_unlimit": 64, 
+                      "i_alpha_under_unlimit": 112
+                  }, 
+                  "s_direct_v": {
+                      "i_delta_offset": 4, 
+                      "i_alpha_over": 8, 
+                      "i_alpha_under": 16, 
+                      "i_alpha_over_unlimit": 64, 
+                      "i_alpha_under_unlimit": 112
+                  }, 
+                  "s_direct_d0": {
+                      "i_delta_offset": 4, 
+                      "i_alpha_over": 16, 
+                      "i_alpha_under": 16, 
+                      "i_alpha_over_unlimit": 96, 
+                      "i_alpha_under_unlimit": 96
+                  }, 
+                  "s_direct_d1": {
+                      "i_delta_offset": 4, 
+                      "i_alpha_over": 16, 
+                      "i_alpha_under": 16, 
+                      "i_alpha_over_unlimit": 96, 
+                      "i_alpha_under_unlimit": 96
+                  }, 
+                  "s_direct_non": {
+                      "i_delta_offset": 4, 
+                      "i_alpha_over": 8, 
+                      "i_alpha_under": 8, 
+                      "i_alpha_over_unlimit": 112, 
+                      "i_alpha_under_unlimit": 112
+                  }
+              }
+          }, 
+          "s_filter_cfg": {
+            "i_diag_enh_coef": 6, 
+            "t_filt_core_H0": [
+                120, 
+                210, 
+                252
+            ], 
+            "t_filt_core_H1": [
+                -256, 
+                0, 
+                512
+            ], 
+            "t_filt_core_H2": [
+                0, 
+                -256, 
+                512
+            ], 
+            "t_filt_core_V0": [
+                1, 
+                4, 
+                6
+            ], 
+            "t_filt_core_V1": [
+                -4, 
+                0, 
+                8
+            ], 
+            "t_filt_core_V2": [
+                0, 
+                -4, 
+                8
+            ], 
+            "t_filt_core_USM": [
+                1, 
+                4, 
+                6
+            ]
+          }, 
+          "i_peakingGain": 256
+      }, 
+      "s_shootCtrl": {
+          "i_FilterRadius": 1, 
+          "i_Delta_offset": 16, 
+          "i_Alpha_over": 8, 
+          "i_Alpha_under": 8, 
+          "i_Alpha_over_unlimit": 112, 
+          "i_Alpha_under_unlimit": 112
+      }, 
+      "s_globalGain": {
+          "s_lum_gain": {
+              "i_lum_mode": 0, 
+              "t_lum_grd": [
+                  0, 
+                  200, 
+                  300, 
+                  860, 
+                  960, 
+                  1023
+              ], 
+              "t_lum_val": [
+                  64, 
+                  64, 
+                  64, 
+                  64, 
+                  64, 
+                  64
+              ]
+          }, 
+          "s_adp_gain": {
+              "t_adp_grd": [
+                  0, 
+                  4, 
+                  60, 
+                  180, 
+                  300, 
+                  1023
+              ], 
+              "t_adp_val": [
+                  64, 
+                  64, 
+                  64, 
+                  10, 
+                  10, 
+                  10
+              ]
+          }, 
+          "s_var_gain": {
+              "t_var_grd": [
+                  0, 
+                  39, 
+                  102, 
+                  209, 
+                  500, 
+                  1023
+              ], 
+              "t_var_val": [
+                  64, 
+                  64, 
+                  64, 
+                  64, 
+                  64, 
+                  64
+              ]
+          }
+      }, 
+      "s_colorCtrl": {
+          "s_ctrl_point_0": {
+              "i_ctrl_scaling": 2, 
+              "t_ctrl_point": [
+                  115, 
+                  155
+              ], 
+              "t_ctrl_rolltab": [
+                  0, 
+                  0, 
+                  0, 
+                  1, 
+                  2, 
+                  3, 
+                  4, 
+                  6, 
+                  8, 
+                  10, 
+                  11, 
+                  12, 
+                  13, 
+                  14, 
+                  15, 
+                  15
+              ]
+          }, 
+          "s_ctrl_point_1": {
+              "i_ctrl_scaling": 2, 
+              "t_ctrl_point": [
+                  90, 
+                  120
+              ], 
+              "t_ctrl_rolltab": [
+                  31, 
+                  31, 
+                  30, 
+                  29, 
+                  28, 
+                  27, 
+                  25, 
+                  23, 
+                  21, 
+                  19, 
+                  18, 
+                  17, 
+                  16, 
+                  16, 
+                  15, 
+                  15
+              ]
+          }, 
+          "s_ctrl_point_2": {
+              "i_ctrl_scaling": 2, 
+              "t_ctrl_point": [
+                  120, 
+                  800
+              ], 
+              "t_ctrl_rolltab": [
+                  16, 
+                  16, 
+                  16, 
+                  16, 
+                  16, 
+                  16, 
+                  16, 
+                  16, 
+                  16, 
+                  16, 
+                  16, 
+                  16, 
+                  16, 
+                  16, 
+                  16, 
+                  16
+              ]
+          }, 
+          "s_ctrl_point_3": {
+              "i_ctrl_scaling": 2, 
+              "t_ctrl_point": [
+                  820, 
+                  110
+              ], 
+              "t_ctrl_rolltab": [
+                  12, 
+                  17, 
+                  15, 
+                  13, 
+                  11, 
+                  10, 
+                  8, 
+                  6, 
+                  9, 
+                  12, 
+                  13, 
+                  14, 
+                  15, 
+                  16, 
+                  16, 
+                  16
+              ]
+          }
+      }, 
+      "s_textureAdj": {
+          "i_y_mode_select": 3, 
+          "i_idx_mode_select": 0, 
+          "t_texture_grd": [
+              0, 
+              128, 
+              256, 
+              400, 
+              600, 
+              1023
+          ], 
+          "t_texture_val": [
+              40, 
+              60, 
+              80, 
+              100, 
+              127, 
+              127
+          ]
+      }, 
+      "s_ink_config": {
+          "i_EnableInk": 1, 
+          "s_ink_set0": {
+              "i_ink_idx_h": 128, 
+              "i_ink_idx_v": 157, 
+              "i_ink_mode": 4, 
+              "i_ink_result": 0
+          }, 
+          "s_ink_set1": {
+              "i_ink_idx_h": 128, 
+              "i_ink_idx_v": 157, 
+              "i_ink_mode": 4, 
+              "i_ink_result": 0
+          }, 
+          "s_ink_set2": {
+              "i_ink_idx_h": 128, 
+              "i_ink_idx_v": 157, 
+              "i_ink_mode": 4, 
+              "i_ink_result": 0
+          }, 
+          "s_ink_set3": {
+              "i_ink_idx_h": 128, 
+              "i_ink_idx_v": 157, 
+              "i_ink_mode": 4, 
+              "i_ink_result": 0
+          }
+      }
+    }, 
+    "SHARPNESS": {
+    "i_EnabledSharpen": 1, 
+    "i_SharpSimMode": 0, 
+    "r_SharpHwCfgPath": "xxxx", 
+    "s_sharp_hw_config": {
+        "lti_gating_en": 0, 
+        "cti_gating_en": 0, 
+        "peaking_gating_en": 0, 
+        "peaking_ctrl_gating_en": 0, 
+        "peaking_shoot_ctrl_gating_en": 0, 
+        "edge_proc_gating_en": 0, 
+        "shoot_ctrl_gating_en": 0, 
+        "gain_ctrl_gating_en": 0, 
+        "color_adj_gating_en": 0, 
+        "texture_adj_gating_en": 0
+    }, 
+    "s_sharp_en_ctrl": {
+        "i_lti_h_en": 0, 
+        "i_lti_v_en": 0, 
+        "i_cti_h_en": 0, 
+        "i_cti_v_en": 0, 
+        "i_peaking_en": 1, 
+        "i_peaking_gain_en": 1, 
+        "i_peaking_coring_en": 1, 
+        "i_peaking_limit_ctrl_en": 1, 
+        "i_peaking_shoot_ctrl_en": 1, 
+        "i_peaking_edge_ctrl_en": 1, 
+        "i_peaking_edge_shoot_ctrl_en": 1, 
+        "i_shoot_ctrl_en": 1, 
+        "i_global_gain_en": 0, 
+        "i_color_adj_en": 1, 
+        "i_texture_adj_en": 1
+    }, 
+    "s_lti_h": {
+        "i_Radius": 1, 
+        "i_Slope": 100, 
+        "i_Thresold": 21, 
+        "i_Gain": 8, 
+        "i_noiseThrPos": 1023, 
+        "i_noiseThrNeg": 1023
+    }, 
+    "s_cti_h": {
+        "i_Radius": 1, 
+        "i_Slope": 100, 
+        "i_Thresold": 21, 
+        "i_Gain": 8, 
+        "i_noiseThrPos": 1023, 
+        "i_noiseThrNeg": 1023
+    }, 
+    "s_lti_v": {
+        "i_Radius": 1, 
+        "i_Slope": 100, 
+        "i_Thresold": 21, 
+        "i_Gain": 8, 
+        "i_noiseThrPos": 1023, 
+        "i_noiseThrNeg": 1023
+    }, 
+    "s_cti_v": {
+        "i_Radius": 1, 
+        "i_Slope": 100, 
+        "i_Thresold": 21, 
+        "i_Gain": 8, 
+        "i_noiseThrPos": 1023, 
+        "i_noiseThrNeg": 1023
+    }, 
+    "s_peaking": {
+        "s_gain": {
+            "t_GainPos": [
+                128, 
+                512, 
+                1024, 
+                512, 
+                1024, 
+                800, 
+                800, 
+                1024
+            ], 
+            "t_GainNeg": [
+                128, 
+                512, 
+                1024, 
+                512, 
+                1024, 
+                800, 
+                800, 
+                1024
+            ]
+        }, 
+        "s_coring": {
+            "t_CoringThreshold": [
+                40, 
+                40, 
+                40, 
+                24, 
+                26, 
+                30, 
+                26, 
+                26
+            ], 
+            "t_CoringRatio": [
+                1479, 
+                1188, 
+                1024, 
+                1422, 
+                1024, 
+                1024, 
+                1024, 
+                1024
+            ], 
+            "t_CoringZero": [
+                5, 
+                5, 
+                8, 
+                5, 
+                8, 
+                5, 
+                5, 
+                7
+            ]
+        }, 
+        "s_limitCtrl": {
+            "t_LimitPos0": [
+                64, 
+                64, 
+                64, 
+                64, 
+                64, 
+                64, 
+                64, 
+                64
+            ], 
+            "t_LimitPos1": [
+                120, 
+                120, 
+                120, 
+                120, 
+                120, 
+                120, 
+                120, 
+                120
+            ], 
+            "t_LimitNeg0": [
+                64, 
+                64, 
+                64, 
+                64, 
+                64, 
+                64, 
+                64, 
+                64
+            ], 
+            "t_LimitNeg1": [
+                120, 
+                120, 
+                120, 
+                120, 
+                120, 
+                120, 
+                120, 
+                120
+            ], 
+            "t_LimitRatio": [
+                128, 
+                128, 
+                128, 
+                128, 
+                128, 
+                128, 
+                128, 
+                128
+            ], 
+            "t_LimitboundPos": [
+                81, 
+                131, 
+                63, 
+                81, 
+                63, 
+                63, 
+                63, 
+                63
+            ], 
+            "t_LimitboundNeg": [
+                81, 
+                131, 
+                63, 
+                81, 
+                63, 
+                63, 
+                63, 
+                63
+            ]
+        }, 
+        "s_shootAdj": {
+            "t_ShootAdjDeltaOffset": [
+                32, 
+                32, 
+                32, 
+                32, 
+                32, 
+                32, 
+                32, 
+                32
+            ], 
+            "t_ShootAdjAlphaOver": [
+                8, 
+                8, 
+                8, 
+                8, 
+                8, 
+                8, 
+                8, 
+                8
+            ], 
+            "t_ShootAdjAlphaUnder": [
+                64, 
+                64, 
+                64, 
+                64, 
+                64, 
+                64, 
+                64, 
+                64
+            ], 
+            "t_ShootAdjAlphaOverUnlimit": [
+                96, 
+                96, 
+                96, 
+                96, 
+                96, 
+                96, 
+                96, 
+                96
+            ], 
+            "t_ShootAdjAlphaUnderUnlimit": [
+                96, 
+                96, 
+                96, 
+                96, 
+                96, 
+                96, 
+                96, 
+                96
+            ]
+        }, 
+        "s_edgeCtrl": {
+            "s_edge_ctrl_param": {
+                "i_non_dir_thr": 64, 
+                "i_dir_cmp_ratio": 4, 
+                "i_non_dir_wgt_offset": 64, 
+                "i_non_dir_wgt_ratio": 16, 
+                "i_dir_cnt_thr": 2, 
+                "i_dir_cnt_avg": 3, 
+                "i_dir_cnt_offset": 2, 
+                "i_diag_dir_thr": 64, 
+                "t_diag_adj_gain_tab": [
+                    6, 
+                    7, 
+                    8, 
+                    9, 
+                    10, 
+                    11, 
+                    12, 
+                    13
+                ]
+            }, 
+            "s_edge_shoot_ctrl_param": {
+                "s_direct_h": {
+                    "i_delta_offset": 4, 
+                    "i_alpha_over": 8, 
+                    "i_alpha_under": 16, 
+                    "i_alpha_over_unlimit": 64, 
+                    "i_alpha_under_unlimit": 112
+                }, 
+                "s_direct_v": {
+                    "i_delta_offset": 4, 
+                    "i_alpha_over": 8, 
+                    "i_alpha_under": 16, 
+                    "i_alpha_over_unlimit": 64, 
+                    "i_alpha_under_unlimit": 112
+                }, 
+                "s_direct_d0": {
+                    "i_delta_offset": 4, 
+                    "i_alpha_over": 16, 
+                    "i_alpha_under": 16, 
+                    "i_alpha_over_unlimit": 96, 
+                    "i_alpha_under_unlimit": 96
+                }, 
+                "s_direct_d1": {
+                    "i_delta_offset": 4, 
+                    "i_alpha_over": 16, 
+                    "i_alpha_under": 16, 
+                    "i_alpha_over_unlimit": 96, 
+                    "i_alpha_under_unlimit": 96
+                }, 
+                "s_direct_non": {
+                    "i_delta_offset": 4, 
+                    "i_alpha_over": 8, 
+                    "i_alpha_under": 8, 
+                    "i_alpha_over_unlimit": 112, 
+                    "i_alpha_under_unlimit": 112
+                }
+            }
+        }, 
+        "s_filter_cfg": {
+            "i_diag_enh_coef": 6, 
+            "t_filt_core_H0": [
+                1, 
+                10, 
+                45, 
+                120, 
+                210, 
+                252
+            ], 
+            "t_filt_core_H1": [
+                -9, 
+                -55, 
+                -119, 
+                -73, 
+                128, 
+                256
+            ], 
+            "t_filt_core_H2": [
+                0, 
+                0, 
+                0, 
+                -256, 
+                0, 
+                512
+            ], 
+            "t_filt_core_H3": [
+                0, 
+                0, 
+                0, 
+                0, 
+                -256, 
+                512
+            ], 
+            "t_filt_core_V0": [
+                1, 
+                4, 
+                6
+            ], 
+            "t_filt_core_V1": [
+                -4, 
+                0, 
+                8
+            ], 
+            "t_filt_core_V2": [
+                0, 
+                -4, 
+                8
+            ], 
+            "t_filt_core_USM": [
+                1, 
+                4, 
+                6
+            ]
+        }, 
+        "i_peakingGain": 160
+    }, 
+    "s_shootCtrl": {
+        "i_FilterRadius": 1, 
+        "i_Delta_offset": 32, 
+        "i_Alpha_over": 8, 
+        "i_Alpha_under": 8, 
+        "i_Alpha_over_unlimit": 64, 
+        "i_Alpha_under_unlimit": 112
+    }, 
+    "s_globalGain": {
+        "s_lum_gain": {
+            "i_lum_mode": 0, 
+            "t_lum_grd": [
+                0, 
+                200, 
+                300, 
+                860, 
+                960, 
+                1023
+            ], 
+            "t_lum_val": [
+                40, 
+                50, 
+                64, 
+                70, 
+                80, 
+                90
+            ]
+        }, 
+        "s_adp_gain": {
+            "t_adp_grd": [
+                0, 
+                4, 
+                60, 
+                200, 
+                300, 
+                1023
+            ], 
+            "t_adp_val": [
+                64, 
+                64, 
+                64, 
+                64, 
+                64, 
+                64
+            ]
+        }, 
+        "s_var_gain": {
+            "t_var_grd": [
+                0, 
+                39, 
+                102, 
+                209, 
+                500, 
+                1023
+            ], 
+            "t_var_val": [
+                36, 
+                54, 
+                64, 
+                64, 
+                64, 
+                64
+            ]
+        }
+    }, 
+    "s_colorCtrl": {
+        "s_ctrl_point_0": {
+            "i_ctrl_scaling": 2, 
+            "t_ctrl_point": [
+                468, 
+                584
+            ], 
+            "t_ctrl_rolltab": [
+                0, 
+                0, 
+                0, 
+                1, 
+                2, 
+                3, 
+                4, 
+                6, 
+                8, 
+                10, 
+                11, 
+                12, 
+                13, 
+                14, 
+                15, 
+                15
+            ]
+        }, 
+        "s_ctrl_point_1": {
+            "i_ctrl_scaling": 2, 
+            "t_ctrl_point": [
+                596, 
+                480
+            ], 
+            "t_ctrl_rolltab": [
+                0, 
+                1, 
+                2, 
+                3, 
+                4, 
+                5, 
+                6, 
+                7, 
+                8, 
+                9, 
+                10, 
+                11, 
+                12, 
+                13, 
+                14, 
+                15
+            ]
+        }, 
+        "s_ctrl_point_2": {
+            "i_ctrl_scaling": 2, 
+            "t_ctrl_point": [
+                120, 
+                800
+            ], 
+            "t_ctrl_rolltab": [
+                16, 
+                16, 
+                16, 
+                16, 
+                16, 
+                16, 
+                16, 
+                16, 
+                16, 
+                16, 
+                16, 
+                16, 
+                16, 
+                16, 
+                16, 
+                16
+            ]
+        }, 
+        "s_ctrl_point_3": {
+            "i_ctrl_scaling": 2, 
+            "t_ctrl_point": [
+                820, 
+                110
+            ], 
+            "t_ctrl_rolltab": [
+                12, 
+                17, 
+                15, 
+                13, 
+                11, 
+                10, 
+                8, 
+                6, 
+                9, 
+                12, 
+                13, 
+                14, 
+                15, 
+                16, 
+                16, 
+                16
+            ]
+        }
+    }, 
+    "s_textureAdj": {
+        "i_y_mode_select": 1, 
+        "i_idx_mode_select": 0, 
+        "t_texture_grd": [
+            0, 
+            128, 
+            256, 
+            400, 
+            600, 
+            1023
+        ], 
+        "t_texture_val": [
+            40, 
+            60, 
+            80, 
+            80, 
+            50, 
+            10
+        ]
+    }, 
+      "s_ink_config": {
+          "i_EnableInk": 1, 
+          "s_ink_set0": {
+              "i_ink_idx_h": 128, 
+              "i_ink_idx_v": 157, 
+              "i_ink_mode": 4, 
+              "i_ink_result": 0
+          }, 
+          "s_ink_set1": {
+              "i_ink_idx_h": 128, 
+              "i_ink_idx_v": 157, 
+              "i_ink_mode": 4, 
+              "i_ink_result": 0
+          }, 
+          "s_ink_set2": {
+              "i_ink_idx_h": 128, 
+              "i_ink_idx_v": 157, 
+              "i_ink_mode": 4, 
+              "i_ink_result": 0
+          }, 
+          "s_ink_set3": {
+              "i_ink_idx_h": 128, 
+              "i_ink_idx_v": 157, 
+              "i_ink_mode": 4, 
+              "i_ink_result": 0
+          }
+      }, 
+      "s_sharpRoiCfg": {
+          "i_roi_enable": 0, 
+          "i_roi_xstart": 3721, 
+          "i_roi_ystart": 2209, 
+          "i_roi_xend": 1763, 
+          "i_roi_yend": 25
+      }
+    }, 
+    "dither": {
+    "i_dither_en":	1,
+    "s_dither_params": {
+        "#i_dither_mode":"dither mode-- 0: rgb101010to888, 1: rgb101010torgb101010, 2: rgb888torgb101010, 3: rgb888torgb888, otherwise: depending on 'fmt_in'/'fmt_out' and 'bit_in'/'bit_out' below", 
+        "i_dither_mode":	0,
+        "#i_dither_fmt_in":"input format-- 0: rgb888, 1: rgb101010, 2: yuv444p8bit, 3: yuv444p10bit",
+        "i_dither_fmt_in":	1,
+        "#i_dither_fmt_out": "output format-- 0: rgb888, 1: rgb101010, 2: yuv444p8bit, 3: yuv444p10bit",
+        "i_dither_fmt_out": 0,
+        "#i_dither_bit_in": "input bitdepth",
+        "i_dither_bit_in":	10,
+        "#i_dither_bit_out": "output bitdepth",
+        "i_dither_bit_out":	8,
+        "#i_dither_auto_idx_en": "0: use manual set frame_idx, 1: use auto frame index corresponding to frame count",
+        "i_dither_auto_idx_en": 0,
+        "#i_dither_frame_idx": "manual set frame_idx, range from 0~7, working when i_dither_auto_idx_en is 0",
+        "i_dither_frame_idx": 0,
+        "#i_dither_range_sca": "range scale factor, eg. 1024*(1023/255) for 8bit to 10bit",
+        "i_dither_range_sca": 1027,
+        "#t_dither_DA_index": "DA pattern composing for each channel",
+        "t_dither_DA_index": [
+           0,
+           0,
+           0],
+        "#t_dither_dither_strength":"dither noise strength for each channel",
+        "t_dither_dither_strength": [
+           256,
+           256,
+           256
+        ]
+    }
+    }
+
+  }
+  
+
+
+
+
+
+}
