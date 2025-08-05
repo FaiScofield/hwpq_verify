@@ -8,7 +8,7 @@ LastEditTime: 2025-07-25
 '''
 
 from cli_helper import *
-from typing import Union
+# from typing import Union
 
 
 class MainApp(ModuleHelperCore):
@@ -37,7 +37,7 @@ class MainApp(ModuleHelperCore):
         }
 
     ## =============== 主程序不需要实现该抽象方法 ===============
-    def define_config_and_regs(self) -> tuple[Optional[ModuleConfigCore], Optional[ModuleRegisterCore]]:
+    def update_attributes(self) -> tuple[Optional[ModuleConfigCore], Optional[ModuleRegisterCore]]:
         return None, None
 
     ## =============== 主循环函数 ===============

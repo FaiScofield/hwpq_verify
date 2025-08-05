@@ -15,6 +15,7 @@ import argparse
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import *
+from utils import NoIndent, CompactArrayEncoder
 
 
 class s_sharp_hw_config:
@@ -212,6 +213,7 @@ class SharpConfig(ModuleConfigCore):
 
     ## =============== overwrite methods  ===============
     def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
+        ## keep list data in one line by using NoIndent & CompactArrayEncoder
         data = {
             "version": self.version,
             "randSeed": self.randSeed,
@@ -279,27 +281,30 @@ class SharpConfig(ModuleConfigCore):
                 "i_noiseThrNeg": self.s_cti_v.i_noiseThrNeg,
             },
             "s_peaking": {
-                "s_gain": {"t_GainPos": self.s_peaking.t_GainPos, "t_GainNeg": self.s_peaking.t_GainNeg},
+                "s_gain": {
+                    "t_GainPos": NoIndent(self.s_peaking.t_GainPos),
+                    "t_GainNeg": NoIndent(self.s_peaking.t_GainNeg),
+                },
                 "s_coring": {
-                    "t_CoringThreshold": self.s_peaking.t_CoringThreshold,
-                    "t_CoringRatio": self.s_peaking.t_CoringRatio,
-                    "t_CoringZero": self.s_peaking.t_CoringZero,
+                    "t_CoringThreshold": NoIndent(self.s_peaking.t_CoringThreshold),
+                    "t_CoringRatio": NoIndent(self.s_peaking.t_CoringRatio),
+                    "t_CoringZero": NoIndent(self.s_peaking.t_CoringZero),
                 },
                 "s_limitCtrl": {
-                    "t_LimitPos0": self.s_peaking.t_LimitPos0,
-                    "t_LimitPos1": self.s_peaking.t_LimitPos1,
-                    "t_LimitNeg0": self.s_peaking.t_LimitNeg0,
-                    "t_LimitNeg1": self.s_peaking.t_LimitNeg1,
-                    "t_LimitRatio": self.s_peaking.t_LimitRatio,
-                    "t_LimitboundPos": self.s_peaking.t_LimitboundPos,
-                    "t_LimitboundNeg": self.s_peaking.t_LimitboundNeg,
+                    "t_LimitPos0": NoIndent(self.s_peaking.t_LimitPos0),
+                    "t_LimitPos1": NoIndent(self.s_peaking.t_LimitPos1),
+                    "t_LimitNeg0": NoIndent(self.s_peaking.t_LimitNeg0),
+                    "t_LimitNeg1": NoIndent(self.s_peaking.t_LimitNeg1),
+                    "t_LimitRatio": NoIndent(self.s_peaking.t_LimitRatio),
+                    "t_LimitboundPos": NoIndent(self.s_peaking.t_LimitboundPos),
+                    "t_LimitboundNeg": NoIndent(self.s_peaking.t_LimitboundNeg),
                 },
                 "s_shootAdj": {
-                    "t_ShootAdjDeltaOffset": self.s_peaking.t_ShootAdjDeltaOffset,
-                    "t_ShootAdjAlphaOver": self.s_peaking.t_ShootAdjAlphaOver,
-                    "t_ShootAdjAlphaUnder": self.s_peaking.t_ShootAdjAlphaUnder,
-                    "t_ShootAdjAlphaOverUnlimit": self.s_peaking.t_ShootAdjAlphaOverUnlimit,
-                    "t_ShootAdjAlphaUnderUnlimit": self.s_peaking.t_ShootAdjAlphaUnderUnlimit,
+                    "t_ShootAdjDeltaOffset": NoIndent(self.s_peaking.t_ShootAdjDeltaOffset),
+                    "t_ShootAdjAlphaOver": NoIndent(self.s_peaking.t_ShootAdjAlphaOver),
+                    "t_ShootAdjAlphaUnder": NoIndent(self.s_peaking.t_ShootAdjAlphaUnder),
+                    "t_ShootAdjAlphaOverUnlimit": NoIndent(self.s_peaking.t_ShootAdjAlphaOverUnlimit),
+                    "t_ShootAdjAlphaUnderUnlimit": NoIndent(self.s_peaking.t_ShootAdjAlphaUnderUnlimit),
                 },
                 "s_edgeCtrl": {
                     "s_edge_ctrl_param": {
@@ -311,7 +316,7 @@ class SharpConfig(ModuleConfigCore):
                         "i_dir_cnt_avg": self.s_peaking.edge_ctrl_i_dir_cnt_avg,
                         "i_dir_cnt_offset": self.s_peaking.edge_ctrl_i_dir_cnt_offset,
                         "i_diag_dir_thr": self.s_peaking.edge_ctrl_i_diag_dir_thr,
-                        "t_diag_adj_gain_tab": self.s_peaking.edge_ctrl_t_diag_adj_gain_tab,
+                        "t_diag_adj_gain_tab": NoIndent(self.s_peaking.edge_ctrl_t_diag_adj_gain_tab),
                     },
                     "s_edge_shoot_ctrl_param": {
                         "s_direct_h": {
@@ -353,14 +358,14 @@ class SharpConfig(ModuleConfigCore):
                 },
                 "s_filter_cfg": {
                     "i_diag_enh_coef": self.s_peaking.i_diag_enh_coef,
-                    "t_filt_core_H0": self.s_peaking.t_filt_core_H0,
-                    "t_filt_core_H1": self.s_peaking.t_filt_core_H1,
-                    "t_filt_core_H2": self.s_peaking.t_filt_core_H2,
-                    "t_filt_core_H3": self.s_peaking.t_filt_core_H3,
-                    "t_filt_core_V0": self.s_peaking.t_filt_core_V0,
-                    "t_filt_core_V1": self.s_peaking.t_filt_core_V1,
-                    "t_filt_core_V2": self.s_peaking.t_filt_core_V2,
-                    "t_filt_core_USM": self.s_peaking.t_filt_core_USM,
+                    "t_filt_core_H0": NoIndent(self.s_peaking.t_filt_core_H0),
+                    "t_filt_core_H1": NoIndent(self.s_peaking.t_filt_core_H1),
+                    "t_filt_core_H2": NoIndent(self.s_peaking.t_filt_core_H2),
+                    "t_filt_core_H3": NoIndent(self.s_peaking.t_filt_core_H3),
+                    "t_filt_core_V0": NoIndent(self.s_peaking.t_filt_core_V0),
+                    "t_filt_core_V1": NoIndent(self.s_peaking.t_filt_core_V1),
+                    "t_filt_core_V2": NoIndent(self.s_peaking.t_filt_core_V2),
+                    "t_filt_core_USM": NoIndent(self.s_peaking.t_filt_core_USM),
                 },
                 "i_peakingGain": self.s_peaking.i_peakingGain,
             },
@@ -373,41 +378,47 @@ class SharpConfig(ModuleConfigCore):
                 "i_Alpha_under_unlimit": self.s_shootCtrl.i_Alpha_under_unlimit,
             },
             "s_globalGain": {
-                "i_lum_mode": self.s_globalGain.i_lum_mode,
-                "t_lum_grd": self.s_globalGain.t_lum_grd,
-                "t_lum_val": self.s_globalGain.t_lum_val,
-                "t_adp_grd": self.s_globalGain.t_adp_grd,
-                "t_adp_val": self.s_globalGain.t_adp_val,
-                "t_var_grd": self.s_globalGain.t_var_grd,
-                "t_var_val": self.s_globalGain.t_var_val,
+                "s_lum_gain": {
+                    "i_lum_mode": self.s_globalGain.i_lum_mode,
+                    "t_lum_grd": NoIndent(self.s_globalGain.t_lum_grd),
+                    "t_lum_val": NoIndent(self.s_globalGain.t_lum_val),
+                },
+                "s_adp_gain": {
+                    "t_adp_grd": NoIndent(self.s_globalGain.t_adp_grd),
+                    "t_adp_val": NoIndent(self.s_globalGain.t_adp_val),
+                },
+                "s_var_gain": {
+                    "t_var_grd": NoIndent(self.s_globalGain.t_var_grd),
+                    "t_var_val": NoIndent(self.s_globalGain.t_var_val),
+                },
             },
             "s_colorCtrl": {
                 "s_ctrl_point_0": {
                     "i_ctrl_scaling": self.s_colorCtrl.s_ctrl_point_0.i_ctrl_scaling,
-                    "t_ctrl_point": self.s_colorCtrl.s_ctrl_point_0.t_ctrl_point,
-                    "t_ctrl_rolltab": self.s_colorCtrl.s_ctrl_point_0.t_ctrl_rolltab,
+                    "t_ctrl_point": NoIndent(self.s_colorCtrl.s_ctrl_point_0.t_ctrl_point),
+                    "t_ctrl_rolltab": NoIndent(self.s_colorCtrl.s_ctrl_point_0.t_ctrl_rolltab),
                 },
                 "s_ctrl_point_1": {
                     "i_ctrl_scaling": self.s_colorCtrl.s_ctrl_point_1.i_ctrl_scaling,
-                    "t_ctrl_point": self.s_colorCtrl.s_ctrl_point_1.t_ctrl_point,
-                    "t_ctrl_rolltab": self.s_colorCtrl.s_ctrl_point_1.t_ctrl_rolltab,
+                    "t_ctrl_point": NoIndent(self.s_colorCtrl.s_ctrl_point_1.t_ctrl_point),
+                    "t_ctrl_rolltab": NoIndent(self.s_colorCtrl.s_ctrl_point_1.t_ctrl_rolltab),
                 },
                 "s_ctrl_point_2": {
                     "i_ctrl_scaling": self.s_colorCtrl.s_ctrl_point_2.i_ctrl_scaling,
-                    "t_ctrl_point": self.s_colorCtrl.s_ctrl_point_2.t_ctrl_point,
-                    "t_ctrl_rolltab": self.s_colorCtrl.s_ctrl_point_2.t_ctrl_rolltab,
+                    "t_ctrl_point": NoIndent(self.s_colorCtrl.s_ctrl_point_2.t_ctrl_point),
+                    "t_ctrl_rolltab": NoIndent(self.s_colorCtrl.s_ctrl_point_2.t_ctrl_rolltab),
                 },
                 "s_ctrl_point_3": {
                     "i_ctrl_scaling": self.s_colorCtrl.s_ctrl_point_3.i_ctrl_scaling,
-                    "t_ctrl_point": self.s_colorCtrl.s_ctrl_point_3.t_ctrl_point,
-                    "t_ctrl_rolltab": self.s_colorCtrl.s_ctrl_point_3.t_ctrl_rolltab,
+                    "t_ctrl_point": NoIndent(self.s_colorCtrl.s_ctrl_point_3.t_ctrl_point),
+                    "t_ctrl_rolltab": NoIndent(self.s_colorCtrl.s_ctrl_point_3.t_ctrl_rolltab),
                 },
             },
             "s_textureAdj": {
                 "i_y_mode_select": self.s_textureAdj.i_y_mode_select,
                 "i_idx_mode_select": self.s_textureAdj.i_idx_mode_select,
-                "t_texture_grd": self.s_textureAdj.t_texture_grd,
-                "t_texture_val": self.s_textureAdj.t_texture_val,
+                "t_texture_grd": NoIndent(self.s_textureAdj.t_texture_grd),
+                "t_texture_val": NoIndent(self.s_textureAdj.t_texture_val),
             },
             "s_sharpRoiCfg": {
                 "i_roi_enable": self.s_sharpRoiCfg.i_roi_enable,
@@ -425,7 +436,9 @@ class SharpConfig(ModuleConfigCore):
 
         with open(filename, "w") as f:
             nest_data = {"pq_tuning_param": {"SHARPNESS": data}}
-            json.dump(nest_data, f, indent=4, ensure_ascii=False)
+            json_data = json.dumps(nest_data, indent=4, ensure_ascii=False, cls=CompactArrayEncoder)
+            f.write(json_data)
+            self.logger.info(f"Config parameters saved to file '{filename}'")
             return True
 
         return False
@@ -728,124 +741,127 @@ class SharpConfig(ModuleConfigCore):
         self.s_sharp_en_ctrl.i_color_adj_en = int(random.randint(0, 99) < 75)  # 75%
         self.s_sharp_en_ctrl.i_texture_adj_en = int(random.randint(0, 99) < 75)  # 75%
 
-        self.s_lti_h.i_Radius = 1
-        self.s_lti_h.i_Slope = 100
-        self.s_lti_h.i_Thresold = 21
-        self.s_lti_h.i_Gain = 8
-        self.s_lti_h.i_noiseThrPos = 1023
-        self.s_lti_h.i_noiseThrNeg = 1023
-        self.s_cti_h.i_Radius = 1
-        self.s_cti_h.i_Slope = 100
-        self.s_cti_h.i_Thresold = 21
-        self.s_cti_h.i_Gain = 8
-        self.s_cti_h.i_noiseThrPos = 1023
-        self.s_cti_h.i_noiseThrNeg = 1023
-        self.s_lti_v.i_Radius = 1
-        self.s_lti_v.i_Slope = 100
-        self.s_lti_v.i_Thresold = 21
-        self.s_lti_v.i_Gain = 8
-        self.s_lti_v.i_noiseThrPos = 1023
-        self.s_lti_v.i_noiseThrNeg = 1023
-        self.s_cti_v.i_Radius = 1
-        self.s_cti_v.i_Slope = 100
-        self.s_cti_v.i_Thresold = 21
-        self.s_cti_v.i_Gain = 8
-        self.s_cti_v.i_noiseThrPos = 1023
-        self.s_cti_v.i_noiseThrNeg = 1023
+        self.s_lti_h.i_Radius = random.randint(0, 1)
+        self.s_lti_h.i_Slope = random.randint(0, 511)
+        self.s_lti_h.i_Thresold = random.randint(0, 511)
+        self.s_lti_h.i_Gain = random.randint(0, 31)
+        self.s_lti_h.i_noiseThrPos = random.randint(0, 1023)
+        self.s_lti_h.i_noiseThrNeg = random.randint(0, 1023)
+        self.s_cti_h.i_Radius = random.randint(0, 1)
+        self.s_cti_h.i_Slope = random.randint(0, 511)
+        self.s_cti_h.i_Thresold = random.randint(0, 511)
+        self.s_cti_h.i_Gain = random.randint(0, 31)
+        self.s_cti_h.i_noiseThrPos = random.randint(0, 1023)
+        self.s_cti_h.i_noiseThrNeg = random.randint(0, 1023)
+        self.s_lti_v.i_Radius = random.randint(0, 1)
+        self.s_lti_v.i_Slope = random.randint(0, 511)
+        self.s_lti_v.i_Thresold = random.randint(0, 511)
+        self.s_lti_v.i_Gain = random.randint(0, 31)
+        self.s_lti_v.i_noiseThrPos = random.randint(0, 1023)
+        self.s_lti_v.i_noiseThrNeg = random.randint(0, 1023)
+        self.s_cti_v.i_Radius = random.randint(0, 1)
+        self.s_cti_v.i_Slope = random.randint(0, 511)
+        self.s_cti_v.i_Thresold = random.randint(0, 511)
+        self.s_cti_v.i_Gain = random.randint(0, 31)
+        self.s_cti_v.i_noiseThrPos = random.randint(0, 1023)
+        self.s_cti_v.i_noiseThrNeg = random.randint(0, 1023)
 
-        self.s_peaking.t_GainPos = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_GainNeg = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_CoringThreshold = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_CoringRatio = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_CoringZero = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_LimitPos0 = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_LimitPos1 = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_LimitNeg0 = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_LimitNeg1 = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_LimitRatio = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_LimitboundPos = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_LimitboundNeg = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_ShootAdjDeltaOffset = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_ShootAdjAlphaOver = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_ShootAdjAlphaUnder = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_ShootAdjAlphaOverUnlimit = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.t_ShootAdjAlphaUnderUnlimit = np.random.randint(0, 1024, size=8, dtype=np.uint16).tolist()
-        self.s_peaking.edge_ctrl_i_non_dir_thr = random.randint(0, 255)
-        self.s_peaking.edge_ctrl_i_dir_cmp_ratio = random.randint(0, 255)
-        self.s_peaking.edge_ctrl_i_non_dir_wgt_offset =  random.randint(0, 255)
-        self.s_peaking.edge_ctrl_i_non_dir_wgt_ratio =  random.randint(0, 255)
-        self.s_peaking.edge_ctrl_i_dir_cnt_thr =  random.randint(0, 255)
-        self.s_peaking.edge_ctrl_i_dir_cnt_avg =  random.randint(0, 255)
-        self.s_peaking.edge_ctrl_i_dir_cnt_offset =  random.randint(0, 255)
-        self.s_peaking.edge_ctrl_i_diag_dir_thr = random.randint(0, 255)
-        self.s_peaking.edge_ctrl_t_diag_adj_gain_tab = np.random.randint(0, 15, size=8, dtype=np.uint8).tolist()
+        self.s_peaking.t_GainPos = np.random.randint(0, 2047, 8).tolist()
+        self.s_peaking.t_GainNeg = np.random.randint(0, 2047, 8).tolist()
+        self.s_peaking.t_CoringThreshold = np.random.randint(0, 1023, 8).tolist()
+        self.s_peaking.t_CoringRatio = np.random.randint(0, 2047, 8).tolist()
+        self.s_peaking.t_CoringZero = np.random.randint(0, 1023, 8).tolist()
+        self.s_peaking.t_LimitPos0 = np.random.randint(0, 1023, 8).tolist()
+        self.s_peaking.t_LimitPos1 = np.random.randint(0, 1023, 8).tolist()
+        self.s_peaking.t_LimitNeg0 = np.random.randint(0, 1023, 8).tolist()
+        self.s_peaking.t_LimitNeg1 = np.random.randint(0, 1023, 8).tolist()
+        self.s_peaking.t_LimitRatio = np.random.randint(0, 1024, 8).tolist()
+        self.s_peaking.t_LimitboundPos = np.random.randint(0, 1023, 8).tolist()
+        self.s_peaking.t_LimitboundNeg = np.random.randint(0, 1023, 8).tolist()
+        self.s_peaking.t_ShootAdjDeltaOffset = np.random.randint(0, 255, 8).tolist()
+        self.s_peaking.t_ShootAdjAlphaOver = np.random.randint(0, 127, 8).tolist()
+        self.s_peaking.t_ShootAdjAlphaUnder = np.random.randint(0, 127, 8).tolist()
+        self.s_peaking.t_ShootAdjAlphaOverUnlimit = np.random.randint(0, 127, 8).tolist()
+        self.s_peaking.t_ShootAdjAlphaUnderUnlimit = np.random.randint(0, 127, 8).tolist()
+        self.s_peaking.edge_ctrl_i_non_dir_thr = random.randint(0, 127)
+        self.s_peaking.edge_ctrl_i_dir_cmp_ratio = random.randint(0, 15)
+        self.s_peaking.edge_ctrl_i_non_dir_wgt_offset = random.randint(0, 255)
+        self.s_peaking.edge_ctrl_i_non_dir_wgt_ratio = random.randint(0, 31)
+        self.s_peaking.edge_ctrl_i_dir_cnt_thr = random.randint(0, 12)
+        self.s_peaking.edge_ctrl_i_dir_cnt_avg = random.randint(0, 7)
+        self.s_peaking.edge_ctrl_i_dir_cnt_offset = random.randint(0, 15)
+        self.s_peaking.edge_ctrl_i_diag_dir_thr = random.randint(0, 127)
+        self.s_peaking.edge_ctrl_t_diag_adj_gain_tab = np.random.randint(0, 15, 8).tolist()
+
         self.s_peaking.edge_shoot_s_direct_h.i_delta_offset = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_h.i_alpha_over = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_h.i_alpha_under = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_h.i_alpha_over_unlimit =random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_h.i_alpha_under_unlimit = random.randint(0, 255)
+        self.s_peaking.edge_shoot_s_direct_h.i_alpha_over = random.randint(0, 127)
+        self.s_peaking.edge_shoot_s_direct_h.i_alpha_under = random.randint(0, 127)
+        self.s_peaking.edge_shoot_s_direct_h.i_alpha_over_unlimit = random.randint(0, 127)
+        self.s_peaking.edge_shoot_s_direct_h.i_alpha_under_unlimit = random.randint(0, 127)
         self.s_peaking.edge_shoot_s_direct_v.i_delta_offset = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_v.i_alpha_under = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_v.i_alpha_over_unlimit = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_v.i_alpha_under_unlimit = random.randint(0, 255)
+        self.s_peaking.edge_shoot_s_direct_v.i_alpha_over = random.randint(0, 127)
+        self.s_peaking.edge_shoot_s_direct_v.i_alpha_under = random.randint(0, 127)
+        self.s_peaking.edge_shoot_s_direct_v.i_alpha_over_unlimit = random.randint(0, 127)
+        self.s_peaking.edge_shoot_s_direct_v.i_alpha_under_unlimit = random.randint(0, 127)
         self.s_peaking.edge_shoot_s_direct_d0.i_delta_offset = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_d0.i_alpha_over = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_d0.i_alpha_under = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_d0.i_alpha_over_unlimit = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_d0.i_alpha_under_unlimit = random.randint(0, 255)
+        self.s_peaking.edge_shoot_s_direct_d0.i_alpha_over = random.randint(0, 127)
+        self.s_peaking.edge_shoot_s_direct_d0.i_alpha_under = random.randint(0, 127)
+        self.s_peaking.edge_shoot_s_direct_d0.i_alpha_over_unlimit = random.randint(0, 127)
+        self.s_peaking.edge_shoot_s_direct_d0.i_alpha_under_unlimit = random.randint(0, 127)
         self.s_peaking.edge_shoot_s_direct_d1.i_delta_offset = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_d1.i_alpha_over = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_d1.i_alpha_under = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_d1.i_alpha_over_unlimit = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_d1.i_alpha_under_unlimit = random.randint(0, 255)
+        self.s_peaking.edge_shoot_s_direct_d1.i_alpha_over = random.randint(0, 127)
+        self.s_peaking.edge_shoot_s_direct_d1.i_alpha_under = random.randint(0, 127)
+        self.s_peaking.edge_shoot_s_direct_d1.i_alpha_over_unlimit = random.randint(0, 127)
+        self.s_peaking.edge_shoot_s_direct_d1.i_alpha_under_unlimit = random.randint(0, 127)
         self.s_peaking.edge_shoot_s_direct_non.i_delta_offset = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_non.i_alpha_over = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_non.i_alpha_under = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_non.i_alpha_over_unlimit = random.randint(0, 255)
-        self.s_peaking.edge_shoot_s_direct_non.i_alpha_under_unlimit = random.randint(0, 255)
+        self.s_peaking.edge_shoot_s_direct_non.i_alpha_over = random.randint(0, 127)
+        self.s_peaking.edge_shoot_s_direct_non.i_alpha_under = random.randint(0, 127)
+        self.s_peaking.edge_shoot_s_direct_non.i_alpha_over_unlimit = random.randint(0, 127)
+        self.s_peaking.edge_shoot_s_direct_non.i_alpha_under_unlimit = random.randint(0, 127)
 
-        self.s_peaking.i_diag_enh_coef = random.randint(0, 255)
-        self.s_peaking.t_filt_core_H0 = np.random.randint(-256, 256, size=6, dtype=np.int16).tolist()
-        self.s_peaking.t_filt_core_H1 = np.random.randint(-256, 256, size=6, dtype=np.int16).tolist()
-        self.s_peaking.t_filt_core_H2 = np.random.randint(-256, 256, size=6, dtype=np.int16).tolist()
-        self.s_peaking.t_filt_core_H3 = np.random.randint(-256, 256, size=6, dtype=np.int16).tolist()
-        self.s_peaking.t_filt_core_V0 = np.random.randint(-256, 256, size=3, dtype=np.int16).tolist()
-        self.s_peaking.t_filt_core_V1 = np.random.randint(-256, 256, size=3, dtype=np.int16).tolist()
-        self.s_peaking.t_filt_core_V2 = np.random.randint(-256, 256, size=3, dtype=np.int16).tolist()
-        self.s_peaking.t_filt_core_USM = np.random.randint(-256, 256, size=3, dtype=np.int16).tolist()
+        self.s_peaking.i_diag_enh_coef = random.randint(0, 7)
+        self.s_peaking.t_filt_core_H0 = np.random.randint(-1024, 1023, 6).tolist()
+        self.s_peaking.t_filt_core_H1 = np.random.randint(-1024, 1023, 6).tolist()
+        self.s_peaking.t_filt_core_H2 = np.random.randint(-1024, 1023, 6).tolist()
+        self.s_peaking.t_filt_core_H3 = np.random.randint(-1024, 1023, 6).tolist()
+        self.s_peaking.t_filt_core_V0 = np.random.randint(-16, 15, 3).tolist()
+        self.s_peaking.t_filt_core_V1 = np.random.randint(-16, 15, 3).tolist()
+        self.s_peaking.t_filt_core_V2 = np.random.randint(-16, 15, 3).tolist()
+        self.s_peaking.t_filt_core_USM = np.random.randint(-16, 15, 3).tolist()
         self.s_peaking.i_peakingGain = random.randint(0, 1023)
 
-        self.s_shootCtrl.i_FilterRadius = random.randint(0, 255)
+        self.s_shootCtrl.i_FilterRadius = random.randint(0, 1)
         self.s_shootCtrl.i_Delta_offset = random.randint(0, 255)
-        self.s_shootCtrl.i_Alpha_over = random.randint(0, 255)
-        self.s_shootCtrl.i_Alpha_under = random.randint(0, 255)
-        self.s_shootCtrl.i_Alpha_over_unlimit = random.randint(0, 255)
-        self.s_shootCtrl.i_Alpha_under_unlimit = random.randint(0, 255)
-        self.s_globalGain.i_lum_mode = random.randint(0, 255)
-        self.s_globalGain.t_lum_grd = np.random.randint(-256, 256, size=6, dtype=np.int16).tolist()
-        self.s_globalGain.t_lum_val = np.random.randint(-256, 256, size=6, dtype=np.int16).tolist()
-        self.s_globalGain.t_adp_grd = np.random.randint(-256, 256, size=6, dtype=np.int16).tolist()
-        self.s_globalGain.t_adp_val = np.random.randint(-256, 256, size=6, dtype=np.int16).tolist()
-        self.s_globalGain.t_var_grd = np.random.randint(-256, 256, size=6, dtype=np.int16).tolist()
-        self.s_globalGain.t_var_val = np.random.randint(-256, 256, size=6, dtype=np.int16).tolist()
+        self.s_shootCtrl.i_Alpha_over = random.randint(0, 127)
+        self.s_shootCtrl.i_Alpha_under = random.randint(0, 127)
+        self.s_shootCtrl.i_Alpha_over_unlimit = random.randint(0, 127)
+        self.s_shootCtrl.i_Alpha_under_unlimit = random.randint(0, 127)
+        self.s_globalGain.i_lum_mode = random.randint(0, 2)
+        self.s_globalGain.t_lum_grd = np.random.randint(0, 1023, 6).tolist()
+        self.s_globalGain.t_lum_val = np.random.randint(0, 127, 6).tolist()
+        self.s_globalGain.t_adp_grd = np.random.randint(0, 1023, 6).tolist()
+        self.s_globalGain.t_adp_val = np.random.randint(0, 127, 6).tolist()
+        self.s_globalGain.t_var_grd = np.random.randint(0, 1023, 6).tolist()
+        self.s_globalGain.t_var_val = np.random.randint(0, 127, 6).tolist()
 
-        self.s_colorCtrl.s_ctrl_point_0.i_ctrl_scaling = random.randint(0, 2)
-        self.s_colorCtrl.s_ctrl_point_0.t_ctrl_point = np.random.randint(0, 4096, size=2, dtype=np.uint16).tolist()
-        self.s_colorCtrl.s_ctrl_point_0.t_ctrl_rolltab = np.random.randint(0, 16, size=16, dtype=np.uint8).tolist()
-        self.s_colorCtrl.s_ctrl_point_1.i_ctrl_scaling = random.randint(0, 2)
-        self.s_colorCtrl.s_ctrl_point_1.t_ctrl_point = np.random.randint(0, 4096, size=2, dtype=np.uint16).tolist()
-        self.s_colorCtrl.s_ctrl_point_1.t_ctrl_rolltab = np.random.randint(0, 16, size=16, dtype=np.uint8).tolist()
-        self.s_colorCtrl.s_ctrl_point_2.i_ctrl_scaling = random.randint(0, 2)
-        self.s_colorCtrl.s_ctrl_point_2.t_ctrl_point = np.random.randint(0, 4096, size=2, dtype=np.uint16).tolist()
-        self.s_colorCtrl.s_ctrl_point_2.t_ctrl_rolltab = np.random.randint(0, 16, size=16, dtype=np.uint8).tolist()
-        self.s_colorCtrl.s_ctrl_point_3.i_ctrl_scaling = random.randint(0, 2)
-        self.s_colorCtrl.s_ctrl_point_3.t_ctrl_point = np.random.randint(0, 4096, size=2, dtype=np.uint16).tolist()
-        self.s_colorCtrl.s_ctrl_point_3.t_ctrl_rolltab = np.random.randint(0, 16, size=16, dtype=np.uint8).tolist()
+        self.s_colorCtrl.s_ctrl_point_0.i_ctrl_scaling = random.randint(0, 6)
+        self.s_colorCtrl.s_ctrl_point_0.t_ctrl_point = np.random.randint(0, 1023, 2).tolist()
+        self.s_colorCtrl.s_ctrl_point_0.t_ctrl_rolltab = np.random.randint(0, 31, 16).tolist()
+        self.s_colorCtrl.s_ctrl_point_1.i_ctrl_scaling = random.randint(0, 6)
+        self.s_colorCtrl.s_ctrl_point_1.t_ctrl_point = np.random.randint(0, 1023, 2).tolist()
+        self.s_colorCtrl.s_ctrl_point_1.t_ctrl_rolltab = np.random.randint(0, 31, 16).tolist()
+        self.s_colorCtrl.s_ctrl_point_2.i_ctrl_scaling = random.randint(0, 6)
+        self.s_colorCtrl.s_ctrl_point_2.t_ctrl_point = np.random.randint(0, 1023, 2).tolist()
+        self.s_colorCtrl.s_ctrl_point_2.t_ctrl_rolltab = np.random.randint(0, 31, 16).tolist()
+        self.s_colorCtrl.s_ctrl_point_3.i_ctrl_scaling = random.randint(0, 6)
+        self.s_colorCtrl.s_ctrl_point_3.t_ctrl_point = np.random.randint(0, 1023, 2).tolist()
+        self.s_colorCtrl.s_ctrl_point_3.t_ctrl_rolltab = np.random.randint(0, 31, 16).tolist()
 
-        self.s_textureAdj.i_y_mode_select = random.randint(0, 2)
-        self.s_textureAdj.i_idx_mode_select = random.randint(0, 2)
-        self.s_textureAdj.t_texture_grd = np.random.randint(0, 1023, size=6, dtype=np.uint16).tolist()
-        self.s_textureAdj.t_texture_val = np.random.randint(0, 128, size=6, dtype=np.uint8).tolist()
+        self.s_textureAdj.i_y_mode_select = random.randint(0, 3)
+        self.s_textureAdj.i_idx_mode_select = random.randint(0, 1)
+        self.s_textureAdj.t_texture_grd = np.random.randint(0, 1023, 6).tolist()
+        self.s_textureAdj.t_texture_val = np.random.randint(0, 127, 6).tolist()
+
         self.s_sharpRoiCfg.i_roi_enable = int(random.randint(0, 99) < 20)  # 20%
         self.s_sharpRoiCfg.i_roi_xstart = random.randint(0, 1024)
         self.s_sharpRoiCfg.i_roi_ystart = random.randint(0, 1024)

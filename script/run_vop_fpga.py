@@ -4,7 +4,7 @@ FilePath    : run_vop_fpga.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-31
+LastEditTime: 2025-08-05
 """
 
 import os
@@ -30,7 +30,7 @@ logger = setup_logger(name="run_vop_fpga")
 
 def parse_common_args(args):
     parser = argparse.ArgumentParser()
-    parser.add_argument("-m", "--module", type=str, required=True, help="module name (sharp, acm, dci, csc, ...)")
+    parser.add_argument("-m", "--module", type=str, required=True, help="module name (sharp[lite], acm, dci, csc, ...)")
     parser.add_argument("-e", "--exe", type=str, default="", help="module sim_exe file path")
     parser.add_argument("-r", "--root", type=str, default="", help="the root dir for data saving")
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="RK3572/RK3576")
@@ -153,8 +153,8 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
                     f"ignore file {basename} in input_dir, not match the pattern of '<W>x<H>' in the filename!"
                 )
         logger.info(f"count {len(input_list)} input frames in {input_dir} ...")
-    if len(input_list) == 0:
-        logger.error(f"no input frames in {input_dir}, please check!")
+    if len(input_list) == 0 and exe != "":
+        logger.warning(f"no input frames in {input_dir}, please check!")
         exit(-1)
 
     ## generate random cfg
@@ -273,25 +273,29 @@ if __name__ == "__main__":
     nb_reg_per_frame = 0
     module_args = ""
 
-    if "sharp" in name:
+    if name in ["sharplite", "sharp_lite"]:
         config_handler = SharpLiteConfig()
         reg_handler = SharpRegister(platform=args.platform)
         nb_reg_per_frame = 14
-    elif "csc" in name:
+    elif "sharp" == name:
+        config_handler = SharpConfig()
+        reg_handler = None
+        nb_reg_per_frame = 172
+    elif "csc" == name:
         config_handler = CscConfig()
         reg_handler = CscRegister(platform=args.platform)
         nb_reg_per_frame = len(reg_handler.regs)
         # if reg_handler.index == CscModuleIndex.POST0_ACM_Y2R:
         module_args = "-F 12"  # vyu order to calc CRC
-    elif "acm" in name:
+    elif "acm" == name:
         config_handler = AcmConfig()
         reg_handler = AcmRegister(platform=args.platform)
         nb_reg_per_frame = len(reg_handler.regs)
-    elif "dci" in name:
+    elif "dci" == name:
         config_handler = DciConfig()
         reg_handler = DciRegister(platform=args.platform)
         nb_reg_per_frame = len(reg_handler.regs)
-    elif "cgc" in name:
+    elif "cgc" == name:
         config_handler = CgcConfig()
         reg_handler = CgcRegister(platform=args.platform)
         nb_reg_per_frame = len(reg_handler.regs)
