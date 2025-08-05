@@ -156,6 +156,8 @@ def gen_random_frame(size, seed=None, filename=""):
 def clamp(value, min_value, max_value):
     return min(max(value, min_value), max_value)
 
+def clip(value, min_value, max_value):
+    return min(max(value, min_value), max_value)
 
 ## using this by `json.dump(data, fp, cls=CompactArrayEncoder)` to dump json array in a single line
 class NoIndent(object):

@@ -139,7 +139,7 @@ class s_peaking:
     t_filt_core_H3 = [0, 0, 0, 0, -256, 512]
     t_filt_core_V0 = [0, 0, 0]
     t_filt_core_V1 = [-4, 0, 8]
-    t_filt_core_V2 = ([0, -4, 8],)
+    t_filt_core_V2 = [0, -4, 8]
     t_filt_core_USM = [0, -4, -8]
     # peakingGain
     i_peakingGain = 196
