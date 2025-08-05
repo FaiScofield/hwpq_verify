@@ -4,7 +4,7 @@ FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-08-01
+LastEditTime: 2025-08-05
 """
 
 import sys
@@ -42,7 +42,7 @@ class ModuleHelperCore(ABC):
         self.name = name.upper()
         self.platform = platform.upper()
         self.parent = parent  # 无上级窗口则为空
-        self.config, self.register = self.define_config_and_regs()  # 子类需要复写`define_config_and_regs`的实现
+        self.config, self.register = self.update_attributes(self.platform)  # 子类需要复写`define_config_and_regs`的实现
         self.submodules = {}  # 空的子模块，仅供顶层Main模块使用
 
         ## 常驻命令注册表: name, (handler, param_desc, description)
@@ -112,11 +112,12 @@ class ModuleHelperCore(ABC):
 
     ## =============== 虚函数，需要派生的子类实现 ===============
     @abstractmethod
-    def define_config_and_regs(self) -> tuple[Optional[ModuleConfigCore], Optional[ModuleRegisterCore]]:
+    def update_attributes(self, platform: str) -> tuple[Optional[ModuleConfigCore], Optional[ModuleRegisterCore]]:
         """定义模块的配置参数(由子类实现)"""
-        config: Optional[ModuleConfigCore] = None
-        register: Optional[ModuleRegisterCore] = None
-        return config, register
+        self.platform = platform.upper()
+        self.config: Optional[ModuleConfigCore] = None
+        self.register: Optional[ModuleRegisterCore] = None
+        return self.config, self.register
 
     ## =============== 通用命令处理函数，子模块可按需复写 ===============
     def config_to_regs(self) -> bool:
@@ -281,10 +282,11 @@ class ModuleHelperCore(ABC):
         param, _ = parser.parse_known_args(args)
 
         platform_name = param.platform.upper()
-        if platform_name == "RK3572":
+        if True: #platform_name == "RK3572":
             self.platform = platform_name
             print(f"[{self.name}] Set platform to: {platform_name}")
-            if self.register is None:
+            self.update_attributes(platform_name)  # 重新定义配置参数
+            if self.register is not None:
                 print(f"[{self.name}] Set index to: {param.index}")
                 self.register.update(platform=platform_name, index=param.index)
             ## 给子模块也全部设置新的平台

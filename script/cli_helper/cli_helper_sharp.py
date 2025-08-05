@@ -4,7 +4,7 @@ FilePath    : cli_helper_sharp.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-25
+LastEditTime: 2025-08-05
 '''
 
 import os
@@ -13,7 +13,7 @@ from typing import Optional
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from cli_helper.cli_helper_core import ModuleHelperCore
-from config_def import ModuleConfigCore, SharpLiteConfig
+from config_def import ModuleConfigCore, SharpLiteConfig, SharpConfig
 from reg_def import ModuleRegisterCore, SharpRegister
 
 
@@ -24,10 +24,15 @@ class SharpHelper(ModuleHelperCore):
         super().__init__(name, platform, parent)
 
     ## =============== overwrite methods  ===============
-    def define_config_and_regs(self) -> tuple[Optional[ModuleConfigCore], Optional[ModuleRegisterCore]]:
-        # if self.platform == 'RK3572':
-        self.config = SharpLiteConfig(self.name)
-        self.register = SharpRegister(self.name, self.platform)
+    def update_attributes(self, platform: str) -> tuple[Optional[ModuleConfigCore], Optional[ModuleRegisterCore]]:
+        self.platform = platform.upper()
+        self.name = 'SHARP_LITE' if platform.upper() == 'RK3572' else 'SHARP'
+        if self.platform == 'RK3572':
+            self.config = SharpLiteConfig(self.name)
+            self.register = SharpRegister(self.name, self.platform)
+        else:
+            self.config = SharpConfig(self.name)
+            self.register = None
         return self.config, self.register
 
 

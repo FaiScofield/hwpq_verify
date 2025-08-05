@@ -4,7 +4,7 @@ FilePath    : cli_helper_csc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-22
 Description :
-LastEditTime: 2025-07-22
+LastEditTime: 2025-08-05
 '''
 
 import os
@@ -22,7 +22,8 @@ class CscHelper(ModuleHelperCore):
         super().__init__(name, platform, parent)
 
     ## =============== overwrite methods  ===============
-    def define_config_and_regs(self) -> tuple[Optional[ModuleConfigCore], Optional[ModuleRegisterCore]]:
+    def update_attributes(self, platform: str) -> tuple[Optional[ModuleConfigCore], Optional[ModuleRegisterCore]]:
+        self.platform = platform.upper()
         self.config = CscConfig(self.name)
         self.register = CscRegister(self.name, self.platform)
         return self.config, self.register
