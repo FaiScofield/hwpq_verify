@@ -135,7 +135,7 @@ class AcmConfig(ModuleConfigCore):
         self.randSeed = seed
         self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
 
-        self.acmEnable = int(random.randint(0, 95) > 0)  # %95 be ON
+        self.acmEnable = int(random.randint(0, 99) < 95)  # 95% be ON
         self.lumGain = random.randint(0, 1023)
         self.hueGain = random.randint(0, 1023)
         self.satGain = random.randint(0, 1023)

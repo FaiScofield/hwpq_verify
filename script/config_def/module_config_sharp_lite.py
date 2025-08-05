@@ -21,6 +21,7 @@ class SharpLiteConfig(ModuleConfigCore):
     def __init__(self, name: str = "SharpLite", version: str = "unknown"):
         super().__init__(name, version)
 
+        ## RK3572-VOP3-ROBIN
         self.i_sharp_lite_en = 1  # u1
         self.f_usm_sigma_0 = 0.7  # for gaussian 2D kernel0
         self.f_usm_sigma_1 = 0.7  # for gaussian 2D kernel1
@@ -47,6 +48,10 @@ class SharpLiteConfig(ModuleConfigCore):
         self.i_ink_mode = 0  # u2
         self.i_ink_idx_h = 0
         self.i_ink_idx_v = 0
+
+        ## RK3538-VOP3-SHARK
+
+
 
     ## =============== overwrite methods  ===============
     def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
@@ -157,7 +162,7 @@ class SharpLiteConfig(ModuleConfigCore):
         self.randSeed = seed
         self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
 
-        self.i_sharp_lite_en = int(random.randint(0, 9) > 0)  # %90 be ON
+        self.i_sharp_lite_en = int(random.randint(0, 99) < 90)  # 90% be ON
         self.f_usm_sigma_0 = random.random() * 3 + 1e-3  # [1e-3, 3]
         self.f_usm_sigma_1 = random.random() * 3 + 1e-3  # [1e-3, 3]
         self.f_usm_gain_0 = random.random() * 5 + 1e-3  # [1e-3, 5]
@@ -169,12 +174,12 @@ class SharpLiteConfig(ModuleConfigCore):
         self.i_shoot_ctrl_neg = random.randint(0, 127)
         self.i_shoot_ctrl_pos_unlimit = max(random.randint(0, 127), self.i_shoot_ctrl_pos)
         self.i_shoot_ctrl_neg_unlimit = max(random.randint(0, 127), self.i_shoot_ctrl_neg)
-        self.i_sharp_roi_enable = int(random.randint(0, 9) > 6)  # %30 be ON
+        self.i_sharp_roi_enable = int(random.randint(0, 99) < 30)  # 30% be ON
         self.i_sharp_roi_xstart = random.randint(0, 1000)
         self.i_sharp_roi_xend = random.randint(4, 1200)
         self.i_sharp_roi_ystart = random.randint(0, 600)
         self.i_sharp_roi_yend = random.randint(4, 800)
-        self.i_sharp_force_core_mode = random.randint(0, 1)  # %50 be ON
+        self.i_sharp_force_core_mode = int(random.randint(0, 99) < 50)  # 50% be ON
         self.i_sharp_core_A = random.randint(-128, 127)
         self.i_sharp_core_B = random.randint(-128, 127)
         self.i_sharp_core_C = random.randint(-128, 127)

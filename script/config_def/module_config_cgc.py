@@ -139,7 +139,7 @@ class CgcConfig(ModuleConfigCore):
         self.randSeed = seed
         self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
 
-        self.cgc_en = int(random.randint(0, 95) > 0)  # %95 be ON
+        self.cgc_en = int(random.randint(0, 99) < 95)  # 95% be ON
         self.sdr2hdr_enable = 0  # aways be 0
         self.cgc_params.log10_s_fix = random.randint(0, 4080)
         self.cgc_params.log10_r_ootf_fix = random.randint(-512, 1024)

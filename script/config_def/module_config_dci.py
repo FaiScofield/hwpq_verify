@@ -287,7 +287,7 @@ class DciConfig(ModuleConfigCore):
         ## random config for vdpp
         self.vdpp_config.working_mode = 2 if (img_wid <= 1920 and img_hgt <= 2048) else 3
         self.vdpp_config.dci_data_format = 4
-        self.vdpp_config.dci_csc_range = int(random.randint(0, 1) > 0)  # 50%
+        self.vdpp_config.dci_csc_range = int(random.randint(0, 99) < 50)  # 50%
         self.vdpp_config.dci_vsd_mode = random.randint(0, 2) if self.vdpp_config.working_mode == 3 else 0
         self.vdpp_config.dci_hsd_mode = random.randint(0, 1) if self.vdpp_config.working_mode == 3 else 0
         hsd_sample_num = 2 ** (self.vdpp_config.dci_hsd_mode + 1)  # 2,4
@@ -304,7 +304,7 @@ class DciConfig(ModuleConfigCore):
         )
 
         ## random config for vop
-        self.vop_config.dci_enable = int(random.randint(0, 95) > 0)  # 95% enable
+        self.vop_config.dci_enable = int(random.randint(0, 99) < 95)  # 95% enable
         self.vop_config.blk_size_fix = round(2**25 / ((blk_size_hor - 1) * (blk_size_ver - 1)))
         self.vop_config.act_width = img_wid  # TODO: could be smaller than img_wid
         self.vop_config.act_height = img_hgt  # TODO: could be smaller than img_hgt
@@ -318,7 +318,7 @@ class DciConfig(ModuleConfigCore):
         )
         self.vop_config.act_blk_size_h = blk_size_hor
         self.vop_config.act_blk_size_v = blk_size_ver
-        self.vop_config.ca_enable = int(random.randint(0, 1) > 0)  # 50% enable
+        self.vop_config.ca_enable = int(random.randint(0, 99) < 50)  # 50% enable
         self.vop_config.sat_w = random.randint(0, 64)  # u7
         self.vop_config.luma_sat_adj_zero = lum_zero
         self.vop_config.luma_sat_adj_thrd = lum_thr

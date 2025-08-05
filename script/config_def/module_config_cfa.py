@@ -205,8 +205,8 @@ class CfaConfig(ModuleConfigCore):
         self.nSharpenGain = random.randint(0, 200)  # [0, 128]
         self.nStretchBlack = random.randint(0, 120)  # [0, 96]
         self.nStretchWhite = random.randint(120, 300)  # [160, 255]
-        self.bDither = (random.randint(0, 3) > 0) * 2  # 0 or 2, 75% ON
-        self.bDeFalseColor4Gray = int(random.randint(0, 3) > 0)  # 75% ON
+        self.bDither = int(random.randint(0, 99) < 75) * 2  # 0 or 2, 75% ON
+        self.bDeFalseColor4Gray = int(random.randint(0, 99) < 75)  # 75% ON
         self.bContrastEqual = 0
         self.bForceRunWithCpu = random.randint(0, 1)
         self.nRegalType = 0

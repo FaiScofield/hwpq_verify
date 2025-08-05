@@ -169,7 +169,7 @@ class CscConfig(ModuleConfigCore):
         self.randSeed = seed
         self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
 
-        self.cscEnable = 1  # int(random.randint(0, 9) > 0)  # %90 be ON
+        self.cscEnable = 1  # int(random.randint(0, 99) > 95)  # 95% be ON
         self.cscCctCtrlEn = 0  # always 0 for now
         self.cscBrightness = random.randint(0, 511)
         self.cscHue = random.randint(0, 511)
