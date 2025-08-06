@@ -4,7 +4,7 @@ FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-08-05
+LastEditTime: 2025-08-06
 """
 
 import sys
@@ -13,7 +13,6 @@ import re
 import numpy as np
 import argparse
 import copy
-import traceback
 from ast import literal_eval
 from tqdm import tqdm
 from abc import ABC, abstractmethod
@@ -159,25 +158,18 @@ class ModuleHelperCore(ABC):
     def do_dump(self, args) -> bool:
         """导出配置到文件或控制台"""
         ## parse args & check
-        try:
-            parser = argparse.ArgumentParser(exit_on_error=False)
-            parser.add_argument(
-                "-a", "--pretty_array_stdout", default=64, type=int, help="控制台美观输出：限制数组类型参数的输出元素量"
-            )
-            parser.add_argument(
-                "-l", "--pretty_lines_stdout", default=16, type=int, help="控制台美观输出：限制寄存器输出最大行数"
-            )
-            parser.add_argument(
-                "-n", "--align", default=4, type=int, help="控制台与文件美观输出：设置寄存器输出每行的对齐数"
-            )
-            parser.add_argument("-o", "--output", default="", type=str, nargs='+', help="导出的目标文件，可指定多个")
-            args, _ = parser.parse_known_args(args)
-        except Exception as e:
-            tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
-            lineno = tb.lineno
-            filename = os.path.basename(tb.filename)
-            print(f"[{self.name}] error in {filename}:{lineno}: {e}")
-            return False  # 不退出
+        parser = argparse.ArgumentParser(exit_on_error=False)
+        parser.add_argument(
+            "-a", "--pretty_array_stdout", default=64, type=int, help="控制台美观输出：限制数组类型参数的输出元素量"
+        )
+        parser.add_argument(
+            "-l", "--pretty_lines_stdout", default=16, type=int, help="控制台美观输出：限制寄存器输出最大行数"
+        )
+        parser.add_argument(
+            "-n", "--align", default=4, type=int, help="控制台与文件美观输出：设置寄存器输出每行的对齐数"
+        )
+        parser.add_argument("-o", "--output", default="", type=str, nargs='+', help="导出的目标文件，可指定多个")
+        args, _ = parser.parse_known_args(args)
 
         reg_ok = self.config_to_regs()
 
@@ -207,18 +199,11 @@ class ModuleHelperCore(ABC):
 
     def do_gen(self, args) -> bool:
         ## parse args & check
-        try:
-            parser = argparse.ArgumentParser(exit_on_error=False)
-            parser.add_argument("-n", "--num", default=1, type=int, help="生成随机配置的数量")
-            parser.add_argument("-s", "--rand_seed", type=int, help="起始随机种子(n>1时随机种子自增1)")
-            parser.add_argument("-o", "--output", default="", type=str, help="生成的配置文件或目录(n>1时指定目录)")
-            args, _ = parser.parse_known_args(args)
-        except Exception as e:
-            tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
-            lineno = tb.lineno
-            filename = os.path.basename(tb.filename)
-            print(f"[{self.name}] error in {filename}:{lineno}: {e}")
-            return False  # 不退出
+        parser = argparse.ArgumentParser(exit_on_error=False)
+        parser.add_argument("-n", "--num", default=1, type=int, help="生成随机配置的数量")
+        parser.add_argument("-s", "--rand_seed", type=int, help="起始随机种子(n>1时随机种子自增1)")
+        parser.add_argument("-o", "--output", default="", type=str, help="生成的配置文件或目录(n>1时指定目录)")
+        args, _ = parser.parse_known_args(args)
 
         args.num = max(1, args.num)
         abs_path = os.path.abspath(args.output)

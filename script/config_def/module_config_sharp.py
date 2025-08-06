@@ -4,7 +4,7 @@ FilePath    : module_config_sharp_lite.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-08-05
 Description :
-LastEditTime: 2025-08-05
+LastEditTime: 2025-08-06
 """
 
 import os
@@ -12,6 +12,7 @@ import sys
 import json
 import random
 import argparse
+import traceback
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import *
@@ -49,34 +50,7 @@ class s_sharp_en_ctrl:
     i_texture_adj_en = 0
 
 
-class s_lti_h:
-    i_Radius = 1
-    i_Slope = 100
-    i_Thresold = 21
-    i_Gain = 8
-    i_noiseThrPos = 1023
-    i_noiseThrNeg = 1023
-
-
-class s_cti_h:
-    i_Radius = 1
-    i_Slope = 100
-    i_Thresold = 21
-    i_Gain = 8
-    i_noiseThrPos = 1023
-    i_noiseThrNeg = 1023
-
-
-class s_lti_v:
-    i_Radius = 1
-    i_Slope = 100
-    i_Thresold = 21
-    i_Gain = 8
-    i_noiseThrPos = 1023
-    i_noiseThrNeg = 1023
-
-
-class s_cti_v:
+class s_lcti_hv:
     i_Radius = 1
     i_Slope = 100
     i_Thresold = 21
@@ -156,12 +130,12 @@ class s_shootCtrl:
 
 class s_globalGain:
     i_lum_mode = 0
-    t_lum_grd = [0, 200, 300, 860, 960, 1023]
-    t_lum_val = [40, 50, 64, 70, 80, 90]
-    t_adp_grd = [0, 4, 60, 200, 300, 1023]
-    t_adp_val = [64, 64, 64, 64, 64, 64]
-    t_var_grd = [0, 39, 102, 209, 500, 1023]
-    t_var_val = [36, 54, 64, 64, 64, 64]
+    t_lum_grd = [0, 200, 300, 860, 960, 1023]  # u10, [0, 1023]
+    t_lum_val = [40, 50, 64, 70, 80, 90]  # u7, [0, 127]
+    t_adp_grd = [0, 4, 60, 200, 300, 1023]  # u10, [0, 1023]
+    t_adp_val = [64, 64, 64, 64, 64, 64]  # u7, [0, 127]
+    t_var_grd = [0, 39, 102, 209, 500, 1023]  # u10, [0, 1023]
+    t_var_val = [36, 54, 64, 64, 64, 64]  # u7, [0, 127]
 
 
 class s_colorCtrl:
@@ -192,7 +166,7 @@ class s_sharpRoiCfg:
 
 
 class SharpConfig(ModuleConfigCore):
-    def __init__(self, name: str = "Sharp", version: str = "unknown"):
+    def __init__(self, name: str = "SharpFull", version: str = "unknown"):
         super().__init__(name, version)
 
         ## RK3538-VOP3-SHARK
@@ -200,10 +174,10 @@ class SharpConfig(ModuleConfigCore):
         self.i_SharpSimMode = 0
         self.s_sharp_hw_config = s_sharp_hw_config()
         self.s_sharp_en_ctrl = s_sharp_en_ctrl()
-        self.s_lti_h = s_lti_h()
-        self.s_cti_h = s_cti_h()
-        self.s_lti_v = s_lti_v()
-        self.s_cti_v = s_cti_v()
+        self.s_lti_h = s_lcti_hv()
+        self.s_cti_h = s_lcti_hv()
+        self.s_lti_v = s_lcti_hv()
+        self.s_cti_v = s_lcti_hv()
         self.s_peaking = s_peaking()
         self.s_shootCtrl = s_shootCtrl()
         self.s_globalGain = s_globalGain()
@@ -693,7 +667,8 @@ class SharpConfig(ModuleConfigCore):
                 self.randSeed = data["randSeed"] if "randSeed" in data else -1
                 return True
         except Exception as e:
-            self.logger.error(f"load config file '{filename}' failed: {e}")
+            tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
+            self.logger.error(f"load config '{filename}' failed in '{os.path.basename(tb.filename)}'-{tb.lineno}: {e}")
             return False
 
     def check(self) -> bool:

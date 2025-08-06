@@ -4,7 +4,7 @@ FilePath    : module_config_sharp_lite.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-10
 Description :
-LastEditTime: 2025-07-28
+LastEditTime: 2025-08-06
 """
 
 import os
@@ -12,6 +12,7 @@ import sys
 import json
 import random
 import argparse
+import traceback
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import *
@@ -145,7 +146,8 @@ class SharpLiteConfig(ModuleConfigCore):
                 self.randSeed = data["randSeed"] if "randSeed" in data else -1
                 return True
         except Exception as e:
-            self.logger.error(f"load config file '{filename}' failed: {e}")
+            tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
+            self.logger.error(f"load config '{filename}' failed in '{os.path.basename(tb.filename)}'-{tb.lineno}: {e}")
             return False
 
     def check(self) -> bool:
@@ -163,23 +165,23 @@ class SharpLiteConfig(ModuleConfigCore):
         self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
 
         self.i_sharp_lite_en = int(random.randint(0, 99) < 90)  # 90% be ON
-        self.f_usm_sigma_0 = random.random() * 3 + 1e-3  # [1e-3, 3]
-        self.f_usm_sigma_1 = random.random() * 3 + 1e-3  # [1e-3, 3]
-        self.f_usm_gain_0 = random.random() * 5 + 1e-3  # [1e-3, 5]
-        self.f_usm_gain_1 = random.random() * 5 + 1e-3  # [1e-3, 5]
+        self.f_usm_sigma_0 = random.random() * 1.9 + 0.1  # [0.1, 2.0]
+        self.f_usm_sigma_1 = random.random() * 1.9 + 0.1  # [0.1, 2.0]
+        self.f_usm_gain_0 = random.random() * 4  # [0.0, 4.0]
+        self.f_usm_gain_1 = random.random() * 4  # [0.0, 4.0]
         self.f_usm_coring_thr = random.randint(0, 127)
-        self.i_shoot_ctrl_en = random.randint(0, 1)
+        self.i_shoot_ctrl_en = int(random.randint(0, 99) < 60)  # 60% be ON
         self.i_shoot_ctrl_delta_offset = random.randint(0, 255)
         self.i_shoot_ctrl_pos = random.randint(0, 127)
         self.i_shoot_ctrl_neg = random.randint(0, 127)
         self.i_shoot_ctrl_pos_unlimit = max(random.randint(0, 127), self.i_shoot_ctrl_pos)
         self.i_shoot_ctrl_neg_unlimit = max(random.randint(0, 127), self.i_shoot_ctrl_neg)
         self.i_sharp_roi_enable = int(random.randint(0, 99) < 30)  # 30% be ON
-        self.i_sharp_roi_xstart = random.randint(0, 1000)
-        self.i_sharp_roi_xend = random.randint(4, 1200)
-        self.i_sharp_roi_ystart = random.randint(0, 600)
-        self.i_sharp_roi_yend = random.randint(4, 800)
-        self.i_sharp_force_core_mode = int(random.randint(0, 99) < 50)  # 50% be ON
+        self.i_sharp_roi_xstart = random.randint(0, 4095)
+        self.i_sharp_roi_xend = random.randint(0, 4095)
+        self.i_sharp_roi_ystart = random.randint(0, 4095)
+        self.i_sharp_roi_yend = random.randint(0, 4095)
+        self.i_sharp_force_core_mode = int(random.randint(0, 99) < 80)  # 80% be ON
         self.i_sharp_core_A = random.randint(-128, 127)
         self.i_sharp_core_B = random.randint(-128, 127)
         self.i_sharp_core_C = random.randint(-128, 127)
@@ -191,10 +193,10 @@ class SharpLiteConfig(ModuleConfigCore):
         #     self.sharp_core_C = max(self.sharp_core_C - delta * 1, 0)
         #     coefSum = (self.sharp_core_A + self.sharp_core_B) * 4 + self.sharp_core_C
         self.i_sharp_usm_gain = random.randint(0, 1023)
-        self.i_ink_enable = 0
-        self.i_ink_mode = 0
-        self.i_ink_idx_h = 0
-        self.i_ink_idx_v = 0
+        self.i_ink_enable = random.randint(0, 1)
+        self.i_ink_mode = random.randint(0, 3)
+        self.i_ink_idx_h = random.randint(0, 4095)
+        self.i_ink_idx_v = random.randint(0, 4095)
 
         ## check if passthrough mode
         passthrough = None
