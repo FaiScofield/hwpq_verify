@@ -4,7 +4,7 @@ FilePath    : module_config_dci.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-29
+LastEditTime: 2025-08-06
 """
 
 import os
@@ -13,7 +13,7 @@ import json
 import random
 import argparse
 import math
-from matplotlib.pylab import rand
+import traceback
 import numpy as np
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
@@ -251,7 +251,8 @@ class DciConfig(ModuleConfigCore):
                 self.vop_config.dci_global_lut = np.array(vop_data["dci_global_lut"], dtype=np.uint16)
                 return True
         except Exception as e:
-            self.logger.error(f"load config file '{filename}' failed: {e}")
+            tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
+            self.logger.error(f"load config '{filename}' failed in '{os.path.basename(tb.filename)}'-{tb.lineno}: {e}")
             return False
 
     def check(self) -> bool:

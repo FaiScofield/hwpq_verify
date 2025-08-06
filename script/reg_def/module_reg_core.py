@@ -4,7 +4,7 @@ FilePath    : module_reg_core.py
 Description :
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-11
-LastEditTime: 2025-08-01
+LastEditTime: 2025-08-06
 """
 
 import os
@@ -13,10 +13,32 @@ import re
 import numpy as np
 from abc import ABC, abstractmethod
 from typing import Optional, Union
+from enum import Enum
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def import ModuleConfigCore
 from utils import setup_logger
+
+# class RegMask(Enum):
+RM1 = 0x01
+RM2 = 0x03
+RM3 = 0x07
+RM4 = 0x0F
+RM5 = 0x1F
+RM6 = 0x3F
+RM7 = 0x7F
+RM8 = 0xFF
+RM9 = 0x1FF
+RM10 = 0x3FF
+RM11 = 0x7FF
+RM12 = 0xFFF
+RM13 = 0x1FFF
+RM14 = 0x3FFF
+RM15 = 0x7FFF
+RM16 = 0xFFFF
+RM20 = 0xFFFFF
+RM24 = 0xFFFFFF
+RM32 = 0xFFFFFFFF
 
 
 class Reg:
@@ -45,7 +67,7 @@ class ModuleRegisterCore(ABC):
     ## =============== abstract methods  ===============
     @abstractmethod
     def update(self, **kwargs) -> bool:
-        return False
+        return self.check_regs()
 
     @abstractmethod
     def config2regs(self) -> bool:
@@ -255,3 +277,30 @@ class ModuleRegisterCore(ABC):
         if invalid_cnt > 0:
             self.logger.warning(f"count {invalid_cnt} invalid value(s) in this line str: {line_str}")
         return valid_regs_val_pairs
+
+    def check_regs(self) -> bool:
+        unq_names = set()
+        unq_offsets = set()
+        dup_names = set()
+        dup_offsets = set()
+
+        for reg in self.regs:
+            if reg.name in unq_names:
+                dup_names.add(reg.name)
+            else:
+                unq_names.add(reg.name)
+            if reg.offset in unq_offsets:
+                dup_offsets.add(reg.offset)
+            else:
+                unq_offsets.add(reg.offset)
+
+        if len(dup_names) > 0:
+            self.logger.error(f"duplicate register name found: {dup_names}!")
+            return False
+        if len(dup_offsets) > 0:
+            self.logger.error(f"duplicate register offset found: {dup_offsets}!")
+            return False
+        if len(self.regs) != self.nb_regs:
+            self.logger.error(f"the real number of registers({len(self.regs)}) is not equal to manul defined nb_regs({self.nb_regs})!")
+            return False
+        return True

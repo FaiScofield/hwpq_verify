@@ -69,7 +69,7 @@ class CscRegister(ModuleRegisterCore):
     ## =============== overwrite methods  ===============
     def update(self, **kwargs) -> bool:
         if "platform" in kwargs:
-            self.platform = kwargs["platform"]
+            self.platform = kwargs["platform"].upper()
         if "index" in kwargs:
             index = kwargs["index"]
             self.index = index if isinstance(index, CscModuleIndex) else CscModuleIndex[index]
@@ -118,7 +118,7 @@ class CscRegister(ModuleRegisterCore):
             ]
             if self.index in self.reg_dicts:
                 self.regs = self.reg_dicts[self.index]
-                return True
+                return self.check_regs()
             else:
                 self.logger.error(f"HW module {self.index} is invalid on {self.platform} now!")
         else:

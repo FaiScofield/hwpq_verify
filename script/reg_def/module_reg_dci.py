@@ -10,6 +10,7 @@ LastEditTime: 2025-07-30
 import os
 import sys
 import argparse
+import traceback
 from enum import Enum
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
@@ -39,7 +40,7 @@ class DciRegister(ModuleRegisterCore):
     ## =============== overwrite methods  ===============
     def update(self, **kwargs) -> bool:
         if "platform" in kwargs:
-            self.platform = kwargs["platform"]
+            self.platform = kwargs["platform"].upper()
         if "index" in kwargs:
             index = kwargs["index"]
             self.index = index if isinstance(index, DciModuleIndex) else DciModuleIndex[index]
@@ -72,9 +73,8 @@ class DciRegister(ModuleRegisterCore):
             self.packed_lut = np.zeros(5632, dtype=np.uint8)
             self.regs = self.reg_dicts[self.index]
 
-            assert len(self.regs) == self.nb_regs
             assert self.regs[0].offset == self.base_addr
-            return True
+            return self.check_regs()
         else:
             self.logger.error(f"Platform {self.platform} is not supported now!")
         return False
@@ -83,6 +83,7 @@ class DciRegister(ModuleRegisterCore):
         if len(self.regs) < self.nb_regs:
             self.logger.error(f"current registers num={len(self.regs)} is not equal to required={self.nb_regs}!")
             return False
+
         cfg = self.config
         self.set(
             name="DCI_BLK_SIZE",
@@ -145,7 +146,8 @@ class DciRegister(ModuleRegisterCore):
             self.config.vop_config.dci_enable = (val >> 0) & 0x1
             self.config.vop_config.ca_enable = (val >> 1) & 0x1
         except Exception as e:
-            self.logger.error(f"get register value error: {e}")
+            tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
+            self.logger.error(f"regs2config error in '{os.path.basename(tb.filename)}'-{tb.lineno}: {e}")
             return False
 
         ## get self.packed_lut then unpack it to global_lut_x256, locat_ratio_x256, local_lut_x4096
@@ -260,7 +262,7 @@ if __name__ == "__main__":
     parser.print_usage()
     args = parser.parse_args()
 
-    register = DciRegister()
+    register = DciRegister(platform=args.platform)
 
     if args.interface == "load":
         register.load(args.file)

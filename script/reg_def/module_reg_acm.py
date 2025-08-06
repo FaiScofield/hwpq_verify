@@ -4,7 +4,7 @@ FilePath    : reg_def_acm.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-08-04
+LastEditTime: 2025-08-06
 """
 
 import os
@@ -26,6 +26,8 @@ class AcmRegister(ModuleRegisterCore):
 
     ## =============== overwrite methods  ===============
     def update(self, **kwargs) -> bool:
+        if "platform" in kwargs:
+            self.platform = kwargs["platform"].upper()
         if self.platform.lower() == "rk3572":
             self.base_addr = 0xF9000000
             self.nb_regs = 441
@@ -38,8 +40,7 @@ class AcmRegister(ModuleRegisterCore):
             self.regs += [Reg(0x00006500 + idx * 4, 0x0, f"YHS_GAIN_BY_Y_SEG{idx}") for idx in range(153)]  # 17*9
             self.regs += [Reg(0x00006764 + idx * 4, 0x0, f"YHS_GAIN_BY_S_SEG{idx}") for idx in range(221)]  # 17*13
             self.regs += [Reg(0x00006AD8 + idx * 4, 0x0, f"YHS_DEL_BY_H_SEG{idx}") for idx in range(65)]
-            assert len(self.regs) == self.nb_regs
-            return True
+            return self.check_regs()
         else:
             self.logger.error(f"Platform {self.platform} is not supported now!")
         return False
@@ -116,7 +117,7 @@ if __name__ == "__main__":
     parser.print_usage()
     args = parser.parse_args()
 
-    register = AcmRegister()
+    register = AcmRegister(platform=args.platform)
 
     if args.interface == "load":
         register.load(args.file)

@@ -4,7 +4,7 @@ FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-29
+LastEditTime: 2025-08-06
 """
 
 import os
@@ -12,6 +12,7 @@ import sys
 import json
 import random
 import argparse
+import traceback
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import *
@@ -166,7 +167,8 @@ class CfaConfig(ModuleConfigCore):
                 self.randSeed = data["randSeed"] if "randSeed" in data else -1
                 return True
         except Exception as e:
-            self.logger.error(f"load config file '{filename}' failed: {e}")
+            tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
+            self.logger.error(f"load config '{filename}' failed in '{os.path.basename(tb.filename)}'-{tb.lineno}: {e}")
             return False
 
     def check(self) -> bool:

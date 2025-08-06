@@ -4,7 +4,7 @@ FilePath    : reg_def_cgc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-30
 Description :
-LastEditTime: 2025-08-04
+LastEditTime: 2025-08-06
 """
 
 import os
@@ -44,7 +44,7 @@ class CgcRegister(ModuleRegisterCore):
     ## =============== overwrite methods  ===============
     def update(self, **kwargs) -> bool:
         if "platform" in kwargs:
-            self.platform = kwargs["platform"]
+            self.platform = kwargs["platform"].upper()
         if "index" in kwargs:
             index = kwargs["index"]
             self.index = index if isinstance(index, CgcModuleIndex) else CgcModuleIndex[index]
@@ -103,8 +103,7 @@ class CgcRegister(ModuleRegisterCore):
             ]
 
             self.regs = self.reg_dicts[self.index]
-            assert len(self.regs) == self.nb_regs
-            return True
+            return self.check_regs()
         else:
             self.logger.error(f"Platform {self.platform} is not supported now!")
         return False
@@ -209,9 +208,7 @@ class CgcRegister(ModuleRegisterCore):
                 self.config.cgc_params.cgc_oetf_tab[i] = self.get(name=f"CGCOEFT_CURVE{i}")
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
-            lineno = tb.lineno
-            filename = os.path.basename(tb.filename)
-            self.logger.error(f"regs2config error in {filename}:{lineno}: {e}")
+            self.logger.error(f"regs2config error in '{os.path.basename(tb.filename)}'-{tb.lineno}: {e}")
             return False
         return True
 
@@ -225,7 +222,7 @@ if __name__ == "__main__":
     parser.print_usage()
     args = parser.parse_args()
 
-    register = CgcRegister()
+    register = CgcRegister(platform=args.platform)
 
     if args.interface == "load":
         register.load(args.file)
