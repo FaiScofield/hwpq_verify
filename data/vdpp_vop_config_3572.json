@@ -45,7 +45,7 @@
       "cscGOffset": 256,
       "cscBOffset": 256,
       "cscMatrix": [ 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 ],
-	  "cscVector": [0, 0, 0]
+      "cscVector": [0, 0, 0]
     },
     "dci": {
       "s_vdpp_hist_cnt": {
@@ -822,8 +822,8 @@
       }
     },
     "dither": {
-    "i_dither_en":	1,
-    "s_dither_params": {
+      "i_dither_en":	1,
+      "s_dither_params": {
         "#i_dither_mode":"dither mode-- 0: rgb101010to888, 1: rgb101010torgb101010, 2: rgb888torgb101010, 3: rgb888torgb888, otherwise: depending on 'fmt_in'/'fmt_out' and 'bit_in'/'bit_out' below",
         "i_dither_mode":	0,
         "#i_dither_fmt_in":"input format-- 0: rgb888, 1: rgb101010, 2: yuv444p8bit, 3: yuv444p10bit",
@@ -844,7 +844,7 @@
         "t_dither_DA_index": [ 0, 0, 0],
         "#t_dither_dither_strength":"dither noise strength for each channel",
         "t_dither_dither_strength": [ 256, 256, 256 ]
-    }
+      }
     },
     "letter_box_dec": {
         "i_letter_box_en": 1,
