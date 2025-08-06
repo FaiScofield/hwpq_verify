@@ -21,8 +21,8 @@ from utils import NoIndent, CompactArrayEncoder
 
 
 class AcmConfig(ModuleConfigCore):
-    def __init__(self, name: str = "ACM", version: str = "unknown"):
-        super().__init__(name, version)
+    def __init__(self, name: str = "ACM", platform: str = "RK3572"):
+        super().__init__(name, platform)
 
         self.acmEnable = 1
         self.acmTableDeltaYbyH = np.zeros(65, dtype=np.int16)  # [-255, 255]
@@ -135,7 +135,7 @@ class AcmConfig(ModuleConfigCore):
         np.random.seed(seed)
 
         self.randSeed = seed
-        self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
+        self.version = f"{self.name.lower()}_config_{self.platform.lower()}_random_seed_{seed}"
 
         self.acmEnable = int(random.randint(0, 99) < 95)  # 95% be ON
         self.lumGain = random.randint(0, 1023)
@@ -163,7 +163,7 @@ if __name__ == "__main__":
     parser.print_usage()
     args = parser.parse_args()
 
-    config = AcmConfig()
+    config = AcmConfig(platform=args.platform)
     if args.interface == "gen":
         seed = config.gen(args.seed)
         config.dump(args.file)

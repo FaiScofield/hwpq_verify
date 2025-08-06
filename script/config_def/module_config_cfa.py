@@ -20,8 +20,8 @@ from utils import NoIndent, CompactArrayEncoder
 
 
 class CfaConfig(ModuleConfigCore):
-    def __init__(self, name: str = "CFA", version: str = "unknown"):
-        super().__init__(name, version)
+    def __init__(self, name: str = "CFA", platform: str = "RK3572"):
+        super().__init__(name, platform)
 
         self.nCallCnt = 0
         self.nFrameIdx = 0
@@ -182,7 +182,7 @@ class CfaConfig(ModuleConfigCore):
             seed = self.randSeed + 1  # increase rand seed if no argument in
         random.seed(seed)
 
-        self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
+        self.version = f"{self.name.lower()}_config_{self.platform.lower()}_random_seed_{seed}"
         self.nCallCnt = 0
         self.nFrameIdx = 0
         self.nImgWid = random.randint(4, 4000) // 4 * 4  # align to 4
@@ -232,7 +232,7 @@ if __name__ == "__main__":
     parser.print_usage()
     args = parser.parse_args()
 
-    config = CfaConfig()
+    config = CfaConfig(platform=args.platform)
     if args.interface == "gen":
         seed = config.gen(args.seed)
         config.dump(args.file)

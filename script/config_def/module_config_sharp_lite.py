@@ -19,8 +19,8 @@ from config_def.module_config_core import *
 
 
 class SharpLiteConfig(ModuleConfigCore):
-    def __init__(self, name: str = "SharpLite", version: str = "unknown"):
-        super().__init__(name, version)
+    def __init__(self, name: str = "SharpLite", platform: str = "RK3572"):
+        super().__init__(name, platform)
 
         ## RK3572-VOP3-ROBIN
         self.i_sharp_lite_en = 1  # u1
@@ -162,7 +162,7 @@ class SharpLiteConfig(ModuleConfigCore):
         random.seed(seed)
 
         self.randSeed = seed
-        self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
+        self.version = f"{self.name.lower()}_config_{self.platform.lower()}_random_seed_{seed}"
 
         self.i_sharp_lite_en = int(random.randint(0, 99) < 90)  # 90% be ON
         self.f_usm_sigma_0 = random.random() * 1.9 + 0.1  # [0.1, 2.0]
@@ -218,7 +218,7 @@ if __name__ == "__main__":
     parser.print_usage()
     args = parser.parse_args()
 
-    config = SharpLiteConfig()
+    config = SharpLiteConfig(platform=args.platform)
     if args.interface == "gen":
         seed = config.gen(args.seed)
         config.dump(args.file)

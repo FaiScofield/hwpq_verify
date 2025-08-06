@@ -35,12 +35,12 @@ class CgcHWParam_VOP:
 
 
 class CgcConfig(ModuleConfigCore):
-    def __init__(self, name: str = "CGC", version: str = "unknown"):
-        super().__init__(name, version)
+    def __init__(self, name: str = "CGC", platform: str = "RK3572"):
+        super().__init__(name, platform)
 
         self.cgc_en = 1
         self.sdr2hdr_enable = 0
-        self.cgc_params = CgcHWParam_VOP()
+        self.cgc_params = CgcHWParam_VOP(self.platform)
 
     ## =============== overwrite methods  ===============
     def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
@@ -139,7 +139,7 @@ class CgcConfig(ModuleConfigCore):
         np.random.seed(seed)
 
         self.randSeed = seed
-        self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
+        self.version = f"{self.name.lower()}_config_{self.platform.lower()}_random_seed_{seed}"
 
         self.cgc_en = int(random.randint(0, 99) < 95)  # 95% be ON
         self.sdr2hdr_enable = 0  # aways be 0
@@ -165,7 +165,7 @@ if __name__ == "__main__":
     parser.print_usage()
     args = parser.parse_args()
 
-    config = CgcConfig()
+    config = CgcConfig(platform=args.platform)
     if args.interface == "gen":
         seed = config.gen(args.seed)
         config.dump(args.file)

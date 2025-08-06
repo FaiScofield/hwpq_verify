@@ -33,21 +33,21 @@ class s_sharp_hw_config:
 
 
 class s_sharp_en_ctrl:
-    i_lti_h_en = 0
-    i_lti_v_en = 0
-    i_cti_h_en = 0
-    i_cti_v_en = 0
+    i_lti_h_en = 0  # invalid on RK3538
+    i_lti_v_en = 0  # invalid on RK3538
+    i_cti_h_en = 0  # invalid on RK3538
+    i_cti_v_en = 0  # invalid on RK3538
     i_peaking_en = 1
     i_peaking_gain_en = 1
     i_peaking_coring_en = 1
     i_peaking_limit_ctrl_en = 1
-    i_peaking_shoot_ctrl_en = 0
-    i_peaking_edge_ctrl_en = 0
-    i_peaking_edge_shoot_ctrl_en = 0
+    i_peaking_shoot_ctrl_en = 0 # invalid on RK3538
+    i_peaking_edge_ctrl_en = 1
+    i_peaking_edge_shoot_ctrl_en = 1
     i_shoot_ctrl_en = 1
     i_global_gain_en = 0
-    i_color_adj_en = 0
-    i_texture_adj_en = 0
+    i_color_adj_en = 1
+    i_texture_adj_en = 1
 
 
 class s_lcti_hv:
@@ -61,20 +61,20 @@ class s_lcti_hv:
 
 class s_peaking:
     # s_gain
-    t_GainPos = [0, 0, 0, 0, 0, 0, 0, 1024]
-    t_GainNeg = [0, 0, 0, 0, 0, 0, 0, 1024]
+    t_GainPos = [128, 512, 1024, 512, 1024, 800, 800, 1024]
+    t_GainNeg = [128, 512, 1024, 512, 1024, 800, 800, 1024]
     # s_coring
-    t_CoringThreshold = [40, 40, 40, 24, 26, 30, 26, 24]
+    t_CoringThreshold = [40, 40, 40, 24, 26, 30, 26, 26]
     t_CoringRatio = [1479, 1188, 1024, 1422, 1024, 1024, 1024, 1024]
-    t_CoringZero = [5, 5, 8, 5, 8, 5, 5, 24]
+    t_CoringZero = [5, 5, 8, 5, 8, 5, 5, 7]
     # s_limitCtrl
-    t_LimitPos0 = [64, 64, 64, 64, 64, 64, 64, 1023]
-    t_LimitPos1 = [120, 120, 120, 120, 120, 120, 120, 1023]
-    t_LimitNeg0 = [64, 64, 64, 64, 64, 64, 64, 1023]
-    t_LimitNeg1 = [120, 120, 120, 120, 120, 120, 120, 1023]
-    t_LimitRatio = [128, 128, 128, 128, 128, 128, 128, 1024]
-    t_LimitboundPos = [81, 131, 63, 81, 63, 63, 63, 1023]
-    t_LimitboundNeg = [81, 131, 63, 81, 63, 63, 63, 1023]
+    t_LimitPos0 = [64, 64, 64, 64, 64, 64, 64, 64]
+    t_LimitPos1 = [120, 120, 120, 120, 120, 120, 120, 120]
+    t_LimitNeg0 = [64, 64, 64, 64, 64, 64, 64, 64]
+    t_LimitNeg1 = [120, 120, 120, 120, 120, 120, 120, 120]
+    t_LimitRatio = [128, 128, 128, 128, 128, 128, 128, 128]
+    t_LimitboundPos = [81, 131, 63, 81, 63, 63, 63, 63]
+    t_LimitboundNeg = [81, 131, 63, 81, 63, 63, 63, 63]
     # s_shootAdj
     t_ShootAdjDeltaOffset = [32, 32, 32, 32, 32, 32, 32, 32]
     t_ShootAdjAlphaOver = [8, 8, 8, 8, 8, 8, 8, 8]
@@ -95,10 +95,10 @@ class s_peaking:
     # s_edge_shoot_ctrl_param
     class s_direct:
         i_delta_offset = 4
-        i_alpha_over = 8
+        i_alpha_over = 16
         i_alpha_under = 16
-        i_alpha_over_unlimit = 64
-        i_alpha_under_unlimit = 112
+        i_alpha_over_unlimit = 96
+        i_alpha_under_unlimit = 96
 
     edge_shoot_s_direct_h = s_direct()
     edge_shoot_s_direct_v = s_direct()
@@ -107,25 +107,25 @@ class s_peaking:
     edge_shoot_s_direct_non = s_direct()
     # s_filter_cfg
     i_diag_enh_coef = 6
-    t_filt_core_H0 = [0, 0, 0, 0, 0, 0]
+    t_filt_core_H0 = [1, 10, 45, 120, 210, 252]
     t_filt_core_H1 = [-9, -55, -119, -73, 128, 256]
     t_filt_core_H2 = [0, 0, 0, -256, 0, 512]
     t_filt_core_H3 = [0, 0, 0, 0, -256, 512]
-    t_filt_core_V0 = [0, 0, 0]
+    t_filt_core_V0 = [1, 4, 6]
     t_filt_core_V1 = [-4, 0, 8]
     t_filt_core_V2 = [0, -4, 8]
-    t_filt_core_USM = [0, -4, -8]
+    t_filt_core_USM = [1, 4, 6]
     # peakingGain
-    i_peakingGain = 196
+    i_peakingGain = 160
 
 
 class s_shootCtrl:
-    i_FilterRadius = 0
-    i_Delta_offset = 48
-    i_Alpha_over = 16
-    i_Alpha_under = 24
-    i_Alpha_over_unlimit = 60
-    i_Alpha_under_unlimit = 48
+    i_FilterRadius = 1
+    i_Delta_offset = 32
+    i_Alpha_over = 8
+    i_Alpha_under = 8
+    i_Alpha_over_unlimit = 64
+    i_Alpha_under_unlimit = 112
 
 
 class s_globalGain:
@@ -166,8 +166,8 @@ class s_sharpRoiCfg:
 
 
 class SharpConfig(ModuleConfigCore):
-    def __init__(self, name: str = "SharpFull", version: str = "unknown"):
-        super().__init__(name, version)
+    def __init__(self, name: str = "SharpFull", platform: str = "RK3572"):
+        super().__init__(name, platform)
 
         ## RK3538-VOP3-SHARK
         self.i_EnabledSharpen = 1
@@ -433,36 +433,34 @@ class SharpConfig(ModuleConfigCore):
                     self.logger.info(f"load config from pq_tuning_param.SHARPNESS ...")
                     data = data["pq_tuning_param"]["SHARPNESS"]
 
-                self.s_sharp_hw_config.lti_gating_en = data["s_sharp_hw_config"]["lti_gating_en"]
-                self.s_sharp_hw_config.cti_gating_en = data["s_sharp_hw_config"]["cti_gating_en"]
-                self.s_sharp_hw_config.peaking_gating_en = data["s_sharp_hw_config"]["peaking_gating_en"]
-                self.s_sharp_hw_config.peaking_ctrl_gating_en = data["s_sharp_hw_config"]["peaking_ctrl_gating_en"]
-                self.s_sharp_hw_config.peaking_shoot_ctrl_gating_en = data["s_sharp_hw_config"][
-                    "peaking_shoot_ctrl_gating_en"
-                ]
-                self.s_sharp_hw_config.edge_proc_gating_en = data["s_sharp_hw_config"]["edge_proc_gating_en"]
-                self.s_sharp_hw_config.shoot_ctrl_gating_en = data["s_sharp_hw_config"]["shoot_ctrl_gating_en"]
-                self.s_sharp_hw_config.gain_ctrl_gating_en = data["s_sharp_hw_config"]["gain_ctrl_gating_en"]
-                self.s_sharp_hw_config.color_adj_gating_en = data["s_sharp_hw_config"]["color_adj_gating_en"]
-                self.s_sharp_hw_config.texture_adj_gating_en = data["s_sharp_hw_config"]["texture_adj_gating_en"]
+                subdata = data["s_sharp_hw_config"]
+                self.s_sharp_hw_config.lti_gating_en = subdata["lti_gating_en"]
+                self.s_sharp_hw_config.cti_gating_en = subdata["cti_gating_en"]
+                self.s_sharp_hw_config.peaking_gating_en = subdata["peaking_gating_en"]
+                self.s_sharp_hw_config.peaking_ctrl_gating_en = subdata["peaking_ctrl_gating_en"]
+                self.s_sharp_hw_config.peaking_shoot_ctrl_gating_en = subdata["peaking_shoot_ctrl_gating_en"]
+                self.s_sharp_hw_config.edge_proc_gating_en = subdata["edge_proc_gating_en"]
+                self.s_sharp_hw_config.shoot_ctrl_gating_en = subdata["shoot_ctrl_gating_en"]
+                self.s_sharp_hw_config.gain_ctrl_gating_en = subdata["gain_ctrl_gating_en"]
+                self.s_sharp_hw_config.color_adj_gating_en = subdata["color_adj_gating_en"]
+                self.s_sharp_hw_config.texture_adj_gating_en = subdata["texture_adj_gating_en"]
 
-                self.s_sharp_en_ctrl.i_lti_h_en = data["s_sharp_en_ctrl"]["i_lti_h_en"]
-                self.s_sharp_en_ctrl.i_lti_v_en = data["s_sharp_en_ctrl"]["i_lti_v_en"]
-                self.s_sharp_en_ctrl.i_cti_h_en = data["s_sharp_en_ctrl"]["i_cti_h_en"]
-                self.s_sharp_en_ctrl.i_cti_v_en = data["s_sharp_en_ctrl"]["i_cti_v_en"]
-                self.s_sharp_en_ctrl.i_peaking_en = data["s_sharp_en_ctrl"]["i_peaking_en"]
-                self.s_sharp_en_ctrl.i_peaking_gain_en = data["s_sharp_en_ctrl"]["i_peaking_gain_en"]
-                self.s_sharp_en_ctrl.i_peaking_coring_en = data["s_sharp_en_ctrl"]["i_peaking_coring_en"]
-                self.s_sharp_en_ctrl.i_peaking_limit_ctrl_en = data["s_sharp_en_ctrl"]["i_peaking_limit_ctrl_en"]
-                self.s_sharp_en_ctrl.i_peaking_shoot_ctrl_en = data["s_sharp_en_ctrl"]["i_peaking_shoot_ctrl_en"]
-                self.s_sharp_en_ctrl.i_peaking_edge_ctrl_en = data["s_sharp_en_ctrl"]["i_peaking_edge_ctrl_en"]
-                self.s_sharp_en_ctrl.i_peaking_edge_shoot_ctrl_en = data["s_sharp_en_ctrl"][
-                    "i_peaking_edge_shoot_ctrl_en"
-                ]
-                self.s_sharp_en_ctrl.i_shoot_ctrl_en = data["s_sharp_en_ctrl"]["i_shoot_ctrl_en"]
-                self.s_sharp_en_ctrl.i_global_gain_en = data["s_sharp_en_ctrl"]["i_global_gain_en"]
-                self.s_sharp_en_ctrl.i_color_adj_en = data["s_sharp_en_ctrl"]["i_color_adj_en"]
-                self.s_sharp_en_ctrl.i_texture_adj_en = data["s_sharp_en_ctrl"]["i_texture_adj_en"]
+                subdata = data["s_sharp_en_ctrl"]
+                self.s_sharp_en_ctrl.i_lti_h_en = subdata["i_lti_h_en"]
+                self.s_sharp_en_ctrl.i_lti_v_en = subdata["i_lti_v_en"]
+                self.s_sharp_en_ctrl.i_cti_h_en = subdata["i_cti_h_en"]
+                self.s_sharp_en_ctrl.i_cti_v_en = subdata["i_cti_v_en"]
+                self.s_sharp_en_ctrl.i_peaking_en = subdata["i_peaking_en"]
+                self.s_sharp_en_ctrl.i_peaking_gain_en = subdata["i_peaking_gain_en"]
+                self.s_sharp_en_ctrl.i_peaking_coring_en = subdata["i_peaking_coring_en"]
+                self.s_sharp_en_ctrl.i_peaking_limit_ctrl_en = subdata["i_peaking_limit_ctrl_en"]
+                self.s_sharp_en_ctrl.i_peaking_shoot_ctrl_en = subdata["i_peaking_shoot_ctrl_en"]
+                self.s_sharp_en_ctrl.i_peaking_edge_ctrl_en = subdata["i_peaking_edge_ctrl_en"]
+                self.s_sharp_en_ctrl.i_peaking_edge_shoot_ctrl_en = subdata["i_peaking_edge_shoot_ctrl_en"]
+                self.s_sharp_en_ctrl.i_shoot_ctrl_en = subdata["i_shoot_ctrl_en"]
+                self.s_sharp_en_ctrl.i_global_gain_en = subdata["i_global_gain_en"]
+                self.s_sharp_en_ctrl.i_color_adj_en = subdata["i_color_adj_en"]
+                self.s_sharp_en_ctrl.i_texture_adj_en = subdata["i_texture_adj_en"]
 
                 self.s_lti_h.i_Radius = data["s_lti_h"]["i_Radius"]
                 self.s_lti_h.i_Slope = data["s_lti_h"]["i_Slope"]
@@ -489,140 +487,80 @@ class SharpConfig(ModuleConfigCore):
                 self.s_cti_v.i_noiseThrPos = data["s_cti_v"]["i_noiseThrPos"]
                 self.s_cti_v.i_noiseThrNeg = data["s_cti_v"]["i_noiseThrNeg"]
 
-                self.s_peaking.t_GainPos = data["s_peaking"]["s_gain"]["t_GainPos"]
-                self.s_peaking.t_GainNeg = data["s_peaking"]["s_gain"]["t_GainNeg"]
-                self.s_peaking.t_CoringThreshold = data["s_peaking"]["s_coring"]["t_CoringThreshold"]
-                self.s_peaking.t_CoringRatio = data["s_peaking"]["s_coring"]["t_CoringRatio"]
-                self.s_peaking.t_CoringZero = data["s_peaking"]["s_coring"]["t_CoringZero"]
-                self.s_peaking.t_LimitPos0 = data["s_peaking"]["s_limitCtrl"]["t_LimitPos0"]
-                self.s_peaking.t_LimitPos1 = data["s_peaking"]["s_limitCtrl"]["t_LimitPos1"]
-                self.s_peaking.t_LimitNeg0 = data["s_peaking"]["s_limitCtrl"]["t_LimitNeg0"]
-                self.s_peaking.t_LimitNeg1 = data["s_peaking"]["s_limitCtrl"]["t_LimitNeg1"]
-                self.s_peaking.t_LimitRatio = data["s_peaking"]["s_limitCtrl"]["t_LimitRatio"]
-                self.s_peaking.t_LimitboundPos = data["s_peaking"]["s_limitCtrl"]["t_LimitboundPos"]
-                self.s_peaking.t_LimitboundNeg = data["s_peaking"]["s_limitCtrl"]["t_LimitboundNeg"]
-                self.s_peaking.t_ShootAdjDeltaOffset = data["s_peaking"]["s_shootAdj":]["t_ShootAdjDeltaOffset"]
-                self.s_peaking.t_ShootAdjAlphaOver = data["s_peaking"]["s_shootAdj":]["t_ShootAdjAlphaOver"]
-                self.s_peaking.t_ShootAdjAlphaUnder = data["s_peaking"]["s_shootAdj":]["t_ShootAdjAlphaUnder"]
-                self.s_peaking.t_ShootAdjAlphaOverUnlimit = data["s_peaking"]["s_shootAdj":][
-                    "t_ShootAdjAlphaOverUnlimit"
-                ]
-                self.s_peaking.t_ShootAdjAlphaUnderUnlimit = data["s_peaking"]["s_shootAdj":][
-                    "t_ShootAdjAlphaUnderUnlimit"
-                ]
-                self.s_peaking.edge_ctrl_i_non_dir_thr = data["s_peaking"]["s_edgeCtrl"]["s_edge_ctrl_param"][
-                    "i_non_dir_thr"
-                ]
-                self.s_peaking.edge_ctrl_i_dir_cmp_ratio = data["s_peaking"]["s_edgeCtrl"]["s_edge_ctrl_param"][
-                    "i_dir_cmp_ratio"
-                ]
-                self.s_peaking.edge_ctrl_i_non_dir_wgt_offset = data["s_peaking"]["s_edgeCtrl"]["s_edge_ctrl_param"][
-                    "i_non_dir_wgt_offset"
-                ]
-                self.s_peaking.edge_ctrl_i_non_dir_wgt_ratio = data["s_peaking"]["s_edgeCtrl"]["s_edge_ctrl_param"][
-                    "i_non_dir_wgt_ratio"
-                ]
-                self.s_peaking.edge_ctrl_i_dir_cnt_thr = data["s_peaking"]["s_edgeCtrl"]["s_edge_ctrl_param"][
-                    "i_dir_cnt_thr"
-                ]
-                self.s_peaking.edge_ctrl_i_dir_cnt_avg = data["s_peaking"]["s_edgeCtrl"]["s_edge_ctrl_param"][
-                    "i_dir_cnt_avg"
-                ]
-                self.s_peaking.edge_ctrl_i_dir_cnt_offset = data["s_peaking"]["s_edgeCtrl"]["s_edge_ctrl_param"][
-                    "i_dir_cnt_offset"
-                ]
-                self.s_peaking.edge_ctrl_i_diag_dir_thr = data["s_peaking"]["s_edgeCtrl"]["s_edge_ctrl_param"][
-                    "i_diag_dir_thr"
-                ]
-                self.s_peaking.edge_ctrl_t_diag_adj_gain_tab = data["s_peaking"]["s_edgeCtrl"]["s_edge_ctrl_param"][
-                    "t_diag_adj_gain_tab"
-                ]
-                self.s_peaking.edge_shoot_s_direct_h.i_delta_offset = data["s_peaking"]["s_edge_shoot_ctrl_param"][
-                    "s_direct_h"
-                ]["i_delta_offset"]
-                self.s_peaking.edge_shoot_s_direct_h.i_alpha_over = data["s_peaking"]["s_edge_shoot_ctrl_param"][
-                    "s_direct_h"
-                ]["i_alpha_over"]
-                self.s_peaking.edge_shoot_s_direct_h.i_alpha_under = data["s_peaking"]["s_edge_shoot_ctrl_param"][
-                    "s_direct_h"
-                ]["i_alpha_under"]
-                self.s_peaking.edge_shoot_s_direct_h.i_alpha_over_unlimit = data["s_peaking"][
-                    "s_edge_shoot_ctrl_param"
-                ]["s_direct_h"]["i_alpha_over_unlimit"]
-                self.s_peaking.edge_shoot_s_direct_h.i_alpha_under_unlimit = data["s_peaking"][
-                    "s_edge_shoot_ctrl_param"
-                ]["s_direct_h"]["i_alpha_under_unlimit"]
-                self.s_peaking.edge_shoot_s_direct_v.i_delta_offset = data["s_peaking"]["s_edge_shoot_ctrl_param"][
-                    "s_direct_v"
-                ]["i_delta_offset"]
-                self.s_peaking.edge_shoot_s_direct_v.i_alpha_over = data["s_peaking"]["s_edge_shoot_ctrl_param"][
-                    "s_direct_v"
-                ]["i_alpha_over"]
-                self.s_peaking.edge_shoot_s_direct_v.i_alpha_under = data["s_peaking"]["s_edge_shoot_ctrl_param"][
-                    "s_direct_v"
-                ]["i_alpha_under"]
-                self.s_peaking.edge_shoot_s_direct_v.i_alpha_over_unlimit = data["s_peaking"][
-                    "s_edge_shoot_ctrl_param"
-                ]["s_direct_v"]["i_alpha_over_unlimit"]
-                self.s_peaking.edge_shoot_s_direct_v.i_alpha_under_unlimit = data["s_peaking"][
-                    "s_edge_shoot_ctrl_param"
-                ]["s_direct_v"]["i_alpha_under_unlimit"]
-                self.s_peaking.edge_shoot_s_direct_d0.i_delta_offset = data["s_peaking"]["s_edge_shoot_ctrl_param"][
-                    "s_direct_d0"
-                ]["i_delta_offset"]
-                self.s_peaking.edge_shoot_s_direct_d0.i_alpha_over = data["s_peaking"]["s_edge_shoot_ctrl_param"][
-                    "s_direct_d0"
-                ]["i_alpha_over"]
-                self.s_peaking.edge_shoot_s_direct_d0.i_alpha_under = data["s_peaking"]["s_edge_shoot_ctrl_param"][
-                    "s_direct_d0"
-                ]["i_alpha_under"]
-                self.s_peaking.edge_shoot_s_direct_d0.i_alpha_over_unlimit = data["s_peaking"][
-                    "s_edge_shoot_ctrl_param"
-                ]["s_direct_d0"]["i_alpha_over_unlimit"]
-                self.s_peaking.edge_shoot_s_direct_d0.i_alpha_under_unlimit = data["s_peaking"][
-                    "s_edge_shoot_ctrl_param"
-                ]["s_direct_d0"]["i_alpha_under_unlimit"]
-                self.s_peaking.edge_shoot_s_direct_d1.i_delta_offset = data["s_peaking"]["s_edge_shoot_ctrl_param"][
-                    "s_direct_d1"
-                ]["i_delta_offset"]
-                self.s_peaking.edge_shoot_s_direct_d1.i_alpha_over = data["s_peaking"]["s_edge_shoot_ctrl_param"][
-                    "s_direct_d1"
-                ]["i_alpha_over"]
-                self.s_peaking.edge_shoot_s_direct_d1.i_alpha_under = data["s_peaking"]["s_edge_shoot_ctrl_param"][
-                    "s_direct_d1"
-                ]["i_alpha_under"]
-                self.s_peaking.edge_shoot_s_direct_d1.i_alpha_over_unlimit = data["s_peaking"][
-                    "s_edge_shoot_ctrl_param"
-                ]["s_direct_d1"]["i_alpha_over_unlimit"]
-                self.s_peaking.edge_shoot_s_direct_d1.i_alpha_under_unlimit = data["s_peaking"][
-                    "s_edge_shoot_ctrl_param"
-                ]["s_direct_d1"]["i_alpha_under_unlimit"]
-                self.s_peaking.edge_shoot_s_direct_non.i_delta_offset = data["s_peaking"]["s_edge_shoot_ctrl_param"][
-                    "s_direct_non"
-                ]["i_delta_offset"]
-                self.s_peaking.edge_shoot_s_direct_non.i_alpha_over = data["s_peaking"]["s_edge_shoot_ctrl_param"][
-                    "s_direct_non"
-                ]["i_alpha_over"]
-                self.s_peaking.edge_shoot_s_direct_non.i_alpha_under = data["s_peaking"]["s_edge_shoot_ctrl_param"][
-                    "s_direct_non"
-                ]["i_alpha_under"]
-                self.s_peaking.edge_shoot_s_direct_non.i_alpha_over_unlimit = data["s_peaking"][
-                    "s_edge_shoot_ctrl_param"
-                ]["s_direct_non"]["i_alpha_over_unlimit"]
-                self.s_peaking.edge_shoot_s_direct_non.i_alpha_under_unlimit = data["s_peaking"][
-                    "s_edge_shoot_ctrl_param"
-                ]["s_direct_non"]["i_alpha_under_unlimit"]
+                subdata = data["s_peaking"]
+                self.s_peaking.t_GainPos = subdata["s_gain"]["t_GainPos"]
+                self.s_peaking.t_GainNeg = subdata["s_gain"]["t_GainNeg"]
+                self.s_peaking.t_CoringThreshold = subdata["s_coring"]["t_CoringThreshold"]
+                self.s_peaking.t_CoringRatio = subdata["s_coring"]["t_CoringRatio"]
+                self.s_peaking.t_CoringZero = subdata["s_coring"]["t_CoringZero"]
+                self.s_peaking.t_LimitPos0 = subdata["s_limitCtrl"]["t_LimitPos0"]
+                self.s_peaking.t_LimitPos1 = subdata["s_limitCtrl"]["t_LimitPos1"]
+                self.s_peaking.t_LimitNeg0 = subdata["s_limitCtrl"]["t_LimitNeg0"]
+                self.s_peaking.t_LimitNeg1 = subdata["s_limitCtrl"]["t_LimitNeg1"]
+                self.s_peaking.t_LimitRatio = subdata["s_limitCtrl"]["t_LimitRatio"]
+                self.s_peaking.t_LimitboundPos = subdata["s_limitCtrl"]["t_LimitboundPos"]
+                self.s_peaking.t_LimitboundNeg = subdata["s_limitCtrl"]["t_LimitboundNeg"]
 
-                self.s_peaking.i_diag_enh_coef = data["s_peaking"]["s_filter_cfg"]["i_diag_enh_coef"]
-                self.s_peaking.t_filt_core_H0 = data["s_peaking"]["s_filter_cfg"]["t_filt_core_H0"]
-                self.s_peaking.t_filt_core_H1 = data["s_peaking"]["s_filter_cfg"]["t_filt_core_H1"]
-                self.s_peaking.t_filt_core_H2 = data["s_peaking"]["s_filter_cfg"]["t_filt_core_H2"]
-                self.s_peaking.t_filt_core_H3 = data["s_peaking"]["s_filter_cfg"]["t_filt_core_H3"]
-                self.s_peaking.t_filt_core_V0 = data["s_peaking"]["s_filter_cfg"]["t_filt_core_V0"]
-                self.s_peaking.t_filt_core_V1 = data["s_peaking"]["s_filter_cfg"]["t_filt_core_V1"]
-                self.s_peaking.t_filt_core_V2 = data["s_peaking"]["s_filter_cfg"]["t_filt_core_V2"]
-                self.s_peaking.t_filt_core_USM = data["s_peaking"]["s_filter_cfg"]["t_filt_core_USM"]
-                self.s_peaking.i_peakingGain = data["s_peaking"]["i_peakingGain"]
+                subdata = data["s_peaking"]["s_shootAdj"]
+                self.s_peaking.t_ShootAdjDeltaOffset = subdata["t_ShootAdjDeltaOffset"]
+                self.s_peaking.t_ShootAdjAlphaOver = subdata["t_ShootAdjAlphaOver"]
+                self.s_peaking.t_ShootAdjAlphaUnder = subdata["t_ShootAdjAlphaUnder"]
+                self.s_peaking.t_ShootAdjAlphaOverUnlimit = subdata["t_ShootAdjAlphaOverUnlimit"]
+                self.s_peaking.t_ShootAdjAlphaUnderUnlimit = subdata["t_ShootAdjAlphaUnderUnlimit"]
+
+                subdata = data["s_peaking"]["s_edgeCtrl"]["s_edge_ctrl_param"]
+                self.s_peaking.edge_ctrl_i_non_dir_thr = subdata["i_non_dir_thr"]
+                self.s_peaking.edge_ctrl_i_dir_cmp_ratio = subdata["i_dir_cmp_ratio"]
+                self.s_peaking.edge_ctrl_i_non_dir_wgt_offset = subdata["i_non_dir_wgt_offset"]
+                self.s_peaking.edge_ctrl_i_non_dir_wgt_ratio = subdata["i_non_dir_wgt_ratio"]
+                self.s_peaking.edge_ctrl_i_dir_cnt_thr = subdata["i_dir_cnt_thr"]
+                self.s_peaking.edge_ctrl_i_dir_cnt_avg = subdata["i_dir_cnt_avg"]
+                self.s_peaking.edge_ctrl_i_dir_cnt_offset = subdata["i_dir_cnt_offset"]
+                self.s_peaking.edge_ctrl_i_diag_dir_thr = subdata["i_diag_dir_thr"]
+                self.s_peaking.edge_ctrl_t_diag_adj_gain_tab = subdata["t_diag_adj_gain_tab"]
+
+                subdata = data["s_peaking"]["s_edgeCtrl"]["s_edge_shoot_ctrl_param"]["s_direct_h"]
+                self.s_peaking.edge_shoot_s_direct_h.i_delta_offset = subdata["i_delta_offset"]
+                self.s_peaking.edge_shoot_s_direct_h.i_alpha_over = subdata["i_alpha_over"]
+                self.s_peaking.edge_shoot_s_direct_h.i_alpha_under = subdata["i_alpha_under"]
+                self.s_peaking.edge_shoot_s_direct_h.i_alpha_over_unlimit = subdata["i_alpha_over_unlimit"]
+                self.s_peaking.edge_shoot_s_direct_h.i_alpha_under_unlimit = subdata["i_alpha_under_unlimit"]
+                subdata = data["s_peaking"]["s_edgeCtrl"]["s_edge_shoot_ctrl_param"]["s_direct_v"]
+                self.s_peaking.edge_shoot_s_direct_v.i_delta_offset = subdata["i_delta_offset"]
+                self.s_peaking.edge_shoot_s_direct_v.i_alpha_over = subdata["i_alpha_over"]
+                self.s_peaking.edge_shoot_s_direct_v.i_alpha_under = subdata["i_alpha_under"]
+                self.s_peaking.edge_shoot_s_direct_v.i_alpha_over_unlimit = subdata["i_alpha_over_unlimit"]
+                self.s_peaking.edge_shoot_s_direct_v.i_alpha_under_unlimit = subdata["i_alpha_under_unlimit"]
+                subdata = data["s_peaking"]["s_edgeCtrl"]["s_edge_shoot_ctrl_param"]["s_direct_d0"]
+                self.s_peaking.edge_shoot_s_direct_d0.i_delta_offset = subdata["i_delta_offset"]
+                self.s_peaking.edge_shoot_s_direct_d0.i_alpha_over = subdata["i_alpha_over"]
+                self.s_peaking.edge_shoot_s_direct_d0.i_alpha_under = subdata["i_alpha_under"]
+                self.s_peaking.edge_shoot_s_direct_d0.i_alpha_over_unlimit = subdata["i_alpha_over_unlimit"]
+                self.s_peaking.edge_shoot_s_direct_d0.i_alpha_under_unlimit = subdata["i_alpha_under_unlimit"]
+                subdata = data["s_peaking"]["s_edgeCtrl"]["s_edge_shoot_ctrl_param"]["s_direct_d1"]
+                self.s_peaking.edge_shoot_s_direct_d1.i_delta_offset = subdata["i_delta_offset"]
+                self.s_peaking.edge_shoot_s_direct_d1.i_alpha_over = subdata["i_alpha_over"]
+                self.s_peaking.edge_shoot_s_direct_d1.i_alpha_under = subdata["i_alpha_under"]
+                self.s_peaking.edge_shoot_s_direct_d1.i_alpha_over_unlimit = subdata["i_alpha_over_unlimit"]
+                self.s_peaking.edge_shoot_s_direct_d1.i_alpha_under_unlimit = subdata["i_alpha_under_unlimit"]
+                subdata = data["s_peaking"]["s_edgeCtrl"]["s_edge_shoot_ctrl_param"]["s_direct_non"]
+                self.s_peaking.edge_shoot_s_direct_non.i_delta_offset = subdata["i_delta_offset"]
+                self.s_peaking.edge_shoot_s_direct_non.i_alpha_over = subdata["i_alpha_over"]
+                self.s_peaking.edge_shoot_s_direct_non.i_alpha_under = subdata["i_alpha_under"]
+                self.s_peaking.edge_shoot_s_direct_non.i_alpha_over_unlimit = subdata["i_alpha_over_unlimit"]
+                self.s_peaking.edge_shoot_s_direct_non.i_alpha_under_unlimit = subdata["i_alpha_under_unlimit"]
+
+                subdata = data["s_peaking"]
+                self.s_peaking.i_diag_enh_coef = subdata["s_filter_cfg"]["i_diag_enh_coef"]
+                self.s_peaking.t_filt_core_H0 = subdata["s_filter_cfg"]["t_filt_core_H0"]
+                self.s_peaking.t_filt_core_H1 = subdata["s_filter_cfg"]["t_filt_core_H1"]
+                self.s_peaking.t_filt_core_H2 = subdata["s_filter_cfg"]["t_filt_core_H2"]
+                self.s_peaking.t_filt_core_H3 = subdata["s_filter_cfg"]["t_filt_core_H3"]
+                self.s_peaking.t_filt_core_V0 = subdata["s_filter_cfg"]["t_filt_core_V0"]
+                self.s_peaking.t_filt_core_V1 = subdata["s_filter_cfg"]["t_filt_core_V1"]
+                self.s_peaking.t_filt_core_V2 = subdata["s_filter_cfg"]["t_filt_core_V2"]
+                self.s_peaking.t_filt_core_USM = subdata["s_filter_cfg"]["t_filt_core_USM"]
+                self.s_peaking.i_peakingGain = subdata["i_peakingGain"]
 
                 self.s_shootCtrl.i_FilterRadius = data["s_shootCtrl"]["i_FilterRadius"]
                 self.s_shootCtrl.i_Delta_offset = data["s_shootCtrl"]["i_Delta_offset"]
@@ -630,13 +568,14 @@ class SharpConfig(ModuleConfigCore):
                 self.s_shootCtrl.i_Alpha_under = data["s_shootCtrl"]["i_Alpha_under"]
                 self.s_shootCtrl.i_Alpha_over_unlimit = data["s_shootCtrl"]["i_Alpha_over_unlimit"]
                 self.s_shootCtrl.i_Alpha_under_unlimit = data["s_shootCtrl"]["i_Alpha_under_unlimit"]
-                self.s_globalGain.i_lum_mode = data["s_globalGain"]["i_lum_mode"]
-                self.s_globalGain.t_lum_grd = data["s_globalGain"]["t_lum_grd"]
-                self.s_globalGain.t_lum_val = data["s_globalGain"]["t_lum_val"]
-                self.s_globalGain.t_adp_grd = data["s_globalGain"]["t_adp_grd"]
-                self.s_globalGain.t_adp_val = data["s_globalGain"]["t_adp_val"]
-                self.s_globalGain.t_var_grd = data["s_globalGain"]["t_var_grd"]
-                self.s_globalGain.t_var_val = data["s_globalGain"]["t_var_val"]
+
+                self.s_globalGain.i_lum_mode = data["s_globalGain"]["s_lum_gain"]["i_lum_mode"]
+                self.s_globalGain.t_lum_grd = data["s_globalGain"]["s_lum_gain"]["t_lum_grd"]
+                self.s_globalGain.t_lum_val = data["s_globalGain"]["s_lum_gain"]["t_lum_val"]
+                self.s_globalGain.t_adp_grd = data["s_globalGain"]["s_adp_gain"]["t_adp_grd"]
+                self.s_globalGain.t_adp_val = data["s_globalGain"]["s_adp_gain"]["t_adp_val"]
+                self.s_globalGain.t_var_grd = data["s_globalGain"]["s_var_gain"]["t_var_grd"]
+                self.s_globalGain.t_var_val = data["s_globalGain"]["s_var_gain"]["t_var_val"]
 
                 self.s_colorCtrl.s_ctrl_point_0.i_ctrl_scaling = data["s_colorCtrl"]["s_ctrl_point_0"]["i_ctrl_scaling"]
                 self.s_colorCtrl.s_ctrl_point_0.t_ctrl_point = data["s_colorCtrl"]["s_ctrl_point_0"]["t_ctrl_point"]
@@ -655,6 +594,7 @@ class SharpConfig(ModuleConfigCore):
                 self.s_textureAdj.i_idx_mode_select = data["s_textureAdj"]["i_idx_mode_select"]
                 self.s_textureAdj.t_texture_grd = data["s_textureAdj"]["t_texture_grd"]
                 self.s_textureAdj.t_texture_val = data["s_textureAdj"]["t_texture_val"]
+
                 self.s_sharpRoiCfg.i_roi_enable = data["s_sharpRoiCfg"]["i_roi_enable"]
                 self.s_sharpRoiCfg.i_roi_xstart = data["s_sharpRoiCfg"]["i_roi_xstart"]
                 self.s_sharpRoiCfg.i_roi_ystart = data["s_sharpRoiCfg"]["i_roi_ystart"]
@@ -684,7 +624,7 @@ class SharpConfig(ModuleConfigCore):
         np.random.seed(seed)
 
         self.randSeed = seed
-        self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
+        self.version = f"{self.name.lower()}_config_{self.platform.lower()}_random_seed_{seed}"
 
         self.i_EnabledSharpen = int(random.randint(0, 99) < 99)  # 99% be ON
         self.i_SharpSimMode = 0
@@ -857,7 +797,7 @@ if __name__ == "__main__":
     parser.print_usage()
     args = parser.parse_args()
 
-    config = SharpConfig()
+    config = SharpConfig(platform=args.platform)
     if args.interface == "gen":
         seed = config.gen(args.seed)
         config.dump(args.file)

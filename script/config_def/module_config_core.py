@@ -4,7 +4,7 @@ FilePath    : module_config_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-07-30
+LastEditTime: 2025-08-06
 '''
 import os
 import sys
@@ -12,14 +12,14 @@ import numpy as np
 from abc import ABC, abstractmethod
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
-from utils import setup_logger
+from utils import setup_logger, NoIndent
 
 
 class ModuleConfigCore(ABC):
-    def __init__(self, name: str, version: str = 'unknown'):
+    def __init__(self, name: str, platform: str = 'RK3572'):
         self.name = name.upper()
-        self.valid = False
-        self.version = version
+        self.platform = platform.upper()
+        self.version = "unknown"
         self.randSeed = 114514
         self.logger = setup_logger(self.name)
 
@@ -51,6 +51,8 @@ class ModuleConfigCore(ABC):
                 self.pretty_print_dict(k, v, indent + 2, pretty_array_stdout)
             self.logger.info(" " * indent + "} #%s" % key)
         else:
+            if isinstance(val, NoIndent):
+                val = val.value
             if isinstance(val, (list, tuple, set, np.ndarray)) and len(val) > pretty_array_stdout:
                 half_len = (pretty_array_stdout + 1) // 2
                 self.logger.info(" " * indent + f"- {key}[0, {half_len-1}]: {val[:half_len]}")

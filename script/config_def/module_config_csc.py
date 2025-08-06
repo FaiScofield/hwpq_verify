@@ -35,8 +35,8 @@ class CscColorSpace(Enum):
 
 
 class CscConfig(ModuleConfigCore):
-    def __init__(self, name: str = "CSC", version: str = "unknown"):
-        super().__init__(name, version)
+    def __init__(self, name: str = "CSC", platform: str = "RK3572"):
+        super().__init__(name, platform)
 
         self.cscEnable = 1
         self.cscCctCtrlEn = 0
@@ -169,7 +169,7 @@ class CscConfig(ModuleConfigCore):
         assert precision in [10, 13]
 
         self.randSeed = seed
-        self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
+        self.version = f"{self.name.lower()}_config_{self.platform.lower()}_random_seed_{seed}"
 
         self.cscEnable = 1  # int(random.randint(0, 99) > 95)  # 95% be ON
         self.cscCctCtrlEn = 0  # always 0 for now
@@ -231,7 +231,7 @@ if __name__ == "__main__":
     parser.print_usage()
     args = parser.parse_args()
 
-    config = CscConfig()
+    config = CscConfig(platform=args.platform)
     if args.interface == "gen":
         seed = config.gen(args.seed)
         config.dump(args.file)

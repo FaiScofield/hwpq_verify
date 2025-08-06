@@ -61,8 +61,8 @@ class DciHWParam_VOP:
 
 
 class DciConfig(ModuleConfigCore):
-    def __init__(self, name: str = "DCI", version: str = "unknown"):
-        super().__init__(name, version)
+    def __init__(self, name: str = "DCI", platform: str = "unknown"):
+        super().__init__(name, platform)
 
         # ## for vdpp_hist_cnt
         # self.hist_pre_vhsd_mode = 0  # 0-MANUAL_CONFIG, 1-AUTO_CONFIG
@@ -144,8 +144,8 @@ class DciConfig(ModuleConfigCore):
         # self.ca_adj_luma_coring_thrd = 16
 
         ## for RK3572 VOP HW regs config
-        self.vdpp_config = DciHWParam_VDPP("RK3572")
-        self.vop_config = DciHWParam_VOP("RK3572")
+        self.vdpp_config = DciHWParam_VDPP(self.platform)
+        self.vop_config = DciHWParam_VOP(self.platform)
 
     ## =============== overwrite methods  ===============
     def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
@@ -267,7 +267,7 @@ class DciConfig(ModuleConfigCore):
         random.seed(seed)
         np.random.seed(seed)
         self.randSeed = seed
-        self.version = f"{self.name.lower()}_config_rk3572_random_seed_{seed}"
+        self.version = f"{self.name.lower()}_config_{self.platform.lower()}_random_seed_{seed}"
 
         ## parse dependent arguments
         img_wid = kwargs["width"] if "width" in kwargs else 1920
@@ -340,7 +340,7 @@ if __name__ == "__main__":
     parser.print_usage()
     args = parser.parse_args()
 
-    config = DciConfig()
+    config = DciConfig(platform=args.platform)
     if args.interface == "gen":
         seed = config.gen(args.seed)
         config.dump(args.file)
