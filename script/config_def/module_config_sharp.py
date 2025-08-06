@@ -157,6 +157,20 @@ class s_textureAdj:
     t_texture_val = [40, 60, 80, 80, 50, 10]
 
 
+class s_ink_config:
+    class ink_set:
+        i_ink_idx_h = 128
+        i_ink_idx_v = 157
+        i_ink_mode = 4
+        i_ink_result = 0
+
+    i_EnableInk = 0
+    s_ink_set0 = ink_set()
+    s_ink_set1 = ink_set()
+    s_ink_set2 = ink_set()
+    s_ink_set3 = ink_set()
+
+
 class s_sharpRoiCfg:
     i_roi_enable = 1
     i_roi_xstart = 100
@@ -183,6 +197,7 @@ class SharpConfig(ModuleConfigCore):
         self.s_globalGain = s_globalGain()
         self.s_colorCtrl = s_colorCtrl()
         self.s_textureAdj = s_textureAdj()
+        self.s_ink_config = s_ink_config()
         self.s_sharpRoiCfg = s_sharpRoiCfg()
 
     ## =============== overwrite methods  ===============
@@ -394,6 +409,33 @@ class SharpConfig(ModuleConfigCore):
                 "t_texture_grd": NoIndent(self.s_textureAdj.t_texture_grd),
                 "t_texture_val": NoIndent(self.s_textureAdj.t_texture_val),
             },
+            "s_ink_config": {
+                "i_EnableInk": self.s_ink_config.i_EnableInk,
+                "s_ink_set0": {
+                    "i_ink_idx_h": self.s_ink_config.s_ink_set0.i_ink_idx_h,
+                    "i_ink_idx_v": self.s_ink_config.s_ink_set0.i_ink_idx_v,
+                    "i_ink_mode": self.s_ink_config.s_ink_set0.i_ink_mode,
+                    "i_ink_result": self.s_ink_config.s_ink_set0.i_ink_result,
+                },
+                "s_ink_set1": {
+                    "i_ink_idx_h": self.s_ink_config.s_ink_set1.i_ink_idx_h,
+                    "i_ink_idx_v": self.s_ink_config.s_ink_set1.i_ink_idx_v,
+                    "i_ink_mode": self.s_ink_config.s_ink_set1.i_ink_mode,
+                    "i_ink_result": self.s_ink_config.s_ink_set1.i_ink_result,
+                },
+                "s_ink_set2": {
+                    "i_ink_idx_h": self.s_ink_config.s_ink_set2.i_ink_idx_h,
+                    "i_ink_idx_v": self.s_ink_config.s_ink_set2.i_ink_idx_v,
+                    "i_ink_mode": self.s_ink_config.s_ink_set2.i_ink_mode,
+                    "i_ink_result": self.s_ink_config.s_ink_set2.i_ink_result,
+                },
+                "s_ink_set3": {
+                    "i_ink_idx_h": self.s_ink_config.s_ink_set3.i_ink_idx_h,
+                    "i_ink_idx_v": self.s_ink_config.s_ink_set3.i_ink_idx_v,
+                    "i_ink_mode": self.s_ink_config.s_ink_set3.i_ink_mode,
+                    "i_ink_result": self.s_ink_config.s_ink_set3.i_ink_result,
+                },
+            },
             "s_sharpRoiCfg": {
                 "i_roi_enable": self.s_sharpRoiCfg.i_roi_enable,
                 "i_roi_xstart": self.s_sharpRoiCfg.i_roi_xstart,
@@ -595,6 +637,25 @@ class SharpConfig(ModuleConfigCore):
                 self.s_textureAdj.t_texture_grd = data["s_textureAdj"]["t_texture_grd"]
                 self.s_textureAdj.t_texture_val = data["s_textureAdj"]["t_texture_val"]
 
+                subdata = data["s_ink_config"]
+                self.s_ink_config.i_EnableInk = subdata["i_EnableInk"]
+                self.s_ink_config.s_ink_set0.i_ink_idx_h = subdata["s_ink_set0"]["i_ink_idx_h"]
+                self.s_ink_config.s_ink_set0.i_ink_idx_v = subdata["s_ink_set0"]["i_ink_idx_v"]
+                self.s_ink_config.s_ink_set0.i_ink_mode = subdata["s_ink_set0"]["i_ink_mode"]
+                self.s_ink_config.s_ink_set0.i_ink_result = subdata["s_ink_set0"]["i_ink_result"]
+                self.s_ink_config.s_ink_set1.i_ink_idx_h = subdata["s_ink_set1"]["i_ink_idx_h"]
+                self.s_ink_config.s_ink_set1.i_ink_idx_v = subdata["s_ink_set1"]["i_ink_idx_v"]
+                self.s_ink_config.s_ink_set1.i_ink_mode = subdata["s_ink_set1"]["i_ink_mode"]
+                self.s_ink_config.s_ink_set1.i_ink_result = subdata["s_ink_set1"]["i_ink_result"]
+                self.s_ink_config.s_ink_set2.i_ink_idx_h = subdata["s_ink_set2"]["i_ink_idx_h"]
+                self.s_ink_config.s_ink_set2.i_ink_idx_v = subdata["s_ink_set2"]["i_ink_idx_v"]
+                self.s_ink_config.s_ink_set2.i_ink_mode = subdata["s_ink_set2"]["i_ink_mode"]
+                self.s_ink_config.s_ink_set2.i_ink_result = subdata["s_ink_set2"]["i_ink_result"]
+                self.s_ink_config.s_ink_set3.i_ink_idx_h = subdata["s_ink_set3"]["i_ink_idx_h"]
+                self.s_ink_config.s_ink_set3.i_ink_idx_v = subdata["s_ink_set3"]["i_ink_idx_v"]
+                self.s_ink_config.s_ink_set3.i_ink_mode = subdata["s_ink_set3"]["i_ink_mode"]
+                self.s_ink_config.s_ink_set3.i_ink_result = subdata["s_ink_set3"]["i_ink_result"]
+
                 self.s_sharpRoiCfg.i_roi_enable = data["s_sharpRoiCfg"]["i_roi_enable"]
                 self.s_sharpRoiCfg.i_roi_xstart = data["s_sharpRoiCfg"]["i_roi_xstart"]
                 self.s_sharpRoiCfg.i_roi_ystart = data["s_sharpRoiCfg"]["i_roi_ystart"]
@@ -776,6 +837,8 @@ class SharpConfig(ModuleConfigCore):
         self.s_textureAdj.i_idx_mode_select = random.randint(0, 1)
         self.s_textureAdj.t_texture_grd = np.random.randint(0, 1023, 6).tolist()
         self.s_textureAdj.t_texture_val = np.random.randint(0, 127, 6).tolist()
+
+        self.s_ink_config.i_EnableInk = int(random.randint(0, 99) < 75)  # 75%
 
         self.s_sharpRoiCfg.i_roi_enable = int(random.randint(0, 99) < 20)  # 20%
         self.s_sharpRoiCfg.i_roi_xstart = random.randint(0, 1024)

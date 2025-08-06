@@ -34,47 +34,47 @@ class SharpRegister(ModuleRegisterCore):
         self.logger.info(f"updating register type with platform: {self.platform}")
         if self.platform == "RK3572":
             self.config = SharpLiteConfig(self.name)
-            self.base_addr = 0xF9000000
+            self.base_addr = 0xF9006C00
             self.nb_regs = 14
             self.regs = [
-                Reg(0x00006C00, 0x0, "ENABLE_CTRL"),
-                Reg(0x00006C04, 0x0, "GATING_CTRL"),
-                Reg(0x00006C08, 0x0, "RESERVED_08"),
-                Reg(0x00006C0C, 0x0, "RESERVED_0C"),
-                Reg(0x00006C10, 0x0, "USM_CTRL"),
-                Reg(0x00006C14, 0x0, "USM_COEF"),
-                Reg(0x00006C18, 0x0, "RESERVED_18"),
-                Reg(0x00006C1C, 0x0, "RESERVED_1C"),
-                Reg(0x00006C20, 0x0, "SHOOT_CTRL_REG0"),
-                Reg(0x00006C24, 0x0, "SHOOT_CTRL_REG1"),
-                Reg(0x00006C28, 0x0, "SHOOT_CTRL_REG2"),
-                Reg(0x00006C2C, 0x0, "ROI_CTRL0"),
-                Reg(0x00006C30, 0x0, "ROI_CTRL1"),
-                Reg(0x00006C34, 0x0, "INK_CTRL"),
+                Reg(0x00000000, 0x0, "ENABLE_CTRL"),
+                Reg(0x00000004, 0x0, "GATING_CTRL"),
+                Reg(0x00000008, 0x0, "RESERVED_08"),
+                Reg(0x0000000C, 0x0, "RESERVED_0C"),
+                Reg(0x00000010, 0x0, "USM_CTRL"),
+                Reg(0x00000014, 0x0, "USM_COEF"),
+                Reg(0x00000018, 0x0, "RESERVED_18"),
+                Reg(0x0000001C, 0x0, "RESERVED_1C"),
+                Reg(0x00000020, 0x0, "SHOOT_CTRL_REG0"),
+                Reg(0x00000024, 0x0, "SHOOT_CTRL_REG1"),
+                Reg(0x00000028, 0x0, "SHOOT_CTRL_REG2"),
+                Reg(0x0000002C, 0x0, "ROI_CTRL0"),
+                Reg(0x00000030, 0x0, "ROI_CTRL1"),
+                Reg(0x00000034, 0x0, "INK_CTRL"),
             ]
             return self.check_regs()
         else:  # RK3576, RK3538
             self.config = SharpConfig(self.name)
-            self.base_addr = 0x27D00000
+            self.base_addr = 0x27D06C00 if self.platform == "RK3576" else 0x0
             self.nb_regs = 173
-            self.regs = [Reg(0x00006C00, 0x0, "CTRL"), Reg(0x00006C04, 0x000007FE, "AUTO_GATING_IMD")]  # 2
-            self.regs += [Reg(0x00006C08 + i * 4, 0x0, f"PEAKING_FILTER_COE{i}") for i in range(10)]  # 10
+            self.regs = [Reg(0x00000000, 0x0, "CTRL"), Reg(0x00000004, 0x000007FE, "AUTO_GATING_IMD")]  # 2
+            self.regs += [Reg(0x00000008 + i * 4, 0x0, f"PEAKING_FILTER_COE{i}") for i in range(10)]  # 10
             self.regs += [
-                Reg(0x00006C30 + i * 11 * 4 + j * 4, 0x0, f"PEAKING{i}_CTRL_COE{j}") for i in range(8) for j in range(11)
+                Reg(0x00000030 + i * 11 * 4 + j * 4, 0x0, f"PEAKING{i}_CTRL_COE{j}") for i in range(8) for j in range(11)
             ]  # 8x11==88
-            self.regs += [Reg(0x00006D90 + i * 4, 0x0, f"PEAKING_CTRL{i}") for i in range(10)]  # 10
-            self.regs += [Reg(0x00006DB8 + i * 4, 0x0, f"SHOOT_CTRL{i}") for i in range(2)]  # 2
-            self.regs += [Reg(0x00006DC0 + i * 4, 0x0, f"GAIN_CTRL{i}") for i in range(4)]  # 4
-            self.regs += [Reg(0x00006DD0 + i * 4, 0x0, f"RESERVED{i}") for i in range(12)]  # 12 reserved regs
-            self.regs += [Reg(0x00006E00 + i * 4, 0x0, f"GAIN_CTRL{i+4}") for i in range(12)]  # 12
-            self.regs += [Reg(0x00006E30 + i * 4, 0x0, f"COLORADJ_CTRL{i}") for i in range(16)]  # 16
-            self.regs += [Reg(0x00006E70 + i * 4, 0x0, f"TEXTURE_CTRL{i}") for i in range(6)]  # 6
-            self.regs += [Reg(0x00006E88 + i * 4, 0x0, f"LTI_CTRL{i}") for i in range(4)]  # 4
-            self.regs += [Reg(0x00006E98 + i * 4, 0x0, f"CTI_CTRL{i}") for i in range(4)]  # 4
+            self.regs += [Reg(0x00000190 + i * 4, 0x0, f"PEAKING_CTRL{i}") for i in range(10)]  # 10
+            self.regs += [Reg(0x000001B8 + i * 4, 0x0, f"SHOOT_CTRL{i}") for i in range(2)]  # 2
+            self.regs += [Reg(0x000001C0 + i * 4, 0x0, f"GAIN_CTRL{i}") for i in range(4)]  # 4
+            self.regs += [Reg(0x000001D0 + i * 4, 0x0, f"RESERVED{i}") for i in range(12)]  # 12 reserved regs
+            self.regs += [Reg(0x00000200 + i * 4, 0x0, f"GAIN_CTRL{i+4}") for i in range(12)]  # 12
+            self.regs += [Reg(0x00000230 + i * 4, 0x0, f"COLORADJ_CTRL{i}") for i in range(16)]  # 16
+            self.regs += [Reg(0x00000270 + i * 4, 0x0, f"TEXTURE_CTRL{i}") for i in range(6)]  # 6
+            self.regs += [Reg(0x00000288 + i * 4, 0x0, f"LTI_CTRL{i}") for i in range(4)]  # 4
+            self.regs += [Reg(0x00000298 + i * 4, 0x0, f"CTI_CTRL{i}") for i in range(4)]  # 4
             self.regs += [
-                Reg(0x00006EA8, 0x0, f"INK_CTRL0"),
-                Reg(0x00006EAC, 0x0, f"ROI_CTRL0"),
-                Reg(0x00006EB0, 0x0, f"ROI_CTRL1"),
+                Reg(0x000002A8, 0x0, f"DBG_CTRL0"),
+                Reg(0x000002AC, 0x0, f"ROI_CTRL0"),
+                Reg(0x000002B0, 0x0, f"ROI_CTRL1"),
             ]  # 3
             return self.check_regs()
         # else:
@@ -166,6 +166,7 @@ class SharpRegister(ModuleRegisterCore):
                 | ((cfg.i_global_gain_en & RM1) << 8)
                 | ((cfg.i_color_adj_en & RM1) << 9)
                 | ((cfg.i_texture_adj_en & RM1) << 10)
+                | ((self.config.s_ink_config.i_EnableInk & RM1) << 12)
             )
             self.set(name="CTRL", value=val)
             ## s_sharp_hw_config
@@ -408,7 +409,7 @@ class SharpRegister(ModuleRegisterCore):
             self.set(name="GAIN_CTRL0", value=val)
             val = ((cfg.t_adp_grd[4] & RM10) << 0) | ((cfg.t_adp_val[0] & RM7) << 12) | ((cfg.t_adp_val[1] & RM7) << 20)
             self.set(name="GAIN_CTRL1", value=val)
-            val = ((cfg.t_adp_val[2] & RM10) << 0) | ((cfg.t_adp_val[3] & RM7) << 12) | ((cfg.t_adp_val[4] & RM7) << 20)
+            val = ((cfg.t_adp_val[2] & RM7) << 0) | ((cfg.t_adp_val[3] & RM7) << 8) | ((cfg.t_adp_val[4] & RM7) << 16)
             self.set(name="GAIN_CTRL2", value=val)
             adp_slp01 = round(128 * (cfg.t_adp_val[1] - cfg.t_adp_val[0]) / max(cfg.t_adp_grd[1] - 0, 1))
             adp_slp12 = round(128 * (cfg.t_adp_val[2] - cfg.t_adp_val[1]) / max(cfg.t_adp_grd[2] - cfg.t_adp_grd[1], 1))
@@ -429,9 +430,9 @@ class SharpRegister(ModuleRegisterCore):
             val = ((cfg.t_var_grd[3] & RM10) << 0) | ((cfg.t_var_grd[4] & RM10) << 12) | ((cfg.t_var_val[0] & RM7) << 24)
             self.set(name="GAIN_CTRL6", value=val)
             val = (
-                ((cfg.t_var_val[1] & RM10) << 0)
-                | ((cfg.t_var_val[2] & RM7) << 12)
-                | ((cfg.t_var_val[3] & RM7) << 20)
+                ((cfg.t_var_val[1] & RM7) << 0)
+                | ((cfg.t_var_val[2] & RM7) << 8)
+                | ((cfg.t_var_val[3] & RM7) << 16)
                 | ((cfg.t_var_val[4] & RM7) << 24)
             )
             self.set(name="GAIN_CTRL7", value=val)
@@ -454,9 +455,9 @@ class SharpRegister(ModuleRegisterCore):
             val = ((cfg.t_lum_grd[2] & RM10) << 0) | ((cfg.t_lum_grd[3] & RM10) << 10) | ((cfg.t_lum_grd[4] & RM10) << 20)
             self.set(name="GAIN_CTRL11", value=val)
             val = (
-                ((cfg.t_lum_val[0] & RM10) << 0)
-                | ((cfg.t_lum_val[1] & RM7) << 12)
-                | ((cfg.t_lum_val[2] & RM7) << 20)
+                ((cfg.t_lum_val[0] & RM7) << 0)
+                | ((cfg.t_lum_val[1] & RM7) << 8)
+                | ((cfg.t_lum_val[2] & RM7) << 16)
                 | ((cfg.t_lum_val[3] & RM7) << 24)
             )
             self.set(name="GAIN_CTRL12", value=val)
@@ -479,40 +480,40 @@ class SharpRegister(ModuleRegisterCore):
             ## s_colorCtrl
             cfg = self.config.s_colorCtrl
             val = (
-                ((cfg.s_ctrl_point_3.t_ctrl_point[0] & RM10) << 0)
-                | ((cfg.s_ctrl_point_3.t_ctrl_point[1] & RM10) << 12)
-                | ((cfg.s_ctrl_point_3.i_ctrl_scaling & RM3) << 24)
+                ((cfg.s_ctrl_point_0.t_ctrl_point[0] & RM10) << 0)
+                | ((cfg.s_ctrl_point_0.t_ctrl_point[1] & RM10) << 12)
+                | ((cfg.s_ctrl_point_0.i_ctrl_scaling & RM3) << 24)
             )
             self.set(name="COLORADJ_CTRL0", value=val)
             val = (
-                ((cfg.s_ctrl_point_3.t_ctrl_rolltab[0] & RM5) << 0)
-                | ((cfg.s_ctrl_point_3.t_ctrl_rolltab[1] & RM5) << 5)
-                | ((cfg.s_ctrl_point_3.t_ctrl_rolltab[2] & RM5) << 10)
-                | ((cfg.s_ctrl_point_3.t_ctrl_rolltab[3] & RM5) << 15)
-                | ((cfg.s_ctrl_point_3.t_ctrl_rolltab[4] & RM5) << 20)
-                | ((cfg.s_ctrl_point_3.t_ctrl_rolltab[5] & RM5) << 25)
+                ((cfg.s_ctrl_point_0.t_ctrl_rolltab[0] & RM5) << 0)
+                | ((cfg.s_ctrl_point_0.t_ctrl_rolltab[1] & RM5) << 5)
+                | ((cfg.s_ctrl_point_0.t_ctrl_rolltab[2] & RM5) << 10)
+                | ((cfg.s_ctrl_point_0.t_ctrl_rolltab[3] & RM5) << 15)
+                | ((cfg.s_ctrl_point_0.t_ctrl_rolltab[4] & RM5) << 20)
+                | ((cfg.s_ctrl_point_0.t_ctrl_rolltab[5] & RM5) << 25)
             )
             self.set(name="COLORADJ_CTRL1", value=val)
             val = (
-                ((cfg.s_ctrl_point_3.t_ctrl_rolltab[6] & RM5) << 0)
-                | ((cfg.s_ctrl_point_3.t_ctrl_rolltab[7] & RM5) << 5)
-                | ((cfg.s_ctrl_point_3.t_ctrl_rolltab[8] & RM5) << 10)
-                | ((cfg.s_ctrl_point_3.t_ctrl_rolltab[9] & RM5) << 15)
-                | ((cfg.s_ctrl_point_3.t_ctrl_rolltab[10] & RM5) << 20)
-                | ((cfg.s_ctrl_point_3.t_ctrl_rolltab[11] & RM5) << 25)
+                ((cfg.s_ctrl_point_0.t_ctrl_rolltab[6] & RM5) << 0)
+                | ((cfg.s_ctrl_point_0.t_ctrl_rolltab[7] & RM5) << 5)
+                | ((cfg.s_ctrl_point_0.t_ctrl_rolltab[8] & RM5) << 10)
+                | ((cfg.s_ctrl_point_0.t_ctrl_rolltab[9] & RM5) << 15)
+                | ((cfg.s_ctrl_point_0.t_ctrl_rolltab[10] & RM5) << 20)
+                | ((cfg.s_ctrl_point_0.t_ctrl_rolltab[11] & RM5) << 25)
             )
             self.set(name="COLORADJ_CTRL2", value=val)
             val = (
-                ((cfg.s_ctrl_point_3.t_ctrl_rolltab[12] & RM5) << 0)
-                | ((cfg.s_ctrl_point_3.t_ctrl_rolltab[13] & RM5) << 5)
-                | ((cfg.s_ctrl_point_3.t_ctrl_rolltab[14] & RM5) << 10)
-                | ((cfg.s_ctrl_point_3.t_ctrl_rolltab[15] & RM5) << 15)
+                ((cfg.s_ctrl_point_0.t_ctrl_rolltab[12] & RM5) << 0)
+                | ((cfg.s_ctrl_point_0.t_ctrl_rolltab[13] & RM5) << 5)
+                | ((cfg.s_ctrl_point_0.t_ctrl_rolltab[14] & RM5) << 10)
+                | ((cfg.s_ctrl_point_0.t_ctrl_rolltab[15] & RM5) << 15)
             )
             self.set(name="COLORADJ_CTRL3", value=val)
             val = (
-                ((cfg.s_ctrl_point_3.t_ctrl_point[0] & RM10) << 0)
-                | ((cfg.s_ctrl_point_3.t_ctrl_point[1] & RM10) << 12)
-                | ((cfg.s_ctrl_point_3.i_ctrl_scaling & RM3) << 24)
+                ((cfg.s_ctrl_point_1.t_ctrl_point[0] & RM10) << 0)
+                | ((cfg.s_ctrl_point_1.t_ctrl_point[1] & RM10) << 12)
+                | ((cfg.s_ctrl_point_1.i_ctrl_scaling & RM3) << 24)
             )
             self.set(name="COLORADJ_CTRL4", value=val)
             val = (
@@ -541,9 +542,9 @@ class SharpRegister(ModuleRegisterCore):
             )
             self.set(name="COLORADJ_CTRL7", value=val)
             val = (
-                ((cfg.s_ctrl_point_1.t_ctrl_point[0] & RM10) << 0)
-                | ((cfg.s_ctrl_point_1.t_ctrl_point[1] & RM10) << 12)
-                | ((cfg.s_ctrl_point_1.i_ctrl_scaling & RM3) << 24)
+                ((cfg.s_ctrl_point_2.t_ctrl_point[0] & RM10) << 0)
+                | ((cfg.s_ctrl_point_2.t_ctrl_point[1] & RM10) << 12)
+                | ((cfg.s_ctrl_point_2.i_ctrl_scaling & RM3) << 24)
             )
             self.set(name="COLORADJ_CTRL8", value=val)
             val = (
@@ -572,9 +573,9 @@ class SharpRegister(ModuleRegisterCore):
             )
             self.set(name="COLORADJ_CTRL11", value=val)
             val = (
-                ((cfg.s_ctrl_point_2.t_ctrl_point[0] & RM10) << 0)
-                | ((cfg.s_ctrl_point_2.t_ctrl_point[1] & RM10) << 12)
-                | ((cfg.s_ctrl_point_2.i_ctrl_scaling & RM3) << 24)
+                ((cfg.s_ctrl_point_3.t_ctrl_point[0] & RM10) << 0)
+                | ((cfg.s_ctrl_point_3.t_ctrl_point[1] & RM10) << 12)
+                | ((cfg.s_ctrl_point_3.i_ctrl_scaling & RM3) << 24)
             )
             self.set(name="COLORADJ_CTRL12", value=val)
             val = (
@@ -640,11 +641,11 @@ class SharpRegister(ModuleRegisterCore):
             tex_slp23 = clamp(tex_slp23, -1024, 1023)
             tex_slp34 = clamp(tex_slp34, -1024, 1023)
             tex_slp45 = clamp(tex_slp45, -1024, 1023)
-            val = ((lum_slp01 & RM11) << 0) | ((lum_slp12 & RM11) << 12)
+            val = ((tex_slp01 & RM11) << 0) | ((tex_slp12 & RM11) << 12)
             self.set(name="TEXTURE_CTRL3", value=val)
-            val = ((lum_slp23 & RM11) << 0) | ((lum_slp34 & RM11) << 12)
+            val = ((tex_slp23 & RM11) << 0) | ((tex_slp34 & RM11) << 12)
             self.set(name="TEXTURE_CTRL4", value=val)
-            val = (lum_slp45 & RM11) << 0
+            val = (tex_slp45 & RM11) << 0
             self.set(name="TEXTURE_CTRL5", value=val)
             ## s_lti_h
             cfg = self.config.s_lti_h
@@ -670,9 +671,11 @@ class SharpRegister(ModuleRegisterCore):
             self.set(name="CTI_CTRL2", value=val)
             val = ((cfg.i_noiseThrNeg & RM10) << 0) | ((cfg.i_noiseThrPos & RM10) << 12) | ((cfg.i_Gain & RM5) << 24)
             self.set(name="CTI_CTRL3", value=val)
+            ## s_ink_config
+            val = (self.config.s_ink_config.s_ink_set0.i_ink_mode & RM4) << 0
+            self.set(name="DBG_CTRL0", value=val)
             ## s_sharpRoiCfg
             cfg = self.config.s_sharpRoiCfg
-            self.set(name="DBG_CTRL0", value=0x0)
             val = ((cfg.i_roi_xstart & RM12) << 0) | ((cfg.i_roi_ystart & RM12) << 16) | ((cfg.i_roi_enable & RM1) << 31)
             self.set(name="ROI_CTRL0", value=val)
             val = (cfg.i_roi_xend & RM12) | ((cfg.i_roi_yend & RM12) << 16)

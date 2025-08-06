@@ -37,5 +37,8 @@ class SharpHelper(ModuleHelperCore):
 
 
 if __name__ == "__main__":
-    runner = SharpHelper()
+    platform = "RK3572"
+    if len(sys.argv) > 1:
+        platform = sys.argv[1].upper()
+    runner = SharpHelper(platform=platform)
     runner.run()

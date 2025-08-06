@@ -34,7 +34,7 @@ class ModuleHelperCore(ABC):
     * 成员变量说明：
     *   `self.parent`: 模块名称，用于提示和命令提示。
     *   `self.config`: 基于`ModuleConfigCore`类的配置参数类，实现了对`.json`格式配置（含软软件/硬件参数）的加载、保存、生成、打印等功能。
-    *   `self.register`: 基于`ModuleRegisterCore`类的寄存器参数类，实现了对`.bin/.txt/.dat`格式寄存器配置的加载、保存、生成、打印等功能。
+    *   `self.register`: 基于`ModuleRegisterCore`类的寄存器参数类，实现了对`.bin/.dat(txt)`格式寄存器配置的加载、保存、生成、打印等功能。
     """
 
     def __init__(self, name: str, platform: str = "RK3572", parent: Optional["ModuleHelperCore"] = None):
@@ -49,7 +49,7 @@ class ModuleHelperCore(ABC):
             "help": (self.do_help, "", "显示命令帮助信息"),
             "quit": (self.do_quit, "", "退出或返回上一级"),
             "plat": (self.do_plat, "<-p name> [-x index]", "设置平台: (Only RK3572 for now!) 和硬件通路的位置"),
-            "load": (self.do_load, "<file>", "加载 .json 配置文件或 .dat/.bin 寄存器文件"),
+            "load": (self.do_load, "<file>", "加载 .json 配置文件或 .dat(txt)/.bin 寄存器文件"),
             "gen": (
                 self.do_gen,
                 "[-n num] [-o file/dir] [-s rand_seed]",
@@ -58,7 +58,7 @@ class ModuleHelperCore(ABC):
             "dump": (
                 self.do_dump,
                 "[-o files] / [-n align] [-l pretty_lines_stdout] [-a pretty_array_stdout]",
-                "指定文件名(.json/.dat/.bin, 可多个)时则导出当前配置到对应文件, 否则打印到控制台(此时支持-n/l/a参数)",
+                "指定文件名(.json/.dat(txt)/.bin, 可多个)时则导出当前配置到对应文件, 否则打印到控制台(此时支持-n/l/a参数)",
             ),
             "c2r": (
                 self.do_c2r,
@@ -189,7 +189,7 @@ class ModuleHelperCore(ABC):
                     elif reg_ok and target.endswith(".bin"):
                         self.register.dump(target)
                     else:
-                        print(f"[{self.name}] 错误: 不支持的输出文件类型: {target}. 仅支持 .json/.dat/.bin")
+                        print(f"[{self.name}] 错误: 不支持的输出文件类型: {target}, 仅支持.json/.dat(txt)/.bin")
                         break
                     print(f"[{self.name}] 配置已导出到: {os.path.abspath(target)}")
                 except Exception as e:
@@ -255,7 +255,7 @@ class ModuleHelperCore(ABC):
             self.register.load(filename)
             self.regs_to_config()
         else:
-            print(f"[{self.name}] 错误: 不支持的文件类型: {filename}. 仅支持 .json/.dat/.txt/.bin")
+            print(f"[{self.name}] 错误: 不支持的文件类型: {filename}. 仅支持 .json/.dat(txt)/.bin")
 
         return False  # 不退出
 
@@ -391,7 +391,7 @@ class ModuleHelperCore(ABC):
             else:
                 inputs += args.input
             inputs = [f for f in inputs if f.endswith(".bin") or f.endswith(".dat") or f.endswith(".txt")]
-            print(f"[{self.name}] 读取到{len(inputs)}个'.bin/.dat/.txt'寄存器文件")
+            print(f"[{self.name}] 读取到{len(inputs)}个'.bin/.dat(txt)'寄存器文件")
         else:
             inputs = [""]
         outputs = []
