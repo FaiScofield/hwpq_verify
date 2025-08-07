@@ -22,8 +22,8 @@ from _ctypes import PyObj_FromPtr
 
 class IMG_FMT(Enum):
     ## idx, name, frame_size_ratio
-    RGBA = (0, "rgba", 4)
-    RGB = (1, "rgb", 3)
+    RGB = (0, "rgb", 3)
+    RGBA = (1, "rgba", 4)
     RGB_PLANAR = (2, "rgb_planar", 3)
     YUV444P = (3, "yu24", 3)
     YUV444SP = (4, "nv24", 3)
@@ -33,7 +33,7 @@ class IMG_FMT(Enum):
     YUV420P = (8, "yu12", 1.5)
     YUV420SP = (9, "nv12", 1.5)
 
-    RGB_101010LSB = (11, "rgb101010l", 3 * 2)
+    RGB_101010LSB = (10, "rgb101010l", 3 * 2)
     RGB_PLANAR10LSB = (12, "rgb10l_planar", 3 * 2)
     YUV444P_10LSB = (13, "yuv444p10l", 3 * 2)
     YUV444SP_10LSB = (14, "yuv444sp10l", 3 * 2)
@@ -43,8 +43,8 @@ class IMG_FMT(Enum):
     YUV420P_10LSB = (18, "yuv420p10l", 1.5 * 2)
     YUV420SP_10LSB = (19, "yuv420sp10l", 1.5 * 2)
 
-    RGBA_1010102 = (20, "rgba1010102", 4 / 4 * 5)
-    RGB_10PACKED = (21, "rgb10pack", 3 / 4 * 5)
+    RGB_10PACKED = (20, "rgb10pack", 3 / 4 * 5)
+    RGBA_1010102 = (21, "rgba1010102", 4)
     RGB_PLANAR10PACKED = (22, "rgb10pack_planar", 3 / 4 * 5)
     YUV444P_10PACKED = (23, "yuv444p10pack", 3 / 4 * 5)
     YUV444SP_10PACKED = (24, "nv30", 3 / 4 * 5)

@@ -107,7 +107,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
     input_seed = int(args.input_seed)
     config_seed = int(args.config_seed)
     img_fmt = IMG_FMT.from_int(args.input_fmt)
-    is_rgb_fmt = img_fmt.value[0] % 10 < 2
+    is_rgb_fmt = img_fmt.value[0] % 10 <= 2
     img_wid = int(args.input_wid)
     img_hgt = int(args.input_hgt)
     logger.info(f"Set nb_reg_per_frame: {NB_REG_PER_FRAME}")
