@@ -1,4 +1,6 @@
 {
+	"#meaning": "[type, min, max, length]"
+	"#type_range": "0-int, 1-str, 2-float"
     "sharp_mask": {
         "i_EnabledSharpen": [0, 0, 1, 1], 
         "i_SharpSimMode": [0, 0, 0, 1], 
