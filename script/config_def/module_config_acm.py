@@ -4,7 +4,7 @@ FilePath    : module_config_acm.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-08-06
+LastEditTime: 2025-08-07
 """
 
 import os
@@ -44,15 +44,16 @@ class AcmConfig(ModuleConfigCore):
             "version": self.version,
             "randSeed": self.randSeed,
             "acmEnable": self.acmEnable,
-            "acmTableDeltaYbyH": self.acmTableDeltaYbyH.flatten().tolist(),
-            "acmTableDeltaHbyH": self.acmTableDeltaHbyH.flatten().tolist(),
-            "acmTableDeltaSbyH": self.acmTableDeltaSbyH.flatten().tolist(),
-            "acmTableGainYbyY": self.acmTableGainYbyY.flatten().tolist(),
-            "acmTableGainHbyY": self.acmTableGainHbyY.flatten().tolist(),
-            "acmTableGainSbyY": self.acmTableGainSbyY.flatten().tolist(),
-            "acmTableGainYbyS": self.acmTableGainYbyS.flatten().tolist(),
-            "acmTableGainHbyS": self.acmTableGainHbyS.flatten().tolist(),
-            "acmTableGainSbyS": self.acmTableGainSbyS.flatten().tolist(),
+            ## keep list data in one line by using NoIndent & CompactArrayEncoder
+            "acmTableDeltaYbyH": NoIndent(self.acmTableDeltaYbyH.flatten().tolist()),
+            "acmTableDeltaHbyH": NoIndent(self.acmTableDeltaHbyH.flatten().tolist()),
+            "acmTableDeltaSbyH": NoIndent(self.acmTableDeltaSbyH.flatten().tolist()),
+            "acmTableGainYbyY": NoIndent(self.acmTableGainYbyY.flatten().tolist()),
+            "acmTableGainHbyY": NoIndent(self.acmTableGainHbyY.flatten().tolist()),
+            "acmTableGainSbyY": NoIndent(self.acmTableGainSbyY.flatten().tolist()),
+            "acmTableGainYbyS": NoIndent(self.acmTableGainYbyS.flatten().tolist()),
+            "acmTableGainHbyS": NoIndent(self.acmTableGainHbyS.flatten().tolist()),
+            "acmTableGainSbyS": NoIndent(self.acmTableGainSbyS.flatten().tolist()),
             "lumGain": self.lumGain,
             "hueGain": self.hueGain,
             "satGain": self.satGain,
@@ -64,20 +65,6 @@ class AcmConfig(ModuleConfigCore):
             return True
 
         with open(filename, "w") as f:
-            ## keep list data in one line by using NoIndent & CompactArrayEncoder
-            for k, v in data.items():
-                if k in [
-                    "acmTableDeltaYbyH",
-                    "acmTableDeltaHbyH",
-                    "acmTableDeltaSbyH",
-                    "acmTableGainYbyY",
-                    "acmTableGainHbyY",
-                    "acmTableGainSbyY",
-                    "acmTableGainYbyS",
-                    "acmTableGainHbyS",
-                    "acmTableGainSbyS",
-                ]:
-                    data[k] = NoIndent(v)
             nest_data = {"pq_tuning_param": {"acm": data}}
             json_data = json.dumps(nest_data, indent=4, ensure_ascii=False, cls=CompactArrayEncoder)
             f.write(json_data)

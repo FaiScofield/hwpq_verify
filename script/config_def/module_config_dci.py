@@ -4,7 +4,7 @@ FilePath    : module_config_dci.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-08-06
+LastEditTime: 2025-08-07
 """
 
 import os
@@ -178,9 +178,10 @@ class DciConfig(ModuleConfigCore):
                 "luma_sat_adj_zero": self.vop_config.luma_sat_adj_zero,
                 "luma_sat_adj_thrd": self.vop_config.luma_sat_adj_thrd,
                 "luma_sat_adj_k": self.vop_config.luma_sat_adj_k,
-                "dci_local_lut": self.vop_config.dci_local_lut.flatten().tolist(),
-                "dci_locat_ratio": self.vop_config.dci_locat_ratio.flatten().tolist(),
-                "dci_global_lut": self.vop_config.dci_global_lut.flatten().tolist(),
+                ## keep list data in one line by using NoIndent & CompactArrayEncoder
+                "dci_local_lut": NoIndent(self.vop_config.dci_local_lut.flatten().tolist()),
+                "dci_locat_ratio": NoIndent(self.vop_config.dci_locat_ratio.flatten().tolist()),
+                "dci_global_lut": NoIndent(self.vop_config.dci_global_lut.flatten().tolist()),
             },
         }
         if filename == "":
@@ -190,10 +191,6 @@ class DciConfig(ModuleConfigCore):
             return True
 
         with open(filename, "w") as f:
-            ## keep list data in one line by using NoIndent & CompactArrayEncoder
-            for k, v in data["vop_config"].items():
-                if k in ["dci_local_lut", "dci_locat_ratio", "dci_global_lut"]:
-                    data["vop_config"][k] = NoIndent(v)
             json_data = json.dumps(data, indent=4, ensure_ascii=False, cls=CompactArrayEncoder)
             f.write(json_data)
             self.logger.info(f"Config parameters saved to file '{filename}'")

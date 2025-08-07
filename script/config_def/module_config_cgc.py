@@ -44,7 +44,6 @@ class CgcConfig(ModuleConfigCore):
 
     ## =============== overwrite methods  ===============
     def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
-        ## keep list data in one line by using NoIndent & CompactArrayEncoder
         data = {
             "version": self.version,
             "randSeed": self.randSeed,
@@ -55,6 +54,7 @@ class CgcConfig(ModuleConfigCore):
                     "log10_s_fix": self.cgc_params.log10_s_fix,
                     "log10_r_ootf_fix": self.cgc_params.log10_r_ootf_fix,
                     "log10_t_fix_params": self.cgc_params.log10_t_fix_params,
+                    ## keep list data in one line by using NoIndent & CompactArrayEncoder
                     "Mat_R2R": NoIndent(self.cgc_params.Mat_R2R.flatten().tolist()),
                     "eotf_diff_shift_tab": NoIndent(self.cgc_params.eotf_diff_shift_tab.tolist()),
                     "eotf_start_idx_tab": NoIndent(self.cgc_params.eotf_start_idx_tab.tolist()),

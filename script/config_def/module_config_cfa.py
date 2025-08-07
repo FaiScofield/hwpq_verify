@@ -4,7 +4,7 @@ FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-08-06
+LastEditTime: 2025-08-07
 """
 
 import os
@@ -95,8 +95,9 @@ class CfaConfig(ModuleConfigCore):
             "bA2Modulate": self.bA2Modulate,
             "bClearLow4bits": self.bClearLow4bits,
             "randSeed": self.randSeed,
-            "sRoiInfo": self.sRoiInfo,
-            "aReserved": self.aReserved,
+            ## keep list data in one line by using NoIndent & CompactArrayEncoder
+            "sRoiInfo": NoIndent(self.sRoiInfo),
+            "aReserved": NoIndent(self.aReserved),
         }
 
         if filename == "":
@@ -106,10 +107,6 @@ class CfaConfig(ModuleConfigCore):
             return True
 
         with open(filename, "w") as f:
-            ## keep list data in one line by using NoIndent & CompactArrayEncoder
-            for k, v in data.items():
-                if k in ["sRoiInfo", "aReserved"]:
-                    data[k] = NoIndent(v)
             json_data = json.dumps(data, indent=4, ensure_ascii=False, cls=CompactArrayEncoder)
             f.write(json_data)
             return True

@@ -4,7 +4,7 @@ FilePath    : module_config_csc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-16
 Description :
-LastEditTime: 2025-08-06
+LastEditTime: 2025-08-07
 """
 
 import os
@@ -73,10 +73,11 @@ class CscConfig(ModuleConfigCore):
             "cscROffset": self.cscROffset,
             "cscGOffset": self.cscGOffset,
             "cscBOffset": self.cscBOffset,
-            "cscMatrix": self.cscMatrix.flatten().tolist(),
-            "cscVector": self.cscVector.flatten().tolist(),
-            "cscSrcOffset": self.cscSrcOffset.flatten().tolist(),
-            "cscDstOffset": self.cscDstOffset.flatten().tolist(),
+            ## keep list data in one line by using NoIndent & CompactArrayEncoder
+            "cscMatrix": NoIndent(self.cscMatrix.flatten().tolist()),
+            "cscVector": NoIndent(self.cscVector.flatten().tolist()),
+            "cscSrcOffset": NoIndent(self.cscSrcOffset.flatten().tolist()),
+            "cscDstOffset": NoIndent(self.cscDstOffset.flatten().tolist()),
             "cscPassthrough": self.cscPassthrough,
         }
         if filename == "":
@@ -86,10 +87,6 @@ class CscConfig(ModuleConfigCore):
             return True
 
         with open(filename, "w") as f:
-            ## keep list data in one line by using NoIndent & CompactArrayEncoder
-            for k, v in data.items():
-                if k in ["cscMatrix", "cscVector", "cscSrcOffset", "cscDstOffset"]:
-                    data[k] = NoIndent(v)
             nest_data = {"pq_tuning_param": {"csc": data}}
             json_data = json.dumps(nest_data, indent=4, ensure_ascii=False, cls=CompactArrayEncoder)
             f.write(json_data)
