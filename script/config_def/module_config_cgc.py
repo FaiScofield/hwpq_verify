@@ -4,7 +4,7 @@ FilePath    : module_config_cgc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-29
 Description :
-LastEditTime: 2025-08-06
+LastEditTime: 2025-08-07
 """
 
 import os
@@ -44,6 +44,7 @@ class CgcConfig(ModuleConfigCore):
 
     ## =============== overwrite methods  ===============
     def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
+        ## keep list data in one line by using NoIndent & CompactArrayEncoder
         data = {
             "version": self.version,
             "randSeed": self.randSeed,
@@ -54,11 +55,11 @@ class CgcConfig(ModuleConfigCore):
                     "log10_s_fix": self.cgc_params.log10_s_fix,
                     "log10_r_ootf_fix": self.cgc_params.log10_r_ootf_fix,
                     "log10_t_fix_params": self.cgc_params.log10_t_fix_params,
-                    "Mat_R2R": self.cgc_params.Mat_R2R.flatten().tolist(),
-                    "eotf_diff_shift_tab": self.cgc_params.eotf_diff_shift_tab.flatten().tolist(),
-                    "eotf_start_idx_tab": self.cgc_params.eotf_start_idx_tab.flatten().tolist(),
-                    "eotf_attbits_change_idx_tab": self.cgc_params.eotf_attbits_change_idx_tab.flatten().tolist(),
-                    "cgc_oetf_tab": self.cgc_params.cgc_oetf_tab.flatten().tolist(),
+                    "Mat_R2R": NoIndent(self.cgc_params.Mat_R2R.flatten().tolist()),
+                    "eotf_diff_shift_tab": NoIndent(self.cgc_params.eotf_diff_shift_tab.tolist()),
+                    "eotf_start_idx_tab": NoIndent(self.cgc_params.eotf_start_idx_tab.tolist()),
+                    "eotf_attbits_change_idx_tab": NoIndent(self.cgc_params.eotf_attbits_change_idx_tab.tolist()),
+                    "cgc_oetf_tab": NoIndent(self.cgc_params.cgc_oetf_tab.tolist()),
                 }
             },
         }
@@ -69,16 +70,6 @@ class CgcConfig(ModuleConfigCore):
             return True
 
         with open(filename, "w") as f:
-            ## keep list data in one line by using NoIndent & CompactArrayEncoder
-            for k, v in data["HDRvivid"]["cgc_params"].items():
-                if k in [
-                    "Mat_R2R",
-                    "eotf_attbits_change_idx_tab",
-                    "eotf_start_idx_tab",
-                    "eotf_diff_shift_tab",
-                    "cgc_oetf_tab",
-                ]:
-                    data["HDRvivid"]["cgc_params"][k] = NoIndent(v)
             nest_data = {"HDR": data}
             json_data = json.dumps(nest_data, indent=4, ensure_ascii=False, cls=CompactArrayEncoder)
             f.write(json_data)

@@ -98,7 +98,7 @@ class ModuleRegisterCore(ABC):
                 self.logger.info(line)
             return True
 
-        self.logger.info(f"dump {self.platform} registers to {filename} ...")
+        self.logger.info(f"dump {self.platform} registers (nb={len(regs)}) to {filename} ...")
 
         if filename.endswith(".txt") or filename.endswith(".dat"):
             with open(filename, "w") as f:
@@ -131,7 +131,7 @@ class ModuleRegisterCore(ABC):
                         pos_ok = True
                         break
                 if not pos_ok:
-                    self.logger.warning(f"offset={pos} is not a valid register!")
+                    self.logger.warning("offset=0x%08X is not a valid register!" % pos)
             return self.dump()
         elif filename.endswith(".bin"):
             data = np.fromfile(filename, dtype=np.uint32)
@@ -222,13 +222,13 @@ class ModuleRegisterCore(ABC):
         offsets = [o for o, v, n in regs]
         offset_value_dict = {o: v for o, v, n in regs}
 
-        key_st = min(offsets)
-        key_ed = max(offsets)
+        key_st = np.uint32(min(offsets))
+        key_ed = np.uint32(max(offsets))
         lines = []
 
         while key_st <= key_ed:
             valid_line = False
-            line = "0x%08X:" % np.uint32(key_st + base_address)
+            line = "0x%08X:" % (key_st + np.uint32(base_address))
             for j in range(align):
                 key = key_st + j * 4
                 if key in offset_value_dict:
@@ -242,8 +242,10 @@ class ModuleRegisterCore(ABC):
 
         if pretty_lines_stdout >= 4 and len(lines) > pretty_lines_stdout:
             half_lines = (pretty_lines_stdout + 1) // 2
-            new_lines = lines[: half_lines]
-            new_lines.append(f"...omit middle {len(lines)-pretty_lines_stdout} lines since `max_lines_stdout={pretty_lines_stdout}`...")
+            new_lines = lines[:half_lines]
+            new_lines.append(
+                f"...omit middle {len(lines)-pretty_lines_stdout} lines since `max_lines_stdout={pretty_lines_stdout}`..."
+            )
             new_lines += lines[-half_lines:]
             lines = new_lines
 
@@ -301,6 +303,8 @@ class ModuleRegisterCore(ABC):
             self.logger.error(f"duplicate register offset found: {dup_offsets}!")
             return False
         if len(self.regs) != self.nb_regs:
-            self.logger.error(f"the real number of registers({len(self.regs)}) is not equal to manul defined nb_regs({self.nb_regs})!")
+            self.logger.error(
+                f"the real number of registers({len(self.regs)}) is not equal to manul defined nb_regs({self.nb_regs})!"
+            )
             return False
         return True
