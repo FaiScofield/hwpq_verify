@@ -143,9 +143,9 @@ class CgcRegister(ModuleRegisterCore):
         tab_u32 = param.eotf_start_idx_tab.astype(np.uint32)  # u11->u32 first
         for i in range(11 // 2):  # [0,9]=>[0,4]
             j = i * 2
-            val = (tab_u32[j] & & RM11) | ((tab_u32[j + 1] & & RM11) << 16)
+            val = (tab_u32[j] & RM11) | ((tab_u32[j + 1] & RM11) << 16)
             self.set(offset=tab_offset + i * 4, value=val)
-        self.set(offset=tab_offset + 5 * 4, value=tab_u32[10] & & RM11)  # 5th
+        self.set(offset=tab_offset + 5 * 4, value=tab_u32[10] & RM11)  # 5th
 
         tab_offset = 0x0B80 if self.index == CgcModuleIndex.VOP_HDRVIVID_CGC else 0x0830
         tab_u32 = param.eotf_attbits_change_idx_tab.astype(np.uint32)  # u10->u32 first
@@ -203,10 +203,10 @@ class CgcRegister(ModuleRegisterCore):
             for i in range(11 // 2):  # [0,9]=>[0,4]
                 j = i * 2
                 val = self.get(index=tab_offset + i * 4)
-                self.config.cgc_params.eotf_start_idx_tab[j] = (val >> 0) & & RM11
-                self.config.cgc_params.eotf_start_idx_tab[j + 1] = (val >> 16) & & RM11
+                self.config.cgc_params.eotf_start_idx_tab[j] = (val >> 0) & RM11
+                self.config.cgc_params.eotf_start_idx_tab[j + 1] = (val >> 16) & RM11
             val = self.get(index=tab_offset + 5 * 4)
-            self.config.cgc_params.eotf_start_idx_tab[10] = (val >> 0) & & RM11
+            self.config.cgc_params.eotf_start_idx_tab[10] = (val >> 0) & RM11
 
             tab_offset = 0x0B80 if self.index == CgcModuleIndex.VOP_HDRVIVID_CGC else 0x0830
             for i in range(11 // 2):  # [0,9]=>[0,4]
