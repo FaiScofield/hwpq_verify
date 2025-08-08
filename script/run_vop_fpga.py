@@ -4,7 +4,7 @@ FilePath    : run_vop_fpga.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-08-05
+LastEditTime: 2025-08-08
 """
 
 import os
@@ -48,7 +48,7 @@ def parse_common_args(args):
         "--input_fmt",
         type=int,
         default=0,
-        help="input format: {rgb(1)[a(0)|planar(2)]; yuv[444p(3)|444sp(4)|444i(5)|422p(6)|422sp(7)|420p(8)|420sp(9)}"
+        help="input format: {rgb(0)[a(1)|planar(2)]; yuv[444p(3)|444sp(4)|444i(5)|422p(6)|422sp(7)|420p(8)|420sp(9)}"
         "(+10 for 10bit unpacked(LSB); +20 for 10bit packed)",
     )
     parser.add_argument("-iw", "--input_wid", type=int, default=0, help="used when input_num > 0")
@@ -107,7 +107,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
     input_seed = int(args.input_seed)
     config_seed = int(args.config_seed)
     img_fmt = IMG_FMT.from_int(args.input_fmt)
-    is_rgb_fmt = img_fmt.value[0] % 10 <= 2
+    is_rgb_fmt = img_fmt.value[0] % 10 < 3
     img_wid = int(args.input_wid)
     img_hgt = int(args.input_hgt)
     logger.info(f"Set nb_reg_per_frame: {NB_REG_PER_FRAME}")
@@ -229,7 +229,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
                     # run command
                     cmd_str = (
                         exe
-                        + f" -i {input_path} -o {output_dir} -c {config_path} -C {final_crc_file} -w {wid} -g {hgt} -f 1 {module_args}"
+                        + f" -i {input_path} -o {output_dir} -c {config_path} -C {final_crc_file} -w {wid} -g {hgt} -f {img_fmt.value[0]} -F {12 if is_rgb_fmt else 13} {module_args}"
                     )
                     ret = run_cmd(cmd_str, False, logger)
                     if ret != 0:

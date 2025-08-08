@@ -22,8 +22,8 @@ from _ctypes import PyObj_FromPtr
 
 class IMG_FMT(Enum):
     ## idx, name, frame_size_ratio
-    RGB = (0, "rgb", 3)
-    RGBA = (1, "rgba", 4)
+    RGB = (0, "rgb24", 3)
+    RGBA = (1, "rgba32", 4)
     RGB_PLANAR = (2, "rgb_planar", 3)
     YUV444P = (3, "yu24", 3)
     YUV444SP = (4, "nv24", 3)
