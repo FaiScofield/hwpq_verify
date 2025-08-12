@@ -4,7 +4,7 @@ FilePath    : reg_def_cgc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-30
 Description :
-LastEditTime: 2025-08-07
+LastEditTime: 2025-08-12
 """
 
 import os
@@ -148,12 +148,12 @@ class CgcRegister(ModuleRegisterCore):
         self.set(offset=tab_offset + 5 * 4, value=tab_u32[10] & RM11)  # 5th
 
         tab_offset = 0x0B80 if self.index == CgcModuleIndex.VOP_HDRVIVID_CGC else 0x0830
-        tab_u32 = param.eotf_attbits_change_idx_tab.astype(np.uint32)  # u10->u32 first
+        tab_u32 = param.eotf_attbits_change_idx_tab.astype(np.uint32)  # u8->u32 first
         for i in range(11 // 2):  # [0,9]=>[0,4]
             j = i * 2
-            val = (tab_u32[j] & RM10) | ((tab_u32[j + 1] & RM10) << 16)
+            val = (tab_u32[j] & RM8) | ((tab_u32[j + 1] & RM8) << 16)
             self.set(offset=tab_offset + i * 4, value=val)
-        self.set(offset=tab_offset + 5 * 4, value=tab_u32[10] & RM10)  # 5th
+        self.set(offset=tab_offset + 5 * 4, value=tab_u32[10] & RM8)  # 5th
 
         tab_offset = 0x0C40 if self.index == CgcModuleIndex.VOP_HDRVIVID_CGC else 0x08F0
         tab_u32 = param.cgc_oetf_tab.astype(np.uint32)  # u32->u32 first
@@ -211,10 +211,10 @@ class CgcRegister(ModuleRegisterCore):
             tab_offset = 0x0B80 if self.index == CgcModuleIndex.VOP_HDRVIVID_CGC else 0x0830
             for i in range(11 // 2):  # [0,9]=>[0,4]
                 val = self.get(index=tab_offset + i * 4)
-                self.config.cgc_params.eotf_attbits_change_idx_tab[j] = (val >> 0) & RM10
-                self.config.cgc_params.eotf_attbits_change_idx_tab[j + 1] = (val >> 16) & RM10
+                self.config.cgc_params.eotf_attbits_change_idx_tab[j] = (val >> 0) & RM8
+                self.config.cgc_params.eotf_attbits_change_idx_tab[j + 1] = (val >> 16) & RM8
             val = self.get(index=tab_offset + 5 * 4)
-            self.config.cgc_params.eotf_attbits_change_idx_tab[10] = (val >> 0) & RM10
+            self.config.cgc_params.eotf_attbits_change_idx_tab[10] = (val >> 0) & RM8
 
             tab_offset = 0x0C40 if self.index == CgcModuleIndex.VOP_HDRVIVID_CGC else 0x08F0
             for i in range(117):  # [0,117]=>[0,117]
