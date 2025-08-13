@@ -4,7 +4,7 @@ FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-08-07
+LastEditTime: 2025-08-13
 """
 
 import os
@@ -62,42 +62,46 @@ class CfaConfig(ModuleConfigCore):
     def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
         data = {
             "version": self.version,
+            "randSeed": self.randSeed,
             "nCallCnt": self.nCallCnt,
-            "nFrameIdx": self.nFrameIdx,
-            "nImgWid": self.nImgWid,
-            "nImgHgt": self.nImgHgt,
-            "nSrcWidStride": self.nSrcWidStride,
-            "nSrcHgtStride": self.nSrcHgtStride,
-            "nDstWidStride": self.nDstWidStride,
-            "nDstHgtStride": self.nDstHgtStride,
-            "nCurrC2pWidStride": self.nCurrC2pWidStride,
-            "nCurrC2pHgtStride": self.nCurrC2pHgtStride,
             "ePlatform": self.ePlatform,
             "eCfaPattern": self.eCfaPattern,
-            "eAlgoType": self.eAlgoType,
-            "eImgFormat": self.eImgFormat,
-            "eOutFormat": self.eOutFormat,
             "eDisplayMode": self.eDisplayMode,
-            "nColorDepth": self.nColorDepth,
-            "nContrastGain": self.nContrastGain,
-            "nSaturationGain": self.nSaturationGain,
-            "nLuminanceGain": self.nLuminanceGain,
-            "nSharpenGain": self.nSharpenGain,
-            "nStretchBlack": self.nStretchBlack,
-            "nStretchWhite": self.nStretchWhite,
-            "bDither": self.bDither,
-            "bDeFalseColor4Gray": self.bDeFalseColor4Gray,
-            "bContrastEqual": self.bContrastEqual,
-            "bForceRunWithCpu": self.bForceRunWithCpu,
-            "nRegalType": self.nRegalType,
-            "nA2AlgoType": self.nA2AlgoType,
-            "nA2CompLevel": self.nA2CompLevel,
-            "bA2Modulate": self.bA2Modulate,
             "bClearLow4bits": self.bClearLow4bits,
-            "randSeed": self.randSeed,
-            ## keep list data in one line by using NoIndent & CompactArrayEncoder
-            "sRoiInfo": NoIndent(self.sRoiInfo),
-            "aReserved": NoIndent(self.aReserved),
+            "sFrameInfo": {
+                "nFrameIdx": self.nFrameIdx,
+                "nImgWid": self.nImgWid,
+                "nImgHgt": self.nImgHgt,
+                "nSrcWidStride": self.nSrcWidStride,
+                "nSrcHgtStride": self.nSrcHgtStride,
+                "nDstWidStride": self.nDstWidStride,
+                "nDstHgtStride": self.nDstHgtStride,
+                "nCurrC2pWidStride": self.nCurrC2pWidStride,
+                "nCurrC2pHgtStride": self.nCurrC2pHgtStride,
+                "eImgFormat": self.eImgFormat,
+                "eOutFormat": self.eOutFormat,
+            },
+            "sProcParam": {
+                "eAlgoType": self.eAlgoType,
+                "nColorDepth": self.nColorDepth,
+                "nContrastGain": self.nContrastGain,
+                "nSaturationGain": self.nSaturationGain,
+                "nLuminanceGain": self.nLuminanceGain,
+                "nSharpenGain": self.nSharpenGain,
+                "nStretchBlack": self.nStretchBlack,
+                "nStretchWhite": self.nStretchWhite,
+                "bDither": self.bDither,
+                "bDeFalseColor4Gray": self.bDeFalseColor4Gray,
+                "bContrastEqual": self.bContrastEqual,
+                "bForceRunWithCpu": self.bForceRunWithCpu,
+                "nRegalType": self.nRegalType,
+                "nA2AlgoType": self.nA2AlgoType,
+                "nA2CompLevel": self.nA2CompLevel,
+                "bA2Modulate": self.bA2Modulate,
+                ## keep list data in one line by using NoIndent & CompactArrayEncoder
+                "sRoiInfo": NoIndent(self.sRoiInfo),
+                "aReserved": NoIndent(self.aReserved),
+            },
         }
 
         if filename == "":
@@ -124,10 +128,18 @@ class CfaConfig(ModuleConfigCore):
 
         try:
             with open(filename, "r") as f:
-                data = json.load(f)
+                dataRoot = json.load(f)
+                data = dataRoot
 
                 self.version = data["version"]
+                self.randSeed = data["randSeed"] if "randSeed" in data else -1
                 self.nCallCnt = data["nCallCnt"]
+                self.ePlatform = data["ePlatform"]
+                self.eCfaPattern = data["eCfaPattern"]
+                self.eDisplayMode = data["eDisplayMode"]
+                self.bClearLow4bits = data["bClearLow4bits"] if "bClearLow4bits" in data else -1
+                if "sFrameInfo" in dataRoot:
+                    data = dataRoot["sFrameInfo"]
                 self.nFrameIdx = data["nFrameIdx"]
                 self.nImgWid = data["nImgWid"]
                 self.nImgHgt = data["nImgHgt"]
@@ -137,12 +149,11 @@ class CfaConfig(ModuleConfigCore):
                 self.nDstHgtStride = data["nDstHgtStride"]
                 self.nCurrC2pWidStride = data["nCurrC2pWidStride"]
                 self.nCurrC2pHgtStride = data["nCurrC2pHgtStride"]
-                self.ePlatform = data["ePlatform"]
-                self.eCfaPattern = data["eCfaPattern"]
-                self.eAlgoType = data["eAlgoType"]
                 self.eImgFormat = data["eImgFormat"]
                 self.eOutFormat = data["eOutFormat"]
-                self.eDisplayMode = data["eDisplayMode"]
+                if "sProcParam" in dataRoot:
+                    data = dataRoot["sProcParam"]
+                self.eAlgoType = data["eAlgoType"]
                 self.nColorDepth = data["nColorDepth"]
                 self.nContrastGain = data["nContrastGain"]
                 self.nSaturationGain = data["nSaturationGain"]
@@ -158,10 +169,8 @@ class CfaConfig(ModuleConfigCore):
                 self.nA2AlgoType = data["nA2AlgoType"]
                 self.nA2CompLevel = data["nA2CompLevel"]
                 self.bA2Modulate = data["bA2Modulate"]
-                self.bClearLow4bits = data["bClearLow4bits"]
                 self.sRoiInfo = data["sRoiInfo"]
                 self.aReserved = data["aReserved"]
-                self.randSeed = data["randSeed"] if "randSeed" in data else -1
                 return True
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
@@ -198,12 +207,12 @@ class CfaConfig(ModuleConfigCore):
         self.eOutFormat = 11  # random.randint(11, 13)
         self.eDisplayMode = 0
         self.nColorDepth = 64
-        self.nContrastGain = random.randint(0, 200)  # [0, 128]
-        self.nSaturationGain = random.randint(0, 200)  # [0, 128]
-        self.nLuminanceGain = random.randint(0, 200)  # [0, 128]s
-        self.nSharpenGain = random.randint(0, 200)  # [0, 128]
-        self.nStretchBlack = random.randint(0, 120)  # [0, 96]
-        self.nStretchWhite = random.randint(120, 300)  # [160, 255]
+        self.nContrastGain = random.randint(0, 128)  # [0, 128]
+        self.nSaturationGain = random.randint(0, 128)  # [0, 128]
+        self.nLuminanceGain = random.randint(0, 128)  # [0, 128]
+        self.nSharpenGain = random.randint(0, 128)  # [0, 128]
+        self.nStretchBlack = random.randint(0, 96)  # [0, 96]
+        self.nStretchWhite = random.randint(160, 255)  # [160, 255]
         self.bDither = int(random.randint(0, 99) < 75) * 2  # 0 or 2, 75% ON
         self.bDeFalseColor4Gray = int(random.randint(0, 99) < 75)  # 75% ON
         self.bContrastEqual = 0
