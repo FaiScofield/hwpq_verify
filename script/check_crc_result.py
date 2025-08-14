@@ -4,21 +4,22 @@ FilePath    : check_crc_result.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-30
+LastEditTime: 2025-08-14
 '''
 
 import os
 import sys
 import re
 import argparse
-from collections import defaultdict
+from utils import setup_logger
 
+logger = setup_logger("CRC_FILE_CHECK")
 
 def parse_file1(line, module_name):
     if False:  # module_name:
         pass
     else:
-        match = re.match(r'#(\d+)-(\d+) input: (.+), config: (.+), crc(.*): (.+)', line.strip())
+        match = re.match(r'#(\d+)-(\d+) input: (.+),\s*config: (.+),\s*crc(.*): (.+)', line.strip())
         if match:
             return {
                 'frame_idx': int(match.group(1)),
@@ -31,7 +32,7 @@ def parse_file1(line, module_name):
 
 
 def parse_file2(line, module_name):
-    match = re.match(r'input: (.+), config: (.+), crc of frame #(\d+): (.+)', line.strip())
+    match = re.match(r'input: (.+),\s*config: (.+),\s*crc of frame #(\d+): (.+)', line.strip())
     if match:
         return {
             'input_name': match.group(1),
@@ -53,116 +54,85 @@ def read_and_parse(filename, parser, module_name):
     return data
 
 
-def find_consecutive_matches(data1, data2):
-    """找到连续的匹配行"""
-    # 建立第二个文件的索引 {(input_name, config_name): [entries]}
-    file2_index = defaultdict(list)
-    for entry in data2:
-        key = (entry['input_name'], entry['config_name'])
-        file2_index[key].append(entry)
-
-    # 遍历第一个文件寻找匹配
-    matches = []
-    i = 0
-    while i < len(data1):
-        entry1 = data1[i]
-        key = (entry1['input_name'], entry1['config_name'])
-
-        if key in file2_index and file2_index[key]:
-            # 找到匹配的第二个文件条目
-            entry2 = file2_index[key].pop(0)
-
-            # 检查后续连续多少行是匹配的
-            n = 1
-            while (
-                i + n < len(data1)
-                and len(file2_index[key]) > 0
-                and (data1[i + n]['input_name'], data1[i + n]['config_name']) == key
-            ):
-                next_entry2 = file2_index[key].pop(0)
-                n += 1
-
-            matches.append({'start_idx1': i, 'start_idx2': data2.index(entry2), 'n': n, 'key': key})
-            i += n
-        else:
-            i += 1
-    return matches
-
-
-def compare_crc(data1, data2, matches):
+def compare_crc(data1, data2):
     """比较匹配行的CRC值"""
     errors = []
 
-    for match in matches:
-        start1 = match['start_idx1']
-        start2 = match['start_idx2']
-        n = match['n']
-
-        for i in range(n):
-            entry1 = data1[start1 + i]
-            entry2 = data2[start2 + i]
-
-            if entry1['crc_value'] != entry2['crc_value']:
-                errors.append(
-                    f"❌ CRC mismatch at {entry1['input_name']}/{entry1['config_name']}: "
-                    f" ({entry1['crc_value']} != {entry2['crc_value']})"
-                )
+    for entry1, entry2 in zip(data1, data2):
+        if entry1['crc_value'] != entry2['crc_value']:
+            errors.append(
+                f"❌ CRC mismatch at {entry1['input_name']}/{entry1['config_name']}: "
+                f" ({entry1['crc_value']} != {entry2['crc_value']})"
+            )
 
     return errors
 
 
-def check_crc_result(file1_path, file2_path, module_name, nb_max_errors):
-    # 读取并解析两个文件
+def check_crc_result(file1_path, file2_list, module_name, nb_max_errors, group_elems, group_offset):
+    nb_pass = 0
     data1 = read_and_parse(file1_path, parse_file1, module_name)
-    data2 = read_and_parse(file2_path, parse_file2, module_name)
-    print(f"match {len(data1)} / {len(data2)} valid crc lines.")
-    if len(data1) == 0 or len(data2) == 0:
-        print("❌ No valid crc lines found!")
-        return -1
+    data2 = read_and_parse(file2_list[0], parse_file2, module_name)
+    group_elems = len(data2) if group_elems == 0 else min(group_elems, len(data2))
+    if len(data1) < group_elems:
+        logger.error(f"❌ CRC file '{file1_path}' not complete, only {len(data1)}/{group_elems} valid crc lines found!")
+        return nb_pass
+    logger.info(f"find {len(data1)} valid crc data in '{file1_path}' ...")
+    logger.info(f"group_elems = {group_elems}, group_offset = {group_offset}")
+    logger.info("")
 
-    # 找到连续的匹配行
-    matches = find_consecutive_matches(data1, data2)
-    if len(matches) == 0:
-        print("❌ No valid pairs of crc lines found!")
-        return -1
-    print(f"find {len(matches)} valid pairs of crc lines.")
+    for i in range(len(file2_list)):
+        cmodel_crc_file = file2_list[i]
+        if not os.path.exists(cmodel_crc_file):
+            logger.error(f"CRC file {cmodel_crc_file} not exist!")
+            return nb_pass
+        logger.info(f"Checking CRC values for {os.path.basename(cmodel_crc_file)}...")
 
-    # 比较CRC值
-    errors = compare_crc(data1, data2, matches)
-    total_errors = len(errors)
+        data2 = read_and_parse(cmodel_crc_file, parse_file2, module_name)
+        if len(data2) == 0:
+            logger.error("❌ No valid crc data found in '{cmodel_crc_file}'!")
+            return nb_pass
+        elif len(data2) != group_elems:
+            logger.warning(f"CRC file might not be completed, find {len(data2)}/{group_elems} valid crc data!")
+        else:
+            logger.info(f"find {len(data2)} / {group_elems} valid crc data.")
 
-    # 输出结果
-    if total_errors == 0:
-        print("✅ All CRC values match!")
-    else:
-        for idx, error in enumerate(errors):
-            print(error)
-            if nb_max_errors > 0 and idx >= nb_max_errors:
-                print(f"❌ ... and {total_errors - nb_max_errors} more errors")
-                break
+        # 比较CRC值
+        offset = group_offset + i
+        st_idx = offset * group_elems
+        ed_idx = st_idx + group_elems
+        errors = compare_crc(data1[st_idx:ed_idx], data2)
 
-    # 输出统计信息
-    # print(f"\nStatistics:")
-    # print(f"Total matching blocks: {len(matches)}")
-    # print(f"Total CRC mismatches: {total_errors}")
-    return total_errors
+        # 输出结果
+        if len(errors) == 0:
+            nb_pass += 1
+            logger.info("✅ All CRC values match!")
+        else:
+            for idx, error in enumerate(errors):
+                logger.info(error)
+                if nb_max_errors > 0 and idx >= nb_max_errors:
+                    logger.error(f"❌ ... and {len(errors) - nb_max_errors} more errors")
+                    break
+
+    return nb_pass
 
 
 if __name__ == '__main__':
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("-m", "--module", default="", help="module name (sharp, acm, dci, csc, ...)")
-    arg_parser.add_argument("-c1", "--crc1", default="", help="a single total crc file from fpga")
-    arg_parser.add_argument("-c2", "--crc2", default="", help="the first crc file from cmodel")
-    arg_parser.add_argument("-n", "--num", type=int, default=1, help="cmodel crc files number")
+    arg_parser.add_argument("-c1", "--crc1", default="", help="a single total crc file from FPGA")
+    arg_parser.add_argument("-c2", "--crc2", default="", help="the first crc file from CMODEL")
+    arg_parser.add_argument("-ge", "--group_elems", type=int, default=0, help="crc number in each group")
+    arg_parser.add_argument("-go", "--group_offset", type=int, default=0, help="start group offset of the first crc2 file")
+    arg_parser.add_argument("-n", "--nb_crc2", type=int, default=1, help="CMODEL crc number of files")
     arg_parser.add_argument("-e", "--max_errors", type=int, default=5, help="show max errors per frame")
     arg_parser.print_usage()
     args = arg_parser.parse_args()
 
-    nb_files = args.num
+    nb_files = args.nb_crc2
     fpga_crc_file = args.crc1
     cmodel_crc_file = args.crc2
     if not os.path.exists(fpga_crc_file):
-        print(f"CRC file {fpga_crc_file} not exist!")
+        logger.error(f"CRC file {fpga_crc_file} not exist!")
         sys.exit(1)
 
     cmodel_crc_files = [cmodel_crc_file]
@@ -173,19 +143,9 @@ if __name__ == '__main__':
             seed = int(match.group(2))
             next_file = match.group(1) + f"_seed_{seed+k}_nv24_" + match.group(3)
             cmodel_crc_files.append(next_file)
-    print(f"get {len(cmodel_crc_files)} cmodel crc files to check...")
+    logger.info(f"get {len(cmodel_crc_files)} cmodel crc files to check...")
 
-    nb_pass = 0
-    for cmodel_crc_file in cmodel_crc_files:
-        if not os.path.exists(cmodel_crc_file):
-            print(f"CRC file {cmodel_crc_file} not exist!")
-            break
+    nb_pass = check_crc_result(fpga_crc_file, cmodel_crc_files, args.module.lower(), args.max_errors, args.group_elems, args.group_offset)
+    logger.info("")
+    logger.info(f"Check result: {nb_pass}/{len(cmodel_crc_files)} cmodel crc files pass!")
 
-        print(f"\nChecking CRC values for {os.path.basename(cmodel_crc_file)}...")
-        total_errors = check_crc_result(fpga_crc_file, cmodel_crc_file, args.module.lower(), args.max_errors)
-        if total_errors != 0:
-            print(f"❌ {total_errors} CRC values mismatch for {os.path.basename(cmodel_crc_file)}!")
-            # break
-        else:
-            nb_pass += 1
-    print(f"\nCheck result: {nb_pass}/{len(cmodel_crc_files)} cmodel crc files pass!")
