@@ -4,7 +4,7 @@ FilePath    : cli_helper_acm.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-08-05
+LastEditTime: 2025-08-14
 '''
 
 import os
@@ -24,11 +24,14 @@ class AcmHelper(ModuleHelperCore):
     ## =============== overwrite methods  ===============
     def update_attributes(self, platform: str) -> tuple[Optional[ModuleConfigCore], Optional[ModuleRegisterCore]]:
         self.platform = platform.upper()
-        self.config = AcmConfig(self.name)
+        self.config = AcmConfig(self.name, self.platform)
         self.register = AcmRegister(self.name, self.platform)
         return self.config, self.register
 
 
 if __name__ == "__main__":
-    runner = AcmHelper()
+    platform = "RK3572"
+    if len(sys.argv) > 1:
+        platform = sys.argv[1].upper()
+    runner = AcmHelper(platform=platform)
     runner.run()
