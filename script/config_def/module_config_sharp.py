@@ -41,12 +41,12 @@ class s_sharp_en_ctrl:
     i_peaking_gain_en = 1
     i_peaking_coring_en = 1
     i_peaking_limit_ctrl_en = 1
-    i_peaking_shoot_ctrl_en = 0 # invalid on RK3538
+    i_peaking_shoot_ctrl_en = 0  # invalid on RK3538
     i_peaking_edge_ctrl_en = 1
     i_peaking_edge_shoot_ctrl_en = 1
     i_shoot_ctrl_en = 1
     i_global_gain_en = 0
-    i_color_adj_en = 0 # invalid on RK3538
+    i_color_adj_en = 0  # invalid on RK3538
     i_texture_adj_en = 1
 
 
@@ -510,7 +510,9 @@ class SharpConfig(ModuleConfigCore):
                     self.s_sharp_en_ctrl.i_cti_v_en = 0
                     self.s_sharp_en_ctrl.i_peaking_shoot_ctrl_en = 0
                     self.s_sharp_en_ctrl.i_color_adj_en = 0
-                    self.logger.warning(f"LTI/CTI/PeakingShoot/ColorAdj are not supported on {self.platform}, force disabled!")
+                    self.logger.warning(
+                        f"LTI/CTI/PeakingShoot/ColorAdj are not supported on {self.platform}, force disabled!"
+                    )
 
                 self.s_lti_h.i_Radius = data["s_lti_h"]["i_Radius"]
                 self.s_lti_h.i_Slope = data["s_lti_h"]["i_Slope"]
@@ -759,13 +761,19 @@ class SharpConfig(ModuleConfigCore):
 
         self.s_peaking.t_GainPos = np.random.randint(0, 2047, 8).tolist()
         self.s_peaking.t_GainNeg = np.random.randint(0, 2047, 8).tolist()
-        self.s_peaking.t_CoringThreshold = np.random.randint(0, 1023, 8).tolist()
         self.s_peaking.t_CoringRatio = np.random.randint(0, 2047, 8).tolist()
         self.s_peaking.t_CoringZero = np.random.randint(0, 1023, 8).tolist()
-        self.s_peaking.t_LimitPos0 = np.random.randint(0, 1023, 8).tolist()
-        self.s_peaking.t_LimitPos1 = np.random.randint(0, 1023, 8).tolist()
-        self.s_peaking.t_LimitNeg0 = np.random.randint(0, 1023, 8).tolist()
-        self.s_peaking.t_LimitNeg1 = np.random.randint(0, 1023, 8).tolist()
+        # self.s_peaking.t_CoringThreshold = np.random.randint(0, 1023, 8).tolist()
+        # self.s_peaking.t_LimitPos0 = np.random.randint(0, 1023, 8).tolist()
+        # self.s_peaking.t_LimitPos1 = np.random.randint(0, 1023, 8).tolist()
+        # self.s_peaking.t_LimitNeg0 = np.random.randint(0, 1023, 8).tolist()
+        # self.s_peaking.t_LimitNeg1 = np.random.randint(0, 1023, 8).tolist()
+        for i in range(8):
+            self.s_peaking.t_CoringThreshold[i] = random.randint(self.s_peaking.t_CoringZero[i], 1023)
+            self.s_peaking.t_LimitPos0[i] = random.randint(self.s_peaking.t_CoringThreshold[i], 1023)
+            self.s_peaking.t_LimitPos1[i] = random.randint(self.s_peaking.t_LimitPos0[i], 1023)
+            self.s_peaking.t_LimitNeg0[i] = random.randint(self.s_peaking.t_CoringThreshold[i], 1023)
+            self.s_peaking.t_LimitNeg1[i] = random.randint(self.s_peaking.t_LimitNeg0[i], 1023)
         self.s_peaking.t_LimitRatio = np.random.randint(0, 1024, 8).tolist()
         self.s_peaking.t_LimitboundPos = np.random.randint(0, 1023, 8).tolist()
         self.s_peaking.t_LimitboundNeg = np.random.randint(0, 1023, 8).tolist()
@@ -810,14 +818,23 @@ class SharpConfig(ModuleConfigCore):
         self.s_peaking.edge_shoot_s_direct_non.i_alpha_over_unlimit = random.randint(0, 127)
         self.s_peaking.edge_shoot_s_direct_non.i_alpha_under_unlimit = random.randint(0, 127)
 
+        gen_filter_core_hx6 = lambda: [
+            random.randint(-15, 15),
+            random.randint(-63, 63),
+            random.randint(-255, 255),
+            random.randint(-511, 511),
+            random.randint(-1023, 1023),
+            random.randint(0, 1023),
+        ]
+        gen_filter_core_vx3 = lambda: [random.randint(-8, 7), random.randint(-8, 7), random.randint(0, 15)]
         self.s_peaking.i_diag_enh_coef = random.randint(0, 7)
-        self.s_peaking.t_filt_core_H0 = np.random.randint(-1024, 1023, 6).tolist()
-        self.s_peaking.t_filt_core_H1 = np.random.randint(-1024, 1023, 6).tolist()
-        self.s_peaking.t_filt_core_H2 = np.random.randint(-1024, 1023, 6).tolist()
-        self.s_peaking.t_filt_core_H3 = np.random.randint(-1024, 1023, 6).tolist()
-        self.s_peaking.t_filt_core_V0 = np.random.randint(-16, 15, 3).tolist()
-        self.s_peaking.t_filt_core_V1 = np.random.randint(-16, 15, 3).tolist()
-        self.s_peaking.t_filt_core_V2 = np.random.randint(-16, 15, 3).tolist()
+        self.s_peaking.t_filt_core_H0 = gen_filter_core_hx6()
+        self.s_peaking.t_filt_core_H1 = gen_filter_core_hx6()
+        self.s_peaking.t_filt_core_H2 = gen_filter_core_hx6()
+        self.s_peaking.t_filt_core_H3 = gen_filter_core_hx6()
+        self.s_peaking.t_filt_core_V0 = gen_filter_core_vx3()
+        self.s_peaking.t_filt_core_V1 = gen_filter_core_vx3()
+        self.s_peaking.t_filt_core_V2 = gen_filter_core_vx3()
         self.s_peaking.t_filt_core_USM = np.random.randint(-16, 15, 3).tolist()
         self.s_peaking.i_peakingGain = random.randint(0, 1023)
 
@@ -834,6 +851,9 @@ class SharpConfig(ModuleConfigCore):
         self.s_globalGain.t_adp_val = np.random.randint(0, 127, 6).tolist()
         self.s_globalGain.t_var_grd = np.random.randint(0, 1023, 6).tolist()
         self.s_globalGain.t_var_val = np.random.randint(0, 127, 6).tolist()
+        self.s_globalGain.t_lum_grd.sort()  # ascending order
+        self.s_globalGain.t_adp_grd.sort()  # ascending order
+        self.s_globalGain.t_var_grd.sort()  # ascending order
 
         self.s_colorCtrl.s_ctrl_point_0.i_ctrl_scaling = random.randint(0, 6)
         self.s_colorCtrl.s_ctrl_point_0.t_ctrl_point = np.random.randint(0, 1023, 2).tolist()
@@ -852,14 +872,15 @@ class SharpConfig(ModuleConfigCore):
         self.s_textureAdj.i_idx_mode_select = random.randint(0, 1)
         self.s_textureAdj.t_texture_grd = np.random.randint(0, 1023, 6).tolist()
         self.s_textureAdj.t_texture_val = np.random.randint(0, 127, 6).tolist()
+        self.s_textureAdj.t_texture_grd.sort()  # ascending order
 
         self.s_ink_config.i_EnableInk = int(random.randint(0, 99) < 75)  # 75%
 
         self.s_sharpRoiCfg.i_roi_enable = int(random.randint(0, 99) < 20)  # 20%
-        self.s_sharpRoiCfg.i_roi_xstart = random.randint(0, 1024)
-        self.s_sharpRoiCfg.i_roi_ystart = random.randint(0, 1024)
-        self.s_sharpRoiCfg.i_roi_xend = random.randint(4, 4096)
-        self.s_sharpRoiCfg.i_roi_yend = random.randint(4, 4096)
+        self.s_sharpRoiCfg.i_roi_xstart = random.randint(0, 4095)
+        self.s_sharpRoiCfg.i_roi_ystart = random.randint(0, 4095)
+        self.s_sharpRoiCfg.i_roi_xend = random.randint(self.s_sharpRoiCfg.i_roi_xstart, 4095)
+        self.s_sharpRoiCfg.i_roi_yend = random.randint(self.s_sharpRoiCfg.i_roi_ystart, 4095)
 
         self.logger.info(f"generated a random config with seed={seed}")
         return True
