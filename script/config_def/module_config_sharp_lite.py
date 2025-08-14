@@ -212,7 +212,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen")
     parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
-    parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
+    parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3538...")
     parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
     parser.add_argument("-ps", "--passthrough", action="store_true", help="设置相关参数直通寄存器")
     parser.print_usage()
