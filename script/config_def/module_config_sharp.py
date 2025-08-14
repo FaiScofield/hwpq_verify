@@ -4,7 +4,7 @@ FilePath    : module_config_sharp_lite.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-08-05
 Description :
-LastEditTime: 2025-08-06
+LastEditTime: 2025-08-14
 """
 
 import os
@@ -46,7 +46,7 @@ class s_sharp_en_ctrl:
     i_peaking_edge_shoot_ctrl_en = 1
     i_shoot_ctrl_en = 1
     i_global_gain_en = 0
-    i_color_adj_en = 1
+    i_color_adj_en = 0 # invalid on RK3538
     i_texture_adj_en = 1
 
 
@@ -180,10 +180,10 @@ class s_sharpRoiCfg:
 
 
 class SharpConfig(ModuleConfigCore):
-    def __init__(self, name: str = "SharpFull", platform: str = "RK3572"):
+    def __init__(self, name: str = "SharpLite", platform: str = "RK3572"):
         super().__init__(name, platform)
 
-        ## RK3538-VOP3-SHARK
+        ## RK3576-VOP3-Heron / RK3538-VOP3-SHARK
         self.i_EnabledSharpen = 1
         self.i_SharpSimMode = 0
         self.s_sharp_hw_config = s_sharp_hw_config()
@@ -503,6 +503,14 @@ class SharpConfig(ModuleConfigCore):
                 self.s_sharp_en_ctrl.i_global_gain_en = subdata["i_global_gain_en"]
                 self.s_sharp_en_ctrl.i_color_adj_en = subdata["i_color_adj_en"]
                 self.s_sharp_en_ctrl.i_texture_adj_en = subdata["i_texture_adj_en"]
+                if self.platform in ["RK3538"]:
+                    self.s_sharp_en_ctrl.i_lti_h_en = 0
+                    self.s_sharp_en_ctrl.i_lti_v_en = 0
+                    self.s_sharp_en_ctrl.i_cti_h_en = 0
+                    self.s_sharp_en_ctrl.i_cti_v_en = 0
+                    self.s_sharp_en_ctrl.i_peaking_shoot_ctrl_en = 0
+                    self.s_sharp_en_ctrl.i_color_adj_en = 0
+                    self.logger.warning(f"LTI/CTI/PeakingShoot/ColorAdj are not supported on {self.platform}, force disabled!")
 
                 self.s_lti_h.i_Radius = data["s_lti_h"]["i_Radius"]
                 self.s_lti_h.i_Slope = data["s_lti_h"]["i_Slope"]
@@ -680,7 +688,7 @@ class SharpConfig(ModuleConfigCore):
     def gen(self, seed: int = 114514, **kwargs) -> bool:
         ## set random seed
         if seed == None:
-            seed = self.randSeed + 1  # increase rand seed if no argument in
+            seed = self.randSeed
         random.seed(seed)
         np.random.seed(seed)
 
@@ -701,21 +709,28 @@ class SharpConfig(ModuleConfigCore):
         self.s_sharp_hw_config.color_adj_gating_en = 1
         self.s_sharp_hw_config.texture_adj_gating_en = 1
 
-        self.s_sharp_en_ctrl.i_lti_h_en = 0
-        self.s_sharp_en_ctrl.i_lti_v_en = 0
-        self.s_sharp_en_ctrl.i_cti_h_en = 0
-        self.s_sharp_en_ctrl.i_cti_v_en = 0
+        self.s_sharp_en_ctrl.i_lti_h_en = int(random.randint(0, 99) < 75)  # 75%
+        self.s_sharp_en_ctrl.i_lti_v_en = int(random.randint(0, 99) < 75)  # 75%
+        self.s_sharp_en_ctrl.i_cti_h_en = int(random.randint(0, 99) < 75)  # 75%
+        self.s_sharp_en_ctrl.i_cti_v_en = int(random.randint(0, 99) < 75)  # 75%
         self.s_sharp_en_ctrl.i_peaking_en = int(random.randint(0, 99) < 75)  # 75%
         self.s_sharp_en_ctrl.i_peaking_gain_en = int(random.randint(0, 99) < 75)  # 75%
         self.s_sharp_en_ctrl.i_peaking_coring_en = int(random.randint(0, 99) < 75)  # 75%
         self.s_sharp_en_ctrl.i_peaking_limit_ctrl_en = int(random.randint(0, 99) < 75)  # 75%
-        self.s_sharp_en_ctrl.i_peaking_shoot_ctrl_en = 0
+        self.s_sharp_en_ctrl.i_peaking_shoot_ctrl_en = int(random.randint(0, 99) < 75)  # 75%
         self.s_sharp_en_ctrl.i_peaking_edge_ctrl_en = int(random.randint(0, 99) < 75)  # 75%
         self.s_sharp_en_ctrl.i_peaking_edge_shoot_ctrl_en = int(random.randint(0, 99) < 75)  # 75%
         self.s_sharp_en_ctrl.i_shoot_ctrl_en = int(random.randint(0, 99) < 75)  # 75%
         self.s_sharp_en_ctrl.i_global_gain_en = int(random.randint(0, 99) < 75)  # 75%
         self.s_sharp_en_ctrl.i_color_adj_en = int(random.randint(0, 99) < 75)  # 75%
         self.s_sharp_en_ctrl.i_texture_adj_en = int(random.randint(0, 99) < 75)  # 75%
+        if self.platform in ["RK3538"]:
+            self.s_sharp_en_ctrl.i_lti_h_en = 0
+            self.s_sharp_en_ctrl.i_lti_v_en = 0
+            self.s_sharp_en_ctrl.i_cti_h_en = 0
+            self.s_sharp_en_ctrl.i_cti_v_en = 0
+            self.s_sharp_en_ctrl.i_peaking_shoot_ctrl_en = 0
+            self.s_sharp_en_ctrl.i_color_adj_en = 0
 
         self.s_lti_h.i_Radius = random.randint(0, 1)
         self.s_lti_h.i_Slope = random.randint(0, 511)
@@ -854,7 +869,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--interface", type=str, default="dump", help="选择测试接口: dump/load/gen")
     parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
-    parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3576")
+    parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3538...")
     parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
     parser.add_argument("-ps", "--passthrough", action="store_true", help="设置相关参数直通寄存器")
     parser.print_usage()

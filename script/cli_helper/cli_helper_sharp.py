@@ -4,7 +4,7 @@ FilePath    : cli_helper_sharp.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-08-06
+LastEditTime: 2025-08-14
 '''
 
 import os
@@ -28,10 +28,10 @@ class SharpHelper(ModuleHelperCore):
         self.platform = platform.upper()
         self.name = 'SHARP_LITE' if platform.upper() == 'RK3572' else 'SHARP'
         if self.platform == 'RK3572':
-            self.config = SharpLiteConfig(self.name)
+            self.config = SharpLiteConfig(self.name, self.platform)
             self.register = SharpRegister(self.name, self.platform)
         else:
-            self.config = SharpConfig(self.name)
+            self.config = SharpConfig(self.name, self.platform)
             self.register = SharpRegister(self.name, self.platform)
         return self.config, self.register
 

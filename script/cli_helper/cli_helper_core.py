@@ -4,7 +4,7 @@ FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-08-06
+LastEditTime: 2025-08-14
 """
 
 import sys
@@ -48,7 +48,7 @@ class ModuleHelperCore(ABC):
         self.commands = {
             "help": (self.do_help, "", "显示命令帮助信息"),
             "quit": (self.do_quit, "", "退出或返回上一级"),
-            "plat": (self.do_plat, "<-p name> [-x index]", "设置平台: (Only RK3572 for now!) 和硬件通路的位置"),
+            "plat": (self.do_plat, "<-p name> [-x index]", "设置平台(RK3572/RK3538)和硬件通路的位置(整数)"),
             "load": (self.do_load, "<file>", "加载 .json 配置文件或 .dat(txt)/.bin 寄存器文件"),
             "gen": (
                 self.do_gen,
@@ -201,7 +201,7 @@ class ModuleHelperCore(ABC):
         ## parse args & check
         parser = argparse.ArgumentParser(exit_on_error=False)
         parser.add_argument("-n", "--num", default=1, type=int, help="生成随机配置的数量")
-        parser.add_argument("-s", "--rand_seed", type=int, help="起始随机种子(n>1时随机种子自增1)")
+        parser.add_argument("-s", "--rand_seed", default=114514, type=int, help="起始随机种子(n>1时随机种子自增1)")
         parser.add_argument("-o", "--output", default="", type=str, help="生成的配置文件或目录(n>1时指定目录)")
         args, _ = parser.parse_known_args(args)
 
@@ -218,7 +218,8 @@ class ModuleHelperCore(ABC):
             os.makedirs(dirname, parents=True, exist_ok=True)
 
         if args.num == 1:
-            seed_ret = self.config.gen(args.rand_seed)
+            self.config.gen(args.rand_seed)
+            seed_ret = self.config.randSeed
             if abs_path != "" and not os.path.isfile(abs_path):
                 abs_path = os.path.join(dirname, f"{self.name.lower()}_config_seed_{seed_ret}.json")
                 print(f"[{self.name}] num = 1, 指定输出应该为绝对路径的文件名，强制修改为: {abs_path}")
@@ -230,7 +231,8 @@ class ModuleHelperCore(ABC):
                 print(f"[{self.name}] num > 1, 指定输出应该为绝对路径的目录名，强制修改为: {dirname}")
             seed = self.config.get_seed() if args.rand_seed is None else args.rand_seed
             for i in tqdm(range(args.num), desc="生成随机配置"):
-                seed_ret = self.config.gen(seed + i)
+                self.config.gen(seed + i)
+                seed_ret = self.config.randSeed
                 abs_path = os.path.join(dirname, f"{self.name.lower()}_config_seed_{seed_ret}.json")
                 self.config.dump(abs_path)
 
