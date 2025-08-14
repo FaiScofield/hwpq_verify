@@ -4,7 +4,7 @@ FilePath    : run_vop_fpga.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-08-13
+LastEditTime: 2025-08-14
 """
 
 import os
@@ -274,29 +274,28 @@ if __name__ == "__main__":
     module_args = ""
 
     if name in ["sharplite", "sharp_lite"]:
-        config_handler = SharpLiteConfig()
+        config_handler = SharpLiteConfig(platform=args.platform)
         reg_handler = SharpRegister(platform=args.platform)
-        nb_reg_per_frame = 14
+        nb_reg_per_frame = len(reg_handler.regs)
     elif "sharp" == name:
-        config_handler = SharpConfig()
-        reg_handler = None
-        nb_reg_per_frame = 172
+        config_handler = SharpConfig(platform=args.platform)
+        reg_handler = SharpRegister(platform=args.platform)
+        nb_reg_per_frame = len(reg_handler.regs)
     elif "csc" == name:
-        config_handler = CscConfig()
+        config_handler = CscConfig(platform=args.platform)
         reg_handler = CscRegister(platform=args.platform)
         nb_reg_per_frame = len(reg_handler.regs)
         # if reg_handler.index == CscModuleIndex.POST0_ACM_Y2R:
-        module_args = "-F 12"  # vyu order to calc CRC
     elif "acm" == name:
-        config_handler = AcmConfig()
+        config_handler = AcmConfig(platform=args.platform)
         reg_handler = AcmRegister(platform=args.platform)
         nb_reg_per_frame = len(reg_handler.regs)
     elif "dci" == name:
-        config_handler = DciConfig()
+        config_handler = DciConfig(platform=args.platform)
         reg_handler = DciRegister(platform=args.platform)
         nb_reg_per_frame = len(reg_handler.regs)
     elif "cgc" == name:
-        config_handler = CgcConfig()
+        config_handler = CgcConfig(platform=args.platform)
         reg_handler = CgcRegister(platform=args.platform)
         nb_reg_per_frame = len(reg_handler.regs)
 

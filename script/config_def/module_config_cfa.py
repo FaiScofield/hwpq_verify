@@ -4,7 +4,7 @@ FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-08-13
+LastEditTime: 2025-08-14
 """
 
 import os
@@ -82,7 +82,6 @@ class CfaConfig(ModuleConfigCore):
                 "eOutFormat": self.eOutFormat,
             },
             "sProcParam": {
-                "eAlgoType": self.eAlgoType,
                 "nColorDepth": self.nColorDepth,
                 "nContrastGain": self.nContrastGain,
                 "nSaturationGain": self.nSaturationGain,
@@ -90,14 +89,15 @@ class CfaConfig(ModuleConfigCore):
                 "nSharpenGain": self.nSharpenGain,
                 "nStretchBlack": self.nStretchBlack,
                 "nStretchWhite": self.nStretchWhite,
-                "bDither": self.bDither,
                 "bDeFalseColor4Gray": self.bDeFalseColor4Gray,
                 "bContrastEqual": self.bContrastEqual,
-                "bForceRunWithCpu": self.bForceRunWithCpu,
+                "bDither": self.bDither,
+                "eAlgoType": self.eAlgoType,
                 "nRegalType": self.nRegalType,
                 "nA2AlgoType": self.nA2AlgoType,
                 "nA2CompLevel": self.nA2CompLevel,
                 "bA2Modulate": self.bA2Modulate,
+                "bForceRunWithCpu": self.bForceRunWithCpu,
                 ## keep list data in one line by using NoIndent & CompactArrayEncoder
                 "sRoiInfo": NoIndent(self.sRoiInfo),
                 "aReserved": NoIndent(self.aReserved),
@@ -188,6 +188,8 @@ class CfaConfig(ModuleConfigCore):
             seed = self.randSeed + 1  # increase rand seed if no argument in
         random.seed(seed)
 
+        support_pattern_values = [0x0, 0x1000, 0x1001, 0x1002, 0x2000, 0x2001]
+
         self.version = f"{self.name.lower()}_config_{self.platform.lower()}_random_seed_{seed}"
         self.nCallCnt = 0
         self.nFrameIdx = 0
@@ -199,9 +201,10 @@ class CfaConfig(ModuleConfigCore):
         self.nDstHgtStride = self.nImgHgt
         self.nCurrC2pWidStride = self.nImgWid
         self.nCurrC2pHgtStride = self.nImgHgt
-        self.ePlatform = random.randint(0, 10)  # but not 8
-        self.ePlatform = 7 if self.ePlatform == 8 else self.ePlatform  # 8 is not supported
-        self.eCfaPattern = 0
+        # self.ePlatform = random.randint(0, 10)  # but not 8
+        # self.ePlatform = 7 if self.ePlatform == 8 else self.ePlatform  # 8 is not supported
+        self.ePlatform = 0
+        self.eCfaPattern = support_pattern_values[random.randint(0, len(support_pattern_values) - 1)]
         self.eAlgoType = random.randint(0, 2)
         self.eImgFormat = 0
         self.eOutFormat = 11  # random.randint(11, 13)

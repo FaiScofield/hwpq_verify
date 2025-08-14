@@ -118,6 +118,7 @@ class CscRegister(ModuleRegisterCore):
             ]
             if self.index in self.reg_dicts:
                 self.regs = self.reg_dicts[self.index]
+                self.nb_regs = len(self.regs)
                 return self.check_regs()
             else:
                 self.logger.error(f"HW module {self.index} is invalid on {self.platform} now!")

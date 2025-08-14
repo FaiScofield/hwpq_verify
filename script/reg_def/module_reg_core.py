@@ -62,6 +62,7 @@ class ModuleRegisterCore(ABC):
         # below attributes should be set by subclass
         self.base_addr = 0x0
         self.regs = []
+        self.nb_regs = 0
         self.config: Optional[ModuleConfigCore] = None
 
     ## =============== abstract methods  ===============

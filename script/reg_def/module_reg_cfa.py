@@ -4,7 +4,7 @@ FilePath    : reg_def_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-08-11
 Description :
-LastEditTime: 2025-08-13
+LastEditTime: 2025-08-14
 """
 
 import os
@@ -30,6 +30,12 @@ class CfaC2pInfo(Enum):
     RKCFA_PATTERN_2x6_GBBRRGRRGGBB = (0x3000, 1, 0xA50429, 0x0, 0x0, "Ptn2x6GBBRRGRRGGBB")
     RKCFA_PATTERN_UNKNOWN = (-1, 3, 0x0, 0x0, "PtnUnknown")
 
+    @classmethod
+    def from_value(cls, value):
+        for member in cls:
+            if member.value[0] == value:
+                return member
+        raise ValueError(f"无效的枚举值: {value}")
 
 class CfaRegister(ModuleRegisterCore):
     def __init__(self, name: str = "CFA", platform: str = 'RK3572'):
@@ -76,7 +82,7 @@ class CfaRegister(ModuleRegisterCore):
         sw_cfa_midflt_en = cfg.bDeFalseColor4Gray & RM1
         sw_cfa_highpass_en = int(cfg.nSharpenGain != 64)
         sw_cfa_panel_mode = int(cfg.eCfaPattern > 0)  # if cfg.eCfaPattern >= 0 else int(cfg.ePlatform > 0)
-        c2p_info = CfaC2pInfo(cfg.eCfaPattern)
+        c2p_info = CfaC2pInfo.from_value(cfg.eCfaPattern)
         sw_cfa_c2p_id = c2p_info.value[1]
         sw_cfa_c2p_apattern = c2p_info.value[2]
         sw_cfa_dither_coef05 = c2p_info.value[3]
