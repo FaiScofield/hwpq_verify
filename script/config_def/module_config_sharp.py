@@ -4,7 +4,7 @@ FilePath    : module_config_sharp_lite.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-08-05
 Description :
-LastEditTime: 2025-08-14
+LastEditTime: 2025-08-15
 """
 
 import os
@@ -835,7 +835,7 @@ class SharpConfig(ModuleConfigCore):
         self.s_peaking.t_filt_core_V0 = gen_filter_core_vx3()
         self.s_peaking.t_filt_core_V1 = gen_filter_core_vx3()
         self.s_peaking.t_filt_core_V2 = gen_filter_core_vx3()
-        self.s_peaking.t_filt_core_USM = np.random.randint(-16, 15, 3).tolist()
+        self.s_peaking.t_filt_core_USM = np.random.randint(-7, 7, 3).tolist()
         self.s_peaking.i_peakingGain = random.randint(0, 1023)
 
         self.s_shootCtrl.i_FilterRadius = random.randint(0, 1)
