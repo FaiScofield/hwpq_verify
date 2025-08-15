@@ -57,18 +57,5 @@ endif()
 message(STATUS "get target platform ABI: ${ABI}")
 
 ################################################################################
-## add executable
-include_directories(include)
-include_directories(src/ocl_program)
-
-add_executable(ocl_demo_use_c_api src/ocl_demo_use_c_api.cpp)
-set_target_properties(ocl_demo_use_c_api PROPERTIES LINK_FLAGS_RELEASE "-s") # set elf file stripped
-target_link_libraries(ocl_demo_use_c_api ${OpenCL_LIBRARIES})
-list(APPEND INSTALL_TARGETS ocl_demo_use_c_api)
-
-## install
-install(TARGETS ${INSTALL_TARGETS}
-    RUNTIME DESTINATION ${CMAKE_SOURCE_DIR}/output/${ABI}
-    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/output/${ABI}
-    ARCHIVE DESTINATION ${CMAKE_SOURCE_DIR}/output/${ABI}
-)
+## add subdirectories
+add_subdirectory(src)
