@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-#include "errno-base.h"
+// #include "errno-base.h"
 
 
 #ifndef _ROCKCHIP_DRM_DRV_H
@@ -49,7 +49,7 @@ struct post_csc
     u16 csc_enable;
 };
 
-#define DRM_ERROR(fmt, args...) printf("rockchip-drm: " fmt, ##args)
+#define DRM_ERROR(fmt, ...)     printf("rockchip-drm: " fmt, ##__VA_ARGS__)
 
 #define ARRAY_SIZE(arr)         (sizeof(arr) / sizeof((arr)[0]))
 

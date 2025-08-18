@@ -2,6 +2,12 @@
 include_directories(${CMAKE_CURRENT_LIST_DIR})
 
 add_executable(csc_exe
-    ${CMAKE_SOURCE_DIR}/rockchip_post_csc.c
-    ${CMAKE_SOURCE_DIR}/main.c
+    ${CMAKE_CURRENT_LIST_DIR}/rockchip_post_csc.c
+    ${CMAKE_CURRENT_LIST_DIR}/main.c
+)
+
+install(TARGETS csc_exe
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )

@@ -305,264 +305,19 @@ static const struct rk_pq_csc_dc_coef rk_dc_csc_table_identity_rgb_full_to_yuv_f
 static const struct rk_pq_csc_coef rk_csc_table_identity_y_cb_cr_to_y_cb_cr = {1024, 0, 0, 0, 1024, 0, 0, 0, 1024};
 
 /* 10bit Hue Sin Look Up Table -> range[-30, 30] */
-static const s32 g_hue_sin_table[PQ_CSC_HUE_TABLE_NUM] = {
-    512,
-    508,
-    505,
-    501,
-    497,
-    494,
-    490,
-    486,
-    483,
-    479,
-    475,
-    472,
-    468,
-    464,
-    460,
-    457,
-    453,
-    449,
-    445,
-    442,
-    438,
-    434,
-    430,
-    426,
-    423,
-    419,
-    415,
-    411,
-    407,
-    403,
-    400,
-    396,
-    392,
-    388,
-    384,
-    380,
-    376,
-    372,
-    369,
-    365,
-    361,
-    357,
-    353,
-    349,
-    345,
-    341,
-    337,
-    333,
-    329,
-    325,
-    321,
-    317,
-    313,
-    309,
-    305,
-    301,
-    297,
-    293,
-    289,
-    285,
-    281,
-    277,
-    273,
-    269,
-    265,
-    261,
-    257,
-    253,
-    249,
-    245,
-    241,
-    237,
-    233,
-    228,
-    224,
-    220,
-    216,
-    212,
-    208,
-    204,
-    200,
-    196,
-    192,
-    187,
-    183,
-    179,
-    175,
-    171,
-    167,
-    163,
-    159,
-    154,
-    150,
-    146,
-    142,
-    138,
-    134,
-    130,
-    125,
-    121,
-    117,
-    113,
-    109,
-    105,
-    100,
-    96,
-    92,
-    88,
-    84,
-    80,
-    75,
-    71,
-    67,
-    63,
-    59,
-    54,
-    50,
-    46,
-    42,
-    38,
-    34,
-    29,
-    25,
-    21,
-    17,
-    13,
-    8,
-    4,
-    0,
-    -4,
-    -8,
-    -13,
-    -17,
-    -21,
-    -25,
-    -29,
-    -34,
-    -38,
-    -42,
-    -46,
-    -50,
-    -54,
-    -59,
-    -63,
-    -67,
-    -71,
-    -75,
-    -80,
-    -84,
-    -88,
-    -92,
-    -96,
-    -100,
-    -105,
-    -109,
-    -113,
-    -117,
-    -121,
-    -125,
-    -130,
-    -134,
-    -138,
-    -142,
-    -146,
-    -150,
-    -154,
-    -159,
-    -163,
-    -167,
-    -171,
-    -175,
-    -179,
-    -183,
-    -187,
-    -192,
-    -196,
-    -200,
-    -204,
-    -208,
-    -212,
-    -216,
-    -220,
-    -224,
-    -228,
-    -233,
-    -237,
-    -241,
-    -245,
-    -249,
-    -253,
-    -257,
-    -261,
-    -265,
-    -269,
-    -273,
-    -277,
-    -281,
-    -285,
-    -289,
-    -293,
-    -297,
-    -301,
-    -305,
-    -309,
-    -313,
-    -317,
-    -321,
-    -325,
-    -329,
-    -333,
-    -337,
-    -341,
-    -345,
-    -349,
-    -353,
-    -357,
-    -361,
-    -365,
-    -369,
-    -372,
-    -376,
-    -380,
-    -384,
-    -388,
-    -392,
-    -396,
-    -400,
-    -403,
-    -407,
-    -411,
-    -415,
-    -419,
-    -423,
-    -426,
-    -430,
-    -434,
-    -438,
-    -442,
-    -445,
-    -449,
-    -453,
-    -457,
-    -460,
-    -464,
-    -468,
-    -472,
-    -475,
-    -479,
-    -483,
-    -486,
-    -490,
-    -494,
-    -497,
-    -501,
-    -505,
-    -508,
-};
+static const s32 g_hue_sin_table[PQ_CSC_HUE_TABLE_NUM] = {512, 508, 505, 501, 497, 494, 490, 486, 483, 479, 475, 472,
+    468, 464, 460, 457, 453, 449, 445, 442, 438, 434, 430, 426, 423, 419, 415, 411, 407, 403, 400, 396, 392, 388, 384,
+    380, 376, 372, 369, 365, 361, 357, 353, 349, 345, 341, 337, 333, 329, 325, 321, 317, 313, 309, 305, 301, 297, 293,
+    289, 285, 281, 277, 273, 269, 265, 261, 257, 253, 249, 245, 241, 237, 233, 228, 224, 220, 216, 212, 208, 204, 200,
+    196, 192, 187, 183, 179, 175, 171, 167, 163, 159, 154, 150, 146, 142, 138, 134, 130, 125, 121, 117, 113, 109, 105,
+    100, 96, 92, 88, 84, 80, 75, 71, 67, 63, 59, 54, 50, 46, 42, 38, 34, 29, 25, 21, 17, 13, 8, 4, 0, -4, -8, -13, -17,
+    -21, -25, -29, -34, -38, -42, -46, -50, -54, -59, -63, -67, -71, -75, -80, -84, -88, -92, -96, -100, -105, -109,
+    -113, -117, -121, -125, -130, -134, -138, -142, -146, -150, -154, -159, -163, -167, -171, -175, -179, -183, -187,
+    -192, -196, -200, -204, -208, -212, -216, -220, -224, -228, -233, -237, -241, -245, -249, -253, -257, -261, -265,
+    -269, -273, -277, -281, -285, -289, -293, -297, -301, -305, -309, -313, -317, -321, -325, -329, -333, -337, -341,
+    -345, -349, -353, -357, -361, -365, -369, -372, -376, -380, -384, -388, -392, -396, -400, -403, -407, -411, -415,
+    -419, -423, -426, -430, -434, -438, -442, -445, -449, -453, -457, -460, -464, -468, -472, -475, -479, -483, -486,
+    -490, -494, -497, -501, -505, -508};
 
 /* 10bit Hue Cos Look Up Table  -> range[-30, 30] */
 static const s32 g_hue_cos_table[PQ_CSC_HUE_TABLE_NUM] = {887, 889, 891, 893, 895, 897, 899, 901, 903, 905, 907, 909,
@@ -685,77 +440,13 @@ static const struct rk_csc_mode_coef g_mode_csc_coef[] = {
         &rk_dc_csc_table_identity_rgb_to_rgb2, {OPTM_CS_E_RGB_2020, OPTM_CS_E_RGB_2020, true, true}},
 };
 
-static const struct rk_pq_csc_coef r2y_for_y2y = {
-    306,
-    601,
-    117,
-    -173,
-    -339,
-    512,
-    512,
-    -429,
-    -83,
-};
+static const struct rk_pq_csc_coef r2y_for_y2y = {306, 601, 117, -173, -339, 512, 512, -429, -83};
+static const struct rk_pq_csc_coef y2r_for_y2y = {1024, -1, 1436, 1024, -353, -731, 1024, 1814, 1};
+static const struct rk_pq_csc_coef r2y_for_r2r = {218, 732, 74, -117, -395, 512, 512, -465, -47};
+static const struct rk_pq_csc_coef y2r_for_r2r = {1024, 0, 1612, 1024, -192, -480, 1024, 1900, -2};
+static const struct rk_pq_csc_coef rgb_input_swap_matrix = {0, 0, 1, 1, 0, 0, 0, 1, 0};
+static const struct rk_pq_csc_coef yuv_output_swap_matrix = {0, 0, 1, 1, 0, 0, 0, 1, 0};
 
-static const struct rk_pq_csc_coef y2r_for_y2y = {
-    1024,
-    -1,
-    1436,
-    1024,
-    -353,
-    -731,
-    1024,
-    1814,
-    1,
-};
-
-static const struct rk_pq_csc_coef r2y_for_r2r = {
-    218,
-    732,
-    74,
-    -117,
-    -395,
-    512,
-    512,
-    -465,
-    -47,
-};
-
-static const struct rk_pq_csc_coef y2r_for_r2r = {
-    1024,
-    0,
-    1612,
-    1024,
-    -192,
-    -480,
-    1024,
-    1900,
-    -2,
-};
-
-static const struct rk_pq_csc_coef rgb_input_swap_matrix = {
-    0,
-    0,
-    1,
-    1,
-    0,
-    0,
-    0,
-    1,
-    0,
-};
-
-static const struct rk_pq_csc_coef yuv_output_swap_matrix = {
-    0,
-    0,
-    1,
-    1,
-    0,
-    0,
-    0,
-    1,
-    0,
-};
 
 static enum color_space_type get_color_space_type(enum drm_color_encoding color_encoding, bool is_yuv)
 {
@@ -794,19 +485,17 @@ static enum color_space_type get_color_space_type(enum drm_color_encoding color_
 static int csc_get_mode_index(struct post_csc_convert_mode *convert_mode)
 {
     const struct rk_csc_colorspace_info *colorspace_info;
-    int i, j;
     enum color_space_type input_color_space, output_color_space;
-    bool is_input_full_range = convert_mode->is_input_full_range;
-    bool is_output_full_range = convert_mode->is_output_full_range;
-    bool is_input_yuv = convert_mode->is_input_yuv;
-    bool is_output_yuv = convert_mode->is_output_yuv;
+    const bool is_input_full_range = convert_mode->is_input_full_range;
+    const bool is_output_full_range = convert_mode->is_output_full_range;
+    const bool is_input_yuv = convert_mode->is_input_yuv;
+    const bool is_output_yuv = convert_mode->is_output_yuv;
 
-    for (i = 0; i < 2; i++)
+    for (int i = 0; i < 2; i++)
     {
         input_color_space = get_color_space_type(convert_mode->intput_color_encoding, is_input_yuv);
         output_color_space = get_color_space_type(convert_mode->output_color_encoding, is_output_yuv);
-
-        for (j = 0; j < ARRAY_SIZE(g_mode_csc_coef); j++)
+        for (int j = 0; j < ARRAY_SIZE(g_mode_csc_coef); j++)
         {
             colorspace_info = &g_mode_csc_coef[j].st_csc_color_info;
             if (colorspace_info->input_color_space == input_color_space &&
@@ -823,27 +512,19 @@ static int csc_get_mode_index(struct post_csc_convert_mode *convert_mode)
         convert_mode->intput_color_encoding = convert_mode->output_color_encoding;
     }
 
-    return -EINVAL;
+    return -1;
 }
 
 static void csc_matrix_multiply(struct rk_pq_csc_coef *dst, const struct rk_pq_csc_coef *m0, const struct rk_pq_csc_coef *m1)
 {
     dst->csc_coef00 = m0->csc_coef00 * m1->csc_coef00 + m0->csc_coef01 * m1->csc_coef10 + m0->csc_coef02 * m1->csc_coef20;
-
     dst->csc_coef01 = m0->csc_coef00 * m1->csc_coef01 + m0->csc_coef01 * m1->csc_coef11 + m0->csc_coef02 * m1->csc_coef21;
-
     dst->csc_coef02 = m0->csc_coef00 * m1->csc_coef02 + m0->csc_coef01 * m1->csc_coef12 + m0->csc_coef02 * m1->csc_coef22;
-
     dst->csc_coef10 = m0->csc_coef10 * m1->csc_coef00 + m0->csc_coef11 * m1->csc_coef10 + m0->csc_coef12 * m1->csc_coef20;
-
     dst->csc_coef11 = m0->csc_coef10 * m1->csc_coef01 + m0->csc_coef11 * m1->csc_coef11 + m0->csc_coef12 * m1->csc_coef21;
-
     dst->csc_coef12 = m0->csc_coef10 * m1->csc_coef02 + m0->csc_coef11 * m1->csc_coef12 + m0->csc_coef12 * m1->csc_coef22;
-
     dst->csc_coef20 = m0->csc_coef20 * m1->csc_coef00 + m0->csc_coef21 * m1->csc_coef10 + m0->csc_coef22 * m1->csc_coef20;
-
     dst->csc_coef21 = m0->csc_coef20 * m1->csc_coef01 + m0->csc_coef21 * m1->csc_coef11 + m0->csc_coef22 * m1->csc_coef21;
-
     dst->csc_coef22 = m0->csc_coef20 * m1->csc_coef02 + m0->csc_coef21 * m1->csc_coef12 + m0->csc_coef22 * m1->csc_coef22;
 }
 
@@ -851,9 +532,7 @@ static void csc_matrix_ventor_multiply(struct rk_pq_csc_ventor *dst, const struc
     const struct rk_pq_csc_ventor *v0)
 {
     dst->csc_offset0 = m0->csc_coef00 * v0->csc_offset0 + m0->csc_coef01 * v0->csc_offset1 + m0->csc_coef02 * v0->csc_offset2;
-
     dst->csc_offset1 = m0->csc_coef10 * v0->csc_offset0 + m0->csc_coef11 * v0->csc_offset1 + m0->csc_coef12 * v0->csc_offset2;
-
     dst->csc_offset2 = m0->csc_coef20 * v0->csc_offset0 + m0->csc_coef21 * v0->csc_offset1 + m0->csc_coef22 * v0->csc_offset2;
 }
 
@@ -1175,17 +854,6 @@ static int csc_calc_default_output_coef(const struct rk_csc_mode_coef *csc_mode_
     return 0;
 }
 
-static inline s32 pq_csc_simple_round(s32 x, s32 n)
-{
-    s32 value = 0;
-
-    if (n == 0)
-        return x;
-
-    value = (abs(x) + (1 << (n - 1))) >> (n);
-    return (((x) >= 0) ? value : -value);
-}
-
 static void rockchip_swap_color_channel(bool is_input_yuv, bool is_output_yuv, struct post_csc_coef *csc_simple_coef,
     struct rk_pq_csc_coef *out_matrix, struct rk_pq_csc_ventor *out_dc)
 {
@@ -1233,7 +901,7 @@ int rockchip_calc_post_csc(struct post_csc *csc_cfg, struct post_csc_coef *csc_s
     if (ret < 0)
     {
         DRM_ERROR("get csc index err:\n");
-        DRM_ERROR("input yuv %d full_range %d,output yuv %d full_range %d\n", convert_mode->is_input_yuv,
+        DRM_ERROR("input: yuv=%d full_range=%d, output: yuv=%d full_range=%d\n", convert_mode->is_input_yuv,
             convert_mode->is_input_full_range, convert_mode->is_output_yuv, convert_mode->is_output_full_range);
         return ret;
     }
