@@ -4,7 +4,7 @@ FilePath    : check_crc_result.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-08-14
+LastEditTime: 2025-08-18
 '''
 
 import os
@@ -15,9 +15,18 @@ from utils import setup_logger
 
 logger = setup_logger("CRC_FILE_CHECK")
 
+
 def parse_file1(line, module_name):
-    if False:  # module_name:
-        pass
+    if False:
+        match = re.match(r'^[0-9a-fA-F]{8}$', line.strip())
+        if match:
+            return {
+                'frame_idx': -1,
+                'config_idx': -1,
+                'input_name': "",
+                'config_name': "",
+                'crc_value': "0x" + match.group(0).upper(),
+            }
     else:
         match = re.match(r'#(\d+)-(\d+) input: (.+),\s*config: (.+),\s*crc(.*): (.+)', line.strip())
         if match:
@@ -70,12 +79,13 @@ def compare_crc(data1, data2):
 
 def check_crc_result(file1_path, file2_list, module_name, nb_max_errors, group_elems, group_offset):
     nb_pass = 0
+    nb_warn = 0
     data1 = read_and_parse(file1_path, parse_file1, module_name)
     data2 = read_and_parse(file2_list[0], parse_file2, module_name)
     group_elems = len(data2) if group_elems == 0 else min(group_elems, len(data2))
     if len(data1) < group_elems:
         logger.error(f"❌ CRC file '{file1_path}' not complete, only {len(data1)}/{group_elems} valid crc lines found!")
-        return nb_pass
+        return nb_pass, nb_warn
     logger.info(f"find {len(data1)} valid crc data in '{file1_path}' ...")
     logger.info(f"group_elems = {group_elems}, group_offset = {group_offset}")
     logger.info("")
@@ -84,15 +94,19 @@ def check_crc_result(file1_path, file2_list, module_name, nb_max_errors, group_e
         cmodel_crc_file = file2_list[i]
         if not os.path.exists(cmodel_crc_file):
             logger.error(f"CRC file {cmodel_crc_file} not exist!")
-            return nb_pass
+            return nb_pass, nb_warn
         logger.info(f"Checking CRC values for {os.path.basename(cmodel_crc_file)}...")
 
         data2 = read_and_parse(cmodel_crc_file, parse_file2, module_name)
         if len(data2) == 0:
             logger.error("❌ No valid crc data found in '{cmodel_crc_file}'!")
-            return nb_pass
-        elif len(data2) != group_elems:
+            return nb_pass, nb_warn
+        elif len(data2) < group_elems:
+            nb_warn += 1
             logger.warning(f"CRC file might not be completed, find {len(data2)}/{group_elems} valid crc data!")
+        elif len(data2) > group_elems:
+            nb_warn += 1
+            logger.error(f"CRC file contains too much data, find {len(data2)}/{group_elems} valid crc data!")
         else:
             logger.info(f"find {len(data2)} / {group_elems} valid crc data.")
 
@@ -113,7 +127,7 @@ def check_crc_result(file1_path, file2_list, module_name, nb_max_errors, group_e
                     logger.error(f"❌ ... and {len(errors) - nb_max_errors} more errors")
                     break
 
-    return nb_pass
+    return nb_pass, nb_warn
 
 
 if __name__ == '__main__':
@@ -122,7 +136,9 @@ if __name__ == '__main__':
     arg_parser.add_argument("-c1", "--crc1", default="", help="a single total crc file from FPGA")
     arg_parser.add_argument("-c2", "--crc2", default="", help="the first crc file from CMODEL")
     arg_parser.add_argument("-ge", "--group_elems", type=int, default=0, help="crc number in each group")
-    arg_parser.add_argument("-go", "--group_offset", type=int, default=0, help="start group offset of the first crc2 file")
+    arg_parser.add_argument(
+        "-go", "--group_offset", type=int, default=0, help="start group offset of the first crc2 file"
+    )
     arg_parser.add_argument("-n", "--nb_crc2", type=int, default=1, help="CMODEL crc number of files")
     arg_parser.add_argument("-e", "--max_errors", type=int, default=5, help="show max errors per frame")
     arg_parser.print_usage()
@@ -145,7 +161,10 @@ if __name__ == '__main__':
             cmodel_crc_files.append(next_file)
     logger.info(f"get {len(cmodel_crc_files)} cmodel crc files to check...")
 
-    nb_pass = check_crc_result(fpga_crc_file, cmodel_crc_files, args.module.lower(), args.max_errors, args.group_elems, args.group_offset)
+    nb_pass, nb_warn = check_crc_result(
+        fpga_crc_file, cmodel_crc_files, args.module.lower(), args.max_errors, args.group_elems, args.group_offset
+    )
     logger.info("")
-    logger.info(f"Check result: {nb_pass}/{len(cmodel_crc_files)} cmodel crc files pass!")
-
+    logger.info("Check result:")
+    logger.info(f"\t{nb_pass}/{len(cmodel_crc_files)} cmodel crc files pass!")
+    logger.info(f"\t{nb_warn} cmodel crc files might not be completed or too much data!")
