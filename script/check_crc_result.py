@@ -86,8 +86,11 @@ def check_crc_result(file1_path, file2_list, module_name, nb_max_errors, group_e
     if len(data1) < group_elems:
         logger.error(f"❌ CRC file '{file1_path}' not complete, only {len(data1)}/{group_elems} valid crc lines found!")
         return nb_pass, nb_warn
+    nb_group = len(data1) // group_elems
     logger.info(f"find {len(data1)} valid crc data in '{file1_path}' ...")
-    logger.info(f"group_elems = {group_elems}, group_offset = {group_offset}")
+    logger.info(f"group_elems = {group_elems}, group_offset = {group_offset}, group_num = {nb_group}")
+    if len(file2_list) > nb_group:
+        logger.warning("More CMODEL crc files than groups, only check the first {nb_group} group files!")
     logger.info("")
 
     for i in range(len(file2_list)):
@@ -106,14 +109,18 @@ def check_crc_result(file1_path, file2_list, module_name, nb_max_errors, group_e
             logger.warning(f"CRC file might not be completed, find {len(data2)}/{group_elems} valid crc data!")
         elif len(data2) > group_elems:
             nb_warn += 1
-            logger.error(f"CRC file contains too much data, find {len(data2)}/{group_elems} valid crc data!")
+            logger.error(f"CRC file contains too much data, find {len(data2)}/{group_elems} valid crc data! Force use the last {group_elems} data!")
+            data2 = data2[-group_elems:]
         else:
-            logger.info(f"find {len(data2)} / {group_elems} valid crc data.")
+            logger.info(f"find {len(data2)} / {group_elems}(group_elems) valid crc data in this file.")
 
         # 比较CRC值
         offset = group_offset + i
         st_idx = offset * group_elems
         ed_idx = st_idx + group_elems
+        if len(data1[st_idx:ed_idx]) != group_elems:
+            logger.warning(f"the {offset}-th group data in '{file1_path}' is incomplete, skip other groups!")
+            return nb_pass, nb_warn
         errors = compare_crc(data1[st_idx:ed_idx], data2)
 
         # 输出结果
@@ -167,4 +174,5 @@ if __name__ == '__main__':
     logger.info("")
     logger.info("Check result:")
     logger.info(f"\t{nb_pass}/{len(cmodel_crc_files)} cmodel crc files pass!")
-    logger.info(f"\t{nb_warn} cmodel crc files might not be completed or too much data!")
+    if nb_warn > 0:
+        logger.warning(f"\t{nb_warn} cmodel crc files might not be completed or too much data!")
