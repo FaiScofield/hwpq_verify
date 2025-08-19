@@ -81,6 +81,9 @@ enum rk_pq_csc_mode
     RK_PQ_CSC_RGB2YUV2020_LIMIT,          /* BT2020RGBLIMIT -> BT2020YUVLIMIT */
     RK_PQ_CSC_RGB2YUV2020_FULL2LIMIT,     /* BT2020RGBFULL -> BT2020YUVLIMIT */
     RK_PQ_CSC_RGB2YUV2020_FULL,           /* BT2020RGBFULL -> BT2020YUVFULL */
+    RK_PQ_CSC_YUVL2RGBL_2020,
+    RK_PQ_CSC_YUVL2RGBF_2020,
+    RK_PQ_CSC_YUVF2RGBL_2020,
 };
 
 enum color_space_type
@@ -195,22 +198,18 @@ const struct post_csc_convert_mode g_supported_standard_convert_mode[] = {
 /* xv_ycc BT.601 limit(i.e. SD) -> RGB full */
 static const struct rk_pq_csc_coef rk_csc_table_xv_yccsdy_cb_cr_limit_to_rgb_full = {
     1196, 0, 1639, 1196, -402, -835, 1196, 2072, 0};
-
 static const struct rk_pq_csc_dc_coef rk_dc_csc_table_xv_yccsdy_cb_cr_limit_to_rgb_full = {-64, -512, -512, 0, 0, 0};
 
 /* BT.709 limit(i.e. HD) -> RGB full */
 static const struct rk_pq_csc_coef rk_csc_table_hdy_cb_cr_limit_to_rgb_full = {1196, 0, 1841, 1196, -219, -547, 1196, 2169, 0};
-
 static const struct rk_pq_csc_dc_coef rk_dc_csc_table_hdy_cb_cr_limit_to_rgb_full = {-64, -512, -512, 0, 0, 0};
 
 /* RGB full-> YUV601 (i.e. SD) limit */
 static const struct rk_pq_csc_coef rk_csc_table_rgb_to_xv_yccsdy_cb_cr = {262, 515, 100, -151, -297, 448, 448, -376, -73};
-
 static const struct rk_pq_csc_dc_coef rk_dc_csc_table_rgb_to_xv_yccsdy_cb_cr = {0, 0, 0, 64, 512, 512};
 
 /* RGB full-> YUV709 (i.e. SD) limit */
 static const struct rk_pq_csc_coef rk_csc_table_rgb_to_hdy_cb_cr = {186, 627, 63, -103, -346, 448, 448, -407, -41};
-
 static const struct rk_pq_csc_dc_coef rk_dc_csc_table_rgb_to_hdy_cb_cr = {0, 0, 0, 64, 512, 512};
 
 /* BT.709 (i.e. HD) -> to xv_ycc BT.601 (i.e. SD) */
@@ -224,7 +223,6 @@ static const struct rk_pq_csc_coef rk_csc_table_xv_yccsdy_cb_cr_to_hdy_cb_cr = {
 /* xv_ycc BT.601 full(i.e. SD) -> to BT.709 full(i.e. HD) */
 static const struct rk_pq_csc_coef rk_csc_table_xv_yccsdy_cb_cr_full_to_hdy_cb_cr_full = {
     1024, -121, -218, 0, 1043, 117, 0, 77, 1050};
-
 static const struct rk_pq_csc_dc_coef rk_dc_csc_table_xv_yccsdy_cb_cr_to_hdy_cb_cr = {-64, -512, -512, 64, 512, 512};
 
 /* xv_ycc BT.601 full(i.e. SD) -> RGB full */
@@ -318,7 +316,6 @@ static const struct rk_pq_csc_dc_coef rk_dc_csc_table_identity_rgb_limit_to_rgb 
 /* RGB limit/full -> RGB limit/full */
 static const struct rk_pq_csc_coef rk_csc_table_identity_rgb_to_rgb = {1024, 0, 0, 0, 1024, 0, 0, 0, 1024};
 static const struct rk_pq_csc_dc_coef rk_dc_csc_table_identity_rgb_to_rgb1 = {-64, -64, -64, 64, 64, 64};
-
 static const struct rk_pq_csc_dc_coef rk_dc_csc_table_identity_rgb_to_rgb2 = {0, 0, 0, 0, 0, 0};
 
 static const struct rk_pq_csc_coef rk_csc_table_identity_yuv_to_rgb_2020 = {1024, 0, 1510, 1024, -169, -585, 1024, 1927, 0};
@@ -346,6 +343,13 @@ static const struct rk_pq_csc_dc_coef rk_dc_csc_table_identity_rgb_full_to_yuv_f
 
 /* identity matrix */
 static const struct rk_pq_csc_coef rk_csc_table_identity_y_cb_cr_to_y_cb_cr = {1024, 0, 0, 0, 1024, 0, 0, 0, 1024};
+
+/* 2020 Y2R */
+static const struct rk_pq_csc_coef rk_csc_table_y2r_l2l_2020 = {1024, 0, 1476, 1024, -165, -572, 1024, 1884, 0};
+static const struct rk_pq_csc_coef rk_csc_table_y2r_l2f_2020 = {1196, 0, 1724, 1196, -192, -668, 1196, 2200, 0};
+static const struct rk_pq_csc_coef rk_csc_table_y2r_f2l_2020 = {877, 0, 1293, 877, -144, -501, 877, 1650, 0};
+static const struct rk_pq_csc_coef rk_csc_table_y2r_f2f_2020 = rk_csc_table_identity_yuv_to_rgb_2020;
+
 
 /* 10bit Hue Sin Look Up Table -> range[-30, 30] */
 static const s32 g_hue_sin_table[PQ_CSC_HUE_TABLE_NUM] = {512, 508, 505, 501, 497, 494, 490, 486, 483, 479, 475, 472,
@@ -481,6 +485,12 @@ static const struct rk_csc_mode_coef g_mode_csc_coef[] = {
         &rk_dc_csc_table_identity_rgb_to_rgb1, {OPTM_CS_E_RGB_2020, OPTM_CS_E_RGB_2020, false, false}},
     {RK_PQ_CSC_RGB2RGB, "RGB 2020 F->RGB 2020 F", &rk_csc_table_identity_rgb_to_rgb,
         &rk_dc_csc_table_identity_rgb_to_rgb2, {OPTM_CS_E_RGB_2020, OPTM_CS_E_RGB_2020, true, true}},
+    {RK_PQ_CSC_YUVL2RGBL_2020, "YUV 2020 L->RGB 2020 L", &rk_csc_table_y2r_l2l_2020,
+        &rk_dc_csc_table_xv_yccsdy_cb_cr_limit_to_rgb_limit, {OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, false, false}},
+    {RK_PQ_CSC_YUVL2RGBF_2020, "YUV 2020 L->RGB 2020 F", &rk_csc_table_y2r_l2f_2020,
+        &rk_dc_csc_table_hdy_cb_cr_limit_to_rgb_full, {OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, false, true}},
+    {RK_PQ_CSC_YUVF2RGBL_2020, "YUV 2020 F->RGB 2020 L", &rk_csc_table_y2r_f2l_2020,
+        &rk_dc_csc_table_xv_yccsdy_cb_cr_to_rgb_limit, {OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, true, false}},
 };
 
 static const struct rk_pq_csc_coef r2y_for_y2y = {306, 601, 117, -173, -339, 512, 512, -429, -83};
@@ -935,7 +945,7 @@ int rockchip_calc_post_csc(const struct post_csc *csc_cfg, // [I] CSC config
     if (ret < 0)
     {
         DRM_ERROR("get csc index err:\n");
-        DRM_ERROR("input: colorspace=%d, yuv=%d full_range=%d, output: colorspace=%d, yuv=%d full_range=%d\n",
+        DRM_ERROR("input: colorspace=%d, yuv=%d, full_range=%d; output: colorspace=%d, yuv=%d, full_range=%d\n",
             convert_mode.input_color_encoding, convert_mode.is_input_yuv, convert_mode.is_input_full_range,
             convert_mode.output_color_encoding, convert_mode.is_output_yuv, convert_mode.is_output_full_range);
         return ret;
@@ -956,7 +966,7 @@ int rockchip_calc_post_csc(const struct post_csc *csc_cfg, // [I] CSC config
         ret = csc_calc_default_output_coef(csc_mode_cfg, &out_matrix, &out_dc);
     }
 
-    if (convert_mode.is_swap_channels) {
+    if (convert_mode.swap_channels == 1) {
         rockchip_swap_color_channel(&convert_mode, &out_matrix, &out_dc);
     }
 

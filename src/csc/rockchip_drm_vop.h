@@ -19,8 +19,8 @@ struct post_csc_convert_mode
     bool is_output_yuv;
     bool is_input_full_range;
     bool is_output_full_range;
-    bool is_swap_channels; // swap
-    int precision;         // {0, 8, 10, 13}
+    int swap_channels; // swap YUV to VYU
+    int precision;         // {8, 10, 13}
 };
 
 struct post_csc_coef

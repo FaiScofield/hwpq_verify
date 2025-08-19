@@ -25,7 +25,7 @@ struct cmd_config_t
     int is_input_full_range;   // [0, 1]
     int is_output_full_range;  // [0, 1]
     int precision;             // {8,10,13}
-    int b_swap_channels;       // [0, 1]
+    int swap_channels;         // [0, 1] for now
     int b_print_all;           // [0, 1]
 };
 
@@ -79,7 +79,7 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
             config->precision = atoi(optarg);
             break;
         case 's':
-            config->b_swap_channels = 1;
+            config->swap_channels = 1;
             break;
         case 'a':
             config->b_print_all = 1;
@@ -155,7 +155,7 @@ int main(int argc, char *const argv[])
         config.is_input_yuv, config.is_input_full_range);
     printf("\t- output colorspace: %d, is_yuv: %d, is_full_range: %d\n", config.output_color_encoding,
         config.is_output_yuv, config.is_output_full_range);
-    printf("\t- coef precision: %dbit, swap_channels: %d\n", config.precision, config.b_swap_channels);
+    printf("\t- coef precision: %dbit, swap_channels: %d\n", config.precision, config.swap_channels);
     printf("\t- print all supported case: %d\n", config.b_print_all);
 
     // set CSC config
@@ -178,7 +178,7 @@ int main(int argc, char *const argv[])
     convert_mode.is_output_yuv = config.is_output_yuv;
     convert_mode.is_input_full_range = config.is_input_full_range;
     convert_mode.is_output_full_range = config.is_output_full_range;
-    convert_mode.is_swap_channels = config.b_swap_channels;
+    convert_mode.swap_channels = config.swap_channels;
     convert_mode.precision = config.precision;
 
     // get CSC coefs & dump
