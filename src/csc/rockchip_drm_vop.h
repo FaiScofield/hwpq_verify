@@ -11,12 +11,16 @@
 
 struct post_csc_convert_mode
 {
-    enum drm_color_encoding intput_color_encoding;
-    enum drm_color_encoding output_color_encoding;
+    // enum drm_color_encoding intput_color_encoding;
+    // enum drm_color_encoding output_color_encoding;
+    int input_color_encoding;  // see drm_color_encoding
+    int output_color_encoding; // see drm_color_encoding
     bool is_input_yuv;
     bool is_output_yuv;
     bool is_input_full_range;
     bool is_output_full_range;
+    bool is_swap_channels; // swap
+    int precision;         // {0, 8, 10, 13}
 };
 
 struct post_csc_coef

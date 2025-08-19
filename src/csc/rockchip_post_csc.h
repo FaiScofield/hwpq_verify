@@ -11,12 +11,16 @@
 #include "rockchip_drm_drv.h"
 #include "rockchip_drm_vop.h"
 
-int rockchip_calc_post_csc(struct post_csc *csc_cfg, struct post_csc_coef *csc_simple_coef,
-    struct post_csc_convert_mode *convert_mode);
+int rockchip_calc_post_csc(const struct post_csc *csc_cfg, // [I] CSC config
+    struct post_csc_coef *csc_simple_coef,                 // [O] return CSC coefs
+    const struct post_csc_convert_mode *convert_mode       // [I] CSC convert mode
+);
 
-// int rockchip_calc_post_csc(struct post_csc_coef *csc_simple_coef, // [O] return csc_coef
-//     const struct post_csc *csc_cfg, const struct post_csc_convert_mode *convert_mode,
-//     int precision // 8/10/13
-// );
+int rockchip_calc_post_csc_coefs(const struct post_csc *csc_cfg, // [I] CSC config
+    const struct post_csc_convert_mode *convert_mode             // [I] CSC convert mode
+    struct post_csc_coef *csc_simple_coef,                       // [O] return CSC coefs
+);
+
+extern const struct post_csc_convert_mode g_supported_standard_convert_mode[];
 
 #endif

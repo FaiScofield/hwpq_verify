@@ -36,17 +36,17 @@ enum drm_color_encoding
 
 struct post_csc
 {
-    u16 hue;
-    u16 saturation;
-    u16 contrast;
-    u16 brightness;
-    u16 r_gain;
-    u16 g_gain;
-    u16 b_gain;
-    u16 r_offset;
-    u16 g_offset;
-    u16 b_offset;
-    u16 csc_enable;
+    u16 hue;        // range: [0, 511], default: 256
+    u16 saturation; // range: [0, 511], default: 256
+    u16 contrast;   // range: [0, 511], default: 256
+    u16 brightness; // range: [0, 511], default: 256
+    u16 r_gain;     // range: [0, 511], default: 256
+    u16 g_gain;     // range: [0, 511], default: 256
+    u16 b_gain;     // range: [0, 511], default: 256
+    u16 r_offset;   // range: [0, 511], default: 256
+    u16 g_offset;   // range: [0, 511], default: 256
+    u16 b_offset;   // range: [0, 511], default: 256
+    u16 csc_enable; // range: [0, 1], default: 1
 };
 
 #define DRM_ERROR(fmt, ...)     printf("rockchip-drm: " fmt, ##__VA_ARGS__)
