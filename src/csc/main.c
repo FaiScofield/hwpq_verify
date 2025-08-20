@@ -24,8 +24,9 @@ struct cmd_config_t
     int is_output_yuv;         // [0, 1]
     int is_input_full_range;   // [0, 1]
     int is_output_full_range;  // [0, 1]
-    int precision;             // {8,10,13}
     int swap_channels;         // [0, 1] for now
+    int pixel_depth;           // {8,10}
+    int coef_precision;        // {8,10,13}
     int b_print_all;           // [0, 1]
 };
 
@@ -39,7 +40,8 @@ void print_usage(const char *prog_name)
     printf("  -C  --dst_clr      [dst_color] | output colorspcae, range: [0, 1], default: 1\n");
     printf("  -Y  --dst_yuv        [dst_yuv] | output yuv format, range: [0, 1], default: 1\n");
     printf("  -F  --dst_range    [dst_range] | output full range, range: [0, 1], default: 1\n");
-    printf("  -m  --csc_mode      [csc_mode] | csc mode, like 'rgbl_to_601f'..., default: NULL\n");
+    printf("  -m  --csc_mode      [csc_mode] | csc mode, like 'rgbl_to_601f'..., recommend to use this argument, default: NULL\n");
+    printf("  -d  --depth      [pixel_depth] | pixel depth, range: {8,10}, default: 10bit\n");
     printf("  -p  --precision    [precision] | coef precision, range: {8,10,13}, default: 10bit\n");
     printf("  -s  --swap_channels            | swap channels, range: [0, 1], default: 0\n");
     printf("  -a  --print_all                | print coefs for all supported case,  range: [0, 1], default: 0\n");
@@ -53,7 +55,7 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
     int out_clr_pos = 0;
     int opt = 0;
     const char *mode_str = NULL;
-    while ((opt = getopt(argc, argv, "c:y:f:C:Y:F:m:p:sah")) != -1)
+    while ((opt = getopt(argc, argv, "c:y:f:C:Y:F:m:d:p:sah")) != -1)
     {
         switch (opt)
         {
@@ -75,8 +77,11 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
         case 'F':
             config->is_output_full_range = atoi(optarg);
             break;
+        case 'd':
+            config->pixel_depth = atoi(optarg);
+            break;
         case 'p':
-            config->precision = atoi(optarg);
+            config->coef_precision = atoi(optarg);
             break;
         case 's':
             config->swap_channels = 1;
@@ -155,8 +160,8 @@ int main(int argc, char *const argv[])
         config.is_input_yuv, config.is_input_full_range);
     printf("\t- output colorspace: %d, is_yuv: %d, is_full_range: %d\n", config.output_color_encoding,
         config.is_output_yuv, config.is_output_full_range);
-    printf("\t- coef precision: %dbit, swap_channels: %d\n", config.precision, config.swap_channels);
-    printf("\t- print all supported case: %d\n", config.b_print_all);
+    printf("\t- pixel depth: %dbit, coef precision: %dbit\n", config.pixel_depth, config.coef_precision);
+    printf("\t- swap_channels: %d, channle order: %s\n", config.swap_channels, config.swap_channels ? "(B-G-R/V-Y-U)" : "R-G-B/Y-U-V");
 
     // set CSC config
     csc_cfg.hue = 256;
@@ -169,7 +174,8 @@ int main(int argc, char *const argv[])
     csc_cfg.r_offset = 256;
     csc_cfg.g_offset = 256;
     csc_cfg.b_offset = 256;
-    csc_cfg.csc_enable = 1;
+    csc_cfg.csc_enable = 0;
+    const struct post_csc *post_config = csc_cfg.csc_enable ? &csc_cfg : NULL;
 
     // set CSC convert mode
     convert_mode.input_color_encoding = config.input_color_encoding;
@@ -179,18 +185,19 @@ int main(int argc, char *const argv[])
     convert_mode.is_input_full_range = config.is_input_full_range;
     convert_mode.is_output_full_range = config.is_output_full_range;
     convert_mode.swap_channels = config.swap_channels;
-    convert_mode.precision = config.precision;
+    convert_mode.coef_precision = config.coef_precision;
 
     // get CSC coefs & dump
-    printf("\n");
     int nb_mode = 1;
     const struct post_csc_convert_mode *mode_list = &convert_mode;
     if (config.b_print_all)
     {
-        nb_mode = 37;
         mode_list = g_supported_standard_convert_mode;
+        nb_mode = sizeof(g_supported_standard_convert_mode) / sizeof(struct post_csc_convert_mode);
+        printf("'-a' option is set, print all %d supported cases below:\n", nb_mode);
     }
 
+    printf("\n");
     for (int i = 0; i < nb_mode; i++)
     {
         const struct post_csc_convert_mode *mode = &mode_list[i];
