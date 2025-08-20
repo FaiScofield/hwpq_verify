@@ -495,10 +495,10 @@ static const struct rk_csc_mode_coef g_mode_csc_coef[] = {
         &rk_dc_csc_table_xv_yccsdy_cb_cr_to_rgb_limit, {OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, true, false}},
 };
 
-static const struct rk_pq_csc_coef r2y_for_y2y = {306, 601, 117, -173, -339, 512, 512, -429, -83};
-static const struct rk_pq_csc_coef y2r_for_y2y = {1024, -1, 1436, 1024, -353, -731, 1024, 1814, 1};
-static const struct rk_pq_csc_coef r2y_for_r2r = {218, 732, 74, -117, -395, 512, 512, -465, -47};
-static const struct rk_pq_csc_coef y2r_for_r2r = {1024, 0, 1612, 1024, -192, -480, 1024, 1900, -2};
+static const struct rk_pq_csc_coef r2y_for_y2y = {306, 601, 117, -173, -339, 512, 512, -429, -83};  // same to 'RGBF->YUV601F' (10bit)
+static const struct rk_pq_csc_coef y2r_for_y2y = {1024, -1, 1436, 1024, -353, -731, 1024, 1814, 1}; // a little bit different to 'YUV601F->RGBF'
+static const struct rk_pq_csc_coef r2y_for_r2r = {218, 732, 74, -117, -395, 512, 512, -465, -47};   // same to 'RGBF->YUV709F' (10bit)
+static const struct rk_pq_csc_coef y2r_for_r2r = {1024, 0, 1612, 1024, -192, -480, 1024, 1900, -2}; // a little bit different to 'YUV709F->RGBF'
 static const struct rk_pq_csc_coef rgb_input_swap_matrix = {0, 0, 1, 1, 0, 0, 0, 1, 0};
 static const struct rk_pq_csc_coef yuv_output_swap_matrix = {0, 0, 1, 1, 0, 0, 0, 1, 0};
 
@@ -751,9 +751,14 @@ static int csc_calc_adjust_output_coef(bool is_input_yuv, bool is_output_yuv, co
 
     /*
      * M0 = hue_matrix * saturation_matrix,
-     * M1 = gain_matrix * constrast_matrix,
+     * M1 = gain_matrix * contrast_matrix,
      */
-
+    /*
+     * The value bits width is 32 bit, so every time 2 matirx multiplied,
+     * right shift is necessary to avoid overflow. For enhancing the
+     * calculator precision, PQ_CALC_ENHANCE_BIT bits is reserved and
+     * right shift before get the final result.
+     */
     if (is_input_yuv && is_output_yuv)
     {
         /*
@@ -764,12 +769,6 @@ static int csc_calc_adjust_output_coef(bool is_input_yuv, bool is_output_yuv, co
         r2y_matrix = &r2y_for_y2y;
         y2r_matrix = &y2r_for_y2y;
         csc_matrix_multiply(&temp0, csc_mode_cfg->pst_csc_coef, &hue_matrix);
-        /*
-         * The value bits width is 32 bit, so every time 2 matirx multifly,
-         * right shift is necessary to avoid overflow. For enhancing the
-         * calculator precision, PQ_CALC_ENHANCE_BIT bits is reserved and
-         * right shift before get the final result.
-         */
         csc_matrix_element_right_shift(&temp0, PQ_CSC_PARAM_FIX_BIT_WIDTH - PQ_CALC_ENHANCE_BIT);
         csc_matrix_multiply(&temp1, &temp0, &saturation_matrix);
         csc_matrix_element_right_shift(&temp1, PQ_CSC_PARAM_HALF_FIX_BIT_WIDTH);
@@ -844,7 +843,6 @@ static int csc_calc_adjust_output_coef(bool is_input_yuv, bool is_output_yuv, co
          */
         r2y_matrix = &r2y_for_r2r;
         y2r_matrix = &y2r_for_r2r;
-
         csc_matrix_multiply(&temp0, &contrast_matrix, y2r_matrix);
         csc_matrix_element_right_shift(&temp0, PQ_CSC_PARAM_HALF_FIX_BIT_WIDTH - PQ_CALC_ENHANCE_BIT);
         csc_matrix_multiply(&temp1, &gain_matrix, &temp0);
@@ -853,7 +851,9 @@ static int csc_calc_adjust_output_coef(bool is_input_yuv, bool is_output_yuv, co
         csc_matrix_element_right_shift(&temp0, PQ_CSC_PARAM_FIX_BIT_WIDTH);
         csc_matrix_multiply(&temp1, &temp0, &saturation_matrix);
         csc_matrix_element_right_shift(&temp1, PQ_CSC_PARAM_HALF_FIX_BIT_WIDTH);
-        csc_matrix_multiply(out_matrix, &temp1, r2y_matrix);
+        csc_matrix_multiply(&temp0, &temp1, r2y_matrix);
+        csc_matrix_element_right_shift(&temp0, PQ_CSC_PARAM_FIX_BIT_WIDTH);
+        csc_matrix_multiply(out_matrix, csc_mode_cfg->pst_csc_coef, &temp0);
         csc_matrix_element_right_shift_with_simple_round(out_matrix, PQ_CSC_PARAM_FIX_BIT_WIDTH + PQ_CALC_ENHANCE_BIT);
 
         dc_in_ventor.csc_offset0 = dc_in_offset;
@@ -931,9 +931,9 @@ static void rockchip_swap_color_channel(const struct post_csc_convert_mode *conv
 }
 
 
-int rockchip_calc_post_csc(const struct post_csc *csc_cfg, // [I] CSC config
-    struct post_csc_coef *csc_simple_coef,                 // [O] return CSC coefs
-    const struct post_csc_convert_mode *pConvertMode       // [I] CSC convert mode
+int rockchip_calc_post_csc(const struct post_csc *bcsh_cfg, // [I] CSC config
+    struct post_csc_coef *csc_simple_coef,                  // [O] return CSC coefs
+    const struct post_csc_convert_mode *pConvertMode        // [I] CSC convert mode
 )
 {
     int ret = 0;
@@ -959,9 +959,9 @@ int rockchip_calc_post_csc(const struct post_csc *csc_cfg, // [I] CSC config
     }
 
     csc_mode_cfg = &g_mode_csc_coef[ret];
-    printf("get CSC mode: %s2%s %s \n", pConvertMode->is_input_yuv ? "Y" : "R", pConvertMode->is_output_yuv ? "Y" : "R", csc_mode_cfg->c_csc_comment);
-    if (csc_cfg) {
-        ret = csc_calc_adjust_output_coef(convert_mode.is_input_yuv, convert_mode.is_output_yuv, csc_cfg, csc_mode_cfg,
+    // printf("get CSC mode: %s2%s %s \n", pConvertMode->is_input_yuv ? "Y" : "R", pConvertMode->is_output_yuv ? "Y" : "R", csc_mode_cfg->c_csc_comment);
+    if (bcsh_cfg) {
+        ret = csc_calc_adjust_output_coef(convert_mode.is_input_yuv, convert_mode.is_output_yuv, bcsh_cfg, csc_mode_cfg,
             &out_matrix, &out_dc);
     }
     else {
