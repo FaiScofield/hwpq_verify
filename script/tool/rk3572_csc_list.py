@@ -15,7 +15,7 @@ g_supported_colorspace_list = [
     ["bt2020", "F"],
 ]
 
-def get_mat(color_space_i, range_i, color_space_o, range_o, pix_bits=10, coef_fix_bits=10):
+def get_mat(color_space_i, range_i, color_space_o, range_o, pix_bits=10, coef_fix_bits=10, fine_tuning=False):
     bypass_mat = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
     # get input range mat
     if (range_i == "F"):
@@ -34,12 +34,15 @@ def get_mat(color_space_i, range_i, color_space_o, range_o, pix_bits=10, coef_fi
         output_range_mat = getYUVF2LMat(is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits)
 
     # get color space mat
+    check_case = ""
     if (color_space_i == color_space_o):
         color_space_mat = bypass_mat
     elif (color_space_i == "rgb"): # R2Y
         color_space_mat = getR2YMat(color_space_o, is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="F")
+        check_case = "r2y"
     elif (color_space_o == "rgb"): # Y2R
         color_space_mat = getY2RMat(color_space_i, is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="F")
+        check_case = "y2r"
     else: # Y2Y
         mat0 = getY2RMat(color_space_i, is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="F")
         mat1 = getR2YMat(color_space_o, is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="F")
@@ -48,9 +51,10 @@ def get_mat(color_space_i, range_i, color_space_o, range_o, pix_bits=10, coef_fi
     # get final mat
     final_mat = output_range_mat @ color_space_mat @ input_range_mat
     if coef_fix_bits > 0:
-        final_mat_fix = getFixMat(final_mat, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits)
-        return final_mat_fix
-
+        final_mat_float = final_mat.copy()
+        final_mat = getFixMat(final_mat, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits)
+        if fine_tuning:
+            final_mat = checkFixMat(final_mat_float, final_mat, coef_fix_bits, check_case, range_i, range_o)
     return final_mat
 
 def get_offset(color_space_i, range_i, color_space_o, range_o, csc_mat, pix_bits=10, coef_fix_bits=10):
@@ -132,6 +136,7 @@ def parse_csc_mode_str(csc_mode_str):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-a", "--print_all", action="store_true", help="print all csc mode coefs")
+    parser.add_argument("-c", "--fix_check", action="store_true", help="check and do fine tuning for the fixed matrix output")
     parser.add_argument("-f", "--out_file", type=str, default="", help="dump all csc mode coefs to a file when '-a' is set")
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="RK3572/RK3576")
     parser.add_argument("-m", "--mode", type=str, default="", help="a single csc mode, like: '601f_to_rgbl/rgbf_to_2020f' ...)")
@@ -153,7 +158,7 @@ if __name__ == '__main__':
     platform = args.platform.lower()
     out_file = args.out_file if args.out_file else f"{platform}_csc_coef_for_%dbit_pix_%dbits_coef.txt" % (pix_bits, coef_fix_bits)
     print(f" - get platform: {platform}")
-    print(f" - get pixel_bits: {pix_bits}, coefs_bits: {coef_fix_bits}")
+    print(f" - get pixel_bits: {pix_bits}, coefs_bits: {coef_fix_bits}, fix_check: {args.fix_check}")
     print(f" - get out_file: {out_file}")
     print(f" - get csc_mode: {csc_mode}")
     if coef_fix_bits not in [0, 8, 10, 13]:
@@ -180,7 +185,7 @@ if __name__ == '__main__':
                 if not is_valid_mode:
                     continue
 
-                mat = get_mat(color_space_i, range_i, color_space_o, range_o, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits)
+                mat = get_mat(color_space_i, range_i, color_space_o, range_o, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, fine_tuning=args.fix_check)
                 offset = get_offset(color_space_i, range_i, color_space_o, range_o, mat, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits)
                 print(f"matrix_{color_space_i}{range_i}_to_{color_space_o}{range_o} = {np.array2string(mat.flatten(), separator=', ', formatter=float_fmt)}")
                 print(f"offset_{color_space_i}{range_i}_to_{color_space_o}{range_o} = {np.array2string(offset.flatten(), separator=', ', formatter=float_fmt)}")
@@ -204,10 +209,10 @@ if __name__ == '__main__':
         color_space_i, range_i, color_space_o, range_o = parse_csc_mode_str(csc_mode)
         is_valid_mode = check_valid_csc_mode(color_space_i, color_space_o)
         if is_valid_mode:
-            mat = get_mat(color_space_i, range_i, color_space_o, range_o, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits)
-            # mat = np.round(mat, decimals=6)
+            mat = get_mat(color_space_i, range_i, color_space_o, range_o, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, fine_tuning=args.fix_check)
             offset = get_offset(color_space_i, range_i, color_space_o, range_o, mat, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits)
             print(f"matrix_{color_space_i}{range_i}_to_{color_space_o}{range_o} = {np.array2string(mat.flatten(), separator=', ', formatter=float_fmt)}")
             print(f"offset_{color_space_i}{range_i}_to_{color_space_o}{range_o} = {np.array2string(offset.flatten(), separator=', ', formatter=float_fmt)}")
+            print(f"matrix_sum: {np.sum(mat[0,:])} / {np.sum(mat)}")
         else:
             print(f"invalid csc mode: {color_space_i}_to_{color_space_o}!")

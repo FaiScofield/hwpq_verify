@@ -79,6 +79,49 @@ def getFixMat(mat, pix_bits=10, coef_fix_bits=10):
     return mat_fix
 
 
+def checkFixMat(mat: np.ndarray, mat_fix: np.ndarray, coef_fix_bits: int, check_case: str="", range_i: str="F", range_o: str="F"):
+    target_denorms = np.ones(2) * 2**coef_fix_bits
+    if range_i == "F" and range_o == "L":
+        target_denorms[0] = 220/255 * (2**coef_fix_bits - 1)
+        target_denorms[1] = 225/255 * (2**coef_fix_bits - 1)
+    elif range_i == "L" and range_o == "F":
+        target_denorms[0] = 255/220 * (2**coef_fix_bits - 1)
+        target_denorms[1] = 255/225 * (2**coef_fix_bits - 1)
+    target_denorms = (target_denorms + 0.5).astype(np.int32)
+
+    org_mat_fix = mat_fix.copy()
+    mat = mat * (2**coef_fix_bits)
+    mat_diff = mat_fix.astype(np.float32) - mat
+    check_case = check_case.lower()
+
+    if check_case == "r2y":
+        denorms = np.sum(mat_fix, axis=1)
+        if coef_fix_bits == 0:
+            max_indices = np.argmax(np.abs(mat), axis=1)
+        else:
+            max_indices = np.argmax(np.abs(mat_diff), axis=1)
+        updated = False
+
+        if denorms[0] != target_denorms[0]:
+            print(f"Warning: denorms[0] = {denorms[0]} != {target_denorms[0]}")
+            mat_fix[0, max_indices[0]] += target_denorms[0] - denorms[0]
+            updated = True
+        if denorms[1] != 0:
+            print(f"Warning: denorms[1] = {denorms[1]} != 0")
+            mat_fix[1, max_indices[1]] -= denorms[1]
+            updated = True
+        if denorms[2] != 0:
+            print(f"Warning: denorms[1] = {denorms[2]} != 0")
+            mat_fix[2, max_indices[2]] -= denorms[2]
+            updated = True
+        if updated:
+            print(f"fine-tunig for R2Y, original mat: {np.array2string(org_mat_fix.flatten(), separator=', ')}")
+            print(f"fine-tunig for R2Y, updated  mat: {np.array2string(mat_fix.flatten(), separator=', ')}")
+    # elif check_case == "y2r":
+    # TODO
+
+    return mat_fix
+
 def getY2RMat(color_space, is_float=True, pix_bits=10, coef_fix_bits=10, range="F"):
     rgbw_coord = getXYbyColorSpace(color_space)
     Mat_r2y, Mat_y2r = getMatByCoord(rgbw_coord)
