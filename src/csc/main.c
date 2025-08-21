@@ -21,7 +21,7 @@
 #endif
 #include "rockchip_post_csc.h"
 
-const char *g_colorspace_str[] = {"BT601", "BT709", "BT2020", "RGB"};
+const char *g_colorspace_str[] = {"YUV601", "YUV709", "YUV2020", "RGB"};
 const char *g_range_str[] = {"L", "F"};
 
 struct cmd_config_t
@@ -204,7 +204,7 @@ int main(int argc, char *const argv[])
         config.is_input_yuv, config.is_input_full_range);
     printf("\t- output colorspace: %d, is_yuv: %d, is_full_range: %d\n", config.output_color_encoding,
         config.is_output_yuv, config.is_output_full_range);
-    printf("\t- pixel depth: %dbit, coef precision: %dbit\n", config.pixel_depth, config.coef_precision);
+    printf("\t- pixel depth: %d bit, coef precision: %d bit\n", config.pixel_depth, config.coef_precision);
     printf("\t- swap_channels: %d, channle order: %s\n", config.swap_channels,
         config.swap_channels ? "(B-G-R/V-Y-U)" : "R-G-B/Y-U-V");
     printf("\t- output file: %s\n", config.output_file);
@@ -231,6 +231,7 @@ int main(int argc, char *const argv[])
     convert_mode.is_input_full_range = config.is_input_full_range;
     convert_mode.is_output_full_range = config.is_output_full_range;
     convert_mode.swap_channels = config.swap_channels;
+    convert_mode.pixel_depth = config.pixel_depth;
     convert_mode.coef_precision = config.coef_precision;
 
     // get CSC coefs & dump
@@ -256,13 +257,18 @@ int main(int argc, char *const argv[])
     printf("\n");
     for (int i = 0; i < nb_mode; i++)
     {
-        const struct post_csc_convert_mode *mode = &mode_list[i];
-        ret = rockchip_calc_post_csc(bcsh_config, &csc_simple_coef, mode);
+        struct post_csc_convert_mode mode = mode_list[i];
+        mode.swap_channels = config.swap_channels;
+        mode.pixel_depth = config.pixel_depth;
+        mode.coef_precision = config.coef_precision;
+
+        // ret = rockchip_calc_post_csc(bcsh_config, &csc_simple_coef, mode);
+        ret = rockchip_calc_post_csc_coefs(bcsh_config, &mode, &csc_simple_coef);
         if (0 == ret)
         {
-            fprintf(fp_out, "get CSC mode: %s%s -> %s%s \n",
-                mode->is_input_yuv ? g_colorspace_str[mode->input_color_encoding] : "RGB", g_range_str[mode->is_input_full_range],
-                mode->is_output_yuv ? g_colorspace_str[mode->output_color_encoding] : "RGB", g_range_str[mode->is_output_full_range]);
+            fprintf(fp_out, "CSC mode: %s_%s -> %s_%s:\n",
+                mode.is_input_yuv ? g_colorspace_str[mode.input_color_encoding] : "RGB", g_range_str[mode.is_input_full_range],
+                mode.is_output_yuv ? g_colorspace_str[mode.output_color_encoding] : "RGB", g_range_str[mode.is_output_full_range]);
             fprintf(fp_out, "\t- get CSC matrix: [%4d, %4d, %4d; %4d, %4d, %4d; %4d, %4d, %4d]\n", csc_simple_coef.csc_coef00,
                 csc_simple_coef.csc_coef01, csc_simple_coef.csc_coef02, csc_simple_coef.csc_coef10,
                 csc_simple_coef.csc_coef11, csc_simple_coef.csc_coef12, csc_simple_coef.csc_coef20,

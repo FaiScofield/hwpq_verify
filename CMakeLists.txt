@@ -22,7 +22,7 @@ else()
         # WIN32 + LLVM case, see https://github.com/llvm/llvm-project/issues/61539 for option '-femulated-tls'
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread -femulated-tls")
     endif()
-    add_compile_options(-std=c++11 -Wno-deprecated-declarations)
+    add_compile_options(-std=c99 -Wno-deprecated-declarations)
     if(CMAKE_BUILD_TYPE MATCHES "Debug")
         add_compile_options(-g -fno-inline -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer)
     endif()
