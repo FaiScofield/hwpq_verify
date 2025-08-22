@@ -4,7 +4,7 @@ FilePath    : run_vop_fpga.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-08-14
+LastEditTime: 2025-08-21
 """
 
 import os
@@ -299,31 +299,32 @@ if __name__ == "__main__":
         reg_handler = CgcRegister(platform=args.platform)
         nb_reg_per_frame = len(reg_handler.regs)
 
-        # for i in range(50):
-        #     cmd_str = f'"{args.exe}" -o="E:\\RK\\Data\\fpga_sim_cgc2\\output\\cgc_out.bin" -c2="E:\\RK\\Data\\fpga_sim_cgc2\\config\\hdr_cgc_s2h_cfg.json" -hgt=1080 -wid=1920 -srd=1920 -osrd=19201920 -f=1 -ifmt=0 -ofmt=1 -ics=1 -mod=11 -m=1 -i=E:\\RK\\Data\\fpga_sim_cgc2\\input\\random_input_1920x1080_seed_{603893+i}_nv24.yuv \\| grep CRC'
-        #     ret = run_cmd(cmd_str, True, logger)
+        if args.exe != "":
+            root_dir = "E:/RK/Data/fpga_sim_cgc/"
 
-        if args.exe == "":
+            inputs = os.listdir(f"{root_dir}/input/")
+            inputs = [file for file in inputs if file.endswith("_nv24.yuv")]
+            inputs.sort()
+            # inputs = inputs[:50]
+            # configs = os.listdir(f"{root_dir}/json_list_oetf/")
+            configs = os.listdir(f"{root_dir}/json_list_modified/")
+            # configs = os.listdir(f"{root_dir}/json_list_gamma/")
+            configs = [file for file in configs if file.endswith(".json")]
+            configs.sort()
+
+            for k in range(len(inputs)):
+                # input_file = f"{root_dir}/gamegirl_1920x1080_swap0_bin1_ABGR8888.bin"
+                input_file = f"{root_dir}/input/" + inputs[k]
+                crc_file = f"{root_dir}/output/crc_result_cmodel_for_{inputs[k][:-4]}_json_list_modified.txt"
+                for i in range(len(configs)):
+                    config_file = f"{root_dir}/json_list_modified/" + configs[i]
+                    cmd_str = f'"{args.exe}" -o="E:\\RK\\Data\\fpga_sim_cgc\\output\\cgc_out_1920x1080_rgb10l_planar_tmp.rgb" \
+                        -c2={config_file} -i={input_file} -C={crc_file} \
+                        -hgt=1080 -wid=1920 -srd=1920 -osrd=3840 -f=1 -ifmt=0 -ofmt=4 -ics=1 -mod=11 -m=1'
+                    ret = run_cmd(cmd_str, True, logger)
+            print("done.")
+        else:
             print(f"sim_ex file not set!")
-            exit(0)
-        # configs = os.listdir("E:/RK/Data/fpga_sim_cgc/json_list_gamma/")
-        inputs = os.listdir("E:/RK/Data/fpga_sim_cgc/input/")
-        inputs = [file for file in inputs if file.endswith("_nv24.yuv")]
-        inputs.sort()
-        configs = os.listdir("E:/RK/Data/fpga_sim_cgc/json_list_modified/")
-        configs = [file for file in configs if file.endswith(".json")]
-        configs.sort()
-        for k in range(len(inputs)):
-            # input_file = "E:/RK/Data/fpga_sim_cgc/gamegirl_1920x1080_swap0_bin1_ABGR8888.bin"
-            input_file = "E:/RK/Data/fpga_sim_cgc/input/" + inputs[k]
-            crc_file = f"E:/RK/Data/fpga_sim_cgc/output/crc_result_cmodel_for_{inputs[k][:-4]}_json_list_modified.txt"
-            for i in range(len(configs)):
-                config_file = "E:/RK/Data/fpga_sim_cgc/json_list_modified/" + configs[i]
-                cmd_str = f'"{args.exe}" -o="E:\\RK\\Data\\fpga_sim_cgc\\output\\cgc_out_1920x1080_rgb10l_planar_tmp.rgb" \
-                    -c2={config_file} -i={input_file} -C={crc_file} \
-                    -hgt=1080 -wid=1920 -srd=1920 -osrd=3840 -f=1 -ifmt=0 -ofmt=4 -ics=1 -mod=11 -m=1'
-                ret = run_cmd(cmd_str, True, logger)
-        print("done.")
         exit(0)
 
     if config_handler is not None:

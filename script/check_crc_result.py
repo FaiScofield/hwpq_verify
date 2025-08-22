@@ -83,7 +83,7 @@ def check_crc_result(file1_path, file2_list, module_name, nb_max_errors, group_e
     data1 = read_and_parse(file1_path, parse_file1, module_name)
     data2 = read_and_parse(file2_list[0], parse_file2, module_name)
     group_elems = len(data2) if group_elems == 0 else min(group_elems, len(data2))
-    if len(data1) < group_elems:
+    if len(data1) < group_elems or group_elems == 0:
         logger.error(f"❌ CRC file '{file1_path}' not complete, only {len(data1)}/{group_elems} valid crc lines found!")
         return nb_pass, nb_warn
     nb_group = len(data1) // group_elems
