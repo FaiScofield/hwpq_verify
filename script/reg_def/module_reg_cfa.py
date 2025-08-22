@@ -4,7 +4,7 @@ FilePath    : reg_def_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-08-11
 Description :
-LastEditTime: 2025-08-14
+LastEditTime: 2025-08-22
 """
 
 import os
@@ -31,11 +31,19 @@ class CfaC2pInfo(Enum):
     RKCFA_PATTERN_UNKNOWN = (-1, 3, 0x0, 0x0, "PtnUnknown")
 
     @classmethod
-    def from_value(cls, value):
+    def from_index(cls, index: int):
+        members = list(cls)
+        if 0 <= index < len(members):
+            return members[index]
+        raise ValueError(f"Index {index} out of range (0-{len(members)-1})")
+
+    @classmethod
+    def from_value(cls, value: int):
         for member in cls:
             if member.value[0] == value:
                 return member
-        raise ValueError(f"无效的枚举值: {value}")
+        raise ValueError(f"Invalid value {value} to convert to Enum!")
+
 
 class CfaRegister(ModuleRegisterCore):
     def __init__(self, name: str = "CFA", platform: str = 'RK3572'):
@@ -53,7 +61,7 @@ class CfaRegister(ModuleRegisterCore):
         if self.platform.lower() == "rk3572":
             self.base_addr = 0x0
             self.nb_regs = 77  # 5 + 72
-            self.regs = [Reg(0x00 + i * 4, 0x0, f"BCSH_LUT{i}") for i in range(72)] # 64/72 valid
+            self.regs = [Reg(0x00 + i * 4, 0x0, f"BCSH_LUT{i}") for i in range(72)]  # 64/72 valid
             self.regs += [
                 Reg(0x120, 0x0, "RKCFA_CTRL0"),
                 Reg(0x124, 0x0, "APATTERN"),

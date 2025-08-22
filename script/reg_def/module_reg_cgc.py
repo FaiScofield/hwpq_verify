@@ -4,7 +4,7 @@ FilePath    : reg_def_cgc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-30
 Description :
-LastEditTime: 2025-08-12
+LastEditTime: 2025-08-22
 """
 
 import os
@@ -17,8 +17,10 @@ from enum import Enum
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from reg_def import *
 from config_def import CgcConfig
+from utils import enum_with_index
 
 
+@enum_with_index
 class CgcModuleIndex(Enum):
     """enum = (name, ip_address, offset, nb_regs)"""
 
@@ -47,11 +49,14 @@ class CgcRegister(ModuleRegisterCore):
             self.platform = kwargs["platform"].upper()
         if "index" in kwargs:
             index = kwargs["index"]
-            self.index = index if isinstance(index, CgcModuleIndex) else CgcModuleIndex[index]
+            try:
+                self.index = CgcModuleIndex.from_index(index)
+            except:
+                self.logger.error(f"failed to change index to {index}!")
 
         if self.platform.lower() == "rk3572":
             self.ip_addr = self.index.value[1]
-            self.base_addr = self.ip_addr + self.index.value[2] # 0xF9002010/0xF90020C0
+            self.base_addr = self.ip_addr + self.index.value[2]  # 0xF9002010/0xF90020C0
             self.nb_regs = self.index.value[3]  # 253 = 8 + 245(69+3|6+2|6+42|117)
             self.reg_dicts[CgcModuleIndex.VOP_HDRVIVID_S2H] = [
                 Reg(0x00, 0x0, "SDR2HDR_CTRL"),
@@ -113,7 +118,7 @@ class CgcRegister(ModuleRegisterCore):
             self.logger.error(f"current registers num={len(self.regs)} is not equal to required={self.nb_regs}!")
             return False
         cfg, param = self.config, self.config.cgc_params
-        val = ((cfg.cgc_en & RM1) << 0)
+        val = (cfg.cgc_en & RM1) << 0
         self.set(offset=0x00, value=val)
         val = ((param.log10_s_fix & RM12) << 0) | ((param.log10_r_ootf_fix & RM12) << 16)
         self.set(offset=0x04, value=val)

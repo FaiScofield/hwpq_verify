@@ -4,7 +4,7 @@ FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-08-14
+LastEditTime: 2025-08-22
 """
 
 import sys
@@ -210,12 +210,12 @@ class ModuleHelperCore(ABC):
         if args.output == "":
             args.num = 1
             abs_path = dirname = ""
-        elif os.path.isdir(abs_path):
-            dirname = abs_path
+        elif os.path.isdir(args.output) or args.output.endswith(os.path.normpath('/')):
+            dirname = args.output
         else:
             dirname = os.path.dirname(abs_path)
-        if dirname != "" and not os.path.exists(dirname):
-            os.makedirs(dirname, parents=True, exist_ok=True)
+        if dirname != "":
+            os.makedirs(dirname, exist_ok=True)
 
         if args.num == 1:
             self.config.gen(args.rand_seed)
@@ -269,18 +269,20 @@ class ModuleHelperCore(ABC):
         param, _ = parser.parse_known_args(args)
 
         platform_name = param.platform.upper()
-        if True: #platform_name == "RK3572":
+        if platform_name != "":
             self.platform = platform_name
             print(f"[{self.name}] Set platform to: {platform_name}")
             self.update_attributes(platform_name)  # 重新定义配置参数
-            if self.register is not None:
-                print(f"[{self.name}] Set index to: {param.index}")
-                self.register.update(platform=platform_name, index=param.index)
+        else:
+            platform_name = self.platform
+        if self.register is not None and param.index is not None:
+            print(f"[{self.name}] Set index to: {param.index}")
+            self.register.update(platform=platform_name, index=param.index)
+
             ## 给子模块也全部设置新的平台
             for mod in self.submodules:
                 self.submodules[mod].do_plat(args)
-        else:
-            print(f"[{self.name}] Error: 当前仅支持 RK3572 平台！")
+
 
         return False  # 不退出
 

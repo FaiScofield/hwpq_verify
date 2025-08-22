@@ -4,7 +4,7 @@ FilePath    : setup_logger.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-10
 Description :
-LastEditTime: 2025-07-31
+LastEditTime: 2025-08-22
 """
 
 import os
@@ -70,7 +70,6 @@ class IMG_FMT(Enum):
         if not hasattr(cls, '_name_to_enum'):
             cls._init_cache()
         return cls._name_to_enum[name]
-
 
 
 ## set encoding to utf-8 to support ✅ & ❌
@@ -156,8 +155,10 @@ def gen_random_frame(size, seed=None, filename=""):
 def clamp(value, min_value, max_value):
     return min(max(value, min_value), max_value)
 
+
 def clip(value, min_value, max_value):
     return min(max(value, min_value), max_value)
+
 
 ## using this by `json.dump(data, fp, cls=CompactArrayEncoder)` to dump json array in a single line
 class NoIndent(object):
@@ -201,3 +202,21 @@ class CompactArrayEncoder(json.JSONEncoder):
             json_repr = json_repr.replace('"{}"'.format(format_spec.format(id)), json_obj_repr)
 
         return json_repr
+
+
+def enum_with_index(cls):
+    """为 Enum 添加 from_index 方法的装饰器"""
+
+    @classmethod
+    def from_index(cls, index: int):
+        if isinstance(index, cls):  # 已经是枚举成员
+            return index
+        if not isinstance(index, int):
+            raise TypeError(f"Index must be int or {cls.__name__}, got {type(index).__name__}")
+        members = list(cls)
+        if 0 <= index < len(members):
+            return members[index]
+        raise ValueError(f"Index {index} out of range (0-{len(members)-1})")
+
+    cls.from_index = from_index
+    return cls

@@ -4,7 +4,7 @@ FilePath    : reg_def_dci.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-07-30
+LastEditTime: 2025-08-22
 """
 
 import os
@@ -16,8 +16,10 @@ from enum import Enum
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from reg_def import *
 from config_def import *
+from utils import enum_with_index
 
 
+@enum_with_index
 class DciModuleIndex(Enum):
     """enum = (name, ip_address, offset, nb_regs)"""
 
@@ -43,7 +45,10 @@ class DciRegister(ModuleRegisterCore):
             self.platform = kwargs["platform"].upper()
         if "index" in kwargs:
             index = kwargs["index"]
-            self.index = index if isinstance(index, DciModuleIndex) else DciModuleIndex[index]
+            try:
+                self.index = DciModuleIndex.from_index(index)
+            except:
+                self.logger.error(f"failed to change index to {index}!")
 
         if self.platform.lower() == "rk3572":
             self.ip_addr = self.index.value[1]

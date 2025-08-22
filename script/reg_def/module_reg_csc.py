@@ -4,7 +4,7 @@ FilePath    : module_reg_csc.py
 Description :
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-17
-LastEditTime: 2025-07-30
+LastEditTime: 2025-08-22
 """
 
 import os
@@ -17,8 +17,9 @@ from enum import Enum
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from reg_def.module_reg_core import ModuleRegisterCore, Reg
 from config_def.module_config_csc import CscConfig
+from utils import enum_with_index
 
-
+@enum_with_index
 class CscModuleIndex(Enum):
     """enum = (name, offset)"""
 
@@ -41,7 +42,6 @@ class CscModuleIndex(Enum):
     HWC0_CSC = ("HWC0_CSC", 0x00003830)
     HWC1_CSC = ("HWC1_CSC", 0x00003930)
 
-
 g_csc_new_reg_arrange = [CscModuleIndex.POST0_ACM_R2Y, CscModuleIndex.POST0_ACM_Y2R, CscModuleIndex.POST1_BCSH_Y2R]
 
 
@@ -58,10 +58,10 @@ class CscRegister(ModuleRegisterCore):
             CscModuleIndex.POST0_ACM_Y2R: [],
             CscModuleIndex.POST1_BCSH_Y2R: [],
             CscModuleIndex.CLUSTER0_DCI_CSC: [],
-            # CscModuleIndex.CLUSTER0_WIN0_CSC: [],
-            # CscModuleIndex.CLUSTER0_WIN1_CSC: [],
-            # CscModuleIndex.CLUSTER1_WIN0_CSC: [],
-            # CscModuleIndex.CLUSTER1_WIN1_CSC: [],
+            CscModuleIndex.CLUSTER0_WIN0_CSC: [],
+            CscModuleIndex.CLUSTER0_WIN1_CSC: [],
+            CscModuleIndex.CLUSTER1_WIN0_CSC: [],
+            CscModuleIndex.CLUSTER1_WIN1_CSC: [],
         }
         self.base_addr = 0x0
         self.update(platform=platform, index=index)
@@ -72,50 +72,58 @@ class CscRegister(ModuleRegisterCore):
             self.platform = kwargs["platform"].upper()
         if "index" in kwargs:
             index = kwargs["index"]
-            self.index = index if isinstance(index, CscModuleIndex) else CscModuleIndex[index]
+            try:
+                self.index = CscModuleIndex.from_index(index)
+            except:
+                self.logger.error(f"failed to change index to {index}!")
+
 
         if self.platform.lower() == "rk3572":
             self.base_addr = 0xF9000000
             self.reg_dicts[CscModuleIndex.POST0_ACM_R2Y] = [
-                Reg(0x00000C70, 0x0, "POST_ACM_R2Y_CTRL"),
-                Reg(0x00000C74, 0x0, "POST_ACM_R2Y_COE0102"),
-                Reg(0x00000C78, 0x0, "POST_ACM_R2Y_COE1011"),
-                Reg(0x00000C7C, 0x0, "POST_ACM_R2Y_COE1220"),
-                Reg(0x00000C80, 0x0, "POST_ACM_R2Y_COE2122"),
-                Reg(0x00000C84, 0x0, "POST_ACM_R2Y_OFFSET0"),
-                Reg(0x00000C88, 0x0, "POST_ACM_R2Y_OFFSET1"),
-                Reg(0x00000C8C, 0x0, "POST_ACM_R2Y_OFFSET2"),
+                Reg(0x00, 0x0, "POST_ACM_R2Y_CTRL"),
+                Reg(0x04, 0x0, "POST_ACM_R2Y_COE0102"),
+                Reg(0x08, 0x0, "POST_ACM_R2Y_COE1011"),
+                Reg(0x0C, 0x0, "POST_ACM_R2Y_COE1220"),
+                Reg(0x10, 0x0, "POST_ACM_R2Y_COE2122"),
+                Reg(0x14, 0x0, "POST_ACM_R2Y_OFFSET0"),
+                Reg(0x18, 0x0, "POST_ACM_R2Y_OFFSET1"),
+                Reg(0x1C, 0x0, "POST_ACM_R2Y_OFFSET2"),
             ]
             self.reg_dicts[CscModuleIndex.POST0_ACM_Y2R] = [
-                Reg(0x00000CD0, 0x0, "POST_ACM_CTRL"),
-                Reg(0x00000CD4, 0x0, "POST_ACM_Y2R_COE0102"),
-                Reg(0x00000CD8, 0x0, "POST_ACM_Y2R_COE1011"),
-                Reg(0x00000CDC, 0x0, "POST_ACM_Y2R_COE1220"),
-                Reg(0x00000CE0, 0x0, "POST_ACM_Y2R_COE2122"),
-                Reg(0x00000CE4, 0x0, "POST_ACM_Y2R_OFFSET0"),
-                Reg(0x00000CE8, 0x0, "POST_ACM_Y2R_OFFSET1"),
-                Reg(0x00000CEC, 0x0, "POST_ACM_Y2R_OFFSET2"),
+                Reg(0x00, 0x0, "POST_ACM_CTRL"),
+                Reg(0x04, 0x0, "POST_ACM_Y2R_COE0102"),
+                Reg(0x08, 0x0, "POST_ACM_Y2R_COE1011"),
+                Reg(0x0C, 0x0, "POST_ACM_Y2R_COE1220"),
+                Reg(0x10, 0x0, "POST_ACM_Y2R_COE2122"),
+                Reg(0x14, 0x0, "POST_ACM_Y2R_OFFSET0"),
+                Reg(0x18, 0x0, "POST_ACM_Y2R_OFFSET1"),
+                Reg(0x1C, 0x0, "POST_ACM_Y2R_OFFSET2"),
             ]
             self.reg_dicts[CscModuleIndex.POST1_BCSH_Y2R] = [
-                Reg(0x00000DD0, 0x0, "POST_BCSH_R2Y_COE00"),
-                Reg(0x00000DD4, 0x0, "POST_BCSH_R2Y_COE02_01"),
-                Reg(0x00000DD8, 0x0, "POST_BCSH_R2Y_COE11_10"),
-                Reg(0x00000DDC, 0x0, "POST_BCSH_R2Y_COE20_12"),
-                Reg(0x00000DE0, 0x0, "POST_BCSH_R2Y_COE22_21"),
-                Reg(0x00000DE4, 0x0, "POST_BCSH_R2Y_OFFSET0"),
-                Reg(0x00000DE8, 0x0, "POST_BCSH_R2Y_OFFSET1"),
-                Reg(0x00000DEC, 0x0, "POST_BCSH_R2Y_OFFSET2"),
+                Reg(0x00, 0x0, "POST_BCSH_R2Y_COE00"),
+                Reg(0x04, 0x0, "POST_BCSH_R2Y_COE02_01"),
+                Reg(0x08, 0x0, "POST_BCSH_R2Y_COE11_10"),
+                Reg(0x0C, 0x0, "POST_BCSH_R2Y_COE20_12"),
+                Reg(0x10, 0x0, "POST_BCSH_R2Y_COE22_21"),
+                Reg(0x14, 0x0, "POST_BCSH_R2Y_OFFSET0"),
+                Reg(0x18, 0x0, "POST_BCSH_R2Y_OFFSET1"),
+                Reg(0x1C, 0x0, "POST_BCSH_R2Y_OFFSET2"),
             ]
             self.reg_dicts[CscModuleIndex.CLUSTER0_DCI_CSC] = [
-                Reg(0x00001140, 0x0, "DCI_CSC_COE01_00"),
-                Reg(0x00001144, 0x0, "DCI_CSC_COE10_02"),
-                Reg(0x00001148, 0x0, "DCI_CSC_COE12_11"),
-                Reg(0x0000114C, 0x0, "DCI_CSC_COE21_20"),
-                Reg(0x00001150, 0x0, "DCI_CSC_COE22"),
-                Reg(0x00001154, 0x0, "DCI_CSC_OFFSET0"),
-                Reg(0x00001158, 0x0, "DCI_CSC_OFFSET1"),
-                Reg(0x0000115C, 0x0, "DCI_CSC_OFFSET2"),
+                Reg(0x00, 0x0, "CSC_COE01_00"),
+                Reg(0x04, 0x0, "CSC_COE10_02"),
+                Reg(0x08, 0x0, "CSC_COE12_11"),
+                Reg(0x0C, 0x0, "CSC_COE21_20"),
+                Reg(0x10, 0x0, "CSC_COE22"),
+                Reg(0x14, 0x0, "CSC_OFFSET0"),
+                Reg(0x18, 0x0, "CSC_OFFSET1"),
+                Reg(0x1C, 0x0, "CSC_OFFSET2"),
             ]
+            self.reg_dicts[CscModuleIndex.CLUSTER0_WIN0_CSC] = self.reg_dicts[CscModuleIndex.CLUSTER0_DCI_CSC].copy()
+            self.reg_dicts[CscModuleIndex.CLUSTER0_WIN1_CSC] = self.reg_dicts[CscModuleIndex.CLUSTER0_DCI_CSC].copy()
+            self.reg_dicts[CscModuleIndex.CLUSTER1_WIN0_CSC] = self.reg_dicts[CscModuleIndex.CLUSTER0_DCI_CSC].copy()
+            self.reg_dicts[CscModuleIndex.CLUSTER1_WIN1_CSC] = self.reg_dicts[CscModuleIndex.CLUSTER0_DCI_CSC].copy()
             if self.index in self.reg_dicts:
                 self.regs = self.reg_dicts[self.index]
                 self.nb_regs = len(self.regs)
