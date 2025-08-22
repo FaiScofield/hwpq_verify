@@ -4,7 +4,7 @@ FilePath    : module_config_csc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-16
 Description :
-LastEditTime: 2025-08-07
+LastEditTime: 2025-08-22
 """
 
 import os
@@ -54,6 +54,8 @@ class CscConfig(ModuleConfigCore):
         self.cscVector = np.zeros(3, dtype=np.int32)  # s23
         self.cscSrcOffset = np.zeros(3, dtype=np.int32)
         self.cscDstOffset = np.zeros(3, dtype=np.int32)
+        self.cscBitDepth = 10
+        self.cscCoefPrecision = 10
         self.cscPassthrough = 0  # use matrix & vector directly
 
     ## =============== overwrite methods  ===============
@@ -78,6 +80,8 @@ class CscConfig(ModuleConfigCore):
             "cscVector": NoIndent(self.cscVector.flatten().tolist()),
             "cscSrcOffset": NoIndent(self.cscSrcOffset.flatten().tolist()),
             "cscDstOffset": NoIndent(self.cscDstOffset.flatten().tolist()),
+            "cscBitDepth": self.cscBitDepth,
+            "cscCoefPrecision": self.cscCoefPrecision,
             "cscPassthrough": self.cscPassthrough,
         }
         if filename == "":
@@ -141,6 +145,8 @@ class CscConfig(ModuleConfigCore):
                     else np.zeros(3, dtype=np.int32)
                 )
                 self.cscPassthrough = data["cscPassthrough"] if "cscPassthrough" in data else 0
+                self.cscBitDepth = data["cscBitDepth"] if "cscBitDepth" in data else 10
+                self.cscCoefPrecision = data["cscCoefPrecision"] if "cscCoefPrecision" in data else 10
                 self.version = data["version"] if "version" in data else "unknown"
                 self.randSeed = data["randSeed"] if "randSeed" in data else -1
                 return True
@@ -162,8 +168,10 @@ class CscConfig(ModuleConfigCore):
         np.random.seed(seed)
 
         ## parse other arguments
-        precision = kwargs["precision"] if "precision" in kwargs else 10
-        assert precision in [10, 13]
+        precision = kwargs["precision"] if "precision" in kwargs else self.cscCoefPrecision
+        bit_depth = kwargs["bit_depth"] if "bit_depth" in kwargs else self.cscBitDepth
+        assert bit_depth in [8, 10]
+        assert precision in [8, 10, 13] and precision >= bit_depth
 
         self.randSeed = seed
         self.version = f"{self.name.lower()}_config_{self.platform.lower()}_random_seed_{seed}"
@@ -188,24 +196,31 @@ class CscConfig(ModuleConfigCore):
             self.cscPassthrough = 1  # 100% use matrix & vector directly for now!
 
         if self.cscPassthrough:
+            b_random_offset = False
             src_clr = random.choice(list(CscColorSpace))
             dst_clr = random.choice(list(CscColorSpace))
-            self.cscSrcOffset = -np.array(src_clr.value[1:], dtype=np.int32) << (precision - 8)
-            self.cscDstOffset = +np.array(dst_clr.value[1:], dtype=np.int32) << (precision - 8)
+            self.cscSrcOffset = -np.array(src_clr.value[1:], dtype=np.int32) << (bit_depth - 8)
+            self.cscDstOffset = +np.array(dst_clr.value[1:], dtype=np.int32) << (bit_depth - 8)
+
             if precision == 13:
                 self.cscMatrix = np.random.randint(-(2**15), 2**15 - 1, size=(3, 3), dtype=np.int16)  # s16
-                self.cscVector = (
-                    np.identity(3, dtype=np.int32) << precision
-                ) @ self.cscDstOffset + self.cscMatrix @ self.cscSrcOffset  # s16*s11->s26
-                self.cscVector = np.clip(self.cscVector, -(2**25), 2**25 - 1 - 4096)  # -4096 for hw + offset
-                # self.cscVector = np.clip(self.cscVector, -(2**25), 2**25 - 1 - 4096)
-            else:  # precision == 10:
+                self.cscVector = np.random.randint(-(2**25), 2**25 - 1 - 4096, size=3, dtype=np.int32)
+            elif precision == 10:
                 self.cscMatrix = np.random.randint(-(2**12), 2**12 - 1, size=(3, 3), dtype=np.int16)  # s13
-                self.cscVector = (
-                    np.identity(3, dtype=np.int32) << precision
-                ) @ self.cscDstOffset + self.cscMatrix @ self.cscSrcOffset  # s13*s11->s23
-                # self.cscVector = np.clip(self.cscVector, -(2**22), 2**22 - 1 - 512)  # -512 for hw + offset
                 self.cscVector = np.random.randint(-(2**22), 2**22 - 1 - 512, size=3, dtype=np.int32)
+            elif precision == 8:
+                self.cscMatrix = np.random.randint(-(2**10), 2**10 - 1, size=(3, 3), dtype=np.int16)  # s11
+                self.cscVector = np.random.randint(-(2**20), 2**20 - 1 - 128, size=3, dtype=np.int32)
+            else:
+                self.logger.error(f"unsupported precision {precision}! Only support 8/10/13.")
+                return False
+
+            if not b_random_offset:
+                identity_dst_offset = (np.identity(3, dtype=np.int32) << precision) @ self.cscDstOffset
+                self.cscVector = identity_dst_offset + self.cscMatrix @ self.cscSrcOffset  # s16*s11->s26
+                # minus an offset to keep from hw overflow, since the offset will be added to dc vector before using it!
+                self.cscVector = np.min(self.cscVector, 2 ** (precision + 12) - 2 ** (precision - 1))
+
         else:
             self.gen_coef_from_param()
 
