@@ -739,10 +739,10 @@ static int csc_calc_adjust_output_coef(bool is_input_yuv, bool is_output_yuv, co
     g_offset = ((s32)csc_input_cfg->g_offset - PQ_CSC_BRIGHTNESS_OFFSET) / PQ_CSC_TEMP_OFFSET_DIV_COEF;
     b_offset = ((s32)csc_input_cfg->b_offset - PQ_CSC_BRIGHTNESS_OFFSET) / PQ_CSC_TEMP_OFFSET_DIV_COEF;
 
-    gain_matrix = create_rgb_gain_matrix(r_gain, g_gain, b_gain);
-    contrast_matrix = create_contrast_matrix(contrast);
-    hue_matrix = create_hue_matrix(csc_input_cfg->hue);
-    saturation_matrix = create_saturation_matrix(saturation);
+    gain_matrix = create_rgb_gain_matrix(r_gain, g_gain, b_gain); // 9bit fixed
+    contrast_matrix = create_contrast_matrix(contrast); // 9bit fixed
+    hue_matrix = create_hue_matrix(csc_input_cfg->hue); // 10bit fixed
+    saturation_matrix = create_saturation_matrix(saturation); // 9bit fixed
 
     color_info = &csc_mode_cfg->st_csc_color_info;
     brightness = (s32)csc_input_cfg->brightness - PQ_CSC_BRIGHTNESS_OFFSET;

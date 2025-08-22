@@ -36,6 +36,7 @@ struct cmd_config_t
     int pixel_depth;           // {8,10}
     int coef_precision;        // {8,10,13}
     int b_print_all;           // [0, 1]
+    int b_use_old_method;      // [0, 1]
     char output_file[1024];
 };
 
@@ -52,6 +53,7 @@ const struct option g_cmd_args_supported_options[] = {
     {(char *)"output_file",     ARG_OPT, 0, 'o'},
     {(char *)"print_all",       ARG_NONE,0, 'a'},
     {(char *)"swap_channels",   ARG_NONE,0, 's'},
+    {(char *)"use_old_method",  ARG_NONE,0, 'M'},
     {(char *)"help",            ARG_NONE,0, 'h'},
     {0, 0, 0, 0} // end of option list
 };
@@ -73,6 +75,7 @@ void print_usage(const char *prog_name)
     printf("  -o  --output_file    [val] | write all coefs to an output file when '-a' specified\n");
     printf("  -a  --print_all            | print coefs for all supported case,  range: [0, 1], default: 0\n");
     printf("  -s  --swap_channels        | swap channels, range: [0, 1], default: 0\n");
+    printf("  -M  --use_old_method       | use old method, range: [0, 1], default: 0\n");
     printf("  -h  --help                 | print this message\n");
     printf("\n");
 }
@@ -83,7 +86,7 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
     int out_clr_pos = 0;
     int opt = 0;
     const char *mode_str = NULL;
-    while ((opt = getopt_long(argc, argv, "c:y:r:C:Y:R:m:d:p:o:ash", g_cmd_args_supported_options, NULL)) != -1)
+    while ((opt = getopt_long(argc, argv, "c:y:r:C:Y:R:m:d:p:o:asMh", g_cmd_args_supported_options, NULL)) != -1)
     {
         switch (opt)
         {
@@ -119,6 +122,9 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
             break;
         case 's':
             config->swap_channels = 1;
+            break;
+        case 'M':
+            config->b_use_old_method = 1;
             break;
         case 'h':
             print_usage(argv[0]);
@@ -206,8 +212,10 @@ int main(int argc, char *const argv[])
         config.is_output_yuv, config.is_output_full_range);
     printf("\t- pixel depth: %d bit, coef precision: %d bit\n", config.pixel_depth, config.coef_precision);
     printf("\t- swap_channels: %d, channle order: %s\n", config.swap_channels,
-        config.swap_channels ? "(B-G-R/V-Y-U)" : "R-G-B/Y-U-V");
+        config.swap_channels ? "B-G-R/V-Y-U" : "R-G-B/Y-U-V");
     printf("\t- output file: %s\n", config.output_file);
+    printf("\t- use old method: %d (only 10bit coef precision supported)\n", config.b_use_old_method);
+
 
     // set CSC config
     csc_cfg.hue = 256;
@@ -262,8 +270,11 @@ int main(int argc, char *const argv[])
         mode.pixel_depth = config.pixel_depth;
         mode.coef_precision = config.coef_precision;
 
-        // ret = rockchip_calc_post_csc(bcsh_config, &csc_simple_coef, mode);
-        ret = rockchip_calc_post_csc_coefs(bcsh_config, &mode, &csc_simple_coef);
+        if (config.b_use_old_method) {
+            ret = rockchip_calc_post_csc(bcsh_config, &csc_simple_coef, &mode);
+        } else {
+            ret = rockchip_calc_post_csc_coefs(bcsh_config, &mode, &csc_simple_coef);
+        }
         if (0 == ret)
         {
             fprintf(fp_out, "CSC mode: %s_%s -> %s_%s:\n",
