@@ -214,8 +214,15 @@ int main(int argc, char *const argv[])
     printf("\t- swap_channels: %d, channle order: %s\n", config.swap_channels,
         config.swap_channels ? "B-G-R/V-Y-U" : "R-G-B/Y-U-V");
     printf("\t- output file: %s\n", config.output_file);
-    printf("\t- use old method: %d (only 10bit coef precision supported)\n", config.b_use_old_method);
-
+    printf("\t- use old method: %d %s\n", config.b_use_old_method, config.b_use_old_method ? "(only 10bit coef precision supported)" : "");
+    if (config.pixel_depth < 8 || config.pixel_depth > 16) {
+        printf("Error: pixel depth should be in range [8,16]!\n");
+        return -1;
+    }
+    if (config.coef_precision < 8 || config.coef_precision > 16) {
+        printf("Error: coef precision should be in range [8,16]!\n");
+        return -1;
+    }
 
     // set CSC config
     csc_cfg.hue = 256;
@@ -228,7 +235,7 @@ int main(int argc, char *const argv[])
     csc_cfg.r_offset = 256;
     csc_cfg.g_offset = 256;
     csc_cfg.b_offset = 256;
-    csc_cfg.csc_enable = 1;
+    csc_cfg.csc_enable = 0;
     const struct post_csc *bcsh_config = csc_cfg.csc_enable ? &csc_cfg : NULL;
 
     // set CSC convert mode

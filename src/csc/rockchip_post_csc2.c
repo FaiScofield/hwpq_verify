@@ -13,6 +13,13 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+#ifndef ABS
+#define ABS(x) ((x) >= 0 ? (x) : -(x))
+#endif
+#ifndef ROUND
+#define ROUND(x) ((x) >= 0 ? ((x) + 0.5f) : ((x) - 0.5f))
+#endif
+
 union csc_matrix_f32
 {
     struct
@@ -59,6 +66,21 @@ union csc_vector_s32
 };
 
 static const union csc_matrix_f32 g_identity_mat_f32 = {1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f};
+
+#if 1   /* matrix from Rec ITU-R BT.601-7 / BT.709-6 / BT.2020-2 */
+static const union csc_matrix_f32 g_r2y_mat_bt601_f32 = {
+    0.299f, 0.587f, 0.114f, -0.168736f, -0.331264f, 0.5, 0.5, -0.418688f, -0.081312f};
+static const union csc_matrix_f32 g_y2r_mat_bt601_f32 = {
+    1.f, 0.f, 1.402f, 1.f, -0.344136f, -0.714136f, 1.f, 1.772f, 0.f};
+static const union csc_matrix_f32 g_r2y_mat_bt709_f32 = {
+    0.2126f, 0.7152f, 0.0722f, -0.114572f, -0.385428f, 0.5f, 0.5f, -0.454153f, -0.045847f};
+static const union csc_matrix_f32 g_y2r_mat_bt709_f32 = {
+    1.f, 0.f, 1.5748f, 1.f, -0.187324f, -0.468124f, 1.f, 1.8556f, 0.f};
+static const union csc_matrix_f32 g_r2y_mat_bt2020_f32 = {
+    0.2627f, 0.678f, 0.0593f, -0.13963f, -0.36037f, 0.5f, 0.5f, -0.459786f, -0.040214f};
+static const union csc_matrix_f32 g_y2r_mat_bt2020_f32 = {
+    1.f, 0.f,  1.4746f, 1.f, -0.164553f, -0.571353f, 1.f, 1.8814f, 0.f};
+#else   /* matrix from xyz calculation */
 static const union csc_matrix_f32 g_r2y_mat_bt601_f32 = {
     0.298939f, 0.586625f, 0.114436f, -0.168785f, -0.331215f, 0.5f, 0.5f, -0.418384f, -0.081616f};
 static const union csc_matrix_f32 g_y2r_mat_bt601_f32 = {
@@ -71,9 +93,10 @@ static const union csc_matrix_f32 g_r2y_mat_bt2020_f32 = {
     0.262700f, 0.677998f, 0.059302f, -0.139630f, -0.360370f, 0.5f, 0.5f, -0.459785f, -0.040215f};
 static const union csc_matrix_f32 g_y2r_mat_bt2020_f32 = {
     1.f, 0.f, 1.474600f, 1.f, -0.164558f, -0.571355f, 1.f, 1.881397f, 0.f};
+#endif
 
 
-static inline void csc_matrix_mul_f32(union csc_matrix_f32 *dst, const union csc_matrix_f32 *m0, const union csc_matrix_f32 *m1)
+static inline void csc_matrix_mul_f32(union csc_matrix_f32 * dst, const union csc_matrix_f32 *m0, const union csc_matrix_f32 *m1)
 {
     dst->val[0][0] = m0->val[0][0] * m1->val[0][0] + m0->val[0][1] * m1->val[1][0] + m0->val[0][2] * m1->val[2][0];
     dst->val[0][1] = m0->val[0][0] * m1->val[0][1] + m0->val[0][1] * m1->val[1][1] + m0->val[0][2] * m1->val[2][1];
@@ -316,7 +339,7 @@ static void csc_adjust_convert_matrix(const struct post_csc_convert_mode *mode,
     }
 }
 
-static void csc_swap_color_channel(const struct post_csc_convert_mode *convert_mode,
+static void csc_swap_color_channel(const struct post_csc_convert_mode *mode,
     union csc_matrix_s32 *out_mat, union csc_vector_s32 *out_vec)
 {
     static const union csc_matrix_s32 rgb_input_swap_matrix = {0, 0, 1, 1, 0, 0, 0, 1, 0}; // BRG ?
@@ -324,14 +347,14 @@ static void csc_swap_color_channel(const struct post_csc_convert_mode *convert_m
     union csc_matrix_s32 tmp_mat = {0};
     union csc_vector_s32 tmp_vec = {0};
 
-    if (convert_mode->swap_channels)
+    if (mode->swap_channels)
     {
-        if (!convert_mode->is_input_yuv)
+        if (!mode->is_input_yuv)
         {
             memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
             csc_matrix_mul_s32(out_mat, &tmp_mat, &rgb_input_swap_matrix);
         }
-        if (convert_mode->is_output_yuv)
+        if (mode->is_output_yuv)
         {
             memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
             memcpy(&tmp_vec, out_vec, sizeof(union csc_vector_s32));
@@ -354,6 +377,78 @@ static void csc_get_fixed_coefs_matrix(const union csc_matrix_f32 *mat, union cs
     fixed_mat->val[2][0] = (int)(mat->val[2][0] * fator + (mat->val[2][0] >= 0 ? 0.5f : -0.5f));
     fixed_mat->val[2][1] = (int)(mat->val[2][1] * fator + (mat->val[2][1] >= 0 ? 0.5f : -0.5f));
     fixed_mat->val[2][2] = (int)(mat->val[2][2] * fator + (mat->val[2][2] >= 0 ? 0.5f : -0.5f));
+}
+
+static bool csc_fixed_coefs_fine_tuning(const struct post_csc_convert_mode *mode, const union csc_matrix_f32 *float_mat,
+    union csc_matrix_s32 *fixed_mat)
+{
+    bool ret = false;
+    const int coef_factor = 1 << mode->coef_precision;
+    const int max_pixel_val = (1 << mode->pixel_depth) - 1;
+    int denorms[3] = {coef_factor, 0, 0};
+    const float ratio_y = (219 << (mode->pixel_depth - 8)) / (float)max_pixel_val;
+    const float ratio_c = (224 << (mode->pixel_depth - 8)) / (float)max_pixel_val;
+    if (mode->is_input_full_range && !mode->is_output_full_range) { // F2L
+        denorms[0] = ROUND(coef_factor * ratio_y);
+    } else if (!mode->is_input_full_range && mode->is_output_full_range) { // L2F
+        denorms[0] = ROUND(coef_factor / ratio_y);
+    }
+
+    // R2Y case
+    if (!mode->is_input_yuv && mode->is_output_yuv)
+    {
+        int row_sums[3] = {0};
+        row_sums[0] = fixed_mat->val[0][0] + fixed_mat->val[0][1] + fixed_mat->val[0][2];
+        row_sums[1] = fixed_mat->val[1][0] + fixed_mat->val[1][1] + fixed_mat->val[1][2];
+        row_sums[2] = fixed_mat->val[2][0] + fixed_mat->val[2][1] + fixed_mat->val[2][2];
+
+        for (int i = 0; i < 3; ++i)
+        {
+            if (row_sums[i] != denorms[i])
+            {
+                const int delta = denorms[i] - row_sums[i];
+                int col = -1;
+                float min_diff = 999999.f;
+                for (int j = 0; j < 3; ++j)
+                {
+                    float diff = ABS((float)(fixed_mat->val[i][j] + delta) - float_mat->val[i][j] * coef_factor);
+                    if (diff < min_diff) {
+                        min_diff = diff;
+                        col = j;
+                    }
+                }
+                printf("NOTE: fine-tuning CSC coef[%d][%d] = %d => %d, since row_sums[%d] = %d != %d, delta = %d.\n",
+                    i, col, fixed_mat->val[i][col], fixed_mat->val[i][col] + delta, i, row_sums[i], denorms[i], delta);
+                fixed_mat->val[i][col] += delta;
+            }
+        }
+    }
+    // Y2R case
+    else if (mode->is_input_yuv && !mode->is_output_yuv)
+    {
+        if (fixed_mat->val[0][0] != denorms[0]) {
+            printf("NOTE: fine-tuning CSC coef[0][0] = %d => %d, since RY2 case!\n", fixed_mat->val[0][0], denorms[0]);
+            fixed_mat->val[0][0] = denorms[0];
+        }
+        if (fixed_mat->val[1][0] != denorms[0]) {
+            printf("NOTE: fine-tuning CSC coef[1][0] = %d => %d, since RY2 case!\n", fixed_mat->val[1][0], denorms[0]);
+            fixed_mat->val[1][0] = denorms[0];
+        }
+        if (fixed_mat->val[2][0] != denorms[0]) {
+            printf("NOTE: fine-tuning CSC coef[2][0] = %d => %d, since RY2 case!\n", fixed_mat->val[2][0], denorms[0]);
+            fixed_mat->val[2][0] = denorms[0];
+        }
+        if (fixed_mat->val[0][1] != 0) {
+            printf("NOTE: fine-tuning CSC coef[0][1] = %d => 0, since RY2 case!\n", fixed_mat->val[0][1]);
+            fixed_mat->val[0][1] = 0;
+        }
+        if (fixed_mat->val[2][2] != 0) {
+            printf("NOTE: fine-tuning CSC coef[1][0] = %d => 0, since RY2 case!\n", fixed_mat->val[2][2]);
+            fixed_mat->val[2][2] = 0;
+        }
+    }
+
+    return ret;
 }
 
 static void csc_get_fixed_coefs_offset(const union csc_matrix_s32 *fixed_mat, const union csc_vector_s32 *offset_vec_i,
@@ -387,7 +482,7 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
     csc_matrix_mul_f32(&final_mat, &tmp_mat, &range_mat_i);
 
     // adjust final_mat with bsch configs
-    if (bcsh_cfg) {
+    if (bcsh_cfg && bcsh_cfg->csc_enable) {
         csc_adjust_convert_matrix(convert_mode, bcsh_cfg, &final_mat, &range_ofs_o);
     }
 
@@ -395,8 +490,9 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
     csc_get_fixed_coefs_matrix(&final_mat, &final_mat_fix, convert_mode->coef_precision);
 
     // TODO: fine-tuning for fixed matrix (R2Y)
-    if (!bcsh_cfg) {
-        // csc_fine_tuning(&final_mat_fix, convert_mode->coef_precision);
+    bool fine_tuned = false;
+    if (!bcsh_cfg || !bcsh_cfg->csc_enable) {
+        fine_tuned = csc_fixed_coefs_fine_tuning(convert_mode, &final_mat, &final_mat_fix);
     }
 
     // get fixed vec
