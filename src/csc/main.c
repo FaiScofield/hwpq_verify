@@ -211,7 +211,7 @@ int main(int argc, char *const argv[])
     printf("\t- output colorspace: %d, is_yuv: %d, is_full_range: %d\n", config.output_color_encoding,
         config.is_output_yuv, config.is_output_full_range);
     printf("\t- pixel depth: %d bit, coef precision: %d bit\n", config.pixel_depth, config.coef_precision);
-    printf("\t- swap_channels: %d, channle order: %s\n", config.swap_channels,
+    printf("\t- swap_channels: %d, channel order: %s\n", config.swap_channels,
         config.swap_channels ? "B-G-R/V-Y-U" : "R-G-B/Y-U-V");
     printf("\t- output file: %s\n", config.output_file);
     printf("\t- use old method: %d %s\n", config.b_use_old_method, config.b_use_old_method ? "(only 10bit coef precision supported)" : "");
@@ -265,7 +265,7 @@ int main(int argc, char *const argv[])
                 fp_out = stdout; // print to stdout instead
             }
         }
-        printf("'-a' option is set, print all %d supported cases below:\n", nb_mode);
+        printf("'-a' option is set, dump all %d supported cases to %s\n", nb_mode, fp_out ? config.output_file : "stdout:");
     }
 
 
@@ -287,7 +287,7 @@ int main(int argc, char *const argv[])
             fprintf(fp_out, "CSC mode: %s_%s -> %s_%s:\n",
                 mode.is_input_yuv ? g_colorspace_str[mode.input_color_encoding] : "RGB", g_range_str[mode.is_input_full_range],
                 mode.is_output_yuv ? g_colorspace_str[mode.output_color_encoding] : "RGB", g_range_str[mode.is_output_full_range]);
-            fprintf(fp_out, "\t- get CSC matrix: [%4d, %4d, %4d; %4d, %4d, %4d; %4d, %4d, %4d]\n", csc_simple_coef.csc_coef00,
+            fprintf(fp_out, "\t- get CSC matrix: [%4d, %4d, %4d, %4d, %4d, %4d, %4d, %4d, %4d]\n", csc_simple_coef.csc_coef00,
                 csc_simple_coef.csc_coef01, csc_simple_coef.csc_coef02, csc_simple_coef.csc_coef10,
                 csc_simple_coef.csc_coef11, csc_simple_coef.csc_coef12, csc_simple_coef.csc_coef20,
                 csc_simple_coef.csc_coef21, csc_simple_coef.csc_coef22);

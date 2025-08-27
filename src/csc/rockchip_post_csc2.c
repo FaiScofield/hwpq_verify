@@ -158,9 +158,9 @@ static void csc_get_range_conversion_matrix_offset(const struct post_csc_convert
     if (!mode->is_input_full_range)
     {
         ratio_y = (235 - 16) * ratio_gain / (float)ratio_denorm;
-		ratio_c = mode->is_input_yuv ? (240 - 16) * ratio_gain / (float)ratio_denorm : ratio_y;
-		ratio_y = 1.f / ratio_y;
-		ratio_c = 1.f / ratio_c;
+        ratio_c = mode->is_input_yuv ? (240 - 16) * ratio_gain / (float)ratio_denorm : ratio_y;
+        ratio_y = 1.f / ratio_y;
+        ratio_c = 1.f / ratio_c;
     }
     range_mat_i->val[0][0] = ratio_y;
     range_mat_i->val[1][1] = ratio_c;
@@ -179,7 +179,7 @@ static void csc_get_range_conversion_matrix_offset(const struct post_csc_convert
     if (!mode->is_output_full_range)
     {
         ratio_y = (235 - 16) * ratio_gain / (float)ratio_denorm;
-		ratio_c = mode->is_output_yuv ? (240 - 16) * ratio_gain / (float)ratio_denorm : ratio_y;
+        ratio_c = mode->is_output_yuv ? (240 - 16) * ratio_gain / (float)ratio_denorm : ratio_y;
     }
     range_mat_o->val[0][0] = ratio_y;
     range_mat_o->val[1][1] = ratio_c;
@@ -215,11 +215,11 @@ static void csc_get_space_conversion_matrix(const struct post_csc_convert_mode *
         else //if (mode->input_color_encoding == DRM_COLOR_YCBCR_BT709)
             memcpy(convert_mat, &g_y2r_mat_bt709_f32, sizeof(union csc_matrix_f32));
     }
-    // Y2Y case with L2L or F2F
+    // Y2Y case with same colorspace
     else if (mode->input_color_encoding == mode->output_color_encoding) {
         memcpy(convert_mat, &g_identity_mat_f32, sizeof(union csc_matrix_f32));
     }
-    // Y2Y case with L2F or F2L
+    // Y2Y case with different colorspace
     else
     {
         const union csc_matrix_f32 *mat_y2r, *mat_r2y;
