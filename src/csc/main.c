@@ -219,8 +219,8 @@ int main(int argc, char *const argv[])
         printf("Error: pixel depth should be in range [8,16]!\n");
         return -1;
     }
-    if (config.coef_precision < 8 || config.coef_precision > 16) {
-        printf("Error: coef precision should be in range [8,16]!\n");
+    if (config.coef_precision < 8 || config.coef_precision > g_csc_max_coef_precision) {
+        printf("Error: coef precision should be in range [8,%d]!\n", g_csc_max_coef_precision);
         return -1;
     }
 

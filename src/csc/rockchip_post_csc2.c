@@ -10,7 +10,7 @@
 #include <math.h>
 
 #ifndef M_PI
-#define M_PI 3.14159265358979323846
+#define M_PI 3.14159265358979323846f
 #endif
 
 #ifndef ABS
@@ -19,6 +19,9 @@
 #ifndef ROUND
 #define ROUND(x) ((x) >= 0 ? ((x) + 0.5f) : ((x) - 0.5f))
 #endif
+
+const int g_csc_max_coef_precision = 16;
+
 
 union csc_matrix_f32
 {
@@ -149,27 +152,19 @@ static void csc_get_range_conversion_matrix_offset(const struct post_csc_convert
     // F2F case
     float ratio_y = 1.f;
     float ratio_c = 1.f;
-    float offset_y = 0;
-    float offset_c = mode->is_input_yuv ? 128 : 0;
+    int offset_y = mode->is_input_full_range ? 0 : 16;
+    int offset_c = mode->is_input_yuv ? 128 : offset_y;
     // L2F case
     if (!mode->is_input_full_range)
     {
-        ratio_y = (235.f - 16.f) * ratio_gain / ratio_denorm;
-        offset_y = 16;
-        if (mode->is_input_yuv)
-        { // L2F_yuv case
-            ratio_c = (240.f - 16.f) * ratio_gain / ratio_denorm;
-            offset_c = 128;
-        }
-        else
-        { // L2F_rgb case
-            ratio_c = ratio_y;
-            offset_c = offset_y;
-        }
+        ratio_y = (235 - 16) * ratio_gain / (float)ratio_denorm;
+		ratio_c = mode->is_input_yuv ? (240 - 16) * ratio_gain / (float)ratio_denorm : ratio_y;
+		ratio_y = 1.f / ratio_y;
+		ratio_c = 1.f / ratio_c;
     }
-    range_mat_i->val[0][0] = 1.f / ratio_y;
-    range_mat_i->val[1][1] = 1.f / ratio_c;
-    range_mat_i->val[2][2] = 1.f / ratio_c;
+    range_mat_i->val[0][0] = ratio_y;
+    range_mat_i->val[1][1] = ratio_c;
+    range_mat_i->val[2][2] = range_mat_i->val[1][1];
     offset_vec_i->val[0] = -offset_y * ratio_gain;
     offset_vec_i->val[1] = -offset_c * ratio_gain;
     offset_vec_i->val[2] = -offset_c * ratio_gain;
@@ -178,27 +173,17 @@ static void csc_get_range_conversion_matrix_offset(const struct post_csc_convert
     // F2F case
     ratio_y = 1.f;
     ratio_c = 1.f;
-    offset_y = 0;
-    offset_c = mode->is_output_yuv ? 128 : 0;
+    offset_y = mode->is_output_full_range ? 0 : 16;
+    offset_c = mode->is_output_yuv ? 128 : offset_y;
     // F2L case
     if (!mode->is_output_full_range)
     {
-        ratio_y = (235.f - 16.f) * ratio_gain / ratio_denorm;
-        offset_y = 16;
-        if (mode->is_output_yuv)
-        { // F2L_yuv case
-            ratio_c = (240.f - 16.f) * ratio_gain / ratio_denorm;
-            offset_c = 128;
-        }
-        else
-        { // F2L_rgb case
-            ratio_c = ratio_y;
-            offset_c = offset_y;
-        }
+        ratio_y = (235 - 16) * ratio_gain / (float)ratio_denorm;
+		ratio_c = mode->is_output_yuv ? (240 - 16) * ratio_gain / (float)ratio_denorm : ratio_y;
     }
     range_mat_o->val[0][0] = ratio_y;
     range_mat_o->val[1][1] = ratio_c;
-    range_mat_o->val[2][2] = ratio_c;
+    range_mat_o->val[2][2] = range_mat_o->val[1][1];
     offset_vec_o->val[0] = offset_y * ratio_gain;
     offset_vec_o->val[1] = offset_c * ratio_gain;
     offset_vec_o->val[2] = offset_c * ratio_gain;
@@ -206,9 +191,6 @@ static void csc_get_range_conversion_matrix_offset(const struct post_csc_convert
 
 static void csc_get_space_conversion_matrix(const struct post_csc_convert_mode *mode, union csc_matrix_f32 *convert_mat)
 {
-    union csc_matrix_f32 *range_mat_i;
-    union csc_matrix_f32 *pOutputRangeMat;
-
     // R2R case
     if (mode->is_input_yuv == 0 && mode->is_output_yuv == 0) {
         memcpy(convert_mat, &g_identity_mat_f32, sizeof(union csc_matrix_f32));
