@@ -4,7 +4,7 @@ FilePath    : get_csc_coefs.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-08-27
 Description :
-LastEditTime: 2025-08-27
+LastEditTime: 2025-08-28
 """
 
 import argparse
@@ -73,13 +73,18 @@ class CscBcshConfig:
 
 
 ## matrixs from Rec ITU-R BT.601-7 / BT.709-6 / BT.2020-2
-g_identity_mat = np.eye(3)
-g_r2y_mat_bt601 = np.array([[0.299, 0.587, 0.114], [-0.168736, -0.331264, 0.5], [0.5, -0.418688, -0.081312]])
-g_y2r_mat_bt601 = np.array([[1.0, 0.0, 1.402], [1.0, -0.344136, -0.714136], [1.0, 1.772, 0.0]])
-g_r2y_mat_bt709 = np.array([[0.2126, 0.7152, 0.0722], [-0.114572, -0.385428, 0.5], [0.5, -0.454153, -0.045847]])
-g_y2r_mat_bt709 = np.array([[1.0, 0.0, 1.5748], [1.0, -0.187324, -0.468124], [1.0, 1.8556, 0.0]])
-g_r2y_mat_bt2020 = np.array([[0.2627, 0.678, 0.0593], [-0.13963, -0.36037, 0.5], [0.5, -0.459786, -0.040214]])
-g_y2r_mat_bt2020 = np.array([[1.0, 0.0, 1.4746], [1.0, -0.164553, -0.571353], [1.0, 1.8814, 0.0]])
+g_identity_mat = np.eye(3, dtype=np.float32)
+g_r2y_mat_bt601 = np.array(
+    [[0.299, 0.587, 0.114], [-0.168736, -0.331264, 0.5], [0.5, -0.418688, -0.081312]], dtype=np.float32
+)
+g_y2r_mat_bt601 = np.array([[1.0, 0.0, 1.402], [1.0, -0.344136, -0.714136], [1.0, 1.772, 0.0]], dtype=np.float32)
+g_r2y_mat_bt709 = np.array(
+    [[0.2126, 0.7152, 0.0722], [-0.114572, -0.385428, 0.5], [0.5, -0.454153, -0.045847]], dtype=np.float32
+)
+g_y2r_mat_bt709 = np.array([[1.0, 0.0, 1.5748], [1.0, -0.187324, -0.468124], [1.0, 1.8556, 0.0]], dtype=np.float32)
+g_r2y_mat_bt2020 = np.array([[0.2627, 0.678, 0.0593], [-0.13963, -0.36037, 0.5], [0.5, -0.459786, -0.040214]], dtype=np.float32
+)
+g_y2r_mat_bt2020 = np.array([[1.0, 0.0, 1.4746], [1.0, -0.164553, -0.571353], [1.0, 1.8814, 0.0]], dtype=np.float32)
 
 g_supported_standard_convert_modes = {
     "rgbl_to_rgbf": CscMode(ColorSpace.BT709, ColorSpace.BT709, 0, 0, 0, 1),
@@ -126,10 +131,10 @@ g_supported_standard_convert_modes = {
 
 
 def get_range_convert_mat(mode: CscMode, pixel_depth: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    range_mat_i = np.eye(3)
-    range_mat_o = np.eye(3)
-    offset_vec_i = np.zeros(3)
-    offset_vec_o = np.zeros(3)
+    range_mat_i = np.eye(3, dtype=np.float32)
+    range_mat_o = np.eye(3, dtype=np.float32)
+    offset_vec_i = np.zeros(3, dtype=np.float32)
+    offset_vec_o = np.zeros(3, dtype=np.float32)
 
     ratio_gain = 1 << (pixel_depth - 8)
     ratio_denorm = (1 << pixel_depth) - 1
@@ -380,7 +385,7 @@ if __name__ == '__main__':
     else:
         mode_str = "print_all"
         args.print_all = True
-    out_file = args.out_file if args.out_file else f"csc_coefs_%dbit-%dbits_from_py.txt" % (depth, precision)
+    out_file = args.out_file if args.out_file else f"csc_coefs_%dbit-%dbit_from_py.txt" % (depth, precision)
     print(f" - get pixel_bits: {depth}, coefs_bits: {precision}, fix_check: {args.fix_check}")
     print(f" - get csc_mode: {mode_str}")
 

@@ -38,31 +38,46 @@ def getMatByCoord(rgbw_coord):
 
 def getXYbyColorSpace(color_space):
     if color_space == 'bt709':  # or color_space == 'srgb':
-        r_xy = [0.640, 0.330]
-        g_xy = [0.300, 0.600]
-        b_xy = [0.150, 0.060]
-        w_xy = [0.3127, 0.3290]  # D65
+        r_xy = [0.6400, 0.3300]  # z=0.03
+        g_xy = [0.3000, 0.6000]  # z=0.10
+        b_xy = [0.1500, 0.0600]  # z=0.79
+        w_xy = [0.3127, 0.3290]  # z=0.3582. why [0.95047， 1.0， 1.08883] ?
     elif color_space == 'bt2020':
-        r_xy = [0.708, 0.292]
-        g_xy = [0.170, 0.797]
-        b_xy = [0.131, 0.046]
+        r_xy = [0.7080, 0.2920]
+        g_xy = [0.1700, 0.7970]
+        b_xy = [0.1310, 0.0460]
         w_xy = [0.3127, 0.3290]  # D65
     elif color_space == 'bt601':  # or color_space == 'ntsc':
-        r_xy = [0.670, 0.330]
-        g_xy = [0.210, 0.710]
-        b_xy = [0.140, 0.080]
+        r_xy = [0.6700, 0.3300]
+        g_xy = [0.2100, 0.7100]
+        b_xy = [0.1400, 0.0800]
         w_xy = [0.3101, 0.3162]  # illuminant C
+    # elif color_space == 'bt601-625':
+    #     r_xy = [0.640, 0.330]
+    #     g_xy = [0.290, 0.600]
+    #     b_xy = [0.150, 0.060]
+    #     w_xy = [0.3127, 0.3290]  # D65
+    # elif color_space == 'bt601-525':
+    #     r_xy = [0.630, 0.340]
+    #     g_xy = [0.310, 0.595]
+    #     b_xy = [0.155, 0.070]
+    #     w_xy = [0.3127, 0.3290]  # D65
     # elif color_space == 'adobergb':
     #     r_xy = [0.640, 0.330]
     #     g_xy = [0.210, 0.710]
     #     b_xy = [0.150, 0.060]
     #     w_xy = [0.3127, 0.3290] # D65
     # elif color_space == 'dci-p3':
-    #     r_xy = [0.64, 0.33]
-    #     g_xy = [0.21, 0.71]
-    #     b_xy = [0.15, 0.06]
-    #     # w_xy = [0.314, 0.351] # Theatrical
-    #     w_xy = [0.3127, 0.3290] # D65
+    #     r_xy = [0.64, 0.33]  # 0.6800, 0.3200
+    #     g_xy = [0.21, 0.71]  # 0.2650， 0.6900
+    #     b_xy = [0.15, 0.06]  # 0.1500， 0.0600
+    #     w_xy = [0.3140, 0.3510] # Theatrical
+    #     # w_xy = [0.3127, 0.3290] # D65
+    # elif color_space == 'dci-p3+':
+    #     r_xy = [0.7400, 0.2700]
+    #     g_xy = [0.2200, 0.2700]
+    #     b_xy = [0.0900, -0.0900]
+    #     w_xy = [0.3140, 0.3510]
     else:
         print("Error: color space not supported")
         r_xy = [0, 0]
@@ -79,8 +94,17 @@ def getFixMat(mat, pix_bits=10, coef_fix_bits=10):
     return mat_fix
 
 
-def checkFixMat(mat: np.ndarray, mat_fix: np.ndarray, coef_fix_bits: int, check_case: str="", range_i: str="F", range_o: str="F"):
-    target_denorms = np.ones(2) * 2**coef_fix_bits
+def checkFixMat(
+    mat_float: np.ndarray,
+    mat_fix: np.ndarray,
+    coef_fix_bits: int,
+    check_case: str = "",
+    range_i: str = "F",
+    range_o: str = "F",
+):
+    assert coef_fix_bits > 0
+
+    target_denorms = np.ones(3) * 2**coef_fix_bits
     if range_i == "F" and range_o == "L":
         target_denorms[0] = 220/255 * (2**coef_fix_bits - 1)
         target_denorms[1] = 225/255 * (2**coef_fix_bits - 1)
@@ -88,37 +112,43 @@ def checkFixMat(mat: np.ndarray, mat_fix: np.ndarray, coef_fix_bits: int, check_
         target_denorms[0] = 255/220 * (2**coef_fix_bits - 1)
         target_denorms[1] = 255/225 * (2**coef_fix_bits - 1)
     target_denorms = (target_denorms + 0.5).astype(np.int32)
+    target_denorms[2] = target_denorms[1]
 
     org_mat_fix = mat_fix.copy()
-    mat = mat * (2**coef_fix_bits)
-    mat_diff = mat_fix.astype(np.float32) - mat
+    mat_float = mat_float * (2**coef_fix_bits)
     check_case = check_case.lower()
 
     if check_case == "r2y":
+        target_denorms[1] = target_denorms[2] = 0
         denorms = np.sum(mat_fix, axis=1)
-        if coef_fix_bits == 0:
-            max_indices = np.argmax(np.abs(mat), axis=1)
-        else:
-            max_indices = np.argmax(np.abs(mat_diff), axis=1)
         updated = False
 
-        if denorms[0] != target_denorms[0]:
-            print(f"Warning: denorms[0] = {denorms[0]} != {target_denorms[0]}")
-            mat_fix[0, max_indices[0]] += target_denorms[0] - denorms[0]
-            updated = True
-        if denorms[1] != 0:
-            print(f"Warning: denorms[1] = {denorms[1]} != 0")
-            mat_fix[1, max_indices[1]] -= denorms[1]
-            updated = True
-        if denorms[2] != 0:
-            print(f"Warning: denorms[1] = {denorms[2]} != 0")
-            mat_fix[2, max_indices[2]] -= denorms[2]
-            updated = True
+        for i in range(3):
+            if denorms[i] != target_denorms[i]:
+                print(f"Warning: denorms[{i}] = {denorms[i]} != {target_denorms[i]}")
+                delta = target_denorms[i] - denorms[i]
+                j = np.argmin(np.abs(mat_fix[i, :] + delta - mat_float[i, :]))
+                mat_fix[i, j] += delta
+                updated = True
         if updated:
             print(f"fine-tunig for R2Y, original mat: {np.array2string(org_mat_fix.flatten(), separator=', ')}")
             print(f"fine-tunig for R2Y, updated  mat: {np.array2string(mat_fix.flatten(), separator=', ')}")
-    # elif check_case == "y2r":
-    # TODO
+    elif check_case == "y2r":
+        if mat_fix[0, 0] != target_denorms[0]:
+            print(f"NOTE: Update coef[0,0] = {mat_fix[0, 0]} => {target_denorms[0]}, since RY2 case!")
+            mat_fix[0, 0] = target_denorms[0]
+        if mat_fix[1, 0] != target_denorms[0]:
+            print(f"NOTE: Update coef[1,0] = {mat_fix[1, 0]} => {target_denorms[0]}, since RY2 case!")
+            mat_fix[1, 0] = target_denorms[0]
+        if mat_fix[2, 0] != target_denorms[0]:
+            print(f"NOTE: Update coef[2,0] = {mat_fix[2, 0]} => {target_denorms[0]}, since RY2 case!")
+            mat_fix[2, 0] = target_denorms[0]
+        if mat_fix[0, 1] != 0:
+            print(f"NOTE: Update coef[0,1] = {mat_fix[0, 1]} => 0, since RY2 case!")
+            mat_fix[0, 1] = 0
+        if mat_fix[2, 2] != 0:
+            print(f"NOTE: Update coef[1,0] = {mat_fix[2, 2]} => 0, since RY2 case!")
+            mat_fix[2, 2] = 0
 
     return mat_fix
 
