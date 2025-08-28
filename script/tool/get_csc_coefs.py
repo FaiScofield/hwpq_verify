@@ -54,7 +54,7 @@ class CscConfig:
     csc_mode = CscMode()
     pixel_depth = 10
     coef_precision = 0
-    b_tune_fix_coefs = 0
+    tune_fix_coefs = 0  # 0-no tuning, >0 means a diagonal ratio (float)
     # csc_coefs = np.eye(3)
     # csc_offset = np.zeros(3)
 
@@ -77,14 +77,15 @@ g_identity_mat = np.eye(3, dtype=np.float32)
 g_r2y_mat_bt601 = np.array(
     [[0.299, 0.587, 0.114], [-0.168736, -0.331264, 0.5], [0.5, -0.418688, -0.081312]], dtype=np.float32
 )
-g_y2r_mat_bt601 = np.array([[1.0, 0.0, 1.402], [1.0, -0.344136, -0.714136], [1.0, 1.772, 0.0]], dtype=np.float32)
+g_y2r_mat_bt601 = np.array([[1, 0, 1.402], [1, -0.344136, -0.714136], [1, 1.772, 0]], dtype=np.float32)
 g_r2y_mat_bt709 = np.array(
     [[0.2126, 0.7152, 0.0722], [-0.114572, -0.385428, 0.5], [0.5, -0.454153, -0.045847]], dtype=np.float32
 )
-g_y2r_mat_bt709 = np.array([[1.0, 0.0, 1.5748], [1.0, -0.187324, -0.468124], [1.0, 1.8556, 0.0]], dtype=np.float32)
-g_r2y_mat_bt2020 = np.array([[0.2627, 0.678, 0.0593], [-0.13963, -0.36037, 0.5], [0.5, -0.459786, -0.040214]], dtype=np.float32
+g_y2r_mat_bt709 = np.array([[1, 0, 1.5748], [1, -0.187324, -0.468124], [1, 1.8556, 0]], dtype=np.float32)
+g_r2y_mat_bt2020 = np.array(
+    [[0.2627, 0.678, 0.0593], [-0.13963, -0.36037, 0.5], [0.5, -0.459786, -0.040214]], dtype=np.float32
 )
-g_y2r_mat_bt2020 = np.array([[1.0, 0.0, 1.4746], [1.0, -0.164553, -0.571353], [1.0, 1.8814, 0.0]], dtype=np.float32)
+g_y2r_mat_bt2020 = np.array([[1, 0, 1.4746], [1, -0.164553, -0.571353], [1, 1.8814, 0]], dtype=np.float32)
 
 g_supported_standard_convert_modes = {
     "rgbl_to_rgbf": CscMode(ColorSpace.BT709, ColorSpace.BT709, 0, 0, 0, 1),
@@ -225,8 +226,78 @@ def get_space_convert_mat(mode: CscMode) -> Optional[np.ndarray]:
     return mat_r2y @ mat_y2r
 
 
-def adjust_convert_mat(config: CscConfig, bcsh_cfg: CscBcshConfig):
-    return None
+def adjust_convert_mat(
+    config: CscConfig, bcsh_cfg: CscBcshConfig, out_mat: np.ndarray, out_vec: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, bool]:
+    ## get BCSH parameters
+    contrast = bcsh_cfg.contrast / 256.0  # [0, 511] -> [0, 2)
+    saturation = bcsh_cfg.saturation / 256.0  # [0, 511] -> [0, 2)
+    r_gain = bcsh_cfg.r_gain / 256.0  # [0, 511] -> [0, 2)
+    g_gain = bcsh_cfg.g_gain / 256.0  # [0, 511] -> [0, 2)
+    b_gain = bcsh_cfg.b_gain / 256.0  # [0, 511] -> [0, 2)
+    hue_rad = (bcsh_cfg.hue - 256) * 30 / 256.0 * np.pi / 180.0  # [0, 511] -> [-pi/6, pi/6]
+    cos_hue = np.cos(hue_rad)
+    sin_hue = np.sin(hue_rad)
+    r_offset = bcsh_cfg.r_offset - 256
+    g_offset = bcsh_cfg.g_offset - 256
+    b_offset = bcsh_cfg.b_offset - 256
+    brightness = bcsh_cfg.brightness - 256
+    offset_shift_bits = 3 - (config.pixel_depth - 8)  # [1, 3]
+    if offset_shift_bits >= 0:
+        r_offset >>= offset_shift_bits  # [-32, 32) for U8
+        g_offset >>= offset_shift_bits
+        b_offset >>= offset_shift_bits
+    else:
+        r_offset <<= -offset_shift_bits
+        g_offset <<= -offset_shift_bits
+        b_offset <<= -offset_shift_bits
+    if config.pixel_depth <= 10:
+        brightness >>= 10 - config.pixel_depth  # [-64, 64) for U8
+    else:
+        brightness <<= config.pixel_depth - 10  # [-256, 256) for U10
+
+    gain_matrix = np.array([[r_gain, 0, 0], [0, g_gain, 0], [0, 0, b_gain]], dtype=np.float32)
+    contrast_matrix = np.array([[contrast, 0, 0], [0, contrast, 0], [0, 0, contrast]], dtype=np.float32)
+    hue_matrix = np.array([[1, 0, 0], [0, cos_hue, sin_hue], [0, -sin_hue, cos_hue]], dtype=np.float32)
+    saturation_matrix = np.array([[saturation, 0, 0], [0, saturation, 0], [0, 0, saturation]], dtype=np.float32)
+
+    ## M0 = hue_matrix * saturation_matrix, which is applied on YUV space
+    ## M1 = gain_matrix * contrast_matrix, can be placed on any where since it's a DIAGONAL matrix
+    M0 = hue_matrix @ saturation_matrix
+    M1 = gain_matrix @ contrast_matrix
+    r2y_matrix = g_r2y_mat_bt709
+    y2r_matrix = g_y2r_mat_bt709
+    mode = config.csc_mode
+
+    ## Y2Y: output = T * M0 * N_r2y * M1 * N_y2r = M1 * out_mat * M0 * (N_r2y * N_y2r)
+    if mode.is_input_yuv and mode.is_output_yuv:
+        # out_mat = out_mat @ M0 @ r2y_matrix @ M1 @ y2r_matrix
+        out_mat = M1 @ out_mat @ M0
+        out_vec[0] += brightness
+    ## Y2R: output = M1 * T * M0
+    elif mode.is_input_yuv and not mode.is_output_yuv:
+        out_mat = M1 @ out_mat @ M0
+        out_vec[0] += brightness + r_offset
+        out_vec[1] += brightness + g_offset
+        out_vec[2] += brightness + b_offset
+    ## R2Y: output = M0 * T * M1
+    elif not mode.is_input_yuv and mode.is_output_yuv:
+        out_mat = M0 @ out_mat @ M1
+        out_vec[0] += brightness
+    ## R2R: output = T * M1 * N_y2r * M0 * N_r2y
+    else:
+        out_mat = out_mat @ M1 @ y2r_matrix @ M0 @ r2y_matrix
+        out_vec[0] += brightness + r_offset
+        out_vec[1] += brightness + g_offset
+        out_vec[2] += brightness + b_offset
+
+    ## count diagonal ratio for later fixed-point calcuation
+    if hue_rad == 0 and r_gain == g_gain and g_gain == b_gain:
+        diagonal_ratio = r_gain * contrast * saturation
+    else:
+        diagonal_ratio = 0
+
+    return out_mat, out_vec, diagonal_ratio
 
 
 def get_fixed_coefs_mat(
@@ -239,16 +310,16 @@ def get_fixed_coefs_mat(
     fix_mat = (float_mat + np.sign(float_mat) * 0.5).astype(np.int32)
 
     ## fine-tuning for fixed matrix (only R2Y & Y2R case)
-    if config.b_tune_fix_coefs:
+    if config.tune_fix_coefs > 0:
         mode = config.csc_mode
         ratio_y = (219 << (pixel_depth - 8)) / max_pixel_val
         target_denorms = np.zeros(3, dtype=np.int32)
         if mode.is_input_full_range and not mode.is_output_full_range:  # F2L
-            target_denorms[0] = np.int32(fix_factor * ratio_y + 0.5)
+            target_denorms[0] = np.int32(fix_factor * ratio_y * config.tune_fix_coefs + 0.5)
         elif not mode.is_input_full_range and mode.is_output_full_range:  # L2F
-            target_denorms[0] = np.int32(fix_factor / ratio_y + 0.5)
+            target_denorms[0] = np.int32(fix_factor / ratio_y * config.tune_fix_coefs + 0.5)
         else:
-            target_denorms[0] = fix_factor
+            target_denorms[0] = np.int32(fix_factor * config.tune_fix_coefs + 0.5)
 
         org_fix_mat = fix_mat.copy()
         if not mode.is_input_yuv and mode.is_output_yuv:  # R2Y
@@ -294,8 +365,8 @@ def get_csc_coefs(config: CscConfig, bcsh_cfg: Optional[CscBcshConfig]) -> tuple
 
     ## adjust final_mat with bsch configs
     if bcsh_cfg is not None:
-        final_mat, range_ofs_o, tune_flag = adjust_convert_mat(config, bcsh_cfg, final_mat, range_ofs_o)
-        config.b_tune_fix_coefs = tune_flag
+        final_mat, range_ofs_o, diagonal_ratio = adjust_convert_mat(config, bcsh_cfg, final_mat, range_ofs_o)
+        config.tune_fix_coefs = diagonal_ratio # >0 means diagonal BCSH matrix
 
     ## get fixed mat
     if config.coef_precision > 0:
@@ -393,7 +464,19 @@ if __name__ == '__main__':
     csc_config = CscConfig()
     csc_config.pixel_depth = depth
     csc_config.coef_precision = precision
-    csc_config.b_tune_fix_coefs = args.fix_check
+    csc_config.tune_fix_coefs = args.fix_check
+
+    bcsh = CscBcshConfig()
+    # bcsh.hue = 277
+    # bcsh.saturation = 299
+    # bcsh.contrast = 311
+    # bcsh.brightness = 212
+    # bcsh.r_gain = 286
+    # bcsh.g_gain = 286
+    # bcsh.b_gain = 286
+    # bcsh.r_offset = 253
+    # bcsh.g_offset = 253
+    # bcsh.b_offset = 253
 
     np.set_printoptions(linewidth=120)
     float_fmt = {'float_kind': lambda x: f"{x:.6f}"}  # fsor float data format-string
@@ -403,7 +486,7 @@ if __name__ == '__main__':
         fp = open(out_file, "w")
         for mode_str in g_supported_standard_convert_modes:
             csc_config.csc_mode = g_supported_standard_convert_modes[mode_str]
-            mat, offset = get_csc_coefs(csc_config, None)
+            mat, offset = get_csc_coefs(csc_config, bcsh)
             if mat is not None:
                 print(f"CSC mode: {mode_str.upper()}:")
                 print(f"\t- matrix: {np.array2string(mat.flatten(), separator=', ', formatter=float_fmt)}")
