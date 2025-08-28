@@ -335,7 +335,7 @@ static bool csc_fixed_coefs_fine_tuning(const struct post_csc_convert_mode *mode
     const int max_pixel_val = (1 << mode->pixel_depth) - 1;
     int denorms[3] = {coef_factor, 0, 0};
     const float ratio_y = (219 << (mode->pixel_depth - 8)) / (float)max_pixel_val;
-    const float ratio_c = (224 << (mode->pixel_depth - 8)) / (float)max_pixel_val;
+    // const float ratio_c = (224 << (mode->pixel_depth - 8)) / (float)max_pixel_val;
     if (mode->is_input_full_range && !mode->is_output_full_range) { // F2L
         denorms[0] = ROUND(coef_factor * ratio_y);
     } else if (!mode->is_input_full_range && mode->is_output_full_range) { // L2F
@@ -399,8 +399,156 @@ static bool csc_fixed_coefs_fine_tuning(const struct post_csc_convert_mode *mode
     return ret;
 }
 
+#else
+
+static const union csc_matrix_s32 g_csc_fixed_coefs_8bit_pix_8bit_precision[DRM_CSC_MODE_MAX] = {
+    {298, 0, 0, 0, 298, 0, 0, 0, 298},             /*DRM_RGBL_TO_RGBF*/
+    {77, 150, 29, -44, -87, 131, 131, -110, -21},  /*DRM_RGBL_TO_BT601L*/
+    {89, 175, 34, -50, -99, 149, 149, -125, -24},  /*DRM_RGBL_TO_BT601F*/
+    {54, 183, 19, -30, -101, 131, 131, -119, -12}, /*DRM_RGBL_TO_BT709L*/
+    {63, 213, 22, -34, -115, 149, 149, -135, -14}, /*DRM_RGBL_TO_BT709F*/
+    {67, 174, 15, -37, -94, 131, 131, -120, -11},  /*DRM_RGBL_TO_BT2020L*/
+    {78, 202, 18, -42, -107, 149, 149, -137, -12}, /*DRM_RGBL_TO_BT2020F*/
+    {220, 0, 0, 0, 220, 0, 0, 0, 220},             /*DRM_RGBF_TO_RGBL*/
+    {66, 129, 25, -38, -74, 112, 112, -94, -18},   /*DRM_RGBF_TO_BT601L*/
+    {77, 150, 29, -43, -85, 128, 128, -107, -21},  /*DRM_RGBF_TO_BT601F*/
+    {47, 157, 16, -26, -87, 113, 112, -102, -10},  /*DRM_RGBF_TO_BT709L*/
+    {54, 183, 19, -29, -99, 128, 128, -116, -12},  /*DRM_RGBF_TO_BT709F*/
+    {58, 149, 13, -31, -81, 112, 112, -103, -9},   /*DRM_RGBF_TO_BT2020L*/
+    {67, 174, 15, -36, -92, 128, 128, -118, -10},  /*DRM_RGBF_TO_BT2020F*/
+    {256, 0, 351, 256, -86, -179, 256, 444, 0},    /*DRM_BT601L_TO_RGBL*/
+    {298, 0, 409, 298, -100, -208, 298, 516, 0},   /*DRM_BT601L_TO_RGBF*/
+    {298, 0, 0, 0, 291, 0, 0, 0, 291},             /*DRM_BT601L_TO_BT601F*/
+    {256, -30, -53, 0, 261, 29, 0, 19, 262},       /*DRM_BT601L_TO_BT709L*/
+    {298, -34, -62, 0, 297, 33, 0, 22, 299},       /*DRM_BT601L_TO_BT709F*/
+    {220, 0, 308, 220, -76, -157, 220, 390, 0},    /*DRM_BT601F_TO_RGBL*/
+    {256, 0, 359, 256, -88, -183, 256, 454, 0},    /*DRM_BT601F_TO_RGBF*/
+    {220, 0, 0, 0, 225, 0, 0, 0, 225},             /*DRM_BT601F_TO_BT601L*/
+    {220, -26, -47, 0, 229, 26, 0, 17, 231},       /*DRM_BT601F_TO_BT709L*/
+    {256, -30, -54, 0, 261, 29, 0, 19, 262},       /*DRM_BT601F_TO_BT709F*/
+    {256, 0, 394, 256, -47, -117, 256, 464, 0},    /*DRM_BT709L_TO_RGBL*/
+    {298, 0, 459, 298, -55, -136, 298, 541, 0},    /*DRM_BT709L_TO_RGBF*/
+    {256, 25, 49, 0, 253, -28, 0, -19, 252},       /*DRM_BT709L_TO_BT601L*/
+    {298, 30, 57, 0, 288, -32, 0, -21, 287},       /*DRM_BT709L_TO_BT601F*/
+    {298, 0, 0, 0, 291, 0, 0, 0, 291},             /*DRM_BT709L_TO_BT709F*/
+    {220, 0, 346, 220, -41, -103, 220, 408, 0},    /*DRM_BT709F_TO_RGBL*/
+    {256, 0, 403, 256, -48, -120, 256, 475, 0},    /*DRM_BT709F_TO_RGBF*/
+    {220, 22, 43, 0, 223, -25, 0, -16, 221},       /*DRM_BT709F_TO_BT601L*/
+    {256, 26, 50, 0, 253, -28, 0, -19, 252},       /*DRM_BT709F_TO_BT601F*/
+    {220, 0, 0, 0, 225, 0, 0, 0, 225},             /*DRM_BT709F_TO_BT709L*/
+    {256, 0, 369, 256, -41, -143, 256, 471, 0},    /*DRM_BT2020L_TO_RGBL*/
+    {298, 0, 430, 298, -48, -167, 298, 548, 0},    /*DRM_BT2020L_TO_RGBF*/
+    {298, 0, 0, 0, 291, 0, 0, 0, 291},             /*DRM_BT2020L_TO_BT2020F*/
+    {220, 0, 324, 220, -36, -126, 220, 414, 0},    /*DRM_BT2020F_TO_RGBL*/
+    {256, 0, 377, 256, -42, -146, 256, 482, 0},    /*DRM_BT2020F_TO_RGBF*/
+    {220, 0, 0, 0, 225, 0, 0, 0, 225},             /*DRM_BT2020F_TO_BT2020L*/
+};
+
+static const union csc_matrix_s32 g_csc_fixed_coefs_10bit_pix_10bit_precision[DRM_CSC_MODE_MAX] = {
+    {1196, 0, 0, 0, 1196, 0, 0, 0, 1196},             /*DRM_RGBL_TO_RGBF*/
+    {306, 601, 117, -177, -347, 524, 524, -439, -85}, /*DRM_RGBL_TO_BT601L*/
+    {358, 702, 136, -202, -396, 598, 598, -501, -97}, /*DRM_RGBL_TO_BT601F*/
+    {218, 732, 74, -120, -404, 524, 524, -476, -48},  /*DRM_RGBL_TO_BT709L*/
+    {254, 855, 87, -137, -461, 598, 598, -543, -55},  /*DRM_RGBL_TO_BT709F*/
+    {269, 694, 61, -146, -378, 524, 524, -482, -42},  /*DRM_RGBL_TO_BT2020L*/
+    {314, 811, 71, -167, -431, 598, 598, -550, -48},  /*DRM_RGBL_TO_BT2020F*/
+    {877, 0, 0, 0, 877, 0, 0, 0, 877},                /*DRM_RGBF_TO_RGBL*/
+    {262, 515, 100, -151, -297, 448, 448, -375, -73}, /*DRM_RGBF_TO_BT601L*/
+    {306, 601, 117, -173, -339, 512, 512, -429, -83}, /*DRM_RGBF_TO_BT601F*/
+    {187, 627, 63, -103, -346, 449, 448, -407, -41},  /*DRM_RGBF_TO_BT709L*/
+    {218, 732, 74, -117, -395, 512, 512, -465, -47},  /*DRM_RGBF_TO_BT709F*/
+    {230, 595, 52, -125, -323, 448, 448, -412, -36},  /*DRM_RGBF_TO_BT2020L*/
+    {269, 694, 61, -143, -369, 512, 512, -471, -41},  /*DRM_RGBF_TO_BT2020F*/
+    {1024, 0, 1404, 1024, -345, -715, 1024, 1774, 0}, /*DRM_BT601L_TO_RGBL*/
+    {1196, 0, 1639, 1196, -402, -835, 1196, 2072, 0}, /*DRM_BT601L_TO_RGBF*/
+    {1196, 0, 0, 0, 1169, 0, 0, 0, 1169},             /*DRM_BT601L_TO_BT601F*/
+    {1024, -118, -213, 0, 1043, 117, 0, 77, 1050},    /*DRM_BT601L_TO_BT709L*/
+    {1196, -138, -249, 0, 1191, 134, 0, 88, 1199},    /*DRM_BT601L_TO_BT709F*/
+    {877, 0, 1229, 877, -302, -626, 877, 1554, 0},    /*DRM_BT601F_TO_RGBL*/
+    {1024, 0, 1436, 1024, -352, -731, 1024, 1815, 0}, /*DRM_BT601F_TO_RGBF*/
+    {877, 0, 0, 0, 897, 0, 0, 0, 897},                /*DRM_BT601F_TO_BT601L*/
+    {877, -104, -186, 0, 914, 103, 0, 67, 920},       /*DRM_BT601F_TO_BT709L*/
+    {1024, -121, -218, 0, 1043, 117, 0, 77, 1050},    /*DRM_BT601F_TO_BT709F*/
+    {1024, 0, 1577, 1024, -188, -469, 1024, 1858, 0}, /*DRM_BT709L_TO_RGBL*/
+    {1196, 0, 1841, 1196, -219, -547, 1196, 2169, 0}, /*DRM_BT709L_TO_RGBF*/
+    {1024, 102, 196, 0, 1014, -113, 0, -74, 1007},    /*DRM_BT709L_TO_BT601L*/
+    {1196, 119, 229, 0, 1157, -129, 0, -85, 1150},    /*DRM_BT709L_TO_BT601F*/
+    {1196, 0, 0, 0, 1169, 0, 0, 0, 1169},             /*DRM_BT709L_TO_BT709F*/
+    {877, 0, 1381, 877, -164, -410, 877, 1627, 0},    /*DRM_BT709F_TO_RGBL*/
+    {1024, 0, 1613, 1024, -192, -479, 1024, 1900, 0}, /*DRM_BT709F_TO_RGBF*/
+    {877, 89, 172, 0, 888, -99, 0, -65, 882},         /*DRM_BT709F_TO_BT601L*/
+    {1024, 104, 201, 0, 1014, -113, 0, -74, 1007},    /*DRM_BT709F_TO_BT601F*/
+    {877, 0, 0, 0, 897, 0, 0, 0, 897},                /*DRM_BT709F_TO_BT709L*/
+    {1024, 0, 1476, 1024, -165, -572, 1024, 1884, 0}, /*DRM_BT2020L_TO_RGBL*/
+    {1196, 0, 1724, 1196, -192, -668, 1196, 2200, 0}, /*DRM_BT2020L_TO_RGBF*/
+    {1196, 0, 0, 0, 1169, 0, 0, 0, 1169},             /*DRM_BT2020L_TO_BT2020F*/
+    {877, 0, 1293, 877, -144, -501, 877, 1650, 0},    /*DRM_BT2020F_TO_RGBL*/
+    {1024, 0, 1510, 1024, -169, -585, 1024, 1927, 0}, /*DRM_BT2020F_TO_RGBF*/
+    {877, 0, 0, 0, 897, 0, 0, 0, 897},                /*DRM_BT2020F_TO_BT2020L*/
+};
+
+static const union csc_matrix_s32 g_csc_fixed_coefs_10bit_pix_13bit_precision[DRM_CSC_MODE_MAX] = {
+    {9567, 0, 0, 0, 9567, 0, 0, 0, 9567},                      /*DRM_RGBL_TO_RGBF*/
+    {2449, 4809, 934, -1414, -2776, 4190, 4189, -3508, -681},  /*DRM_RGBL_TO_BT601L*/
+    {2860, 5616, 1091, -1614, -3169, 4783, 4783, -4005, -778}, /*DRM_RGBL_TO_BT601F*/
+    {1742, 5859, 591, -960, -3230, 4190, 4189, -3805, -384},   /*DRM_RGBL_TO_BT709L*/
+    {2034, 6842, 691, -1096, -3687, 4783, 4783, -4345, -438},  /*DRM_RGBL_TO_BT709F*/
+    {2152, 5554, 486, -1170, -3020, 4190, 4190, -3853, -337},  /*DRM_RGBL_TO_BT2020L*/
+    {2513, 6486, 568, -1336, -3447, 4783, 4783, -4398, -385},  /*DRM_RGBL_TO_BT2020F*/
+    {7015, 0, 0, 0, 7015, 0, 0, 0, 7015},                      /*DRM_RGBF_TO_RGBL*/
+    {2097, 4118, 800, -1211, -2377, 3588, 3587, -3004, -583},  /*DRM_RGBF_TO_BT601L*/
+    {2449, 4809, 934, -1382, -2714, 4096, 4096, -3430, -666},  /*DRM_RGBF_TO_BT601F*/
+    {1491, 5017, 507, -822, -2765, 3587, 3588, -3259, -329},   /*DRM_RGBF_TO_BT709L*/
+    {1742, 5859, 591, -939, -3157, 4096, 4096, -3720, -376},   /*DRM_RGBF_TO_BT709F*/
+    {1843, 4756, 416, -1002, -2586, 3588, 3588, -3299, -289},  /*DRM_RGBF_TO_BT2020L*/
+    {2152, 5554, 486, -1144, -2952, 4096, 4096, -3767, -329},  /*DRM_RGBF_TO_BT2020F*/
+    {8192, 0, 11229, 8192, -2756, -5720, 8192, 14192, 0},      /*DRM_BT601L_TO_RGBL*/
+    {9567, 0, 13113, 9567, -3219, -6679, 9567, 16574, 0},      /*DRM_BT601L_TO_RGBF*/
+    {9567, 0, 0, 0, 9353, 0, 0, 0, 9353},                      /*DRM_BT601L_TO_BT601F*/
+    {8192, -947, -1703, 0, 8345, 939, 0, 615, 8399},           /*DRM_BT601L_TO_BT709L*/
+    {9567, -1105, -1989, 0, 9527, 1072, 0, 702, 9590},         /*DRM_BT601L_TO_BT709F*/
+    {7015, 0, 9835, 7015, -2414, -5010, 7015, 12430, 0},       /*DRM_BT601F_TO_RGBL*/
+    {8192, 0, 11485, 8192, -2819, -5850, 8192, 14516, 0},      /*DRM_BT601F_TO_RGBF*/
+    {7015, 0, 0, 0, 7175, 0, 0, 0, 7175},                      /*DRM_BT601F_TO_BT601L*/
+    {7015, -829, -1492, 0, 7309, 822, 0, 538, 7357},           /*DRM_BT601F_TO_BT709L*/
+    {8192, -968, -1742, 0, 8345, 939, 0, 615, 8399},           /*DRM_BT601F_TO_BT709F*/
+    {8192, 0, 12613, 8192, -1500, -3749, 8192, 14862, 0},      /*DRM_BT709L_TO_RGBL*/
+    {9567, 0, 14729, 9567, -1752, -4378, 9567, 17356, 0},      /*DRM_BT709L_TO_RGBF*/
+    {8192, 814, 1570, 0, 8109, -906, 0, -594, 8056},           /*DRM_BT709L_TO_BT601L*/
+    {9567, 950, 1834, 0, 9258, -1035, 0, -678, 9198},          /*DRM_BT709L_TO_BT601F*/
+    {9567, 0, 0, 0, 9353, 0, 0, 0, 9353},                      /*DRM_BT709L_TO_BT709F*/
+    {7015, 0, 11047, 7015, -1314, -3284, 7015, 13017, 0},      /*DRM_BT709F_TO_RGBL*/
+    {8192, 0, 12901, 8192, -1535, -3835, 8192, 15201, 0},      /*DRM_BT709F_TO_RGBF*/
+    {7015, 713, 1375, 0, 7102, -794, 0, -520, 7056},           /*DRM_BT709F_TO_BT601L*/
+    {8192, 832, 1606, 0, 8109, -906, 0, -594, 8056},           /*DRM_BT709F_TO_BT601F*/
+    {7015, 0, 0, 0, 7175, 0, 0, 0, 7175},                      /*DRM_BT709F_TO_BT709L*/
+    {8192, 0, 11810, 8192, -1318, -4576, 8192, 15068, 0},      /*DRM_BT2020L_TO_RGBL*/
+    {9567, 0, 13792, 9567, -1539, -5344, 9567, 17597, 0},      /*DRM_BT2020L_TO_RGBF*/
+    {9567, 0, 0, 0, 9353, 0, 0, 0, 9353},                      /*DRM_BT2020L_TO_BT2020F*/
+    {7015, 0, 10344, 7015, -1154, -4008, 7015, 13198, 0},      /*DRM_BT2020F_TO_RGBL*/
+    {8192, 0, 12080, 8192, -1348, -4681, 8192, 15412, 0},      /*DRM_BT2020F_TO_RGBF*/
+    {7015, 0, 0, 0, 7175, 0, 0, 0, 7175},                      /*DRM_BT2020F_TO_BT2020L*/
+};
+
 #endif // ENABLE_POST_CSC_FLOATING_POINT
 
+static void csc_get_range_offset(const struct post_csc_convert_mode *mode,
+    union csc_vector_s32 *offset_i, union csc_vector_s32 *offset_o)
+{
+    const int ratio_gain = 1 << (mode->pixel_depth - 8);
+
+    int offset_y = mode->is_input_full_range ? 0 : 16;
+    int offset_c = mode->is_input_yuv ? 128 : offset_y;
+    offset_i->val[0] = -offset_y * ratio_gain;
+    offset_i->val[1] = -offset_c * ratio_gain;
+    offset_i->val[2] = -offset_c * ratio_gain;
+
+    offset_y = mode->is_output_full_range ? 0 : 16;
+    offset_c = mode->is_output_yuv ? 128 : offset_y;
+    offset_o->val[0] = offset_y * ratio_gain;
+    offset_o->val[1] = offset_c * ratio_gain;
+    offset_o->val[2] = offset_c * ratio_gain;
+}
 
 static void csc_swap_color_channel(const struct post_csc_convert_mode *mode,
     union csc_matrix_s32 *out_mat, union csc_vector_s32 *out_vec)
@@ -439,6 +587,23 @@ static void csc_get_fixed_coefs_offset(const union csc_matrix_s32 *fixed_mat, co
     final_vec->val[2] = tmp_vec.val[2] + offset_vec_o->val[2] * factor;
 }
 
+static int csc_get_drm_csc_mode_enum(const struct post_csc_convert_mode *mode)
+{
+    for (int i = 0; i < DRM_CSC_MODE_MAX; ++i)
+    {
+        const struct post_csc_convert_mode *mode_i = &g_supported_standard_convert_mode[i];
+        if (mode_i->input_color_encoding == mode->input_color_encoding &&
+            mode_i->output_color_encoding == mode->output_color_encoding &&
+            mode_i->is_input_yuv == mode->is_input_yuv &&
+            mode_i->is_output_yuv == mode->is_output_yuv &&
+            mode_i->is_input_full_range == mode->is_input_full_range &&
+            mode_i->is_output_full_range == mode->is_output_full_range)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
 
 int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC config
     const struct post_csc_convert_mode *convert_mode,             // [I] CSC convert mode
@@ -477,28 +642,41 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
         fine_tuned = csc_fixed_coefs_fine_tuning(convert_mode, &final_mat, &final_mat_fix);
     }
 #else // ENABLE_POST_CSC_FLOATING_POINT
+    int mode_idx = csc_get_drm_csc_mode_enum(convert_mode);
+    if (mode_idx < 0 || mode_idx >= DRM_CSC_MODE_MAX) {
+        printf("ERROR: unsupported CSC convert mode!\n");
+        return -1;
+    }
+
     /* 8bit pixel depth + 8bit coef precision */
     if (convert_mode->pixel_depth == 8)
     {
-        assert(convert_mode->pixel_depth == 8);
+        if (convert_mode->coef_precision == 8) {
+            memcpy(&final_mat_fix, &g_csc_fixed_coefs_8bit_pix_8bit_precision[mode_idx], sizeof(union csc_matrix_s32));
+        } else {
+            printf("Invalid coef precision %d, only 8 supported for 8bit pixel depth!\n", convert_mode->coef_precision);
+            return -1;
+        }
     }
     /* 10bit pixel depth + 10/13bit coef precision */
-    else
+    else if (convert_mode->pixel_depth == 10)
     {
-        assert(convert_mode->pixel_depth == 10);
-        /* 10bit pixel depth + 10bit coef precision */
-        if (convert_mode->coef_precision == 10)
-        {
-
-        }
-        /* 10bit pixel depth + 13bit coef precision */
-        else
-        {
-            assert(convert_mode->coef_precision == 13);
-
+        if (convert_mode->coef_precision == 10) {
+            memcpy(&final_mat_fix, &g_csc_fixed_coefs_10bit_pix_10bit_precision[mode_idx], sizeof(union csc_matrix_s32));
+        } else if (convert_mode->coef_precision == 13) {
+            memcpy(&final_mat_fix, &g_csc_fixed_coefs_10bit_pix_13bit_precision[mode_idx], sizeof(union csc_matrix_s32));
+        } else {
+            printf("Invalid coef precision %d, only 10/13 supported for 8bit pixel depth!\n", convert_mode->coef_precision);
+            return -1;
         }
     }
+    else
+    {
+        printf("Invalid pixel depth %d, only 8/10 supported!\n", convert_mode->pixel_depth);
+        return -1;
+    }
 
+    csc_get_range_offset(convert_mode, &range_ofs_i, &range_ofs_o);
 #endif // ENABLE_POST_CSC_FLOATING_POINT
 
     // get fixed vec

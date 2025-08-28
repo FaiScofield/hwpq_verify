@@ -138,7 +138,7 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
             config->is_input_yuv = 1;
             config->is_input_full_range = mode_str[3] == 'f' || mode_str[3] == 'F';
             if (0 == strncmp(mode_str, "rgb", 3)) {
-                config->input_color_encoding = 1;
+                config->input_color_encoding = -1; // mark -1 for later update
                 config->is_input_yuv = 0;
             }
             else if (0 == strncmp(mode_str, "601", 3)) {
@@ -160,7 +160,7 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
             config->is_output_yuv = 1;
             config->is_output_full_range = mode_str[out_clr_pos + 3] == 'f' || mode_str[out_clr_pos + 3] == 'F';
             if (0 == strncmp(mode_str + out_clr_pos, "rgb", 3)) {
-                config->output_color_encoding = config->input_color_encoding;
+                config->output_color_encoding = -1; // mark -1 for later update
                 config->is_output_yuv = 0;
             }
             else if (0 == strncmp(mode_str + out_clr_pos, "601", 3)) {
@@ -176,6 +176,14 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
             else {
                 printf("unknow csc_mode_str: %s\n", mode_str);
                 ret = -1;
+            }
+
+            // update input/output colorspace if not specified
+            if (config->input_color_encoding == -1) {
+                config->input_color_encoding = config->output_color_encoding == -1 ? 1 : config->output_color_encoding;
+            }
+            if (config->output_color_encoding == -1) {
+                config->output_color_encoding = config->input_color_encoding;
             }
             break;
         default: // ignore unknown options
