@@ -260,19 +260,20 @@ def adjust_convert_mat(
     contrast_matrix = np.array([[contrast, 0, 0], [0, contrast, 0], [0, 0, contrast]], dtype=np.float32)
     hue_matrix = np.array([[1, 0, 0], [0, cos_hue, sin_hue], [0, -sin_hue, cos_hue]], dtype=np.float32)
     saturation_matrix = np.array([[saturation, 0, 0], [0, saturation, 0], [0, 0, saturation]], dtype=np.float32)
+    b_diagonal_m0 = hue_rad == 0
+    b_diagonal_m1 = r_gain == g_gain and g_gain == b_gain
 
-    ## M0 = hue_matrix * saturation_matrix, which is applied on YUV space
-    ## M1 = gain_matrix * contrast_matrix, can be placed on any where since it's a DIAGONAL matrix
+    ## M0 = hue_matrix * saturation_matrix, which is applied on YUV space. It will be a DIAGONAL matrix ONLY if the hue_matrix is identity
+    ## M1 = gain_matrix * contrast_matrix, which is applied on RGB space. It will be a DIAGONAL matrix ONLY if the gain_matrix is identity
     M0 = hue_matrix @ saturation_matrix
     M1 = gain_matrix @ contrast_matrix
     r2y_matrix = g_r2y_mat_bt709
     y2r_matrix = g_y2r_mat_bt709
     mode = config.csc_mode
 
-    ## Y2Y: output = T * M0 * N_r2y * M1 * N_y2r = M1 * out_mat * M0 * (N_r2y * N_y2r)
+    ## Y2Y: output = T * M0 * N_r2y * M1 * N_y2r
     if mode.is_input_yuv and mode.is_output_yuv:
-        # out_mat = out_mat @ M0 @ r2y_matrix @ M1 @ y2r_matrix
-        out_mat = M1 @ out_mat @ M0
+        out_mat = out_mat @ M0 @ r2y_matrix @ M1 @ y2r_matrix
         out_vec[0] += brightness
     ## Y2R: output = M1 * T * M0
     elif mode.is_input_yuv and not mode.is_output_yuv:
@@ -467,16 +468,16 @@ if __name__ == '__main__':
     csc_config.tune_fix_coefs = args.fix_check
 
     bcsh = CscBcshConfig()
-    # bcsh.hue = 277
+    # bcsh.hue = 256
     # bcsh.saturation = 299
     # bcsh.contrast = 311
     # bcsh.brightness = 212
-    # bcsh.r_gain = 286
-    # bcsh.g_gain = 286
-    # bcsh.b_gain = 286
+    # bcsh.r_gain = 288
+    # bcsh.g_gain = 288
+    # bcsh.b_gain = 288
     # bcsh.r_offset = 253
-    # bcsh.g_offset = 253
-    # bcsh.b_offset = 253
+    # bcsh.g_offset = 251
+    # bcsh.b_offset = 249
 
     np.set_printoptions(linewidth=120)
     float_fmt = {'float_kind': lambda x: f"{x:.6f}"}  # fsor float data format-string
@@ -502,7 +503,7 @@ if __name__ == '__main__':
     else:
         csc_config.csc_mode = parse_csc_mode_str(mode_str)
 
-        mat, offset = get_csc_coefs(csc_config, None)
+        mat, offset = get_csc_coefs(csc_config, bcsh)
         if mat is not None:
             print(f"CSC mode: {mode_str.upper()}:")
             print(f"\t- matrix: {np.array2string(mat.flatten(), separator=', ', formatter=float_fmt)}")

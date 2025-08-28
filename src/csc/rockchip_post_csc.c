@@ -350,7 +350,7 @@ static const struct rk_pq_csc_coef rk_csc_table_identity_y_cb_cr_to_y_cb_cr = {1
 static const struct rk_pq_csc_coef rk_csc_table_y2r_l2l_2020 = {1024, 0, 1476, 1024, -165, -572, 1024, 1884, 0};
 static const struct rk_pq_csc_coef rk_csc_table_y2r_l2f_2020 = {1196, 0, 1724, 1196, -192, -668, 1196, 2200, 0};
 static const struct rk_pq_csc_coef rk_csc_table_y2r_f2l_2020 = {877, 0, 1293, 877, -144, -501, 877, 1650, 0};
-static const struct rk_pq_csc_coef rk_csc_table_y2r_f2f_2020 = rk_csc_table_identity_yuv_to_rgb_2020;
+// static const struct rk_pq_csc_coef rk_csc_table_y2r_f2f_2020 = rk_csc_table_identity_yuv_to_rgb_2020;
 
 
 /* 10bit Hue Sin Look Up Table -> range[-30, 30] */

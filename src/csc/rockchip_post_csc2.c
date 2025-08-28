@@ -7,6 +7,15 @@
 #include "rockchip_post_csc.h"
 #include <assert.h>
 
+#define CSC_COEF_BCSH_PRECISION     (10) // 10bit fixed for BSCH adjust
+
+#define CSC_RSHIFT_RND_S32(x, n)    (((x) + (1 << ((n) - 1)) + ((x) >> 31)) >> (n)) // right shift by n, round to nearest integer
+
+#ifndef CLIP
+#define MAX(a, b)                   ((a) > (b) ? (a) : (b))
+#define MIN(a, b)                   ((a) < (b) ? (a) : (b))
+#define CLIP(x, min_v, max_v)       MIN(MAX(x, min_v), max_v)
+#endif
 
 union csc_matrix_s32
 {
@@ -57,6 +66,32 @@ static inline void csc_matrix_vector_mul_s32(union csc_vector_s32 *dst, const un
     dst->val[0] = m0->val[0][0] * v0->val[0] + m0->val[0][1] * v0->val[1] + m0->val[0][2] * v0->val[2];
     dst->val[1] = m0->val[1][0] * v0->val[0] + m0->val[1][1] * v0->val[1] + m0->val[1][2] * v0->val[2];
     dst->val[2] = m0->val[2][0] * v0->val[0] + m0->val[2][1] * v0->val[1] + m0->val[2][2] * v0->val[2];
+}
+
+static inline void csc_matrix_right_shift(union csc_matrix_s32 *dst, int n)
+{
+    if (n > 0)
+    {
+        dst->val[0][0] = CSC_RSHIFT_RND_S32(dst->val[0][0], n);
+        dst->val[0][1] = CSC_RSHIFT_RND_S32(dst->val[0][1], n);
+        dst->val[0][2] = CSC_RSHIFT_RND_S32(dst->val[0][2], n);
+        dst->val[1][0] = CSC_RSHIFT_RND_S32(dst->val[1][0], n);
+        dst->val[1][1] = CSC_RSHIFT_RND_S32(dst->val[1][1], n);
+        dst->val[1][2] = CSC_RSHIFT_RND_S32(dst->val[1][2], n);
+        dst->val[2][0] = CSC_RSHIFT_RND_S32(dst->val[2][0], n);
+        dst->val[2][1] = CSC_RSHIFT_RND_S32(dst->val[2][1], n);
+        dst->val[2][2] = CSC_RSHIFT_RND_S32(dst->val[2][2], n);
+    }
+}
+
+static inline void csc_vector_right_shift(union csc_vector_s32 *dst, int n)
+{
+    if (n > 0)
+    {
+        dst->val[0] = CSC_RSHIFT_RND_S32(dst->val[0], n);
+        dst->val[1] = CSC_RSHIFT_RND_S32(dst->val[1], n);
+        dst->val[2] = CSC_RSHIFT_RND_S32(dst->val[2], n);
+    }
 }
 
 #if ENABLE_POST_CSC_FLOATING_POINT
@@ -401,6 +436,7 @@ static bool csc_fixed_coefs_fine_tuning(const struct post_csc_convert_mode *mode
 
 #else
 
+/* for 8bit pixel depth + 8bit coef precision case */
 static const union csc_matrix_s32 g_csc_fixed_coefs_8bit_pix_8bit_precision[DRM_CSC_MODE_MAX] = {
     {298, 0, 0, 0, 298, 0, 0, 0, 298},             /*DRM_RGBL_TO_RGBF*/
     {77, 150, 29, -44, -87, 131, 131, -110, -21},  /*DRM_RGBL_TO_BT601L*/
@@ -444,6 +480,7 @@ static const union csc_matrix_s32 g_csc_fixed_coefs_8bit_pix_8bit_precision[DRM_
     {220, 0, 0, 0, 225, 0, 0, 0, 225},             /*DRM_BT2020F_TO_BT2020L*/
 };
 
+/* for 10bit pixel depth + 10bit coef precision case */
 static const union csc_matrix_s32 g_csc_fixed_coefs_10bit_pix_10bit_precision[DRM_CSC_MODE_MAX] = {
     {1196, 0, 0, 0, 1196, 0, 0, 0, 1196},             /*DRM_RGBL_TO_RGBF*/
     {306, 601, 117, -177, -347, 524, 524, -439, -85}, /*DRM_RGBL_TO_BT601L*/
@@ -487,6 +524,7 @@ static const union csc_matrix_s32 g_csc_fixed_coefs_10bit_pix_10bit_precision[DR
     {877, 0, 0, 0, 897, 0, 0, 0, 897},                /*DRM_BT2020F_TO_BT2020L*/
 };
 
+/* for 10bit pixel depth + 13bit coef precision case */
 static const union csc_matrix_s32 g_csc_fixed_coefs_10bit_pix_13bit_precision[DRM_CSC_MODE_MAX] = {
     {9567, 0, 0, 0, 9567, 0, 0, 0, 9567},                      /*DRM_RGBL_TO_RGBF*/
     {2449, 4809, 934, -1414, -2776, 4190, 4189, -3508, -681},  /*DRM_RGBL_TO_BT601L*/
@@ -530,6 +568,158 @@ static const union csc_matrix_s32 g_csc_fixed_coefs_10bit_pix_13bit_precision[DR
     {7015, 0, 0, 0, 7175, 0, 0, 0, 7175},                      /*DRM_BT2020F_TO_BT2020L*/
 };
 
+/* 10bit Hue Sin Look Up Table -> range[-30, 30]. value range: [-508, 512] */
+static const s32 g_hue_sin_table_10bit[256] = {512, 508, 505, 501, 497, 494, 490, 486, 483, 479, 475, 472,
+    468, 464, 460, 457, 453, 449, 445, 442, 438, 434, 430, 426, 423, 419, 415, 411, 407, 403, 400, 396, 392, 388, 384,
+    380, 376, 372, 369, 365, 361, 357, 353, 349, 345, 341, 337, 333, 329, 325, 321, 317, 313, 309, 305, 301, 297, 293,
+    289, 285, 281, 277, 273, 269, 265, 261, 257, 253, 249, 245, 241, 237, 233, 228, 224, 220, 216, 212, 208, 204, 200,
+    196, 192, 187, 183, 179, 175, 171, 167, 163, 159, 154, 150, 146, 142, 138, 134, 130, 125, 121, 117, 113, 109, 105,
+    100, 96, 92, 88, 84, 80, 75, 71, 67, 63, 59, 54, 50, 46, 42, 38, 34, 29, 25, 21, 17, 13, 8, 4, 0, -4, -8, -13, -17,
+    -21, -25, -29, -34, -38, -42, -46, -50, -54, -59, -63, -67, -71, -75, -80, -84, -88, -92, -96, -100, -105, -109,
+    -113, -117, -121, -125, -130, -134, -138, -142, -146, -150, -154, -159, -163, -167, -171, -175, -179, -183, -187,
+    -192, -196, -200, -204, -208, -212, -216, -220, -224, -228, -233, -237, -241, -245, -249, -253, -257, -261, -265,
+    -269, -273, -277, -281, -285, -289, -293, -297, -301, -305, -309, -313, -317, -321, -325, -329, -333, -337, -341,
+    -345, -349, -353, -357, -361, -365, -369, -372, -376, -380, -384, -388, -392, -396, -400, -403, -407, -411, -415,
+    -419, -423, -426, -430, -434, -438, -442, -445, -449, -453, -457, -460, -464, -468, -472, -475, -479, -483, -486,
+    -490, -494, -497, -501, -505, -508};
+
+/* 10bit Hue Cos Look Up Table  -> range[-30, 30]. value range: [887, 1024] */
+static const s32 g_hue_cos_table_10bit[256] = {887, 889, 891, 893, 895, 897, 899, 901, 903, 905, 907, 909,
+    911, 913, 915, 917, 919, 920, 922, 924, 926, 928, 929, 931, 933, 935, 936, 938, 940, 941, 943, 945, 946, 948, 949,
+    951, 953, 954, 956, 957, 959, 960, 962, 963, 964, 966, 967, 969, 970, 971, 973, 974, 975, 976, 978, 979, 980, 981,
+    983, 984, 985, 986, 987, 988, 989, 990, 992, 993, 994, 995, 996, 997, 998, 998, 999, 1000, 1001, 1002, 1003, 1004,
+    1005, 1005, 1006, 1007, 1008, 1008, 1009, 1010, 1011, 1011, 1012, 1013, 1013, 1014, 1014, 1015, 1015, 1016, 1016,
+    1017, 1017, 1018, 1018, 1019, 1019, 1020, 1020, 1020, 1021, 1021, 1021, 1022, 1022, 1022, 1022, 1023, 1023, 1023,
+    1023, 1023, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1023,
+    1023, 1023, 1023, 1023, 1022, 1022, 1022, 1022, 1021, 1021, 1021, 1020, 1020, 1020, 1019, 1019, 1018, 1018, 1017,
+    1017, 1016, 1016, 1015, 1015, 1014, 1014, 1013, 1013, 1012, 1011, 1011, 1010, 1009, 1008, 1008, 1007, 1006, 1005,
+    1005, 1004, 1003, 1002, 1001, 1000, 999, 998, 998, 997, 996, 995, 994, 993, 992, 990, 989, 988, 987, 986, 985, 984,
+    983, 981, 980, 979, 978, 976, 975, 974, 973, 971, 970, 969, 967, 966, 964, 963, 962, 960, 959, 957, 956, 954, 953,
+    951, 949, 948, 946, 945, 943, 941, 940, 938, 936, 935, 933, 931, 929, 928, 926, 924, 922, 920, 919, 917, 915, 913,
+    911, 909, 907, 905, 903, 901, 899, 897, 895, 893, 891, 889, 887};
+
+
+static void csc_adjust_convert_matrix_fix(const struct post_csc_convert_mode *mode,
+    const struct post_csc *bcsh_cfg, union csc_matrix_s32 *out_mat, union csc_vector_s32 *out_vec)
+{
+    union csc_matrix_s32 M0 = {0}, M1 = {0};
+    union csc_matrix_s32 tmp0 = {0}, tmp1 = {0};
+    const union csc_matrix_s32 *r2y_matrix = NULL;
+    const union csc_matrix_s32 *y2r_matrix = NULL;
+
+    const int contrast = bcsh_cfg->contrast << 2;         // [0, 511] -> [0, 2044], 10bit fixed
+    const int saturation = bcsh_cfg->saturation << 2;     // [0, 511] -> [0, 2044], 10bit fixed
+    const int r_gain = bcsh_cfg->r_gain << 2;             // [0, 511] -> [0, 2044], 10bit fixed
+    const int g_gain = bcsh_cfg->g_gain << 2;             // [0, 511] -> [0, 2044], 10bit fixed
+    const int b_gain = bcsh_cfg->b_gain << 2;             // [0, 511] -> [0, 2044], 10bit fixed
+    const int hue_idx = CLIP(bcsh_cfg->hue >> 1, 0, 255); // [0, 511] -> [0, 255], U8 index
+    const int sin_hue = g_hue_sin_table_10bit[hue_idx];   // [-508, 512], 10bit fixed
+    const int cos_hue = g_hue_cos_table_10bit[hue_idx];   // [887, 1024], 10bit fixed
+    int r_offset = (int)bcsh_cfg->r_offset - 256;
+    int g_offset = (int)bcsh_cfg->g_offset - 256;
+    int b_offset = (int)bcsh_cfg->b_offset - 256;
+    int brightness = (int)bcsh_cfg->brightness - 256;
+    const int offset_shift_bits = 3 - (mode->pixel_depth - 8); // [1, 3] TODO: check if pixel_depth > 11
+    if (offset_shift_bits >= 0)
+    {
+        r_offset >>= offset_shift_bits; // [-32, 32) for U8
+        g_offset >>= offset_shift_bits;
+        b_offset >>= offset_shift_bits;
+    }
+    else
+    {
+        r_offset <<= -offset_shift_bits;
+        g_offset <<= -offset_shift_bits;
+        b_offset <<= -offset_shift_bits;
+    }
+    if (mode->pixel_depth <= 10) {
+        brightness >>= 10 - mode->pixel_depth; // [-64, 64) for U8
+    } else {
+        brightness <<= mode->pixel_depth - 10; // [-256, 256) for U10
+    }
+
+    const int bcsh_factor = 1 << CSC_COEF_BCSH_PRECISION;
+    const union csc_matrix_s32 gain_matrix = {r_gain, 0, 0, 0, g_gain, 0, 0, 0, b_gain};           // 10bit fixed
+    const union csc_matrix_s32 contrast_matrix = {contrast, 0, 0, 0, contrast, 0, 0, 0, contrast}; // 10bit fixed
+    const union csc_matrix_s32 hue_matrix = {bcsh_factor, 0, 0, 0, cos_hue, sin_hue, 0, -sin_hue, cos_hue}; // 10bit fixed
+    const union csc_matrix_s32 saturation_matrix = {saturation, 0, 0, 0, saturation, 0, 0, 0, saturation};  // 10bit fixed
+    static const union csc_matrix_s32 g_r2y_mat_bt709_fix14 = {3483, 11718, 1183, -1877, -6315, 8192, 8192, -7441, -751};
+    static const union csc_matrix_s32 g_y2r_mat_bt709_fix14 = {16384, 0, 25802, 16384, -3069, -7670, 16384, 30402, 0};
+
+    // M0 = hue_matrix * saturation_matrix, which is applied on YUV space. It will be a DIAGONAL matrix ONLY if the hue_matrix is identity
+    // M1 = gain_matrix * contrast_matrix, which is applied on RGB space. It will be a DIAGONAL matrix ONLY if the gain_matrix is identity
+    const bool b_diagonal_m0 = sin_hue == 0 && cos_hue == bcsh_factor;
+    const bool b_diagonal_m1 = r_gain == g_gain && g_gain == b_gain;
+    const int m0_m1_precision = CSC_COEF_BCSH_PRECISION + 2;                   // 12
+    const int m0_m1_shift_bit = CSC_COEF_BCSH_PRECISION * 2 - m0_m1_precision; // 8
+    csc_matrix_mul_s32(&M0, &hue_matrix, &saturation_matrix);                  // 20bit
+    csc_matrix_right_shift(&M0, m0_m1_shift_bit);                              // 12bit
+    csc_matrix_mul_s32(&M1, &gain_matrix, &contrast_matrix);                   // 20bit
+    csc_matrix_right_shift(&M1, m0_m1_shift_bit);                              // 12bit
+
+    // Y2Y: output = T * M0 * N_r2y * M1 * N_y2r => T * M0 * M1 if M1 is diagonal
+    if (mode->is_input_yuv && mode->is_output_yuv)
+    {
+        r2y_matrix = &g_r2y_mat_bt709_fix14; // 14bit fixed
+        y2r_matrix = &g_y2r_mat_bt709_fix14;
+        csc_matrix_mul_s32(&tmp0, out_mat, &M0);                // p+12
+        csc_matrix_right_shift(&tmp0, CSC_COEF_BCSH_PRECISION); // p+2
+        if (b_diagonal_m1) { // case output = T * M0 * M1
+            csc_matrix_mul_s32(out_mat, &tmp0, &M1);                      // p+14
+            csc_matrix_right_shift(out_mat, CSC_COEF_BCSH_PRECISION + 4); // p
+        } else {
+            csc_matrix_mul_s32(&tmp1, &tmp0, r2y_matrix);   // p+16
+            csc_matrix_right_shift(&tmp1, 14);              // p+2
+            csc_matrix_mul_s32(&tmp0, &tmp1, &M1);          // p+14
+            csc_matrix_right_shift(&tmp0, m0_m1_precision); // p+2
+            csc_matrix_mul_s32(out_mat, &tmp0, y2r_matrix); // p+16
+            csc_matrix_right_shift(out_mat, 14 + 2);        // p
+        }
+        out_vec->val[0] += brightness;
+    }
+    // Y2R: output = M1 * T * M0 = T * M0 * M1
+    else if (mode->is_input_yuv && !mode->is_output_yuv)
+    {
+        csc_matrix_mul_s32(&tmp0, &M1, out_mat);                // p+12
+        csc_matrix_right_shift(&tmp0, CSC_COEF_BCSH_PRECISION); // p+2
+        csc_matrix_mul_s32(out_mat, &tmp0, &M0);                // p+14
+        csc_matrix_right_shift(out_mat, m0_m1_precision + 2);   // p
+        out_vec->val[0] += brightness + r_offset;
+        out_vec->val[1] += brightness + g_offset;
+        out_vec->val[2] += brightness + b_offset;
+    }
+    // R2Y: output = M0 * T * M1
+    else if (!mode->is_input_yuv && mode->is_output_yuv)
+    {
+        csc_matrix_mul_s32(&tmp0, &M0, out_mat);                // p+12
+        csc_matrix_right_shift(&tmp0, CSC_COEF_BCSH_PRECISION); // p+2
+        csc_matrix_mul_s32(out_mat, &tmp0, &M1);                // p+14
+        csc_matrix_right_shift(out_mat, m0_m1_precision + 2);   // p
+        out_vec->val[0] += brightness;
+    }
+    // R2R: output = T * M1 * N_y2r * M0 * N_r2y => T * M1 * M0 if M0 is diagonal
+    else
+    {
+        r2y_matrix = &g_r2y_mat_bt709_fix14; // 14bit fixed
+        y2r_matrix = &g_y2r_mat_bt709_fix14;
+        csc_matrix_mul_s32(&tmp0, out_mat, &M1);                // p+12
+        csc_matrix_right_shift(&tmp0, CSC_COEF_BCSH_PRECISION); // p+2
+        if (b_diagonal_m0) { // case output = T * M1 * M0
+            csc_matrix_mul_s32(out_mat, &tmp0, &M0);                      // p+14
+            csc_matrix_right_shift(out_mat, CSC_COEF_BCSH_PRECISION + 4); // p
+        } else {
+            csc_matrix_mul_s32(&tmp1, &tmp0, y2r_matrix);   // p+16
+            csc_matrix_right_shift(&tmp1, 14);              // p+2
+            csc_matrix_mul_s32(&tmp0, &tmp1, &M0);          // p+14
+            csc_matrix_right_shift(&tmp0, m0_m1_precision); // p+2
+            csc_matrix_mul_s32(out_mat, &tmp0, r2y_matrix); // p+16
+            csc_matrix_right_shift(out_mat, 14 + 2);        // p
+        }
+        out_vec->val[0] += brightness + r_offset;
+        out_vec->val[1] += brightness + g_offset;
+        out_vec->val[2] += brightness + b_offset;
+    }
+}
 #endif // ENABLE_POST_CSC_FLOATING_POINT
 
 static void csc_get_range_offset(const struct post_csc_convert_mode *mode,
@@ -677,6 +867,12 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
     }
 
     csc_get_range_offset(convert_mode, &range_ofs_i, &range_ofs_o);
+
+    /* adjust final_mat with bsch configs */
+    if (bcsh_cfg && bcsh_cfg->csc_enable) {
+        csc_adjust_convert_matrix_fix(convert_mode, bcsh_cfg, &final_mat_fix, &range_ofs_o);
+    }
+
 #endif // ENABLE_POST_CSC_FLOATING_POINT
 
     // get fixed vec

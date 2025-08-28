@@ -142,13 +142,13 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
                 config->is_input_yuv = 0;
             }
             else if (0 == strncmp(mode_str, "601", 3)) {
-                config->input_color_encoding = 0;
+                config->input_color_encoding = DRM_COLOR_YCBCR_BT601;
             }
             else if (0 == strncmp(mode_str, "709", 3)) {
-                config->input_color_encoding = 1;
+                config->input_color_encoding = DRM_COLOR_YCBCR_BT709;
             }
             else if (0 == strncmp(mode_str, "2020", 4)) {
-                config->input_color_encoding = 2;
+                config->input_color_encoding =DRM_COLOR_YCBCR_BT2020;
                 config->is_input_full_range = mode_str[4] == 'f' || mode_str[4] == 'F';
                 out_clr_pos = 9;
             }
@@ -164,13 +164,13 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
                 config->is_output_yuv = 0;
             }
             else if (0 == strncmp(mode_str + out_clr_pos, "601", 3)) {
-                config->output_color_encoding = 0;
+                config->output_color_encoding = DRM_COLOR_YCBCR_BT601;
             }
             else if (0 == strncmp(mode_str + out_clr_pos, "709", 3)) {
-                config->output_color_encoding = 1;
+                config->output_color_encoding = DRM_COLOR_YCBCR_BT709;
             }
             else if (0 == strncmp(mode_str + out_clr_pos, "2020", 4)) {
-                config->output_color_encoding = 2;
+                config->output_color_encoding = DRM_COLOR_YCBCR_BT2020;
                 config->is_output_full_range = mode_str[out_clr_pos + 4] == 'f' || mode_str[out_clr_pos + 4] == 'F';
             }
             else {
@@ -180,7 +180,8 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
 
             // update input/output colorspace if not specified
             if (config->input_color_encoding == -1) {
-                config->input_color_encoding = config->output_color_encoding == -1 ? 1 : config->output_color_encoding;
+                config->input_color_encoding = config->output_color_encoding == -1 ?
+                    DRM_COLOR_YCBCR_BT709 : config->output_color_encoding;
             }
             if (config->output_color_encoding == -1) {
                 config->output_color_encoding = config->input_color_encoding;
@@ -234,15 +235,15 @@ int main(int argc, char *const argv[])
 
     // set CSC config
     csc_cfg.hue = 256;
-    csc_cfg.saturation = 256;
-    csc_cfg.contrast = 256;
-    csc_cfg.brightness = 256;
-    csc_cfg.r_gain = 256;
-    csc_cfg.g_gain = 256;
-    csc_cfg.b_gain = 256;
-    csc_cfg.r_offset = 256;
-    csc_cfg.g_offset = 256;
-    csc_cfg.b_offset = 256;
+    csc_cfg.saturation = 299;
+    csc_cfg.contrast = 311;
+    csc_cfg.brightness = 212;
+    csc_cfg.r_gain = 288;
+    csc_cfg.g_gain = 288;
+    csc_cfg.b_gain = 288;
+    csc_cfg.r_offset = 253;
+    csc_cfg.g_offset = 251;
+    csc_cfg.b_offset = 249;
     csc_cfg.csc_enable = 0;
     const struct post_csc *bcsh_config = csc_cfg.csc_enable ? &csc_cfg : NULL;
 
