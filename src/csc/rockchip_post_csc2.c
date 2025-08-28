@@ -1,26 +1,23 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
- * Copyright (c) 2022 Rockchip Electronics Co., Ltd.
- * Author: Zhang yubing <yubing.zhang@rock-chips.com>
+ * Copyright (c) 2025 Rockchip Electronics Co., Ltd.
+ * Author: Wu Fangyi <vance.wu@rock-chips.com>
  */
 
 #include "rockchip_post_csc.h"
+#include <assert.h>
 
 #define _USE_MATH_DEFINES // define this before including math.h to get M_PI
 #include <math.h>
-
 #ifndef M_PI
 #define M_PI 3.14159265358979323846f
 #endif
-
 #ifndef ABS
 #define ABS(x) ((x) >= 0 ? (x) : -(x))
 #endif
 #ifndef ROUND
 #define ROUND(x) ((x) >= 0 ? ((x) + 0.5f) : ((x) - 0.5f))
 #endif
-
-const int g_csc_max_coef_precision = 16;
 
 
 union csc_matrix_f32
@@ -70,7 +67,7 @@ union csc_vector_s32
 
 static const union csc_matrix_f32 g_identity_mat_f32 = {1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f};
 
-#if 1   /* matrix from Rec ITU-R BT.601-7 / BT.709-6 / BT.2020-2 */
+/* matrix from Rec ITU-R BT.601-7 / BT.709-6 / BT.2020-2 */
 static const union csc_matrix_f32 g_r2y_mat_bt601_f32 = {
     0.299f, 0.587f, 0.114f, -0.168736f, -0.331264f, 0.5, 0.5, -0.418688f, -0.081312f};
 static const union csc_matrix_f32 g_y2r_mat_bt601_f32 = {
@@ -83,20 +80,6 @@ static const union csc_matrix_f32 g_r2y_mat_bt2020_f32 = {
     0.2627f, 0.678f, 0.0593f, -0.13963f, -0.36037f, 0.5f, 0.5f, -0.459786f, -0.040214f};
 static const union csc_matrix_f32 g_y2r_mat_bt2020_f32 = {
     1.f, 0.f,  1.4746f, 1.f, -0.164553f, -0.571353f, 1.f, 1.8814f, 0.f};
-#else   /* matrix from xyz calculation */
-static const union csc_matrix_f32 g_r2y_mat_bt601_f32 = {
-    0.298939f, 0.586625f, 0.114436f, -0.168785f, -0.331215f, 0.5f, 0.5f, -0.418384f, -0.081616f};
-static const union csc_matrix_f32 g_y2r_mat_bt601_f32 = {
-    1.f, 0.f, 1.402122f, 1.f, -0.345502f, -0.714509f, 1.f, 1.771129f, 0.f};
-static const union csc_matrix_f32 g_r2y_mat_bt709_f32 = {
-    0.212639f, 0.715169f, 0.072192f, -0.114592f, -0.385408f, 0.5f, 0.5f, -0.454156f, -0.045844f};
-static const union csc_matrix_f32 g_y2r_mat_bt709_f32 = {
-    1.f, 0.f, 1.574722f, 1.f, -0.187314f, -0.468207f, 1.f, 1.855615f, 0.f};
-static const union csc_matrix_f32 g_r2y_mat_bt2020_f32 = {
-    0.262700f, 0.677998f, 0.059302f, -0.139630f, -0.360370f, 0.5f, 0.5f, -0.459785f, -0.040215f};
-static const union csc_matrix_f32 g_y2r_mat_bt2020_f32 = {
-    1.f, 0.f, 1.474600f, 1.f, -0.164558f, -0.571355f, 1.f, 1.881397f, 0.f};
-#endif
 
 
 static inline void csc_matrix_mul_f32(union csc_matrix_f32 * dst, const union csc_matrix_f32 *m0, const union csc_matrix_f32 *m1)
@@ -114,6 +97,7 @@ static inline void csc_matrix_mul_f32(union csc_matrix_f32 * dst, const union cs
 
 static inline void csc_matrix_mul_s32(union csc_matrix_s32 *dst, const union csc_matrix_s32 *m0, const union csc_matrix_s32 *m1)
 {
+    assert(dst != m0 && dst != m1);
     dst->val[0][0] = m0->val[0][0] * m1->val[0][0] + m0->val[0][1] * m1->val[1][0] + m0->val[0][2] * m1->val[2][0];
     dst->val[0][1] = m0->val[0][0] * m1->val[0][1] + m0->val[0][1] * m1->val[1][1] + m0->val[0][2] * m1->val[2][1];
     dst->val[0][2] = m0->val[0][0] * m1->val[0][2] + m0->val[0][1] * m1->val[1][2] + m0->val[0][2] * m1->val[2][2];
@@ -128,6 +112,7 @@ static inline void csc_matrix_mul_s32(union csc_matrix_s32 *dst, const union csc
 static inline void csc_matrix_vector_mul_s32(union csc_vector_s32 *dst, const union csc_matrix_s32 *m0,
     const union csc_vector_s32 *v0)
 {
+    assert(dst != v0);
     dst->val[0] = m0->val[0][0] * v0->val[0] + m0->val[0][1] * v0->val[1] + m0->val[0][2] * v0->val[2];
     dst->val[1] = m0->val[1][0] * v0->val[0] + m0->val[1][1] * v0->val[1] + m0->val[1][2] * v0->val[2];
     dst->val[2] = m0->val[2][0] * v0->val[0] + m0->val[2][1] * v0->val[1] + m0->val[2][2] * v0->val[2];
@@ -137,7 +122,6 @@ static void csc_get_range_conversion_matrix_offset(const struct post_csc_convert
     union csc_matrix_f32 *range_mat_i, union csc_matrix_f32 *range_mat_o,
     union csc_vector_s32 *offset_vec_i, union csc_vector_s32 *offset_vec_o)
 {
-    // assert(mode->pixel_depth >= 8);
     const int ratio_gain = 1 << (mode->pixel_depth - 8);
     const int ratio_denorm = (1 << mode->pixel_depth) - 1;
 
@@ -246,9 +230,7 @@ static void csc_adjust_convert_matrix(const struct post_csc_convert_mode *mode,
     union csc_matrix_f32 tmp0 = {0}, tmp1 = {0};
     const union csc_matrix_f32 *r2y_matrix = NULL;
     const union csc_matrix_f32 *y2r_matrix = NULL;
-    const struct rk_csc_colorspace_info *color_info;
 
-    // assert(mode->pixel_depth >= 8 && mode->pixel_depth <= 10);
     const float contrast = bcsh_cfg->contrast / 256.f;                       // [0, 511] -> [0, 2)
     const float saturation = bcsh_cfg->saturation / 256.f;                   // [0, 511] -> [0, 2)
     const float r_gain = bcsh_cfg->r_gain / 256.f;                           // [0, 511] -> [0, 2)
@@ -257,11 +239,20 @@ static void csc_adjust_convert_matrix(const struct post_csc_convert_mode *mode,
     const float hue_rad = (bcsh_cfg->hue - 256) * 30 / 256.f * M_PI / 180.f; // [0, 511] -> [-pi/6, pi/6]
     const float cos_hue = cos(hue_rad);
     const float sin_hue = sin(hue_rad);
-    const s32 offset_shift_bits = 3 - (mode->pixel_depth - 8);                              // [1, 3]
-    const s32 r_offset = ((s32)bcsh_cfg->r_offset - 256) >> offset_shift_bits; // [-32, 32) for U8
-    const s32 g_offset = ((s32)bcsh_cfg->g_offset - 256) >> offset_shift_bits; // [-32, 32) for U8
-    const s32 b_offset = ((s32)bcsh_cfg->b_offset - 256) >> offset_shift_bits; // [-32, 32) for U8
+    s32 r_offset = (s32)bcsh_cfg->r_offset - 256;
+    s32 g_offset = (s32)bcsh_cfg->g_offset - 256;
+    s32 b_offset = (s32)bcsh_cfg->b_offset - 256;
     s32 brightness = (s32)bcsh_cfg->brightness - 256;
+    const s32 offset_shift_bits = 3 - (mode->pixel_depth - 8); // [1, 3]
+    if (offset_shift_bits >= 0) {
+        r_offset >>= offset_shift_bits; // [-32, 32) for U8
+        g_offset >>= offset_shift_bits;
+        b_offset >>= offset_shift_bits;
+    } else {
+        r_offset <<= -offset_shift_bits;
+        g_offset <<= -offset_shift_bits;
+        b_offset <<= -offset_shift_bits;
+    }
     if (mode->pixel_depth <= 10) {
         brightness >>= 10 - mode->pixel_depth; // [-64, 64) for U8
     } else {
@@ -272,7 +263,6 @@ static void csc_adjust_convert_matrix(const struct post_csc_convert_mode *mode,
     const union csc_matrix_f32 contrast_matrix = {contrast, 0.f, 0.f, 0.f, contrast, 0.f, 0.f, 0.f, contrast};
     const union csc_matrix_f32 hue_matrix = {1.f, 0.f, 0.f, 0.f, cos_hue, sin_hue, 0.f, -sin_hue, cos_hue};
     const union csc_matrix_f32 saturation_matrix = {saturation, 0.f, 0.f, 0.f, saturation, 0.f, 0.f, 0.f, saturation};
-    // const union csc_matrix_f32 r2y_for_y2y
 
     // M0 = hue_matrix * saturation_matrix,
     // M1 = gain_matrix * contrast_matrix,
@@ -450,7 +440,10 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
     struct post_csc_coef *csc_simple_coef                         // [O] return CSC coefs
 )
 {
+    assert(convert_mode->pixel_depth >= 8 && convert_mode->pixel_depth <= 16);
+    assert(convert_mode->coef_precision >= 8 && convert_mode->coef_precision <= 16);
     // assert(convert_mode->coef_precision >= convert_mode->pixel_depth);
+
     int ret = 0;
     union csc_matrix_f32 range_mat_i = {0}, range_mat_o = {0};
     union csc_matrix_f32 color_convert_mat = {0}, tmp_mat = {0}, final_mat = {0};
