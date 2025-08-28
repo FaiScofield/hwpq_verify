@@ -208,7 +208,7 @@ class CfaConfig(ModuleConfigCore):
         self.eAlgoType = random.randint(0, 2)
         self.eImgFormat = 0
         self.eOutFormat = 11  # random.randint(11, 13)
-        self.eDisplayMode = 0
+        self.eDisplayMode = 4
         self.nColorDepth = 64
         self.nContrastGain = random.randint(0, 128)  # [0, 128]
         self.nSaturationGain = random.randint(0, 128)  # [0, 128]

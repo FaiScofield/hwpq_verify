@@ -156,6 +156,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
     if len(input_list) == 0 and exe != "":
         logger.warning(f"no input frames in {input_dir}, please check!")
         exit(-1)
+    # input_list = dict(list(input_list.items())[0:50])
 
     ## generate random cfg
     config_list = []  # basename
