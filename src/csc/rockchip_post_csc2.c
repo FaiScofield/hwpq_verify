@@ -7,6 +7,60 @@
 #include "rockchip_post_csc.h"
 #include <assert.h>
 
+
+union csc_matrix_s32
+{
+    struct
+    {
+        s32 csc_coef00;
+        s32 csc_coef01;
+        s32 csc_coef02;
+        s32 csc_coef10;
+        s32 csc_coef11;
+        s32 csc_coef12;
+        s32 csc_coef20;
+        s32 csc_coef21;
+        s32 csc_coef22;
+    };
+    s32 val[3][3];
+};
+
+union csc_vector_s32
+{
+    struct
+    {
+        s32 csc_offset0;
+        s32 csc_offset1;
+        s32 csc_offset2;
+    };
+    s32 val[3];
+};
+
+static inline void csc_matrix_mul_s32(union csc_matrix_s32 *dst, const union csc_matrix_s32 *m0, const union csc_matrix_s32 *m1)
+{
+    assert(dst != m0 && dst != m1);
+    dst->val[0][0] = m0->val[0][0] * m1->val[0][0] + m0->val[0][1] * m1->val[1][0] + m0->val[0][2] * m1->val[2][0];
+    dst->val[0][1] = m0->val[0][0] * m1->val[0][1] + m0->val[0][1] * m1->val[1][1] + m0->val[0][2] * m1->val[2][1];
+    dst->val[0][2] = m0->val[0][0] * m1->val[0][2] + m0->val[0][1] * m1->val[1][2] + m0->val[0][2] * m1->val[2][2];
+    dst->val[1][0] = m0->val[1][0] * m1->val[0][0] + m0->val[1][1] * m1->val[1][0] + m0->val[1][2] * m1->val[2][0];
+    dst->val[1][1] = m0->val[1][0] * m1->val[0][1] + m0->val[1][1] * m1->val[1][1] + m0->val[1][2] * m1->val[2][1];
+    dst->val[1][2] = m0->val[1][0] * m1->val[0][2] + m0->val[1][1] * m1->val[1][2] + m0->val[1][2] * m1->val[2][2];
+    dst->val[2][0] = m0->val[2][0] * m1->val[0][0] + m0->val[2][1] * m1->val[1][0] + m0->val[2][2] * m1->val[2][0];
+    dst->val[2][1] = m0->val[2][0] * m1->val[0][1] + m0->val[2][1] * m1->val[1][1] + m0->val[2][2] * m1->val[2][1];
+    dst->val[2][2] = m0->val[2][0] * m1->val[0][2] + m0->val[2][1] * m1->val[1][2] + m0->val[2][2] * m1->val[2][2];
+}
+
+static inline void csc_matrix_vector_mul_s32(union csc_vector_s32 *dst, const union csc_matrix_s32 *m0,
+    const union csc_vector_s32 *v0)
+{
+    assert(dst != v0);
+    dst->val[0] = m0->val[0][0] * v0->val[0] + m0->val[0][1] * v0->val[1] + m0->val[0][2] * v0->val[2];
+    dst->val[1] = m0->val[1][0] * v0->val[0] + m0->val[1][1] * v0->val[1] + m0->val[1][2] * v0->val[2];
+    dst->val[2] = m0->val[2][0] * v0->val[0] + m0->val[2][1] * v0->val[1] + m0->val[2][2] * v0->val[2];
+}
+
+#if ENABLE_POST_CSC_FLOATING_POINT
+
 #define _USE_MATH_DEFINES // define this before including math.h to get M_PI
 #include <math.h>
 #ifndef M_PI
@@ -37,34 +91,6 @@ union csc_matrix_f32
     float val[3][3];
 };
 
-union csc_matrix_s32
-{
-    struct
-    {
-        s32 csc_coef00;
-        s32 csc_coef01;
-        s32 csc_coef02;
-        s32 csc_coef10;
-        s32 csc_coef11;
-        s32 csc_coef12;
-        s32 csc_coef20;
-        s32 csc_coef21;
-        s32 csc_coef22;
-    };
-    s32 val[3][3];
-};
-
-union csc_vector_s32
-{
-    struct
-    {
-        s32 csc_offset0;
-        s32 csc_offset1;
-        s32 csc_offset2;
-    };
-    s32 val[3];
-};
-
 static const union csc_matrix_f32 g_identity_mat_f32 = {1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f};
 
 /* matrix from Rec ITU-R BT.601-7 / BT.709-6 / BT.2020-2 */
@@ -81,7 +107,6 @@ static const union csc_matrix_f32 g_r2y_mat_bt2020_f32 = {
 static const union csc_matrix_f32 g_y2r_mat_bt2020_f32 = {
     1.f, 0.f,  1.4746f, 1.f, -0.164553f, -0.571353f, 1.f, 1.8814f, 0.f};
 
-
 static inline void csc_matrix_mul_f32(union csc_matrix_f32 * dst, const union csc_matrix_f32 *m0, const union csc_matrix_f32 *m1)
 {
     dst->val[0][0] = m0->val[0][0] * m1->val[0][0] + m0->val[0][1] * m1->val[1][0] + m0->val[0][2] * m1->val[2][0];
@@ -93,29 +118,6 @@ static inline void csc_matrix_mul_f32(union csc_matrix_f32 * dst, const union cs
     dst->val[2][0] = m0->val[2][0] * m1->val[0][0] + m0->val[2][1] * m1->val[1][0] + m0->val[2][2] * m1->val[2][0];
     dst->val[2][1] = m0->val[2][0] * m1->val[0][1] + m0->val[2][1] * m1->val[1][1] + m0->val[2][2] * m1->val[2][1];
     dst->val[2][2] = m0->val[2][0] * m1->val[0][2] + m0->val[2][1] * m1->val[1][2] + m0->val[2][2] * m1->val[2][2];
-}
-
-static inline void csc_matrix_mul_s32(union csc_matrix_s32 *dst, const union csc_matrix_s32 *m0, const union csc_matrix_s32 *m1)
-{
-    assert(dst != m0 && dst != m1);
-    dst->val[0][0] = m0->val[0][0] * m1->val[0][0] + m0->val[0][1] * m1->val[1][0] + m0->val[0][2] * m1->val[2][0];
-    dst->val[0][1] = m0->val[0][0] * m1->val[0][1] + m0->val[0][1] * m1->val[1][1] + m0->val[0][2] * m1->val[2][1];
-    dst->val[0][2] = m0->val[0][0] * m1->val[0][2] + m0->val[0][1] * m1->val[1][2] + m0->val[0][2] * m1->val[2][2];
-    dst->val[1][0] = m0->val[1][0] * m1->val[0][0] + m0->val[1][1] * m1->val[1][0] + m0->val[1][2] * m1->val[2][0];
-    dst->val[1][1] = m0->val[1][0] * m1->val[0][1] + m0->val[1][1] * m1->val[1][1] + m0->val[1][2] * m1->val[2][1];
-    dst->val[1][2] = m0->val[1][0] * m1->val[0][2] + m0->val[1][1] * m1->val[1][2] + m0->val[1][2] * m1->val[2][2];
-    dst->val[2][0] = m0->val[2][0] * m1->val[0][0] + m0->val[2][1] * m1->val[1][0] + m0->val[2][2] * m1->val[2][0];
-    dst->val[2][1] = m0->val[2][0] * m1->val[0][1] + m0->val[2][1] * m1->val[1][1] + m0->val[2][2] * m1->val[2][1];
-    dst->val[2][2] = m0->val[2][0] * m1->val[0][2] + m0->val[2][1] * m1->val[1][2] + m0->val[2][2] * m1->val[2][2];
-}
-
-static inline void csc_matrix_vector_mul_s32(union csc_vector_s32 *dst, const union csc_matrix_s32 *m0,
-    const union csc_vector_s32 *v0)
-{
-    assert(dst != v0);
-    dst->val[0] = m0->val[0][0] * v0->val[0] + m0->val[0][1] * v0->val[1] + m0->val[0][2] * v0->val[2];
-    dst->val[1] = m0->val[1][0] * v0->val[0] + m0->val[1][1] * v0->val[1] + m0->val[1][2] * v0->val[2];
-    dst->val[2] = m0->val[2][0] * v0->val[0] + m0->val[2][1] * v0->val[1] + m0->val[2][2] * v0->val[2];
 }
 
 static void csc_get_range_conversion_matrix_offset(const struct post_csc_convert_mode *mode,
@@ -311,32 +313,6 @@ static void csc_adjust_convert_matrix(const struct post_csc_convert_mode *mode,
     }
 }
 
-static void csc_swap_color_channel(const struct post_csc_convert_mode *mode,
-    union csc_matrix_s32 *out_mat, union csc_vector_s32 *out_vec)
-{
-    static const union csc_matrix_s32 rgb_input_swap_matrix = {0, 0, 1, 1, 0, 0, 0, 1, 0}; // BRG ?
-    static const union csc_matrix_s32 yuv_output_swap_matrix = {0, 0, 1, 1, 0, 0, 0, 1, 0}; // VYU
-    union csc_matrix_s32 tmp_mat = {0};
-    union csc_vector_s32 tmp_vec = {0};
-
-    if (mode->swap_channels)
-    {
-        if (!mode->is_input_yuv)
-        {
-            memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
-            csc_matrix_mul_s32(out_mat, &tmp_mat, &rgb_input_swap_matrix);
-        }
-        if (mode->is_output_yuv)
-        {
-            memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
-            memcpy(&tmp_vec, out_vec, sizeof(union csc_vector_s32));
-            csc_matrix_mul_s32(out_mat, &yuv_output_swap_matrix, &tmp_mat);
-            csc_matrix_vector_mul_s32(out_vec, &yuv_output_swap_matrix, &tmp_vec);
-        }
-        // printf("NOTE: CSC coefs & offset has been swapped!\n");
-    }
-}
-
 static void csc_get_fixed_coefs_matrix(const union csc_matrix_f32 *mat, union csc_matrix_s32 *fixed_mat, const int coef_precision)
 {
     const int fator = 1 << coef_precision;
@@ -423,6 +399,35 @@ static bool csc_fixed_coefs_fine_tuning(const struct post_csc_convert_mode *mode
     return ret;
 }
 
+#endif // ENABLE_POST_CSC_FLOATING_POINT
+
+
+static void csc_swap_color_channel(const struct post_csc_convert_mode *mode,
+    union csc_matrix_s32 *out_mat, union csc_vector_s32 *out_vec)
+{
+    static const union csc_matrix_s32 rgb_input_swap_matrix = {0, 0, 1, 1, 0, 0, 0, 1, 0}; // BRG ?
+    static const union csc_matrix_s32 yuv_output_swap_matrix = {0, 0, 1, 1, 0, 0, 0, 1, 0}; // VYU
+    union csc_matrix_s32 tmp_mat = {0};
+    union csc_vector_s32 tmp_vec = {0};
+
+    if (mode->swap_channels)
+    {
+        if (!mode->is_input_yuv)
+        {
+            memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
+            csc_matrix_mul_s32(out_mat, &tmp_mat, &rgb_input_swap_matrix);
+        }
+        if (mode->is_output_yuv)
+        {
+            memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
+            memcpy(&tmp_vec, out_vec, sizeof(union csc_vector_s32));
+            csc_matrix_mul_s32(out_mat, &yuv_output_swap_matrix, &tmp_mat);
+            csc_matrix_vector_mul_s32(out_vec, &yuv_output_swap_matrix, &tmp_vec);
+        }
+        // printf("NOTE: CSC coefs & offset has been swapped!\n");
+    }
+}
+
 static void csc_get_fixed_coefs_offset(const union csc_matrix_s32 *fixed_mat, const union csc_vector_s32 *offset_vec_i,
     const union csc_vector_s32 *offset_vec_o, union csc_vector_s32 *final_vec, const int coef_precision)
 {
@@ -440,15 +445,17 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
     struct post_csc_coef *csc_simple_coef                         // [O] return CSC coefs
 )
 {
+    int ret = 0;
+    union csc_matrix_s32 final_mat_fix = {0};
+    union csc_vector_s32 range_ofs_i = {0}, range_ofs_o = {0}, final_vec = {0};
+
+#if ENABLE_POST_CSC_FLOATING_POINT
     assert(convert_mode->pixel_depth >= 8 && convert_mode->pixel_depth <= 16);
     assert(convert_mode->coef_precision >= 8 && convert_mode->coef_precision <= 16);
     // assert(convert_mode->coef_precision >= convert_mode->pixel_depth);
 
-    int ret = 0;
     union csc_matrix_f32 range_mat_i = {0}, range_mat_o = {0};
     union csc_matrix_f32 color_convert_mat = {0}, tmp_mat = {0}, final_mat = {0};
-    union csc_matrix_s32 final_mat_fix = {0};
-    union csc_vector_s32 range_ofs_i = {0}, range_ofs_o = {0}, final_vec = {0};
 
     // get convert mat & vec first
     csc_get_range_conversion_matrix_offset(convert_mode, &range_mat_i, &range_mat_o, &range_ofs_i, &range_ofs_o);
@@ -469,6 +476,30 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
     if (!bcsh_cfg || !bcsh_cfg->csc_enable) {
         fine_tuned = csc_fixed_coefs_fine_tuning(convert_mode, &final_mat, &final_mat_fix);
     }
+#else // ENABLE_POST_CSC_FLOATING_POINT
+    /* 8bit pixel depth + 8bit coef precision */
+    if (convert_mode->pixel_depth == 8)
+    {
+        assert(convert_mode->pixel_depth == 8);
+    }
+    /* 10bit pixel depth + 10/13bit coef precision */
+    else
+    {
+        assert(convert_mode->pixel_depth == 10);
+        /* 10bit pixel depth + 10bit coef precision */
+        if (convert_mode->coef_precision == 10)
+        {
+
+        }
+        /* 10bit pixel depth + 13bit coef precision */
+        else
+        {
+            assert(convert_mode->coef_precision == 13);
+
+        }
+    }
+
+#endif // ENABLE_POST_CSC_FLOATING_POINT
 
     // get fixed vec
     csc_get_fixed_coefs_offset(&final_mat_fix, &range_ofs_i, &range_ofs_o, &final_vec, convert_mode->coef_precision);
