@@ -985,9 +985,11 @@ int rockchip_calc_post_csc(const struct post_csc *bcsh_cfg, // [I] CSC config
     csc_simple_coef->csc_dc0 = out_dc.csc_offset0;
     csc_simple_coef->csc_dc1 = out_dc.csc_offset1;
     csc_simple_coef->csc_dc2 = out_dc.csc_offset2;
-    // csc_simple_coef->csc_dc0 = csc_simple_round(csc_simple_coef->csc_dc0, bit_num);
-    // csc_simple_coef->csc_dc1 = csc_simple_round(csc_simple_coef->csc_dc1, bit_num);
-    // csc_simple_coef->csc_dc2 = csc_simple_round(csc_simple_coef->csc_dc2, bit_num);
+#ifdef RK3576
+    csc_simple_coef->csc_dc0 = csc_simple_round(csc_simple_coef->csc_dc0, bit_num);
+    csc_simple_coef->csc_dc1 = csc_simple_round(csc_simple_coef->csc_dc1, bit_num);
+    csc_simple_coef->csc_dc2 = csc_simple_round(csc_simple_coef->csc_dc2, bit_num);
+#endif
     csc_simple_coef->range_type = csc_mode_cfg->st_csc_color_info.out_full_range;
 
     return ret;

@@ -894,6 +894,11 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
     csc_simple_coef->csc_dc0 = final_vec.csc_offset0;
     csc_simple_coef->csc_dc1 = final_vec.csc_offset1;
     csc_simple_coef->csc_dc2 = final_vec.csc_offset2;
+#ifdef RK3576
+    csc_simple_coef->csc_dc0 = CSC_RSHIFT_RND_S32(csc_simple_coef->csc_dc0, convert_mode->coef_precision);
+    csc_simple_coef->csc_dc1 = CSC_RSHIFT_RND_S32(csc_simple_coef->csc_dc1, convert_mode->coef_precision);
+    csc_simple_coef->csc_dc2 = CSC_RSHIFT_RND_S32(csc_simple_coef->csc_dc2, convert_mode->coef_precision);
+#endif
     csc_simple_coef->range_type = convert_mode->is_output_full_range;
 
     return ret;

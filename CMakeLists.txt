@@ -56,6 +56,24 @@ else()
 endif()
 message(STATUS "get target platform ABI: ${ABI}")
 
+## parse RK_SOC like: RK3399[PRO], RK3588[S]
+if(DEFINED RK_SOC)
+    string(TOUPPER "${RK_SOC}" RK_SOC)
+    string(SUBSTRING "${RK_SOC}" 0 6 RK_SOC_PREFIX)
+    message(STATUS "Get target RK_SOC platform: ${RK_SOC}")
+    add_definitions(-D${RK_SOC})
+    add_definitions(-D${RK_SOC_PREFIX})
+    message(STATUS "\tAdd definition: ${RK_SOC}")
+    message(STATUS "\tAdd definition: ${RK_SOC_PREFIX}")
+
+    if(RK_SOC MATCHES "RK3566" OR RK_SOC MATCHES "RK3568")
+        add_definitions(-DRK356X)
+        message(STATUS "\tAdd definition: RK356X")
+    endif()
+else()
+    message(WARNING "target RK_SOC not set!")
+endif()
+
 ## install path
 set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/output/)
 
