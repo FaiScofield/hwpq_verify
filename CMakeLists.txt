@@ -2,7 +2,7 @@
 
 cmake_minimum_required(VERSION 3.1...3.21)
 
-project(rkalgo_fpga_verify)
+project(hwpq_verify)
 
 ################################################################################
 ## Build type & build options
@@ -37,9 +37,9 @@ if(WIN32)
     if((SYSPROC STREQUAL "") OR (X86MATCH GREATER "-1"))
         message(STATUS "Detected x86 system processor")
         if(CMAKE_SIZEOF_VOID_P MATCHES 8)
-            set(ABI "x64")
+            set(ABI "win_x64")
         else()
-            set(ABI "x86")
+            set(ABI "win_x86")
         endif()
     endif()
 elseif(UNIX)

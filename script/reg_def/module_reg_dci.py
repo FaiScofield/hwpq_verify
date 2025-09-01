@@ -4,7 +4,7 @@ FilePath    : reg_def_dci.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-08-22
+LastEditTime: 2025-09-01
 """
 
 import os
@@ -24,7 +24,7 @@ class DciModuleIndex(Enum):
     """enum = (name, ip_address, offset, nb_regs)"""
 
     VDPP_VEP = ("VDPP_VEP", 0x0, 0x00001004, 7)
-    VOP_CLUSTER0 = ("VOP_CLUSTER0", 0xF90000000, 0x00001104, 6 + 1408)  # 1408=5632/4
+    VOP_CLUSTER0 = ("VOP_CLUSTER0", 0xF90000000, 0x00001104, 17 + 1408)  # 1408=5632/4
 
 
 class DciRegister(ModuleRegisterCore):
@@ -70,7 +70,17 @@ class DciRegister(ModuleRegisterCore):
                 Reg(0x00001110, 0x0, "DCI_LUMA_SAT_ADJ_0"),
                 Reg(0x00001114, 0x0, "DCI_LUMA_SAT_ADJ_1"),
                 Reg(0x00001118, 0x0, "DCI_CTRL"),
-                # Reg(0x0000111C, 0x0, "DCI_LUT_MST"),
+                Reg(0x0000111C, 0x0, "DCI_LUT_MST"),
+                Reg(0x0000111C, 0x0, "DCI_DBG_CTRL"),
+                Reg(0x0000111C, 0x0, "DCI_DBG_PIX"),
+                Reg(0x0000111C, 0x0, "DCI_CSC_COE01_00"),
+                Reg(0x0000111C, 0x0, "DCI_CSC_COE10_02"),
+                Reg(0x0000111C, 0x0, "DCI_CSC_COE12_11"),
+                Reg(0x0000111C, 0x0, "DCI_CSC_COE21_20"),
+                Reg(0x0000111C, 0x0, "DCI_CSC_COE22"),
+                Reg(0x0000111C, 0x0, "DCI_CSC_OFFSET0"),
+                Reg(0x0000111C, 0x0, "DCI_CSC_OFFSET1"),
+                Reg(0x0000111C, 0x0, "DCI_CSC_OFFSET2"),
             ]
             self.reg_dicts[DciModuleIndex.VOP_CLUSTER0] += [
                 Reg(0x0001124 + idx * 4, 0x0, f"DCI_LUT_DATA{idx}") for idx in range(1408)

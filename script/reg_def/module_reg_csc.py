@@ -4,7 +4,7 @@ FilePath    : module_reg_csc.py
 Description :
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-17
-LastEditTime: 2025-08-22
+LastEditTime: 2025-09-01
 """
 
 import os
@@ -19,6 +19,7 @@ from reg_def.module_reg_core import ModuleRegisterCore, Reg
 from config_def.module_config_csc import CscConfig
 from utils import enum_with_index
 
+
 @enum_with_index
 class CscModuleIndex(Enum):
     """enum = (name, offset)"""
@@ -28,19 +29,17 @@ class CscModuleIndex(Enum):
     POST0_ACM_Y2R = ("POST0_ACM_Y2R", 0x00000CD0)  # (bypass, en; coef00)
     POST1_BCSH_Y2R = ("POST1_BCSH_Y2R", 0x00000DD0)  # (xxx; coef00)
     ## start with (coef00; coef01)
-    CLUSTER0_DCI_CSC = ("CLUSTER0_DCI_CSC", 0x00001140)
-    CLUSTER0_WIN0_CSC = ("CLUSTER0_WIN0_CSC", 0x00001180)
+    CLUSTER0_WIN0_CSC = ("CLUSTER0_WIN0_CSC", 0x00001180)  # 13bit coefs
     CLUSTER0_WIN1_CSC = ("CLUSTER0_WIN1_CSC", 0x000011A0)
     CLUSTER1_WIN0_CSC = ("CLUSTER1_WIN0_CSC", 0x00001380)
     CLUSTER1_WIN1_CSC = ("CLUSTER1_WIN1_CSC", 0x000013A0)
-    ESMART0_CSC = ("ESMART0_CSC", 0x00001900)
+    ESMART0_CSC = ("ESMART0_CSC", 0x00001900)  # 13bit coefs
     ESMART1_CSC = ("ESMART1_CSC", 0x00001B00)
     MSMART0_CSC = ("MSMART0_CSC", 0x00001C30)
     MSMART1_CSC = ("MSMART1_CSC", 0x00001E30)
-    VIVID_SDR_CSC = ("VIVID_SDR_CSC", 0x0000201C)
-    VIVID_HDR_CSC = ("VIVID_HDR_CSC", 0x00002054)
     HWC0_CSC = ("HWC0_CSC", 0x00003830)
     HWC1_CSC = ("HWC1_CSC", 0x00003930)
+
 
 g_csc_new_reg_arrange = [CscModuleIndex.POST0_ACM_R2Y, CscModuleIndex.POST0_ACM_Y2R, CscModuleIndex.POST1_BCSH_Y2R]
 
@@ -76,7 +75,6 @@ class CscRegister(ModuleRegisterCore):
                 self.index = CscModuleIndex.from_index(index)
             except:
                 self.logger.error(f"failed to change index to {index}!")
-
 
         if self.platform.lower() == "rk3572":
             self.base_addr = 0xF9000000
@@ -255,11 +253,7 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3538...")
     parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
     parser.add_argument(
-        "-m",
-        "--module",
-        type=str,
-        default="POST0_ACM_Y2R",
-        help=f"设置硬件所处模块: {CscModuleIndex.__members__.keys()}",
+        "-m", "--module", type=str, default="POST0_ACM_Y2R", help=f"设置硬件所处模块: {CscModuleIndex.__members__.keys()}"
     )
     parser.print_usage()
     args = parser.parse_args()
