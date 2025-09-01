@@ -4,7 +4,7 @@ FilePath    : reg_def_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-08-11
 Description :
-LastEditTime: 2025-08-22
+LastEditTime: 2025-09-01
 """
 
 import os
@@ -97,7 +97,7 @@ class CfaRegister(ModuleRegisterCore):
         sw_cfa_dither_coef6B = c2p_info.value[4]
         sw_cfa_r2y_mode = 1
         sw_cfa_r2y_clip = 0
-        sw_cfa_sat_gain = min(cfg.nSaturationGain, 128)
+        sw_cfa_sat_gain = 64 - min(cfg.nSaturationGain, 128)  # [0, 128] -> [-64, 64]
         val = (
             0x1
             | (sw_cfa_bcsh_lut_en << 1)
