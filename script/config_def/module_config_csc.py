@@ -219,12 +219,14 @@ class CscConfig(ModuleConfigCore):
                 identity_dst_offset = (np.identity(3, dtype=np.int32) << precision) @ self.cscDstOffset
                 self.cscVector = identity_dst_offset + self.cscMatrix @ self.cscSrcOffset  # s16*s11->s26
                 # minus an offset to keep from hw overflow, since the offset will be added to dc vector before using it!
-                self.cscVector = np.min(self.cscVector, 2 ** (precision + 12) - 2 ** (precision - 1))
+                self.cscVector = np.minimum(self.cscVector, 2 ** (precision + 12) - 2 ** (precision - 1))
 
         else:
             self.gen_coef_from_param()
 
-        self.logger.info(f"generated a random config with seed={seed}, passthrough={self.cscPassthrough}")
+        self.logger.info(
+            f"generated a random config with seed={seed}, precision={precision}, passthrough={self.cscPassthrough}"
+        )
         return True
 
     def gen_coef_from_param(self):
