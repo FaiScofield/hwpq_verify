@@ -123,7 +123,7 @@ class CfaRegister(ModuleRegisterCore):
         sw_cfa_out_fmt = (cfg.eOutFormat - 10) & RM2
         sw_cfa_pat_out_en = 1
         sw_cfa_sharp_level = min(cfg.nSharpenGain, 128)
-        sw_cfa_comps_level = min(cfg.nA2CompLevel, 128)
+        sw_cfa_comps_level = min(cfg.nA2CompLevel, 128) >> 1
         val = (
             (sw_cfa_dither_en << 0)
             | (sw_cfa_modulate_lps_en << 1)
