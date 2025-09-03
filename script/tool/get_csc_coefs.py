@@ -21,19 +21,8 @@ class ColorSpace(Enum):
     BT709 = 1
     BT2020 = 2
 
-    # @classmethod
-    # def from_name(cls, name: str):
-    #     for member in cls:
-    #         if member.value == value:
-    #             return member
-    #     raise ValueError(f"Invalid value {value} to convert to Enum!")
-
     @classmethod
     def from_index(cls, index: int):
-        # if isinstance(index, cls):  # 已经是枚举成员
-        #     return index
-        # if not isinstance(index, int):
-        #     raise TypeError(f"Index must be int or {cls.__name__}, got {type(index).__name__}")
         members = list(cls)
         if 0 <= index < len(members):
             return members[index]
@@ -50,13 +39,11 @@ class CscMode:
         self.is_output_full_range = is_full_o
 
 
-class CscConfig:
+class CscCoefConfig:
     csc_mode = CscMode()
     pixel_depth = 10
     coef_precision = 0
-    tune_fix_coefs = 0  # 0-no tuning, >0 means a diagonal ratio (float)
-    # csc_coefs = np.eye(3)
-    # csc_offset = np.zeros(3)
+    tune_fix_coefs = 0  # 0-no tuning, >0 means a diagonal ratio (float), no need to set this value
 
 
 class CscBcshConfig:
@@ -227,7 +214,7 @@ def get_space_convert_mat(mode: CscMode) -> Optional[np.ndarray]:
 
 
 def adjust_convert_mat(
-    config: CscConfig, bcsh_cfg: CscBcshConfig, out_mat: np.ndarray, out_vec: np.ndarray
+    config: CscCoefConfig, bcsh_cfg: CscBcshConfig, out_mat: np.ndarray, out_vec: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, bool]:
     ## get BCSH parameters
     contrast = bcsh_cfg.contrast / 256.0  # [0, 511] -> [0, 2)
@@ -302,7 +289,7 @@ def adjust_convert_mat(
 
 
 def get_fixed_coefs_mat(
-    config: CscConfig, float_mat: np.ndarray, range_ofs_i: np.ndarray, range_ofs_o: np.ndarray
+    config: CscCoefConfig, float_mat: np.ndarray, range_ofs_i: np.ndarray, range_ofs_o: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
     pixel_depth = config.pixel_depth
     fix_factor = 2**config.coef_precision
@@ -358,7 +345,7 @@ def get_fixed_coefs_mat(
     return fix_mat, fix_ofs
 
 
-def get_csc_coefs(config: CscConfig, bcsh_cfg: Optional[CscBcshConfig]) -> tuple[np.ndarray, np.ndarray]:
+def get_csc_coefs(config: CscCoefConfig, bcsh_cfg: Optional[CscBcshConfig]) -> tuple[np.ndarray, np.ndarray]:
     ## get convert mat & vec first
     range_mat_i, range_mat_o, range_ofs_i, range_ofs_o = get_range_convert_mat(config.csc_mode, config.pixel_depth)
     color_convert_mat = get_space_convert_mat(config.csc_mode)
@@ -367,7 +354,7 @@ def get_csc_coefs(config: CscConfig, bcsh_cfg: Optional[CscBcshConfig]) -> tuple
     ## adjust final_mat with bsch configs
     if bcsh_cfg is not None:
         final_mat, range_ofs_o, diagonal_ratio = adjust_convert_mat(config, bcsh_cfg, final_mat, range_ofs_o)
-        config.tune_fix_coefs = diagonal_ratio # >0 means diagonal BCSH matrix
+        config.tune_fix_coefs = diagonal_ratio  # >0 means diagonal BCSH matrix
 
     ## get fixed mat
     if config.coef_precision > 0:
@@ -462,7 +449,7 @@ if __name__ == '__main__':
     print(f" - get csc_mode: {mode_str}")
 
     ## create a CscConfig object
-    csc_config = CscConfig()
+    csc_config = CscCoefConfig()
     csc_config.pixel_depth = depth
     csc_config.coef_precision = precision
     csc_config.tune_fix_coefs = args.fix_check

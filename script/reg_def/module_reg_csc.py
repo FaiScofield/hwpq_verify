@@ -4,7 +4,7 @@ FilePath    : module_reg_csc.py
 Description :
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-17
-LastEditTime: 2025-09-01
+LastEditTime: 2025-09-03
 """
 
 import os
@@ -131,7 +131,9 @@ class CscRegister(ModuleRegisterCore):
             if self.index in self.reg_dicts:
                 self.regs = self.reg_dicts[self.index]
                 self.nb_regs = len(self.regs)
-                self.logger.info(f"reg index set to: {self.index.name}, precision: {self.index.value[2]}")
+                self.logger.info(
+                    f"reg index set to: {self.index.name}, len={self.nb_regs}, precision={self.index.value[2]}"
+                )
                 return self.check_regs()
             else:
                 self.logger.error(f"HW module {self.index} is invalid on {self.platform} now!")
@@ -201,7 +203,7 @@ class CscRegister(ModuleRegisterCore):
         # self.config.cscVecB4Mul = np.linalg.solve(self.config.cscMatrix, self.config.cscVector).astype(np.int32)
         return True
 
-    def dump(self, filename: str = "", align: int = 4, **kwargs) -> bool:
+    def dump(self, filename: str = "", align: int = 4, pretty_lines_stdout: int = 16, **kwargs) -> bool:
         index = self.index
         if "index" in kwargs:
             arg_idx = CscModuleIndex[kwargs["index"]]
@@ -217,7 +219,7 @@ class CscRegister(ModuleRegisterCore):
             return False
 
         self.logger.info(f"dump {self.platform} - {index.name} registers...")
-        return super().dump(filename, align, regs=regs)
+        return super().dump(filename, align, pretty_lines_stdout, regs=regs)
 
     def load(self, filename, **kwargs) -> bool:
         index = self.index
@@ -238,16 +240,7 @@ class CscRegister(ModuleRegisterCore):
         return super().load(filename, **kwargs)
 
     def gen(self, seed=114514, **kwargs) -> bool:
-        if self.index in [
-            CscModuleIndex.CLUSTER0_WIN0_CSC,
-            CscModuleIndex.CLUSTER0_WIN0_CSC,
-            CscModuleIndex.CLUSTER0_WIN1_CSC,
-            CscModuleIndex.CLUSTER1_WIN0_CSC,
-            CscModuleIndex.CLUSTER1_WIN1_CSC,
-        ]:
-            precision = 13
-        else:
-            precision = 10
+        precision = self.index.value[2]
         return super().gen(seed, precision=precision, **kwargs)
 
 
@@ -277,12 +270,6 @@ if __name__ == "__main__":
     register.set(index=5, value=0xFFF36600)
     register.set(index=6, value=0x00053E00)
     register.set(index=7, value=0xFFF12800)
-
-    val = register.get(index=8)
-    if val is not None:
-        register.logger.info("register #8: 0x%08X" % val)
-    else:
-        register.logger.error("None of register #8 exist!")
 
     if args.interface == "load":
         register.load(args.file, index=args.module)

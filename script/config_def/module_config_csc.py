@@ -4,7 +4,7 @@ FilePath    : module_config_csc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-16
 Description :
-LastEditTime: 2025-08-22
+LastEditTime: 2025-09-03
 """
 
 import os
@@ -19,6 +19,7 @@ from enum import Enum
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import *
 from utils import NoIndent, CompactArrayEncoder
+import tool.get_csc_coefs as csc_core
 
 
 class CscColorSpace(Enum):
@@ -52,11 +53,13 @@ class CscConfig(ModuleConfigCore):
         self.cscBOffset = 256
         self.cscMatrix = np.identity(3, dtype=np.int16) * 1024  # s13
         self.cscVector = np.zeros(3, dtype=np.int32)  # s23
+        self.cscPassthrough = 0  # use matrix & vector directly
+
         self.cscSrcOffset = np.zeros(3, dtype=np.int32)
         self.cscDstOffset = np.zeros(3, dtype=np.int32)
         self.cscBitDepth = 10
         self.cscCoefPrecision = 10
-        self.cscPassthrough = 0  # use matrix & vector directly
+        self.cscConvertMode = 0  # [0, 39]
 
     ## =============== overwrite methods  ===============
     def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
@@ -83,6 +86,7 @@ class CscConfig(ModuleConfigCore):
             "cscBitDepth": self.cscBitDepth,
             "cscCoefPrecision": self.cscCoefPrecision,
             "cscPassthrough": self.cscPassthrough,
+            "cscConvertMode": self.cscConvertMode,
         }
         if filename == "":
             self.logger.info(f"Config parameters shown below:")
@@ -147,6 +151,7 @@ class CscConfig(ModuleConfigCore):
                 self.cscPassthrough = data["cscPassthrough"] if "cscPassthrough" in data else 0
                 self.cscBitDepth = data["cscBitDepth"] if "cscBitDepth" in data else 10
                 self.cscCoefPrecision = data["cscCoefPrecision"] if "cscCoefPrecision" in data else 10
+                self.cscConvertMode = data["cscConvertMode"] if "cscConvertMode" in data else -1
                 self.version = data["version"] if "version" in data else "unknown"
                 self.randSeed = data["randSeed"] if "randSeed" in data else -1
                 return True
@@ -167,11 +172,12 @@ class CscConfig(ModuleConfigCore):
         random.seed(seed)
         np.random.seed(seed)
 
-        ## parse other arguments
+        ## parse other arguments (TODO: no passing arguments yet from cli_helper_csc!)
         precision = kwargs["precision"] if "precision" in kwargs else self.cscCoefPrecision
         bit_depth = kwargs["bit_depth"] if "bit_depth" in kwargs else self.cscBitDepth
         assert bit_depth in [8, 10]
         assert precision in [8, 10, 13] and precision >= bit_depth
+        precision = 13
 
         self.randSeed = seed
         self.version = f"{self.name.lower()}_config_{self.platform.lower()}_random_seed_{seed}"
@@ -189,50 +195,73 @@ class CscConfig(ModuleConfigCore):
         self.cscGOffset = random.randint(0, 511)
         self.cscBOffset = random.randint(0, 511)
 
-        ## check if passthrough mode.
-        if False:  # "passthrough" in kwargs:
+        ## update adition parameters
+        self.cscBitDepth = bit_depth
+        self.cscCoefPrecision = precision
+        self.cscConvertMode = random.randint(0, 39)
+        if "passthrough" in kwargs:
             self.cscPassthrough = int(kwargs["passthrough"])
         else:
-            self.cscPassthrough = 1  # 100% use matrix & vector directly for now!
+            self.cscPassthrough = int(random.randint(0, 99) < 10)  # 10% be ON
+
+        ## generate csc matrix and vector with CscCoefConfig
+        mode_key = list(csc_core.g_supported_standard_convert_modes.keys())[self.cscConvertMode]
+        csc_config = csc_core.CscCoefConfig()
+        csc_config.pixel_depth = bit_depth
+        csc_config.coef_precision = precision
+        csc_config.csc_mode = csc_core.g_supported_standard_convert_modes[mode_key]
 
         if self.cscPassthrough:
-            b_random_offset = False
-            src_clr = random.choice(list(CscColorSpace))
-            dst_clr = random.choice(list(CscColorSpace))
-            self.cscSrcOffset = -np.array(src_clr.value[1:], dtype=np.int32) << (bit_depth - 8)
-            self.cscDstOffset = +np.array(dst_clr.value[1:], dtype=np.int32) << (bit_depth - 8)
-
-            if precision == 13:
-                self.cscMatrix = np.random.randint(-(2**15), 2**15 - 1, size=(3, 3), dtype=np.int16)  # s16
-                self.cscVector = np.random.randint(-(2**25), 2**25 - 1 - 4096, size=3, dtype=np.int32)
-            elif precision == 10:
-                self.cscMatrix = np.random.randint(-(2**12), 2**12 - 1, size=(3, 3), dtype=np.int16)  # s13
-                self.cscVector = np.random.randint(-(2**22), 2**22 - 1 - 512, size=3, dtype=np.int32)
-            elif precision == 8:
-                self.cscMatrix = np.random.randint(-(2**10), 2**10 - 1, size=(3, 3), dtype=np.int16)  # s11
-                self.cscVector = np.random.randint(-(2**20), 2**20 - 1 - 128, size=3, dtype=np.int32)
-            else:
-                self.logger.error(f"unsupported precision {precision}! Only support 8/10/13.")
-                return False
-
-            if not b_random_offset:
-                identity_dst_offset = (np.identity(3, dtype=np.int32) << precision) @ self.cscDstOffset
-                self.cscVector = identity_dst_offset + self.cscMatrix @ self.cscSrcOffset  # s16*s11->s26
-                # minus an offset to keep from hw overflow, since the offset will be added to dc vector before using it!
-                self.cscVector = np.minimum(self.cscVector, 2 ** (precision + 12) - 2 ** (precision - 1))
-
+            self.cscMatrix, self.cscVector = csc_core.get_csc_coefs(csc_config, None)
         else:
-            self.gen_coef_from_param()
+            bcsh_config = csc_core.CscBcshConfig()
+            bcsh_config.hue = self.cscHue
+            bcsh_config.saturation = self.cscSaturation
+            bcsh_config.contrast = self.cscContrast
+            bcsh_config.brightness = self.cscBrightness
+            bcsh_config.r_gain = self.cscRGain
+            bcsh_config.g_gain = self.cscGGain
+            bcsh_config.b_gain = self.cscBGain
+            bcsh_config.r_offset = self.cscROffset
+            bcsh_config.g_offset = self.cscGOffset
+            bcsh_config.b_offset = self.cscBOffset
+            self.cscMatrix, self.cscVector = csc_core.get_csc_coefs(csc_config, bcsh_config)
+
+            # b_random_offset = False
+            # self.cscSrcOffset = -np.array(src_clr.value[1:], dtype=np.int32) << (bit_depth - 8)
+            # self.cscDstOffset = +np.array(dst_clr.value[1:], dtype=np.int32) << (bit_depth - 8)
+
+            # if precision == 13:  # 乘法位宽: s26
+            #     self.cscMatrix = np.random.randint(-(2**15), 2**15 - 1, size=(3, 3), dtype=np.int16)  # s16
+            #     self.cscVector = np.random.randint(-(2**25), 2**25 - 1 - 4096, size=3, dtype=np.int32)
+            # elif precision == 10:
+            #     self.cscMatrix = np.random.randint(-(2**12), 2**12 - 1, size=(3, 3), dtype=np.int16)  # s13
+            #     self.cscVector = np.random.randint(-(2**22), 2**22 - 1 - 512, size=3, dtype=np.int32)
+            # elif precision == 8:
+            #     self.cscMatrix = np.random.randint(-(2**10), 2**10 - 1, size=(3, 3), dtype=np.int16)  # s11
+            #     self.cscVector = np.random.randint(-(2**20), 2**20 - 1 - 128, size=3, dtype=np.int32)
+            # else:
+            #     self.logger.error(f"unsupported precision {precision}! Only support 8/10/13.")
+            #     return False
+
+            # if not b_random_offset:
+            #     identity_dst_offset = (np.identity(3, dtype=np.int32) << precision) @ self.cscDstOffset
+            #     self.cscVector = identity_dst_offset + self.cscMatrix @ self.cscSrcOffset  # s16*s11->s26
+            #     # minus an offset to keep from hw overflow, since the offset will be added to dc vector before using it!
+            #     self.cscVector = np.minimum(self.cscVector, 2 ** (precision + 12) - 2 ** (precision - 1))
+
+        # else:
+        #     self.gen_coef_from_param()
 
         self.logger.info(
             f"generated a random config with seed={seed}, precision={precision}, passthrough={self.cscPassthrough}"
         )
         return True
 
-    def gen_coef_from_param(self):
-        # TODO
-        self.logger.error("TODO: 'gen_coef_from_param' not implemented yet!")
-        pass
+    # def gen_coef_from_param(self):
+    #     # TODO
+    #     self.logger.error("TODO: 'gen_coef_from_param' not implemented yet!")
+    #     pass
 
 
 if __name__ == "__main__":
