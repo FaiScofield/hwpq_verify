@@ -23,4 +23,4 @@ enum drm_color_range {
 	DRM_COLOR_RANGE_MAX,
 };
 
-#endif
+#endif // __DRM_COLOR_MGMT_H__
