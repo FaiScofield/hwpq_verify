@@ -1,8 +1,11 @@
 /* SPDX-License-Identifier: (GPL-2.0+ OR MIT) */
-/*
- * Copyright (C) Rockchip Electronics Co., Ltd.
- * Author:
- *      Wu Fangyi <vance.wu@rock-chips.com>
+/**
+ * @copyright: Copyright (C) Rockchip Electronics Co., Ltd.
+ * @brief: a demo for csc kernel verification
+ * @author: vance.wu@rock-chips.com
+ * @history:
+ *  - 2025/09/04 vance.wu: implementation adjustment for new csc kernel verification.
+ *  - 2025/08/19 vance.wu: enable to get csc coefs with cmd line arguments.
  */
 
 #include <stdio.h>
@@ -220,11 +223,11 @@ int main(int argc, char *const argv[])
         config.is_input_yuv, config.is_input_full_range);
     printf("\t- output colorspace: %d, is_yuv: %d, is_full_range: %d\n", config.output_color_encoding,
         config.is_output_yuv, config.is_output_full_range);
-    printf("\t- pixel depth: %d bit, coef precision: %d bit\n", config.pixel_depth, config.coef_precision);
+    printf("\t- pixel_depth - coef_precision: %d-%dbit\n", config.pixel_depth, config.coef_precision);
     printf("\t- swap_channels: %d, channel order: %s\n", config.swap_channels,
         config.swap_channels ? "B-G-R/V-Y-U" : "R-G-B/Y-U-V");
     printf("\t- output file: %s\n", config.output_file);
-    printf("\t- use old method: %d %s\n", config.b_use_old_method, config.b_use_old_method ? "(only 10bit coef precision supported)" : "");
+    printf("\t- use old method: %d %s\n", config.b_use_old_method, config.b_use_old_method ? "(only 10-10bit coefs supported)" : "");
     if (config.pixel_depth < 8 || config.pixel_depth > 16) {
         printf("Error: pixel depth should be in range [8,16]!\n");
         return -1;
