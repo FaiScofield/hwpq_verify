@@ -20,6 +20,7 @@
 #include "getopt_win32.h"
 #endif
 #include "rockchip_post_csc.h"
+#include "rockchip_post_csc2.h"
 
 const char *g_colorspace_str[] = {"YUV601", "YUV709", "YUV2020", "RGB"};
 const char *g_range_str[] = {"L", "F"};
@@ -245,11 +246,11 @@ int main(int argc, char *const argv[])
     csc_cfg.g_offset = 251;
     csc_cfg.b_offset = 249;
     csc_cfg.csc_enable = 0;
-    const struct post_csc *bcsh_config = csc_cfg.csc_enable ? &csc_cfg : NULL;
+    /* const */ struct post_csc *bcsh_config = csc_cfg.csc_enable ? &csc_cfg : NULL;
 
     // set CSC convert mode
-    convert_mode.input_color_encoding = config.input_color_encoding;
-    convert_mode.output_color_encoding = config.output_color_encoding;
+    convert_mode.intput_color_encoding = (enum drm_color_encoding)config.input_color_encoding;
+    convert_mode.output_color_encoding = (enum drm_color_encoding)config.output_color_encoding;
     convert_mode.is_input_yuv = config.is_input_yuv;
     convert_mode.is_output_yuv = config.is_output_yuv;
     convert_mode.is_input_full_range = config.is_input_full_range;
@@ -294,7 +295,7 @@ int main(int argc, char *const argv[])
         if (0 == ret)
         {
             fprintf(fp_out, "CSC mode: %s_%s -> %s_%s:\n",
-                mode.is_input_yuv ? g_colorspace_str[mode.input_color_encoding] : "RGB", g_range_str[mode.is_input_full_range],
+                mode.is_input_yuv ? g_colorspace_str[mode.intput_color_encoding] : "RGB", g_range_str[mode.is_input_full_range],
                 mode.is_output_yuv ? g_colorspace_str[mode.output_color_encoding] : "RGB", g_range_str[mode.is_output_full_range]);
             fprintf(fp_out, "\t- get CSC matrix: [%4d, %4d, %4d, %4d, %4d, %4d, %4d, %4d, %4d]\n", csc_simple_coef.csc_coef00,
                 csc_simple_coef.csc_coef01, csc_simple_coef.csc_coef02, csc_simple_coef.csc_coef10,
