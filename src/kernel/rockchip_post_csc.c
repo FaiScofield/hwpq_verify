@@ -84,6 +84,9 @@ enum rk_pq_csc_mode {
 	RK_PQ_CSC_RGB2YUV2020_LIMIT,           /* BT2020RGBLIMIT -> BT2020YUVLIMIT */
 	RK_PQ_CSC_RGB2YUV2020_FULL2LIMIT,      /* BT2020RGBFULL -> BT2020YUVLIMIT */
 	RK_PQ_CSC_RGB2YUV2020_FULL,            /* BT2020RGBFULL -> BT2020YUVFULL */
+	RK_PQ_CSC_YUVL2RGBL_2020,              /* BT2020 YUVL -> BT2020 RGBL */
+	RK_PQ_CSC_YUVL2RGBF_2020,              /* BT2020 YUVL -> BT2020 RGBF */
+	RK_PQ_CSC_YUVF2RGBL_2020,              /* BT2020 YUVF -> BT2020 RGBL */
 };
 
 enum color_space_type {
@@ -526,6 +529,11 @@ static const struct rk_pq_csc_coef rk_csc_table_identity_y_cb_cr_to_y_cb_cr = {
 	0, 1024, 0,
 	0, 0, 1024
 };
+
+/* 2020 Y2R */
+static const struct rk_pq_csc_coef rk_csc_table_y2r_l2l_2020 = {1024, 0, 1476, 1024, -165, -572, 1024, 1884, 0};
+static const struct rk_pq_csc_coef rk_csc_table_y2r_l2f_2020 = {1196, 0, 1724, 1196, -192, -668, 1196, 2200, 0};
+static const struct rk_pq_csc_coef rk_csc_table_y2r_f2l_2020 = {877, 0, 1293, 877, -144, -501, 877, 1650, 0};
 
 /* 10bit Hue Sin Look Up Table -> range[-30, 30] */
 static const s32 g_hue_sin_table[PQ_CSC_HUE_TABLE_NUM] = {
@@ -995,31 +1003,55 @@ static const struct rk_csc_mode_coef g_mode_csc_coef[] = {
 			OPTM_CS_E_RGB_2020, OPTM_CS_E_RGB_2020, true, true
 		}
 	},
+	{
+		RK_PQ_CSC_YUVL2RGBL_2020, "YUV 2020 L->RGB 2020 L",
+		&rk_csc_table_y2r_l2l_2020,
+		&rk_dc_csc_table_xv_yccsdy_cb_cr_limit_to_rgb_limit,
+		{
+			OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, false, false
+		}
+	},
+	{
+		RK_PQ_CSC_YUVL2RGBF_2020, "YUV 2020 L->RGB 2020 F",
+		&rk_csc_table_y2r_l2f_2020,
+		&rk_dc_csc_table_hdy_cb_cr_limit_to_rgb_full,
+		{
+			OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, false, true
+		}
+	},
+	{
+		RK_PQ_CSC_YUVF2RGBL_2020, "YUV 2020 F->RGB 2020 L",
+		&rk_csc_table_y2r_f2l_2020,
+		&rk_dc_csc_table_xv_yccsdy_cb_cr_to_rgb_limit,
+		{
+			OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, true, false
+		}
+	},
 };
 
 static const struct rk_pq_csc_coef r2y_for_y2y = {
 	306, 601, 117,
 	-173, -339, 512,
 	512, -429, -83,
-};
+}; // same to 'RGBF->YUV601F' (10bit)
 
 static const struct rk_pq_csc_coef y2r_for_y2y = {
 	1024, -1, 1436,
 	1024, -353, -731,
 	1024, 1814, 1,
-};
+}; // a little bit different to 'YUV601F->RGBF'
 
 static const struct rk_pq_csc_coef r2y_for_r2r = {
 	218, 732, 74,
 	-117, -395, 512,
 	512, -465, -47,
-};
+}; // same to 'RGBF->YUV709F' (10bit)
 
 static const struct rk_pq_csc_coef y2r_for_r2r = {
 	1024, 0, 1612,
 	1024, -192, -480,
 	1024, 1900, -2,
-};
+}; // a little bit different to 'YUV709F->RGBF'
 
 static const struct rk_pq_csc_coef rgb_input_swap_matrix = {
 	0, 0, 1,
@@ -1314,10 +1346,10 @@ static int csc_calc_adjust_output_coef(bool is_input_yuv, bool is_output_yuv,
 	b_offset = ((s32)csc_input_cfg->b_offset - PQ_CSC_BRIGHTNESS_OFFSET) /
 		   PQ_CSC_TEMP_OFFSET_DIV_COEF;
 
-	gain_matrix = create_rgb_gain_matrix(r_gain, g_gain, b_gain);
-	contrast_matrix = create_contrast_matrix(contrast);
-	hue_matrix = create_hue_matrix(csc_input_cfg->hue);
-	saturation_matrix = create_saturation_matrix(saturation);
+	gain_matrix = create_rgb_gain_matrix(r_gain, g_gain, b_gain); // 9bit fixed
+	contrast_matrix = create_contrast_matrix(contrast); // 9bit fixed
+	hue_matrix = create_hue_matrix(csc_input_cfg->hue); // 10bit fixed
+	saturation_matrix = create_saturation_matrix(saturation); // 9bit fixed
 
 	color_info = &csc_mode_cfg->st_csc_color_info;
 	brightness = (s32)csc_input_cfg->brightness - PQ_CSC_BRIGHTNESS_OFFSET;
@@ -1506,7 +1538,7 @@ static inline s32 pq_csc_simple_round(s32 x, s32 n)
 	return (((x) >= 0) ? value : -value);
 }
 
-static void rockchip_swap_color_channel(bool is_input_yuv, bool is_output_yuv,
+static void rockchip_swap_color_channel(const struct post_csc_convert_mode *mode,
 					struct post_csc_coef *csc_simple_coef,
 					struct rk_pq_csc_coef *out_matrix,
 					struct rk_pq_csc_ventor *out_dc)
@@ -1514,30 +1546,19 @@ static void rockchip_swap_color_channel(bool is_input_yuv, bool is_output_yuv,
 	struct rk_pq_csc_coef tmp_matrix;
 	struct rk_pq_csc_ventor tmp_v;
 
-	if (!is_input_yuv) {
-		memcpy(&tmp_matrix, out_matrix, sizeof(struct rk_pq_csc_coef));
-		csc_matrix_multiply(out_matrix, &tmp_matrix, &rgb_input_swap_matrix);
-	}
+	if (mode->swap_channels == 1 || mode->plat == VOP_VERSION_RK3576) {
+		if (!mode->is_input_yuv) {
+			memcpy(&tmp_matrix, out_matrix, sizeof(struct rk_pq_csc_coef));
+			csc_matrix_multiply(out_matrix, &tmp_matrix, &rgb_input_swap_matrix);
+		}
 
-	if (is_output_yuv) {
-		memcpy(&tmp_matrix, out_matrix, sizeof(struct rk_pq_csc_coef));
-		memcpy(&tmp_v, out_dc, sizeof(struct rk_pq_csc_ventor));
-		csc_matrix_multiply(out_matrix, &yuv_output_swap_matrix, &tmp_matrix);
-		csc_matrix_ventor_multiply(out_dc, &yuv_output_swap_matrix, &tmp_v);
+		if (mode->is_output_yuv) {
+			memcpy(&tmp_matrix, out_matrix, sizeof(struct rk_pq_csc_coef));
+			memcpy(&tmp_v, out_dc, sizeof(struct rk_pq_csc_ventor));
+			csc_matrix_multiply(out_matrix, &yuv_output_swap_matrix, &tmp_matrix);
+			csc_matrix_ventor_multiply(out_dc, &yuv_output_swap_matrix, &tmp_v);
+		}
 	}
-
-	csc_simple_coef->csc_coef00 = out_matrix->csc_coef00;
-	csc_simple_coef->csc_coef01 = out_matrix->csc_coef01;
-	csc_simple_coef->csc_coef02 = out_matrix->csc_coef02;
-	csc_simple_coef->csc_coef10 = out_matrix->csc_coef10;
-	csc_simple_coef->csc_coef11 = out_matrix->csc_coef11;
-	csc_simple_coef->csc_coef12 = out_matrix->csc_coef12;
-	csc_simple_coef->csc_coef20 = out_matrix->csc_coef20;
-	csc_simple_coef->csc_coef21 = out_matrix->csc_coef21;
-	csc_simple_coef->csc_coef22 = out_matrix->csc_coef22;
-	csc_simple_coef->csc_dc0 = out_dc->csc_offset0;
-	csc_simple_coef->csc_dc1 = out_dc->csc_offset1;
-	csc_simple_coef->csc_dc2 = out_dc->csc_offset2;
 }
 
 int rockchip_calc_post_csc(struct post_csc *csc_cfg, struct post_csc_coef *csc_simple_coef,
@@ -1552,9 +1573,9 @@ int rockchip_calc_post_csc(struct post_csc *csc_cfg, struct post_csc_coef *csc_s
 	ret = csc_get_mode_index(convert_mode);
 	if (ret < 0) {
 		DRM_ERROR("get csc index err:\n");
-		DRM_ERROR("input yuv %d full_range %d,output yuv %d full_range %d\n",
-			  convert_mode->is_input_yuv, convert_mode->is_input_full_range,
-			  convert_mode->is_output_yuv, convert_mode->is_output_full_range);
+		DRM_ERROR("input: colorspace=%d, yuv=%d, full_range=%d; output: colorspace=%d, yuv=%d, full_range=%d\n",
+			convert_mode->intput_color_encoding, convert_mode->is_input_yuv, convert_mode->is_input_full_range,
+			convert_mode->output_color_encoding, convert_mode->is_output_yuv, convert_mode->is_output_full_range);
 		return ret;
 	}
 
@@ -1566,12 +1587,26 @@ int rockchip_calc_post_csc(struct post_csc *csc_cfg, struct post_csc_coef *csc_s
 	else
 		ret = csc_calc_default_output_coef(csc_mode_cfg, &out_matrix, &out_dc);
 
-	rockchip_swap_color_channel(convert_mode->is_input_yuv, convert_mode->is_output_yuv,
-				    csc_simple_coef, &out_matrix, &out_dc);
+	rockchip_swap_color_channel(convert_mode, csc_simple_coef, &out_matrix, &out_dc);
 
-	csc_simple_coef->csc_dc0 = csc_simple_round(csc_simple_coef->csc_dc0, bit_num);
-	csc_simple_coef->csc_dc1 = csc_simple_round(csc_simple_coef->csc_dc1, bit_num);
-	csc_simple_coef->csc_dc2 = csc_simple_round(csc_simple_coef->csc_dc2, bit_num);
+	// return final coefs & offset
+	csc_simple_coef->csc_coef00 = out_matrix.csc_coef00;
+	csc_simple_coef->csc_coef01 = out_matrix.csc_coef01;
+	csc_simple_coef->csc_coef02 = out_matrix.csc_coef02;
+	csc_simple_coef->csc_coef10 = out_matrix.csc_coef10;
+	csc_simple_coef->csc_coef11 = out_matrix.csc_coef11;
+	csc_simple_coef->csc_coef12 = out_matrix.csc_coef12;
+	csc_simple_coef->csc_coef20 = out_matrix.csc_coef20;
+	csc_simple_coef->csc_coef21 = out_matrix.csc_coef21;
+	csc_simple_coef->csc_coef22 = out_matrix.csc_coef22;
+	csc_simple_coef->csc_dc0 = out_dc.csc_offset0;
+	csc_simple_coef->csc_dc1 = out_dc.csc_offset1;
+	csc_simple_coef->csc_dc2 = out_dc.csc_offset2;
+	if (convert_mode->plat == VOP_VERSION_RK3576) {
+		csc_simple_coef->csc_dc0 = csc_simple_round(csc_simple_coef->csc_dc0, bit_num);
+		csc_simple_coef->csc_dc1 = csc_simple_round(csc_simple_coef->csc_dc1, bit_num);
+		csc_simple_coef->csc_dc2 = csc_simple_round(csc_simple_coef->csc_dc2, bit_num);
+	}
 	csc_simple_coef->range_type = csc_mode_cfg->st_csc_color_info.out_full_range;
 
 	return ret;

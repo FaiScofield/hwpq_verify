@@ -65,6 +65,11 @@ struct post_csc_convert_mode
 	bool is_output_yuv;
 	bool is_input_full_range;
 	bool is_output_full_range;
+	/* new after RK3572 */
+	int plat;           /* Reserved to distinguish later platform */
+	int swap_channels;  /* Swap channels, set to 1 for RK3576 */
+	int pixel_depth;    /* {8/10} */
+	int coef_precision; /* {8, 10, 13}, NOTE: coef_precision should be >= pixel_depth */
 };
 
 struct post_csc_coef
