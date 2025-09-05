@@ -14,7 +14,7 @@
 
 #define CSC_COEF_BCSH_PRECISION (10) // 10bit fixed for BSCH adjust
 
-#define CSC_RSHIFT_RND_S32(x, n) \
+#define csc_simple_round(x, n) \
     (((x) + (1 << ((n)-1)) + ((x) >> 31)) >> (n)) // right shift by n, round to nearest integer
 
 #ifndef CLIP
@@ -122,24 +122,24 @@ static inline void csc_matrix_vector_mul_s32(union csc_vector_s32 *dst, const un
 static inline void csc_matrix_right_shift(union csc_matrix_s32 *dst, int n)
 {
     if (n > 0) {
-        dst->val[0][0] = CSC_RSHIFT_RND_S32(dst->val[0][0], n);
-        dst->val[0][1] = CSC_RSHIFT_RND_S32(dst->val[0][1], n);
-        dst->val[0][2] = CSC_RSHIFT_RND_S32(dst->val[0][2], n);
-        dst->val[1][0] = CSC_RSHIFT_RND_S32(dst->val[1][0], n);
-        dst->val[1][1] = CSC_RSHIFT_RND_S32(dst->val[1][1], n);
-        dst->val[1][2] = CSC_RSHIFT_RND_S32(dst->val[1][2], n);
-        dst->val[2][0] = CSC_RSHIFT_RND_S32(dst->val[2][0], n);
-        dst->val[2][1] = CSC_RSHIFT_RND_S32(dst->val[2][1], n);
-        dst->val[2][2] = CSC_RSHIFT_RND_S32(dst->val[2][2], n);
+        dst->val[0][0] = csc_simple_round(dst->val[0][0], n);
+        dst->val[0][1] = csc_simple_round(dst->val[0][1], n);
+        dst->val[0][2] = csc_simple_round(dst->val[0][2], n);
+        dst->val[1][0] = csc_simple_round(dst->val[1][0], n);
+        dst->val[1][1] = csc_simple_round(dst->val[1][1], n);
+        dst->val[1][2] = csc_simple_round(dst->val[1][2], n);
+        dst->val[2][0] = csc_simple_round(dst->val[2][0], n);
+        dst->val[2][1] = csc_simple_round(dst->val[2][1], n);
+        dst->val[2][2] = csc_simple_round(dst->val[2][2], n);
     }
 }
 
 static inline void csc_vector_right_shift(union csc_vector_s32 *dst, int n)
 {
     if (n > 0) {
-        dst->val[0] = CSC_RSHIFT_RND_S32(dst->val[0], n);
-        dst->val[1] = CSC_RSHIFT_RND_S32(dst->val[1], n);
-        dst->val[2] = CSC_RSHIFT_RND_S32(dst->val[2], n);
+        dst->val[0] = csc_simple_round(dst->val[0], n);
+        dst->val[1] = csc_simple_round(dst->val[1], n);
+        dst->val[2] = csc_simple_round(dst->val[2], n);
     }
 }
 
@@ -416,7 +416,7 @@ static bool csc_fixed_coefs_fine_tuning(const struct post_csc_convert_mode *mode
         denorms[0] = ROUND(coef_factor / ratio_y);
     }
 
-    // R2Y case
+    // R2Y case, row_sums = [1, 0, 0]
     if (!mode->is_input_yuv && mode->is_output_yuv) {
         int row_sums[3] = {0};
         row_sums[0] = fixed_mat->val[0][0] + fixed_mat->val[0][1] + fixed_mat->val[0][2];
@@ -441,7 +441,7 @@ static bool csc_fixed_coefs_fine_tuning(const struct post_csc_convert_mode *mode
             }
         }
     }
-    // Y2R case
+    // Y2R case, mat[:,0] = 1
     else if (mode->is_input_yuv && !mode->is_output_yuv) {
         if (fixed_mat->val[0][0] != denorms[0]) {
             printf("NOTE: fine-tuning CSC coef[0][0] = %d => %d, since RY2 case!\n", fixed_mat->val[0][0], denorms[0]);
@@ -825,8 +825,8 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
 )
 {
     int ret = 0;
-    union csc_matrix_s32 final_mat_fix = {0};
-    union csc_vector_s32 range_ofs_i = {0}, range_ofs_o = {0}, final_vec = {0};
+    union csc_matrix_s32 out_matrix = {0};
+    union csc_vector_s32 range_ofs_i = {0}, range_ofs_o = {0}, out_dc = {0};
 
 #if ENABLE_POST_CSC_FLOATING_POINT
     assert(convert_mode->pixel_depth >= 8 && convert_mode->pixel_depth <= 16);
@@ -848,12 +848,12 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
     }
 
     // get fixed mat
-    csc_get_fixed_coefs_matrix(&final_mat, &final_mat_fix, convert_mode->coef_precision);
+    csc_get_fixed_coefs_matrix(&final_mat, &out_matrix, convert_mode->coef_precision);
 
     // TODO: fine-tuning for fixed matrix (R2Y)
     bool fine_tuned = false;
     if (!bcsh_cfg || !bcsh_cfg->csc_enable) {
-        fine_tuned = csc_fixed_coefs_fine_tuning(convert_mode, &final_mat, &final_mat_fix);
+        fine_tuned = csc_fixed_coefs_fine_tuning(convert_mode, &final_mat, &out_matrix);
     }
 #else // ENABLE_POST_CSC_FLOATING_POINT
     int mode_idx = csc_get_drm_csc_mode_enum(convert_mode);
@@ -865,7 +865,7 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
     /* 8bit pixel depth + 8bit coef precision */
     if (convert_mode->pixel_depth == 8) {
         if (convert_mode->coef_precision == 8) {
-            memcpy(&final_mat_fix, &g_csc_fixed_coefs_8bit_pix_8bit_precision[mode_idx], sizeof(union csc_matrix_s32));
+            memcpy(&out_matrix, &g_csc_fixed_coefs_8bit_pix_8bit_precision[mode_idx], sizeof(union csc_matrix_s32));
         }
         else {
             printf("Invalid coef precision %d, only 8 supported for 8bit pixel depth!\n", convert_mode->coef_precision);
@@ -875,10 +875,10 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
     /* 10bit pixel depth + 10/13bit coef precision */
     else if (convert_mode->pixel_depth == 10) {
         if (convert_mode->coef_precision == 10) {
-            memcpy(&final_mat_fix, &g_csc_fixed_coefs_10bit_pix_10bit_precision[mode_idx], sizeof(union csc_matrix_s32));
+            memcpy(&out_matrix, &g_csc_fixed_coefs_10bit_pix_10bit_precision[mode_idx], sizeof(union csc_matrix_s32));
         }
         else if (convert_mode->coef_precision == 13) {
-            memcpy(&final_mat_fix, &g_csc_fixed_coefs_10bit_pix_13bit_precision[mode_idx], sizeof(union csc_matrix_s32));
+            memcpy(&out_matrix, &g_csc_fixed_coefs_10bit_pix_13bit_precision[mode_idx], sizeof(union csc_matrix_s32));
         }
         else {
             printf("Invalid coef precision %d, only 10/13 supported for 8bit pixel depth!\n", convert_mode->coef_precision);
@@ -894,35 +894,35 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
 
     /* adjust final_mat with bsch configs */
     if (bcsh_cfg && bcsh_cfg->csc_enable) {
-        csc_adjust_convert_matrix_fix(convert_mode, bcsh_cfg, &final_mat_fix, &range_ofs_o);
+        csc_adjust_convert_matrix_fix(convert_mode, bcsh_cfg, &out_matrix, &range_ofs_o);
     }
 
 #endif // ENABLE_POST_CSC_FLOATING_POINT
 
     // get fixed vec
-    csc_get_fixed_coefs_offset(&final_mat_fix, &range_ofs_i, &range_ofs_o, &final_vec, convert_mode->coef_precision);
+    csc_get_fixed_coefs_offset(&out_matrix, &range_ofs_i, &range_ofs_o, &out_dc, convert_mode->coef_precision);
 
     // swap channles if necessary
-    csc_swap_color_channel(convert_mode, &final_mat_fix, &final_vec);
+    csc_swap_color_channel(convert_mode, &out_matrix, &out_dc);
 
     // return final mat_coefs & vec_offset
-    csc_simple_coef->csc_coef00 = final_mat_fix.csc_coef00;
-    csc_simple_coef->csc_coef01 = final_mat_fix.csc_coef01;
-    csc_simple_coef->csc_coef02 = final_mat_fix.csc_coef02;
-    csc_simple_coef->csc_coef10 = final_mat_fix.csc_coef10;
-    csc_simple_coef->csc_coef11 = final_mat_fix.csc_coef11;
-    csc_simple_coef->csc_coef12 = final_mat_fix.csc_coef12;
-    csc_simple_coef->csc_coef20 = final_mat_fix.csc_coef20;
-    csc_simple_coef->csc_coef21 = final_mat_fix.csc_coef21;
-    csc_simple_coef->csc_coef22 = final_mat_fix.csc_coef22;
-    csc_simple_coef->csc_dc0 = final_vec.csc_offset0;
-    csc_simple_coef->csc_dc1 = final_vec.csc_offset1;
-    csc_simple_coef->csc_dc2 = final_vec.csc_offset2;
-#ifdef RK3576
-    csc_simple_coef->csc_dc0 = CSC_RSHIFT_RND_S32(csc_simple_coef->csc_dc0, convert_mode->coef_precision);
-    csc_simple_coef->csc_dc1 = CSC_RSHIFT_RND_S32(csc_simple_coef->csc_dc1, convert_mode->coef_precision);
-    csc_simple_coef->csc_dc2 = CSC_RSHIFT_RND_S32(csc_simple_coef->csc_dc2, convert_mode->coef_precision);
-#endif
+    csc_simple_coef->csc_coef00 = out_matrix.csc_coef00;
+    csc_simple_coef->csc_coef01 = out_matrix.csc_coef01;
+    csc_simple_coef->csc_coef02 = out_matrix.csc_coef02;
+    csc_simple_coef->csc_coef10 = out_matrix.csc_coef10;
+    csc_simple_coef->csc_coef11 = out_matrix.csc_coef11;
+    csc_simple_coef->csc_coef12 = out_matrix.csc_coef12;
+    csc_simple_coef->csc_coef20 = out_matrix.csc_coef20;
+    csc_simple_coef->csc_coef21 = out_matrix.csc_coef21;
+    csc_simple_coef->csc_coef22 = out_matrix.csc_coef22;
+    csc_simple_coef->csc_dc0 = out_dc.csc_offset0;
+    csc_simple_coef->csc_dc1 = out_dc.csc_offset1;
+    csc_simple_coef->csc_dc2 = out_dc.csc_offset2;
+    if (convert_mode->plat == VOP_VERSION_RK3576) {
+        csc_simple_coef->csc_dc0 = csc_simple_round(csc_simple_coef->csc_dc0, convert_mode->coef_precision);
+        csc_simple_coef->csc_dc1 = csc_simple_round(csc_simple_coef->csc_dc1, convert_mode->coef_precision);
+        csc_simple_coef->csc_dc2 = csc_simple_round(csc_simple_coef->csc_dc2, convert_mode->coef_precision);
+    }
     csc_simple_coef->range_type = convert_mode->is_output_full_range;
 
     return ret;
