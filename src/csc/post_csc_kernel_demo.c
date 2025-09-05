@@ -8,6 +8,10 @@
  *  - 2025/08/19 vance.wu: enable to get csc coefs with cmd line arguments.
  */
 
+
+#include "rockchip_post_csc.h"
+#include "rockchip_post_csc2.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,8 +26,7 @@
 #else
 #include "getopt_win32.h"
 #endif
-#include "rockchip_post_csc.h"
-#include "rockchip_post_csc2.h"
+
 
 const char *g_colorspace_str[] = {"YUV601", "YUV709", "YUV2020", "RGB"};
 const char *g_range_str[] = {"L", "F"};
@@ -45,21 +48,21 @@ struct cmd_config_t
 };
 
 const struct option g_cmd_args_supported_options[] = {
-    {(char *)"src_color",       ARG_OPT, 0, 'c'},
-    {(char *)"src_yuv",         ARG_OPT, 0, 'y'},
-    {(char *)"src_range",       ARG_OPT, 0, 'r'},
-    {(char *)"dst_color",       ARG_OPT, 0, 'C'},
-    {(char *)"dst_yuv",         ARG_OPT, 0, 'Y'},
-    {(char *)"dst_range",       ARG_OPT, 0, 'R'},
-    {(char *)"csc_mode",        ARG_OPT, 0, 'm'},
-    {(char *)"pixel_depth",     ARG_OPT, 0, 'd'},
+    {     (char *)"src_color",  ARG_OPT, 0, 'c'},
+    {       (char *)"src_yuv",  ARG_OPT, 0, 'y'},
+    {     (char *)"src_range",  ARG_OPT, 0, 'r'},
+    {     (char *)"dst_color",  ARG_OPT, 0, 'C'},
+    {       (char *)"dst_yuv",  ARG_OPT, 0, 'Y'},
+    {     (char *)"dst_range",  ARG_OPT, 0, 'R'},
+    {      (char *)"csc_mode",  ARG_OPT, 0, 'm'},
+    {   (char *)"pixel_depth",  ARG_OPT, 0, 'd'},
     {(char *)"coef_precision",  ARG_OPT, 0, 'p'},
-    {(char *)"output_file",     ARG_OPT, 0, 'o'},
-    {(char *)"print_all",       ARG_NONE,0, 'a'},
-    {(char *)"swap_channels",   ARG_NONE,0, 's'},
-    {(char *)"use_old_method",  ARG_NONE,0, 'M'},
-    {(char *)"help",            ARG_NONE,0, 'h'},
-    {0, 0, 0, 0} // end of option list
+    {   (char *)"output_file",  ARG_OPT, 0, 'o'},
+    {     (char *)"print_all", ARG_NONE, 0, 'a'},
+    { (char *)"swap_channels", ARG_NONE, 0, 's'},
+    {(char *)"use_old_method", ARG_NONE, 0, 'M'},
+    {          (char *)"help", ARG_NONE, 0, 'h'},
+    {                       0,        0, 0,   0}  // end of option list
 };
 
 void print_usage(const char *prog_name)
@@ -73,7 +76,7 @@ void print_usage(const char *prog_name)
     printf("  -Y  --dst_yuv        [val] | output yuv format, range: [0, 1], default: 1\n");
     printf("  -R  --dst_range      [val] | output full range, range: [0, 1], default: 1\n");
     printf("  -m  --csc_mode       [val] | csc mode, like 'rgbl_to_601f'...,  default: NULL. "
-        "Recommend to use this option instead of above arguments!\n");
+           "Recommend to use this option instead of above arguments!\n");
     printf("  -d  --pixel_depth    [val] | pixel depth, range: {8,10}, default: 10bit\n");
     printf("  -p  --coef_precision [val] | coef precision, range: {8,10,13}, default: 10bit\n");
     printf("  -o  --output_file    [val] | write all coefs to an output file when '-a' specified\n");
@@ -90,46 +93,20 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
     int out_clr_pos = 0;
     int opt = 0;
     const char *mode_str = NULL;
-    while ((opt = getopt_long(argc, argv, "c:y:r:C:Y:R:m:d:p:o:asMh", g_cmd_args_supported_options, NULL)) != -1)
-    {
-        switch (opt)
-        {
-        case 'c':
-            config->input_color_encoding = atoi(optarg);
-            break;
-        case 'y':
-            config->is_input_yuv = atoi(optarg);
-            break;
-        case 'r':
-            config->is_input_full_range = atoi(optarg);
-            break;
-        case 'C':
-            config->output_color_encoding = atoi(optarg);
-            break;
-        case 'Y':
-            config->is_output_yuv = atoi(optarg);
-            break;
-        case 'R':
-            config->is_output_full_range = atoi(optarg);
-            break;
-        case 'd':
-            config->pixel_depth = atoi(optarg);
-            break;
-        case 'p':
-            config->coef_precision = atoi(optarg);
-            break;
-        case 'o':
-            strncpy(config->output_file, optarg, 1024);
-            break;
-        case 'a':
-            config->b_print_all = 1;
-            break;
-        case 's':
-            config->swap_channels = 1;
-            break;
-        case 'M':
-            config->b_use_old_method = 1;
-            break;
+    while ((opt = getopt_long(argc, argv, "c:y:r:C:Y:R:m:d:p:o:asMh", g_cmd_args_supported_options, NULL)) != -1) {
+        switch (opt) {
+        case 'c': config->input_color_encoding = atoi(optarg); break;
+        case 'y': config->is_input_yuv = atoi(optarg); break;
+        case 'r': config->is_input_full_range = atoi(optarg); break;
+        case 'C': config->output_color_encoding = atoi(optarg); break;
+        case 'Y': config->is_output_yuv = atoi(optarg); break;
+        case 'R': config->is_output_full_range = atoi(optarg); break;
+        case 'd': config->pixel_depth = atoi(optarg); break;
+        case 'p': config->coef_precision = atoi(optarg); break;
+        case 'o': strncpy(config->output_file, optarg, 1024); break;
+        case 'a': config->b_print_all = 1; break;
+        case 's': config->swap_channels = 1; break;
+        case 'M': config->b_use_old_method = 1; break;
         case 'h':
             print_usage(argv[0]);
             ret = -1;
@@ -152,7 +129,7 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
                 config->input_color_encoding = DRM_COLOR_YCBCR_BT709;
             }
             else if (0 == strncmp(mode_str, "2020", 4)) {
-                config->input_color_encoding =DRM_COLOR_YCBCR_BT2020;
+                config->input_color_encoding = DRM_COLOR_YCBCR_BT2020;
                 config->is_input_full_range = mode_str[4] == 'f' || mode_str[4] == 'F';
                 out_clr_pos = 9;
             }
@@ -184,8 +161,8 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
 
             // update input/output colorspace if not specified
             if (config->input_color_encoding == -1) {
-                config->input_color_encoding = config->output_color_encoding == -1 ?
-                    DRM_COLOR_YCBCR_BT709 : config->output_color_encoding;
+                config->input_color_encoding = config->output_color_encoding == -1 ? DRM_COLOR_YCBCR_BT709
+                                                                                   : config->output_color_encoding;
             }
             if (config->output_color_encoding == -1) {
                 config->output_color_encoding = config->input_color_encoding;
@@ -227,7 +204,8 @@ int main(int argc, char *const argv[])
     printf("\t- swap_channels: %d, channel order: %s\n", config.swap_channels,
         config.swap_channels ? "B-G-R/V-Y-U" : "R-G-B/Y-U-V");
     printf("\t- output file: %s\n", config.output_file);
-    printf("\t- use old method: %d %s\n", config.b_use_old_method, config.b_use_old_method ? "(only 10-10bit coefs supported)" : "");
+    printf("\t- use old method: %d %s\n", config.b_use_old_method,
+        config.b_use_old_method ? "(only 10-10bit coefs supported)" : "");
     if (config.pixel_depth < 8 || config.pixel_depth > 16) {
         printf("Error: pixel depth should be in range [8,16]!\n");
         return -1;
@@ -239,15 +217,15 @@ int main(int argc, char *const argv[])
 
     // set CSC config
     csc_cfg.hue = 256;
-    csc_cfg.saturation = 299;
-    csc_cfg.contrast = 311;
-    csc_cfg.brightness = 212;
-    csc_cfg.r_gain = 288;
-    csc_cfg.g_gain = 288;
-    csc_cfg.b_gain = 288;
-    csc_cfg.r_offset = 253;
-    csc_cfg.g_offset = 251;
-    csc_cfg.b_offset = 249;
+    csc_cfg.saturation = 256;
+    csc_cfg.contrast = 256;
+    csc_cfg.brightness = 256;
+    csc_cfg.r_gain = 256;
+    csc_cfg.g_gain = 256;
+    csc_cfg.b_gain = 256;
+    csc_cfg.r_offset = 256;
+    csc_cfg.g_offset = 256;
+    csc_cfg.b_offset = 256;
     csc_cfg.csc_enable = 0;
     /* const */ struct post_csc *bcsh_config = csc_cfg.csc_enable ? &csc_cfg : NULL;
 
@@ -266,12 +244,10 @@ int main(int argc, char *const argv[])
     int nb_mode = 1;
     const struct post_csc_convert_mode *mode_list = &convert_mode;
     FILE *fp_out = stdout;
-    if (config.b_print_all)
-    {
+    if (config.b_print_all) {
         mode_list = g_supported_standard_convert_mode;
         nb_mode = sizeof(g_supported_standard_convert_mode) / sizeof(struct post_csc_convert_mode);
-        if (config.output_file[0])
-        {
+        if (config.output_file[0]) {
             fp_out = fopen(config.output_file, "wt");
             if (NULL == fp_out) {
                 printf("Warning: failed to open output file: %s. %s\n", config.output_file, strerror(errno));
@@ -283,8 +259,7 @@ int main(int argc, char *const argv[])
 
 
     printf("\n");
-    for (int i = 0; i < nb_mode; i++)
-    {
+    for (int i = 0; i < nb_mode; i++) {
         struct post_csc_convert_mode mode = mode_list[i];
         mode.swap_channels = config.swap_channels;
         mode.pixel_depth = config.pixel_depth;
@@ -292,18 +267,19 @@ int main(int argc, char *const argv[])
 
         if (config.b_use_old_method) {
             ret = rockchip_calc_post_csc(bcsh_config, &csc_simple_coef, &mode);
-        } else {
+        }
+        else {
             ret = rockchip_calc_post_csc_coefs(bcsh_config, &mode, &csc_simple_coef);
         }
-        if (0 == ret)
-        {
+        if (0 == ret) {
             fprintf(fp_out, "CSC mode: %s_%s -> %s_%s:\n",
-                mode.is_input_yuv ? g_colorspace_str[mode.intput_color_encoding] : "RGB", g_range_str[mode.is_input_full_range],
-                mode.is_output_yuv ? g_colorspace_str[mode.output_color_encoding] : "RGB", g_range_str[mode.is_output_full_range]);
-            fprintf(fp_out, "\t- get CSC matrix: [%4d, %4d, %4d, %4d, %4d, %4d, %4d, %4d, %4d]\n", csc_simple_coef.csc_coef00,
-                csc_simple_coef.csc_coef01, csc_simple_coef.csc_coef02, csc_simple_coef.csc_coef10,
-                csc_simple_coef.csc_coef11, csc_simple_coef.csc_coef12, csc_simple_coef.csc_coef20,
-                csc_simple_coef.csc_coef21, csc_simple_coef.csc_coef22);
+                mode.is_input_yuv ? g_colorspace_str[mode.intput_color_encoding] : "RGB",
+                g_range_str[mode.is_input_full_range], mode.is_output_yuv ? g_colorspace_str[mode.output_color_encoding] : "RGB",
+                g_range_str[mode.is_output_full_range]);
+            fprintf(fp_out, "\t- get CSC matrix: [%4d, %4d, %4d, %4d, %4d, %4d, %4d, %4d, %4d]\n",
+                csc_simple_coef.csc_coef00, csc_simple_coef.csc_coef01, csc_simple_coef.csc_coef02,
+                csc_simple_coef.csc_coef10, csc_simple_coef.csc_coef11, csc_simple_coef.csc_coef12,
+                csc_simple_coef.csc_coef20, csc_simple_coef.csc_coef21, csc_simple_coef.csc_coef22);
             fprintf(fp_out, "\t- get CSC offset: [%d, %d, %d]\n", csc_simple_coef.csc_dc0, csc_simple_coef.csc_dc1,
                 csc_simple_coef.csc_dc2);
         }
