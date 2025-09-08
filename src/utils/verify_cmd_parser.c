@@ -4,6 +4,7 @@
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-05
  * @history:
+ *  2025-09-08 vance.wu: Adjust cmd line options for second parsing support.
  */
 
 #include "verify_cmd_parser.h"
@@ -16,30 +17,29 @@
 
 
 const struct option g_common_verify_arg_supported_options[] = {
-    {    "help", ARG_NONE, 0, 'h'}, // print help message
-    {   "input",  ARG_REQ, 0, 'i'}, // input filename
-    {   "width",  ARG_OPT, 0, 'w'}, // input image width, set to '1920' if not specified
-    {  "height",  ARG_OPT, 0, 'g'}, // input image height, set to '1080' if not specified
-    {  "format",  ARG_OPT, 0, 'f'}, // input image format, set to '0' if not specified
-    {  "clrspc",  ARG_OPT, 0, 's'}, // input image colorspace, set to '1-RGBF/5-709F' if not specified
-    {  "output",  ARG_OPT, 0, 'o'}, // output filename, set to 'dirname(input)/custom_output_basename' if not specified
-    {  "outwid",  ARG_OPT, 0, 'W'}, // output image width, same to 'width' if not specified
-    {  "outhgt",  ARG_OPT, 0, 'G'}, // output image height, same to 'height' if not specified
-    {  "outfmt",  ARG_OPT, 0, 'F'}, // output image format, same to 'format' if not specified
-    {  "outclr",  ARG_OPT, 0, 'S'}, // output image colorspace, set to 'clrspc' if not specified
-    { "nframes",  ARG_OPT, 0, 'n'}, // number of frames of to process, set to '1' if not specified
-    {  "config",  ARG_OPT, 0, 'c'}, // config file ('.json' for config; '.bin/.dat' for register data), set to 'NULL' if not specified
-    {     "crc",  ARG_OPT, 0, 'C'}, // crc file ('.txt/.dat'), set to 'NULL' if not specified
-    {"platform",  ARG_OPT, 0, 'p'}, // RK3572, RK3576, RK3538..., set to 'RK3572' if not specified
-    {    "mode",  ARG_OPT, 0, 'm'}, // test mode, customized by each model, set to '-1' if not specified
-    {    "args",  ARG_OPT, 0, 'a'}, // other arguments, parsed by each model, set to 'NULL' if not specified
-    {         0,        0, 0,   0}  // end of option list
+    {    "help", ARG_NONE, NULL, 'h'}, // print help message
+    {   "input",  ARG_REQ, NULL, 'i'}, // input filename
+    {   "width",  ARG_REQ, NULL, 'w'}, // input image width, set to '1920' if not specified
+    {  "height",  ARG_REQ, NULL, 'g'}, // input image height, set to '1080' if not specified
+    {  "format",  ARG_REQ, NULL, 'f'}, // input image format, set to '0' if not specified
+    {  "clrspc",  ARG_REQ, NULL, 's'}, // input image colorspace, set to '1-RGBF/5-709F' if not specified
+    {  "output",  ARG_REQ, NULL, 'o'}, // output filename, set to 'dirname(input)/custom_output_basename' if not specified
+    {  "outwid",  ARG_REQ, NULL, 'W'}, // output image width, same to 'width' if not specified
+    {  "outhgt",  ARG_REQ, NULL, 'G'}, // output image height, same to 'height' if not specified
+    {  "outfmt",  ARG_REQ, NULL, 'F'}, // output image format, same to 'format' if not specified
+    {  "outclr",  ARG_REQ, NULL, 'S'}, // output image colorspace, set to 'clrspc' if not specified
+    { "nframes",  ARG_REQ, NULL, 'n'}, // number of frames of to process, set to '1' if not specified
+    {  "config",  ARG_REQ, NULL, 'c'}, // config file ('.json' for config; '.bin/.dat' for register data), set to 'NULL' if not specified
+    {     "crc",  ARG_REQ, NULL, 'C'}, // crc file ('.txt/.dat'), set to 'NULL' if not specified
+    {"platform",  ARG_REQ, NULL, 'p'}, // RK3572, RK3576, RK3538..., set to 'RK3572' if not specified
+    {    "mode",  ARG_REQ, NULL, 'm'}, // test mode, customized by each model, set to '-1' if not specified
+    {      NULL,        0, NULL,   0}  // end of option list
 };
 
 void common_verify_arg_print_usage(const char *program)
 {
     printf("\nUsage: %s [options]\n", program);
-    printf("\nProgram Optional Options:\n");
+    printf("\nProgram Common Options:\n");
     printf("  -i  --input       [intput_file] | input filename\n");
     printf("  -w  --width       [input_width] | input image width, default: 1920\n");
     printf("  -g  --height     [input_height] | input image height, default: 1080\n");
@@ -60,12 +60,11 @@ void common_verify_arg_print_usage(const char *program)
     printf("  -p  --platform  [platform_name] | platform like: RK3572(default)/RK3576/RK3538...\n");
     printf("  -m  --mode           [mode_num] | test mode, customized by each model, default: -1\n");
     printf("  -s  --seed        [random_seed] | random seed, customized using by each model, default: -1\n");
-    printf("  -a  --args         [other_args] | other args customized by each model, default: 'NULL'\n");
     printf("  -h  --help                      | print this message\n");
     printf("\n");
 }
 
-int common_verify_arg_get_cmd_config(int argc, char *argv[], struct common_verify_cmd_config *pConfigRet, bool bSetDefault)
+int common_verify_arg_get_cmd_config(int argc, char *const argv[], struct common_verify_cmd_config *pConfigRet)
 {
     if (!argv || !pConfigRet) {
         return -1;
@@ -77,18 +76,17 @@ int common_verify_arg_get_cmd_config(int argc, char *argv[], struct common_verif
         sizeof(struct common_verify_cmd_config) - offsetof(struct common_verify_cmd_config, src_wid)); // set to -1
 
     /* parse cmd args */
-    int opt;
-    int idx;
-    const char *short_option_str = "hi:w:g:f:r:o:W:G:F:R:n:c:C:p:m:s:a::";
+    int opt = -1;
+    int idx = -1;
+    const char *short_option_str = "-hi:w:g:f:r:o:W:G:F:R:n:c:C:p:m:s:"; // -1 for keep unknow option index unchanged
     while ((opt = getopt_long(argc, argv, short_option_str, g_common_verify_arg_supported_options, &idx)) != -1) {
         switch (opt) {
         case 'h': common_verify_arg_print_usage(argv[0]); return -1;
-        case 'i': strncpy(config.input_file, optarg, 1024); break;
-        case 'o': strncpy(config.output_file, optarg, 1024); break;
-        case 'c': strncpy(config.config_file, optarg, 1024); break;
-        case 'C': strncpy(config.crc_file, optarg, 1024); break;
-        case 'a': strncpy(config.other_args, optarg, 1024); break;
-        case 'p': strncpy(config.platform, optarg, 32); break;
+        case 'i': strcpy_s(config.input_file, 1024, optarg); break;
+        case 'o': strcpy_s(config.output_file, 1024, optarg); break;
+        case 'c': strcpy_s(config.config_file, 1024, optarg); break;
+        case 'C': strcpy_s(config.crc_file, 1024, optarg); break;
+        case 'p': strcpy_s(config.platform_name, 32, optarg); break;
         case 'w': config.src_wid = atoi(optarg); break;
         case 'g': config.src_hgt = atoi(optarg); break;
         case 'f': config.src_fmt = atoi(optarg); break;
@@ -109,8 +107,8 @@ int common_verify_arg_get_cmd_config(int argc, char *argv[], struct common_verif
         printf(" - input_file not set!\n");
         // return -1;
     }
-    if (config.platform[0] == '\0') {
-        strncpy(config.platform, "RK3572", 32);
+    if (config.platform_name[0] == '\0') {
+        strcpy_s(config.platform_name, 32, "RK3572");
     }
     if (config.src_wid < 0) {
         config.src_wid = 1920;
@@ -140,17 +138,17 @@ int common_verify_arg_get_cmd_config(int argc, char *argv[], struct common_verif
         config.nb_frame = 1;
     }
     if (config.output_file[0] == '\0') {
-        strcpy(config.output_dir, get_dirname(config.input_file));
+        strcpy_s(config.output_dir, 1024, get_dirname(config.input_file));
         snprintf(config.output_file, 1024, "%s/verify_out_%dx%d_%s.%s", config.output_dir, config.dst_wid,
             config.dst_hgt, common_verify_imgfmt_str(config.dst_fmt), common_verify_imgfmt_exten_str(config.dst_fmt));
         printf(" - output_file no set, force update to '%s'!\n", config.output_file);
     }
     else {
-        strcpy(config.output_dir, get_dirname(config.output_file));
+        strcpy_s(config.output_dir, 1024, get_dirname(config.output_file));
         mkdir(config.output_dir, 0777); // mkdir before checking
         int flag = is_directory(config.output_file);
         if (flag == 1) {
-            strcpy(config.output_dir, config.output_file);
+            strcpy_s(config.output_dir, 1024, config.output_file);
             snprintf(config.output_file, 1024, "%s/verify_out_%dx%d_%s.%s", config.output_dir, config.dst_wid,
                 config.dst_hgt, common_verify_imgfmt_str(config.dst_fmt), common_verify_imgfmt_exten_str(config.dst_fmt));
             printf(" - output_file is a directory, force update to: '%s'!\n", config.output_file);
@@ -173,7 +171,7 @@ int common_verify_arg_dump_config(struct common_verify_cmd_config *config)
     printf(" - output_dir: %s\n", config->output_dir);
     printf(" - config_file: %s\n", config->config_file);
     printf(" - crc_file: %s\n", config->crc_file);
-    printf(" - platform: %s\n", config->platform);
+    printf(" - platform name: %s\n", config->platform_name);
     printf(" - src_wid: %d\n", config->src_wid);
     printf(" - src_hgt: %d\n", config->src_hgt);
     printf(" - src_fmt: %d (%s)\n", config->src_fmt, common_verify_imgfmt_str(config->src_fmt));
@@ -185,7 +183,6 @@ int common_verify_arg_dump_config(struct common_verify_cmd_config *config)
     printf(" - nb_frame: %d\n", config->nb_frame);
     printf(" - custom mode: %d\n", config->mode);
     printf(" - random seed: %d\n", config->seed);
-    printf(" - other_args: %s\n", config->other_args);
     printf("----------------------------------------\n");
     return 0;
 }
