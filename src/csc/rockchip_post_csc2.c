@@ -14,8 +14,7 @@
 
 #define CSC_COEF_BCSH_PRECISION (10) // 10bit fixed for BSCH adjust
 
-#define csc_simple_round(x, n) \
-    (((x) + (1 << ((n)-1)) + ((x) >> 31)) >> (n)) // right shift by n, round to nearest integer
+
 
 #ifndef CLIP
 #define MAX(a, b)             ((a) > (b) ? (a) : (b))
@@ -25,7 +24,7 @@
 
 
 /* extern var */
-const struct post_csc_convert_mode g_supported_standard_convert_mode[40] = {
+const struct post_csc_convert_mode g_supported_standard_convert_mode[DRM_CSC_MODE_MAX] = {
     { DRM_COLOR_YCBCR_BT709,  DRM_COLOR_YCBCR_BT709, 0, 0, 0, 1}, // rgbl_to_rgbf
     { DRM_COLOR_YCBCR_BT601,  DRM_COLOR_YCBCR_BT601, 0, 1, 0, 0}, // rgbl_to_601l
     { DRM_COLOR_YCBCR_BT601,  DRM_COLOR_YCBCR_BT601, 0, 1, 0, 1}, // rgbl_to_601f
@@ -66,6 +65,7 @@ const struct post_csc_convert_mode g_supported_standard_convert_mode[40] = {
     {DRM_COLOR_YCBCR_BT2020, DRM_COLOR_YCBCR_BT2020, 1, 0, 1, 0}, // 2020f_to_rgbl
     {DRM_COLOR_YCBCR_BT2020, DRM_COLOR_YCBCR_BT2020, 1, 0, 1, 1}, // 2020f_to_rgbf
     {DRM_COLOR_YCBCR_BT2020, DRM_COLOR_YCBCR_BT2020, 1, 1, 1, 0}, // 2020f_to_2020l
+    { DRM_COLOR_YCBCR_BT709,  DRM_COLOR_YCBCR_BT709, 0, 0, 1, 1}, // identity
 };
 
 union csc_matrix_s32

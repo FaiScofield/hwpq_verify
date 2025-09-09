@@ -19,6 +19,8 @@
 //     const struct post_csc_convert_mode *convert_mode       // [I] CSC convert mode
 // );
 
+#define csc_simple_round(x, n) \
+    (((x) + (1 << ((n)-1)) + ((x) >> 31)) >> (n)) // right shift by n, round to nearest integer
 
 #define ENABLE_POST_CSC_FLOATING_POINT (0) // open this macro to enable floating point calculation
 
@@ -69,11 +71,11 @@ enum drm_csc_mode
     DRM_BT2020F_TO_RGBL,
     DRM_BT2020F_TO_RGBF,
     DRM_BT2020F_TO_BT2020L,
+    DRM_CSC_MODE_IDENTITY,
     DRM_CSC_MODE_MAX,
 };
 
 extern const struct post_csc_convert_mode g_supported_standard_convert_mode[DRM_CSC_MODE_MAX];
 extern const int g_csc_max_coef_precision;
-
 
 #endif // _ROCKCHIP_POST_CSC2_H

@@ -1,5 +1,6 @@
 
 include_directories(${CMAKE_CURRENT_LIST_DIR})
+message(STATUS "LIB_DEPS on CSC: ${LIB_DEPS}")
 
 set(POST_CSC_DEMO_SRC
     ${CMAKE_CURRENT_LIST_DIR}/../kernel/rockchip_post_csc.c # post_csc from RK3576 kernel
@@ -12,9 +13,12 @@ endif()
 add_executable(post_csc_kernel_demo ${POST_CSC_DEMO_SRC})
 
 
-set(CSC_VERIFY_SRC ${CMAKE_CURRENT_LIST_DIR}/csc_verify_demo.c)
+set(CSC_VERIFY_SRC
+    ${CMAKE_CURRENT_LIST_DIR}/csc_verify_demo.c
+    ${CMAKE_CURRENT_LIST_DIR}/rockchip_post_csc2.c
+)
 add_executable(csc_verify_demo ${CSC_VERIFY_SRC})
-target_link_libraries(csc_verify_demo ${LIB_DEPS})
+target_link_libraries(csc_verify_demo PUBLIC ${LIB_DEPS})
 
 install(TARGETS post_csc_kernel_demo csc_verify_demo
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
