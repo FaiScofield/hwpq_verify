@@ -4,7 +4,7 @@ FilePath    : get_csc_coefs.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-08-27
 Description :
-LastEditTime: 2025-08-28
+LastEditTime: 2025-09-09
 """
 
 import argparse
@@ -44,6 +44,7 @@ class CscCoefConfig:
     pixel_depth = 10
     coef_precision = 0
     tune_fix_coefs = 0  # 0-no tuning, >0 means a diagonal ratio (float), no need to set this value
+    platform = "RK3572"
 
 
 class CscBcshConfig:
@@ -356,9 +357,12 @@ def get_csc_coefs(config: CscCoefConfig, bcsh_cfg: Optional[CscBcshConfig]) -> t
         final_mat, range_ofs_o, diagonal_ratio = adjust_convert_mat(config, bcsh_cfg, final_mat, range_ofs_o)
         config.tune_fix_coefs = diagonal_ratio  # >0 means diagonal BCSH matrix
 
-    ## get fixed mat
+    ## get fixed mat, dtype=np.int32
     if config.coef_precision > 0:
         csc_coefs, csc_offset = get_fixed_coefs_mat(config, final_mat, range_ofs_i, range_ofs_o)
+        if config.platform.upper() == "RK3576":
+            rnd_half = 1 << (config.precision - 1)
+            csc_offset = (csc_offset + rnd_half + (csc_offset >> 31)) >> config.precision
     else:
         csc_coefs = final_mat
         csc_offset = range_ofs_o + final_mat @ range_ofs_i

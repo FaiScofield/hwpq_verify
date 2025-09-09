@@ -4,7 +4,7 @@ FilePath    : module_config_csc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-16
 Description :
-LastEditTime: 2025-09-03
+LastEditTime: 2025-09-09
 """
 
 import os
@@ -55,9 +55,10 @@ class CscConfig(ModuleConfigCore):
         self.cscVector = np.zeros(3, dtype=np.int32)  # s23
         self.cscPassthrough = 0  # use matrix & vector directly
 
+        self.cscConvertMat = np.identity(3, dtype=np.int16) * 1024  # standard matrix
         self.cscSrcOffset = np.zeros(3, dtype=np.int32)
         self.cscDstOffset = np.zeros(3, dtype=np.int32)
-        self.cscBitDepth = 10
+        self.cscPixelDepth = 10
         self.cscCoefPrecision = 10
         self.cscConvertMode = 0  # [0, 39]
 
@@ -81,12 +82,13 @@ class CscConfig(ModuleConfigCore):
             ## keep list data in one line by using NoIndent & CompactArrayEncoder
             "cscMatrix": NoIndent(self.cscMatrix.flatten().tolist()),
             "cscVector": NoIndent(self.cscVector.flatten().tolist()),
+            "cscConvertMode": self.cscConvertMode,
+            "cscConvertMat": NoIndent(self.cscConvertMat.flatten().tolist()),
             "cscSrcOffset": NoIndent(self.cscSrcOffset.flatten().tolist()),
             "cscDstOffset": NoIndent(self.cscDstOffset.flatten().tolist()),
-            "cscBitDepth": self.cscBitDepth,
+            "cscPixelDepth": self.cscPixelDepth,
             "cscCoefPrecision": self.cscCoefPrecision,
             "cscPassthrough": self.cscPassthrough,
-            "cscConvertMode": self.cscConvertMode,
         }
         if filename == "":
             self.logger.info(f"Config parameters shown below:")
@@ -138,6 +140,11 @@ class CscConfig(ModuleConfigCore):
                 self.cscVector = (
                     np.array(data["cscVector"], dtype=np.int32) if "cscVector" in data else np.zeros(3, dtype=np.int32)
                 )
+                self.cscConvertMat = (
+                    np.array(data["cscConvertMat"], dtype=np.int32)
+                    if "cscConvertMat" in data
+                    else np.zeros(3, dtype=np.int32)
+                )
                 self.cscSrcOffset = (
                     np.array(data["cscSrcOffset"], dtype=np.int32)
                     if "cscSrcOffset" in data
@@ -149,7 +156,7 @@ class CscConfig(ModuleConfigCore):
                     else np.zeros(3, dtype=np.int32)
                 )
                 self.cscPassthrough = data["cscPassthrough"] if "cscPassthrough" in data else 0
-                self.cscBitDepth = data["cscBitDepth"] if "cscBitDepth" in data else 10
+                self.cscPixelDepth = data["cscPixelDepth"] if "cscPixelDepth" in data else 10
                 self.cscCoefPrecision = data["cscCoefPrecision"] if "cscCoefPrecision" in data else 10
                 self.cscConvertMode = data["cscConvertMode"] if "cscConvertMode" in data else -1
                 self.version = data["version"] if "version" in data else "unknown"
@@ -174,10 +181,10 @@ class CscConfig(ModuleConfigCore):
 
         ## parse other arguments (TODO: no passing arguments yet from cli_helper_csc!)
         precision = kwargs["precision"] if "precision" in kwargs else self.cscCoefPrecision
-        bit_depth = kwargs["bit_depth"] if "bit_depth" in kwargs else self.cscBitDepth
-        assert bit_depth in [8, 10]
-        assert precision in [8, 10, 13] and precision >= bit_depth
-        precision = 13
+        pixel_depth = kwargs["pixel_depth"] if "pixel_depth" in kwargs else self.cscPixelDepth
+        assert pixel_depth in [8, 10]
+        assert precision in [8, 10, 13] and precision >= pixel_depth
+        # precision = 13
 
         self.randSeed = seed
         self.version = f"{self.name.lower()}_config_{self.platform.lower()}_random_seed_{seed}"
@@ -196,24 +203,30 @@ class CscConfig(ModuleConfigCore):
         self.cscBOffset = random.randint(0, 511)
 
         ## update adition parameters
-        self.cscBitDepth = bit_depth
+        self.cscPixelDepth = pixel_depth
         self.cscCoefPrecision = precision
         self.cscConvertMode = random.randint(0, 39)
         if "passthrough" in kwargs:
             self.cscPassthrough = int(kwargs["passthrough"])
         else:
-            self.cscPassthrough = int(random.randint(0, 99) < 10)  # 10% be ON
+            self.cscPassthrough = int(random.randint(0, 99) < 30)  # 30% be ON
 
         ## generate csc matrix and vector with CscCoefConfig
         mode_key = list(csc_core.g_supported_standard_convert_modes.keys())[self.cscConvertMode]
         csc_config = csc_core.CscCoefConfig()
-        csc_config.pixel_depth = bit_depth
+        csc_config.platform = self.platform
+        csc_config.pixel_depth = pixel_depth
         csc_config.coef_precision = precision
         csc_config.csc_mode = csc_core.g_supported_standard_convert_modes[mode_key]
 
-        if self.cscPassthrough:
-            self.cscMatrix, self.cscVector = csc_core.get_csc_coefs(csc_config, None)
-        else:
+        self.cscMatrix, self.cscVector = csc_core.get_csc_coefs(csc_config, None)
+        _, _, dc_in, dc_out = csc_core.get_range_convert_mat(csc_config.csc_mode, pixel_depth)
+        self.cscConvertMat = self.cscMatrix.copy()
+        self.cscSrcOffset = dc_in.astype(np.int32)
+        self.cscDstOffset = dc_out.astype(np.int32)
+
+        ## adjust csc matri with BCSH config
+        if not self.cscPassthrough:
             bcsh_config = csc_core.CscBcshConfig()
             bcsh_config.hue = self.cscHue
             bcsh_config.saturation = self.cscSaturation
@@ -250,18 +263,10 @@ class CscConfig(ModuleConfigCore):
             #     # minus an offset to keep from hw overflow, since the offset will be added to dc vector before using it!
             #     self.cscVector = np.minimum(self.cscVector, 2 ** (precision + 12) - 2 ** (precision - 1))
 
-        # else:
-        #     self.gen_coef_from_param()
-
         self.logger.info(
             f"generated a random config with seed={seed}, precision={precision}, passthrough={self.cscPassthrough}"
         )
         return True
-
-    # def gen_coef_from_param(self):
-    #     # TODO
-    #     self.logger.error("TODO: 'gen_coef_from_param' not implemented yet!")
-    #     pass
 
 
 if __name__ == "__main__":

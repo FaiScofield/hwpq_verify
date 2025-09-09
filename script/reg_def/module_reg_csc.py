@@ -41,7 +41,7 @@ class CscModuleIndex(Enum):
     HWC1_CSC = ("HWC1_CSC", 0x00003930, 10)
 
 
-g_csc_new_reg_arrange = [CscModuleIndex.POST0_ACM_R2Y, CscModuleIndex.POST0_ACM_Y2R, CscModuleIndex.POST1_BCSH_Y2R]
+g_post_csc = [CscModuleIndex.POST0_ACM_R2Y, CscModuleIndex.POST0_ACM_Y2R, CscModuleIndex.POST1_BCSH_Y2R]
 
 
 class CscRegister(ModuleRegisterCore):
@@ -150,7 +150,7 @@ class CscRegister(ModuleRegisterCore):
         CM = np.uint16(0xFFFF)  # coef mask = 0x3FF or 0xFFFF
         cscMatrix = self.config.cscMatrix.astype(np.int32)  # s16->s32 first
         cscVector = self.config.cscVector.astype(np.int32)  # s32->s32 first
-        if self.index in g_csc_new_reg_arrange:
+        if self.index in g_post_csc:
             self.regs[0].value = 0x1 | ((self.config.cscEnable * 0x1) << 1) | ((cscMatrix[0, 0] & CM) << 16)
             self.regs[1].value = (cscMatrix[0, 1] & CM) | ((cscMatrix[0, 2] & CM) << 16)
             self.regs[2].value = (cscMatrix[1, 0] & CM) | ((cscMatrix[1, 1] & CM) << 16)
@@ -174,7 +174,7 @@ class CscRegister(ModuleRegisterCore):
 
         self.regs = self.reg_dicts[self.index]  # [offset, value, name]
         CM = np.uint32(0xFFFF)  # coef mask = 0x3FF or 0xFFFF
-        if self.index in g_csc_new_reg_arrange:
+        if self.index in g_post_csc:
             self.config.cscEnable = (self.regs[0].value >> 1) & 0x1
             self.config.cscMatrix[0, 0] = ((self.regs[0].value >> 16) & CM).astype(np.int16)
             self.config.cscMatrix[0, 1] = ((self.regs[1].value & CM)).astype(np.int16)
@@ -198,9 +198,6 @@ class CscRegister(ModuleRegisterCore):
         self.config.cscVector[0] = self.regs[5].value.astype(np.int32)
         self.config.cscVector[1] = self.regs[6].value.astype(np.int32)
         self.config.cscVector[2] = self.regs[7].value.astype(np.int32)
-        # self.config.cscMatrix = np.clip(self.config.cscMatrix, -(2**12), 2**12 - 1)  # s13
-        # self.config.cscVector = np.clip(self.config.cscVector, -(2**22), 2**22 - 1)  # s23
-        # self.config.cscVecB4Mul = np.linalg.solve(self.config.cscMatrix, self.config.cscVector).astype(np.int32)
         return True
 
     def dump(self, filename: str = "", align: int = 4, pretty_lines_stdout: int = 16, **kwargs) -> bool:
