@@ -4,13 +4,16 @@
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-05
  * @history:
+ *  2025-09-10 vance.wu: print crc32 value for input/output data.
  */
 
 #include "verify_com.h"
 #include "verify_cmd_parser.h"
+#include "verify_crc32.h"
 #include "rockchip_post_csc.h"
 #include "rockchip_post_csc2.h"
 #include "cJSON.h"
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -61,9 +64,10 @@ static const char *g_csc_mode_strs[DRM_CSC_MODE_MAX] = {
 
 struct cmd_config_addition_csc
 {
-    char mode_str[32];  // csc mode string like: '709l_to_rgbf'
-    int pixel_depth;    // {8,10}
-    int coef_precision; // {8,10,13}
+    char mode_str[32];   // csc mode string like: '709l_to_rgbf'
+    int pixel_depth;     // {8,10}
+    int coef_precision;  // {8,10,13}
+    bool use_float_coef; // {0, 1} TODO
 };
 
 void print_usage_addition()
@@ -232,7 +236,7 @@ int parse_csc_config(const char *cfg_path, struct post_csc_coef *coef, struct po
     }
     if (cJSON_HasObjectItem(node_csc, "cscConvertMode")) {
         mode_idx = cJSON_GetObjectItem(node_csc, "cscConvertMode")->valueint;
-        LOGI("\t- load cscConvertMode: %d\n", mode_idx);
+        LOGI("\t- load cscConvertMode: %d (%s)\n", mode_idx, g_csc_mode_strs[mode_idx]);
         if (mode_idx >= 0 && mode_idx < DRM_CSC_MODE_MAX) {
             convert_mode = &g_supported_standard_convert_mode[mode_idx];
             if (mode) {
@@ -286,12 +290,16 @@ int parse_csc_config(const char *cfg_path, struct post_csc_coef *coef, struct po
         mode.plat = VOP_VERSION_RK3572;
         mode.pixel_depth = pixel_depth;
         mode.coef_precision = precision;
-        ret = rockchip_calc_post_csc(bcsh, coef, &mode);
+        ret = rockchip_calc_post_csc(&bcsh_cfg, coef, &mode);
+        ret = rockchip_calc_post_csc_coefs(&bcsh_cfg, &mode, coef);
+        LOGI("\t- get csc coefs from convert mode...\n");
     }
     else {
         memcpy(coef, csc_coefsx13, sizeof(struct post_csc_coef));
         coef->range_type = convert_mode ? convert_mode->is_output_full_range : -1;
+        LOGI("\t- load csc coefs from cscMatrix & cscVector...\n");
     }
+
 
     return ret;
 }
@@ -364,6 +372,57 @@ void run_csc_with_coef(const void *p_src, void *p_dst, int img_w, int img_h, con
     }
 }
 
+void dump_csc_regs(const char *filename, unsigned int base_addr, const struct post_csc_coef *csc_coefs, int is_post_csc)
+{
+    FILE *fp = stdout;
+    if (filename) {
+        fp = fopen(filename, "wb");
+        if (fp == NULL) {
+            LOGE("open file %s failed! dump to stdout instead!\n", filename);
+            fp = stdout;
+        }
+    }
+
+    // swap YUV order to VYU order: c0->c1, c1->c2, c2->c0
+    int coefs[13] = {0};
+    memcpy(coefs, csc_coefs, sizeof(int) * 12);
+    coefs[12] = 1; // enable
+
+    // coefs to regs
+    const int len = 8;
+    const int CM = 0xFFFF; // coef mask = 0x3FF or 0xFFFF
+    int regs[8] = {0};     // 8 32bit regs total
+    if (is_post_csc) {
+        regs[0] = 0x1 | (coefs[12] << 1) | ((coefs[0] & CM) << 16);
+        regs[1] = (coefs[1] & CM) | ((coefs[2] & CM) << 16);
+        regs[2] = (coefs[3] & CM) | ((coefs[4] & CM) << 16);
+        regs[3] = (coefs[5] & CM) | ((coefs[6] & CM) << 16);
+        regs[4] = (coefs[7] & CM) | ((coefs[8] & CM) << 16);
+    }
+    else {
+        regs[0] = (coefs[0] & CM) | ((coefs[1] & CM) << 16);
+        regs[1] = (coefs[2] & CM) | ((coefs[3] & CM) << 16);
+        regs[2] = (coefs[4] & CM) | ((coefs[5] & CM) << 16);
+        regs[3] = (coefs[6] & CM) | ((coefs[7] & CM) << 16);
+        regs[4] = (coefs[8] & CM);
+    }
+    regs[5] = coefs[9];
+    regs[6] = coefs[10];
+    regs[7] = coefs[11];
+    LOGI("dump regs to %s, base_addr: 0x%08X, num: %d\n", fp == stdout ? "stdout" : filename, base_addr, len);
+
+    // dump regs
+    const unsigned int start_addr = base_addr;
+    int i = 0;
+    for (i = 0; i <= len - 4; i += 4) {
+        fprintf(fp, "0x%08X:  0x%08X 0x%08X 0x%08X 0x%08X\n", start_addr + i * 4, regs[i], regs[i + 1], regs[i + 2],
+            regs[i + 3]);
+    }
+
+    if (fp != stdout)
+        fclose(fp);
+}
+
 int main(int argc, char *const argv[])
 {
     int ret = 0;
@@ -379,9 +438,6 @@ int main(int argc, char *const argv[])
 
     get_cmd_config_addition(argc, argv, &cmd_config2);
     common_verify_arg_dump_config(&cmd_config);
-    LOGI(" - pixel_depth: %d\n", cmd_config2.pixel_depth);
-    LOGI(" - coef_precision: %d\n", cmd_config2.coef_precision);
-    LOGI(" - mode_string: %s\n", cmd_config2.mode_str);
 
     // check nessary parameters
     if (cmd_config.crc_file[0] == '\0') {
@@ -401,6 +457,7 @@ int main(int argc, char *const argv[])
         LOGI(" - get a valid csc mode(%d, %s), test with standard coefs!\n", mode_idx, g_csc_mode_strs[mode_idx]);
         memcpy(&csc_mode, &g_supported_standard_convert_mode[mode_idx], sizeof(struct post_csc_convert_mode));
         ret = rockchip_calc_post_csc(NULL, &csc_coefs, &csc_mode);
+        ret = rockchip_calc_post_csc_coefs(NULL, &mode, coef);
     }
     // parse csc coefs from 'cmd_config2.mode_str'
     else if (cmd_config2.mode_str[0] != '\0') {
@@ -408,6 +465,11 @@ int main(int argc, char *const argv[])
         csc_mode.pixel_depth = cmd_config2.pixel_depth;
         csc_mode.coef_precision = cmd_config2.coef_precision;
         ret |= rockchip_calc_post_csc(NULL, &csc_coefs, &csc_mode);
+        ret |= rockchip_calc_post_csc_coefs(NULL, &mode, coef);
+        mode_idx = csc_get_mode_index(&csc_mode);
+        LOGI(" - pixel_depth: %d\n", cmd_config2.pixel_depth);
+        LOGI(" - coef_precision: %d\n", cmd_config2.coef_precision);
+        LOGI(" - mode_string: %s -> index: $d\n", cmd_config2.mode_str, mode_idx);
     }
     // parse csc coefs from 'cmd_config.config_file'
     else if (cmd_config.config_file[0] != '\0') {
@@ -429,7 +491,8 @@ int main(int argc, char *const argv[])
         csc_coefs.csc_dc2, csc_coefs.range_type);
     // LOGI(" - csc_coef limit: range0=[%d, %d] range1=[%d, %d]\n", csc_limits[0], csc_limits[1], csc_limits[2], csc_limits[3]);
     const int bCscEnable = 1; //csc_coefs[12] > 0;
-    const int bIsOutputYuv = bCscEnable ? (cmd_config.dst_clrspc > RGBFULL) : (cmd_config.src_clrspc > RGBFULL);
+    const int bIsInputYuv = cmd_config.src_clrspc > RGBFULL;
+    const int bIsOutputYuv = bCscEnable ? (cmd_config.dst_clrspc > RGBFULL) : bIsInputYuv;
     const int bIsPostCsc = 0;
     LOGI(" - bCscEnable: %d, bIsOutputYuv: %d, bIsPostCsc: %d\n", bCscEnable, bIsOutputYuv, bIsPostCsc);
 
@@ -465,24 +528,26 @@ int main(int argc, char *const argv[])
             break;
         }
 
-        run_csc_with_coef(p_src, p_dst, cmd_config.src_wid, cmd_config.src_hgt, &csc_coefs, &csc_mode);
+        int crc_val = get_crc_for_planar_frame_10bit(p_src, cmd_config.src_wid, cmd_config.src_hgt, bIsInputYuv);
+        LOGI("src CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsInputYuv ? "VYU" : "RGB", k, crc_val);
 
-        // dump_csc_regs(NULL, 0xF9000CD0, csc_coefs, bIsPostCsc, 0);
+        run_csc_with_coef(p_src, p_dst, cmd_config.src_wid, cmd_config.src_hgt, &csc_coefs, &csc_mode);
+        dump_csc_regs(NULL, 0x0, &csc_coefs, bIsPostCsc);
         fwrite(p_dst, 2, cmd_config.src_wid * cmd_config.src_hgt * 3, fp_dst);
 
         // get CRC
-        // int crc_result = get_dst_crc_10bit_rgb_yuv444p(p_dst, cmd_config.src_wid, cmd_config.src_hgt, bIsOutputYuv);
-        // LOGI("dst CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsOutputYuv ? "VYU" : "RGB", k, crc_result);
-        // if (fp_crc) {
-        //     if (b_valid_csc_mode) {
-        //         fprintf(fp_crc, "input: %s, cmd_config: csc_config_standard_mode_%02d_%s, crc of frame #%04d: 0x%08X\n",
-        //             GetBasename(cmd_config.input_file), csc_mode_idx, csc_mode_strs[csc_mode_idx], k, crc_result);
-        //     }
-        //     else {
-        //         fprintf(fp_crc, "input: %s, cmd_config: %s, crc of frame #%04d: 0x%08X\n", GetBasename(cmd_config.input_file),
-        //             GetBasename(cmd_config.config_file), k, crc_result);
-        //     }
-        // }
+        crc_val = get_crc_for_planar_frame_10bit(p_dst, cmd_config.src_wid, cmd_config.src_hgt, bIsOutputYuv);
+        LOGI("dst CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
+        if (fp_crc) {
+            if (mode_idx >= 0 && mode_idx < DRM_CSC_MODE_MAX) {
+                fprintf(fp_crc, "input: %s, cmd_config: csc_standard_mode_%02d_%s, crc of frame #%04d: 0x%08X\n",
+                    get_basename(cmd_config.input_file), mode_idx, g_csc_mode_strs[mode_idx], k, crc_val);
+            }
+            else {
+                fprintf(fp_crc, "input: %s, cmd_config: %s, crc of frame #%04d: 0x%08X\n",
+                    get_basename(cmd_config.input_file), get_basename(cmd_config.config_file), k, crc_val);
+            }
+        }
     }
     LOGI("done. write output to file: '%s'\n", cmd_config.output_file);
 

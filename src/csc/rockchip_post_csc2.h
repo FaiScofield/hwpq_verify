@@ -20,13 +20,13 @@
 // );
 
 #define csc_simple_round(x, n) \
-    (((x) + (1 << ((n)-1)) + ((x) >> 31)) >> (n)) // right shift by n, round to nearest integer
+    (((x) + (1 << ((n) - 1)) + ((x) >> 31)) >> (n)) // right shift by n, round to nearest integer
 
-#define ENABLE_POST_CSC_FLOATING_POINT (0) // open this macro to enable floating point calculation
+#define ENABLE_POST_CSC_FLOATING_POINT (1) // open this macro to enable floating point calculation
 
 int rockchip_calc_post_csc_coefs(const struct post_csc *csc_cfg, // [I] CSC config
-    const struct post_csc_convert_mode *convert_mode,            // [I] CSC convert mode
-    struct post_csc_coef *csc_simple_coef                        // [O] return CSC coefs
+    struct post_csc_coef *csc_simple_coef,                       // [O] return CSC coefs
+    const struct post_csc_convert_mode *convert_mode             // [I] CSC convert mode
 );
 
 enum drm_csc_mode

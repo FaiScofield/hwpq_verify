@@ -820,8 +820,8 @@ static int csc_get_drm_csc_mode_enum(const struct post_csc_convert_mode *mode)
 }
 
 int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC config
-    const struct post_csc_convert_mode *convert_mode,             // [I] CSC convert mode
-    struct post_csc_coef *csc_simple_coef                         // [O] return CSC coefs
+    struct post_csc_coef *csc_simple_coef,                        // [O] return CSC coefs
+    const struct post_csc_convert_mode *convert_mode              // [I] CSC convert mode
 )
 {
     int ret = 0;

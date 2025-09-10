@@ -1233,7 +1233,7 @@ enum color_space_type get_color_space_type(enum drm_color_encoding color_encodin
 	return color_space_type;
 }
 
-static int csc_get_mode_index(struct post_csc_convert_mode *convert_mode)
+/* static */ int csc_get_mode_index(struct post_csc_convert_mode *convert_mode)
 {
 	const struct rk_csc_colorspace_info *colorspace_info;
 	int i, j;
