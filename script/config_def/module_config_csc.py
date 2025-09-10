@@ -4,7 +4,7 @@ FilePath    : module_config_csc.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-16
 Description :
-LastEditTime: 2025-09-09
+LastEditTime: 2025-09-10
 """
 
 import os
@@ -60,7 +60,8 @@ class CscConfig(ModuleConfigCore):
         self.cscDstOffset = np.zeros(3, dtype=np.int32)
         self.cscPixelDepth = 10
         self.cscCoefPrecision = 10
-        self.cscConvertMode = 0  # [0, 39]
+        self.cscConvertMode = -1  # [0, 39]
+        self.cscConvertModeStr = ""
 
     ## =============== overwrite methods  ===============
     def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
@@ -83,6 +84,7 @@ class CscConfig(ModuleConfigCore):
             "cscMatrix": NoIndent(self.cscMatrix.flatten().tolist()),
             "cscVector": NoIndent(self.cscVector.flatten().tolist()),
             "cscConvertMode": self.cscConvertMode,
+            "cscConvertModeStr": self.cscConvertModeStr,
             "cscConvertMat": NoIndent(self.cscConvertMat.flatten().tolist()),
             "cscSrcOffset": NoIndent(self.cscSrcOffset.flatten().tolist()),
             "cscDstOffset": NoIndent(self.cscDstOffset.flatten().tolist()),
@@ -159,6 +161,7 @@ class CscConfig(ModuleConfigCore):
                 self.cscPixelDepth = data["cscPixelDepth"] if "cscPixelDepth" in data else 10
                 self.cscCoefPrecision = data["cscCoefPrecision"] if "cscCoefPrecision" in data else 10
                 self.cscConvertMode = data["cscConvertMode"] if "cscConvertMode" in data else -1
+                self.cscConvertModeStr = data["cscConvertModeStr"] if "cscConvertModeStr" in data else ""
                 self.version = data["version"] if "version" in data else "unknown"
                 self.randSeed = data["randSeed"] if "randSeed" in data else -1
                 return True
@@ -180,8 +183,8 @@ class CscConfig(ModuleConfigCore):
         np.random.seed(seed)
 
         ## parse other arguments (TODO: no passing arguments yet from cli_helper_csc!)
-        precision = kwargs["precision"] if "precision" in kwargs else self.cscCoefPrecision
-        pixel_depth = kwargs["pixel_depth"] if "pixel_depth" in kwargs else self.cscPixelDepth
+        precision = int(kwargs["precision"]) if "precision" in kwargs else self.cscCoefPrecision
+        pixel_depth = int(kwargs["pixel_depth"]) if "pixel_depth" in kwargs else self.cscPixelDepth
         assert pixel_depth in [8, 10]
         assert precision in [8, 10, 13] and precision >= pixel_depth
         # precision = 13
@@ -218,6 +221,7 @@ class CscConfig(ModuleConfigCore):
         csc_config.pixel_depth = pixel_depth
         csc_config.coef_precision = precision
         csc_config.csc_mode = csc_core.g_supported_standard_convert_modes[mode_key]
+        self.cscConvertModeStr = mode_key
 
         self.cscMatrix, self.cscVector = csc_core.get_csc_coefs(csc_config, None)
         _, _, dc_in, dc_out = csc_core.get_range_convert_mat(csc_config.csc_mode, pixel_depth)

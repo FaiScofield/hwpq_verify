@@ -4,7 +4,7 @@ FilePath    : setup_logger.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-10
 Description :
-LastEditTime: 2025-08-22
+LastEditTime: 2025-09-10
 """
 
 import os
@@ -220,3 +220,21 @@ def enum_with_index(cls):
 
     cls.from_index = from_index
     return cls
+
+
+def extras_args_to_dict(extras: list[str]) -> dict:
+    """将命令行参数转化为字典"""
+    kwargs = {}
+    i = 0
+    while i < len(extras):
+        if extras[i].startswith('--'):
+            key = extras[i][2:]
+            if i + 1 < len(extras) and not extras[i + 1].startswith('--'):
+                kwargs[key] = extras[i + 1]
+                i += 2
+            else:
+                kwargs[key] = True
+                i += 1
+        else:
+            i += 1
+    return kwargs

@@ -4,7 +4,7 @@ FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-08-22
+LastEditTime: 2025-09-10
 """
 
 import sys
@@ -23,7 +23,7 @@ sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import ModuleConfigCore
 # 寄存器基类，新增模块需要在`reg_def`中增加对应的寄存器定义文件
 from reg_def.module_reg_core import ModuleRegisterCore
-from utils import run_cmd
+from utils import run_cmd, extras_args_to_dict
 
 
 class ModuleHelperCore(ABC):
@@ -203,7 +203,8 @@ class ModuleHelperCore(ABC):
         parser.add_argument("-n", "--num", default=1, type=int, help="生成随机配置的数量")
         parser.add_argument("-s", "--rand_seed", default=114514, type=int, help="起始随机种子(n>1时随机种子自增1)")
         parser.add_argument("-o", "--output", default="", type=str, help="生成的配置文件或目录(n>1时指定目录)")
-        args, _ = parser.parse_known_args(args)
+        args, extras = parser.parse_known_args(args)
+        kwargs = extras_args_to_dict(extras)
 
         args.num = max(1, args.num)
         abs_path = os.path.abspath(args.output)
@@ -218,7 +219,7 @@ class ModuleHelperCore(ABC):
             os.makedirs(dirname, exist_ok=True)
 
         if args.num == 1:
-            self.config.gen(args.rand_seed)
+            self.config.gen(args.rand_seed, **kwargs)
             seed_ret = self.config.randSeed
             if abs_path != "" and not os.path.isfile(abs_path):
                 abs_path = os.path.join(dirname, f"{self.name.lower()}_config_seed_{seed_ret}.json")
@@ -231,7 +232,7 @@ class ModuleHelperCore(ABC):
                 print(f"[{self.name}] num > 1, 指定输出应该为绝对路径的目录名，强制修改为: {dirname}")
             seed = self.config.get_seed() if args.rand_seed is None else args.rand_seed
             for i in tqdm(range(args.num), desc="生成随机配置"):
-                self.config.gen(seed + i)
+                self.config.gen(seed + i, **kwargs)
                 seed_ret = self.config.randSeed
                 abs_path = os.path.join(dirname, f"{self.name.lower()}_config_seed_{seed_ret}.json")
                 self.config.dump(abs_path)
@@ -266,7 +267,8 @@ class ModuleHelperCore(ABC):
         parser = argparse.ArgumentParser(exit_on_error=False)
         parser.add_argument("-p", "--platform", type=str, default="", help="set RK platform")
         parser.add_argument("-x", "--index", type=int, help="XxxModuleIndex")
-        param, _ = parser.parse_known_args(args)
+        param, extras = parser.parse_known_args(args)
+        kwargs = extras_args_to_dict(extras)
 
         platform_name = param.platform.upper()
         if platform_name != "":
@@ -277,7 +279,7 @@ class ModuleHelperCore(ABC):
             platform_name = self.platform
         if self.register is not None and param.index is not None:
             print(f"[{self.name}] Set index to: {param.index}")
-            self.register.update(platform=platform_name, index=param.index)
+            self.register.update(platform=platform_name, index=param.index, **kwargs)
 
             ## 给子模块也全部设置新的平台
             for mod in self.submodules:
