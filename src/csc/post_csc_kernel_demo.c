@@ -269,7 +269,7 @@ int main(int argc, char *const argv[])
             ret = rockchip_calc_post_csc(bcsh_config, &csc_simple_coef, &mode);
         }
         else {
-            ret = rockchip_calc_post_csc_coefs(bcsh_config, &mode, &csc_simple_coef);
+            ret = rockchip_calc_post_csc_coefs(bcsh_config, &csc_simple_coef, &mode);
         }
         if (0 == ret) {
             fprintf(fp_out, "CSC mode: %s_%s -> %s_%s:\n",

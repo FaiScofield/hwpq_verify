@@ -4,7 +4,7 @@ FilePath    : get_csc_coefs.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-08-27
 Description :
-LastEditTime: 2025-09-09
+LastEditTime: 2025-09-11
 """
 
 import argparse
@@ -216,7 +216,7 @@ def get_space_convert_mat(mode: CscMode) -> Optional[np.ndarray]:
 
 def adjust_convert_mat(
     config: CscCoefConfig, bcsh_cfg: CscBcshConfig, out_mat: np.ndarray, out_vec: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, bool]:
+) -> tuple[np.ndarray, np.ndarray, float]:
     ## get BCSH parameters
     contrast = bcsh_cfg.contrast / 256.0  # [0, 511] -> [0, 2)
     saturation = bcsh_cfg.saturation / 256.0  # [0, 511] -> [0, 2)
@@ -246,9 +246,9 @@ def adjust_convert_mat(
 
     gain_matrix = np.array([[r_gain, 0, 0], [0, g_gain, 0], [0, 0, b_gain]], dtype=np.float32)
     contrast_matrix = np.array([[contrast, 0, 0], [0, contrast, 0], [0, 0, contrast]], dtype=np.float32)
-    hue_matrix = np.array([[1, 0, 0], [0, cos_hue, sin_hue], [0, -sin_hue, cos_hue]], dtype=np.float32)
-    saturation_matrix = np.array([[saturation, 0, 0], [0, saturation, 0], [0, 0, saturation]], dtype=np.float32)
-    b_diagonal_m0 = hue_rad == 0
+    hue_matrix = np.array([[1, 0, 0], [0, cos_hue, -sin_hue], [0, sin_hue, cos_hue]], dtype=np.float32)
+    saturation_matrix = np.array([[1, 0, 0], [0, saturation, 0], [0, 0, saturation]], dtype=np.float32)
+    b_diagonal_m0 = hue_rad == 0 and saturation == 1
     b_diagonal_m1 = r_gain == g_gain and g_gain == b_gain
 
     ## M0 = hue_matrix * saturation_matrix, which is applied on YUV space. It will be a DIAGONAL matrix ONLY if the hue_matrix is identity
@@ -281,10 +281,10 @@ def adjust_convert_mat(
         out_vec[2] += brightness + b_offset
 
     ## count diagonal ratio for later fixed-point calcuation
-    if hue_rad == 0 and r_gain == g_gain and g_gain == b_gain:
+    if b_diagonal_m0 and b_diagonal_m1:
         diagonal_ratio = r_gain * contrast * saturation
     else:
-        diagonal_ratio = 0
+        diagonal_ratio = 0.0
 
     return out_mat, out_vec, diagonal_ratio
 
@@ -355,7 +355,8 @@ def get_csc_coefs(config: CscCoefConfig, bcsh_cfg: Optional[CscBcshConfig]) -> t
     ## adjust final_mat with bsch configs
     if bcsh_cfg is not None:
         final_mat, range_ofs_o, diagonal_ratio = adjust_convert_mat(config, bcsh_cfg, final_mat, range_ofs_o)
-        config.tune_fix_coefs = diagonal_ratio  # >0 means diagonal BCSH matrix
+        if config.tune_fix_coefs:
+            config.tune_fix_coefs = diagonal_ratio  # >0 means the BCSH matrixes are diagonal
 
     ## get fixed mat, dtype=np.int32
     if config.coef_precision > 0:
@@ -457,6 +458,7 @@ if __name__ == '__main__':
     csc_config.pixel_depth = depth
     csc_config.coef_precision = precision
     csc_config.tune_fix_coefs = args.fix_check
+    csc_config.platform = "RK3572"
 
     bcsh = CscBcshConfig()
     # bcsh.hue = 256

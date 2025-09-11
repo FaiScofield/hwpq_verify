@@ -15,7 +15,6 @@
 #define CSC_COEF_BCSH_PRECISION (10) // 10bit fixed for BSCH adjust
 
 
-
 #ifndef CLIP
 #define MAX(a, b)             ((a) > (b) ? (a) : (b))
 #define MIN(a, b)             ((a) < (b) ? (a) : (b))
@@ -340,8 +339,8 @@ static void csc_adjust_convert_matrix(const struct post_csc_convert_mode *mode, 
 
     const union csc_matrix_f32 gain_matrix = {r_gain, 0.f, 0.f, 0.f, g_gain, 0.f, 0.f, 0.f, b_gain};
     const union csc_matrix_f32 contrast_matrix = {contrast, 0.f, 0.f, 0.f, contrast, 0.f, 0.f, 0.f, contrast};
-    const union csc_matrix_f32 hue_matrix = {1.f, 0.f, 0.f, 0.f, cos_hue, sin_hue, 0.f, -sin_hue, cos_hue};
-    const union csc_matrix_f32 saturation_matrix = {saturation, 0.f, 0.f, 0.f, saturation, 0.f, 0.f, 0.f, saturation};
+    const union csc_matrix_f32 hue_matrix = {1.f, 0.f, 0.f, 0.f, cos_hue, -sin_hue, 0.f, sin_hue, cos_hue};
+    const union csc_matrix_f32 saturation_matrix = {1.f, 0.f, 0.f, 0.f, saturation, 0.f, 0.f, 0.f, saturation};
 
     // M0 = hue_matrix * saturation_matrix,
     // M1 = gain_matrix * contrast_matrix,
@@ -602,7 +601,7 @@ static const union csc_matrix_s32 g_csc_fixed_coefs_10bit_pix_13bit_precision[DR
     {7015,     0,     0,     0,  7175,     0,    0,     0, 7175}, /*DRM_BT2020F_TO_BT2020L*/
 };
 
-/* 10bit Hue Sin Look Up Table -> range[-30, 30]. value range: [-508, 512] */
+/* 10bit Hue Sin Look Up Table -> range[30, -30]. value range: [-508, 512] */
 static const int g_hue_sin_table_10bit[256] = {512, 508, 505, 501, 497, 494, 490, 486, 483, 479, 475, 472, 468, 464, 460,
     457, 453, 449, 445, 442, 438, 434, 430, 426, 423, 419, 415, 411, 407, 403, 400, 396, 392, 388, 384, 380, 376, 372,
     369, 365, 361, 357, 353, 349, 345, 341, 337, 333, 329, 325, 321, 317, 313, 309, 305, 301, 297, 293, 289, 285, 281,
@@ -646,7 +645,7 @@ static void csc_adjust_convert_matrix_fix(const struct post_csc_convert_mode *mo
     const int g_gain = bcsh_cfg->g_gain << 2;             // [0, 511] -> [0, 2044], 10bit fixed
     const int b_gain = bcsh_cfg->b_gain << 2;             // [0, 511] -> [0, 2044], 10bit fixed
     const int hue_idx = CLIP(bcsh_cfg->hue >> 1, 0, 255); // [0, 511] -> [0, 255], U8 index
-    const int sin_hue = g_hue_sin_table_10bit[hue_idx];   // [-508, 512], 10bit fixed
+    const int sin_hue = -g_hue_sin_table_10bit[hue_idx];  // [-508, 512], 10bit fixed
     const int cos_hue = g_hue_cos_table_10bit[hue_idx];   // [887, 1024], 10bit fixed
     int r_offset = (int)bcsh_cfg->r_offset - 256;
     int g_offset = (int)bcsh_cfg->g_offset - 256;
@@ -673,15 +672,15 @@ static void csc_adjust_convert_matrix_fix(const struct post_csc_convert_mode *mo
     const int bcsh_factor = 1 << CSC_COEF_BCSH_PRECISION;
     const union csc_matrix_s32 gain_matrix = {r_gain, 0, 0, 0, g_gain, 0, 0, 0, b_gain};           // 10bit fixed
     const union csc_matrix_s32 contrast_matrix = {contrast, 0, 0, 0, contrast, 0, 0, 0, contrast}; // 10bit fixed
-    const union csc_matrix_s32 hue_matrix = {bcsh_factor, 0, 0, 0, cos_hue, sin_hue, 0, -sin_hue, cos_hue}; // 10bit fixed
-    const union csc_matrix_s32 saturation_matrix = {saturation, 0, 0, 0, saturation, 0, 0, 0, saturation}; // 10bit fixed
+    const union csc_matrix_s32 hue_matrix = {bcsh_factor, 0, 0, 0, cos_hue, -sin_hue, 0, sin_hue, cos_hue}; // 10bit fixed
+    const union csc_matrix_s32 saturation_matrix = {bcsh_factor, 0, 0, 0, saturation, 0, 0, 0, saturation}; // 10bit fixed
     static const union csc_matrix_s32 g_r2y_mat_bt709_fix14 = {3483, 11718, 1183, -1877, -6315, 8192, 8192, -7441, -751};
     static const union csc_matrix_s32 g_y2r_mat_bt709_fix14 = {16384, 0, 25802, 16384, -3069, -7670, 16384, 30402, 0};
 
     // M0 = hue_matrix * saturation_matrix, which is applied on YUV space. It will be a DIAGONAL matrix ONLY if the hue_matrix is identity
     // M1 = gain_matrix * contrast_matrix, which is applied on RGB space. It will be a DIAGONAL matrix ONLY if the gain_matrix is identity
-    const bool b_diagonal_m0 = sin_hue == 0 && cos_hue == bcsh_factor;
-    const bool b_diagonal_m1 = r_gain == g_gain && g_gain == b_gain;
+    const bool b_diagonal_m0 = (sin_hue == 0) && (cos_hue == bcsh_factor) && (saturation == bcsh_factor);
+    const bool b_diagonal_m1 = (r_gain == g_gain) && (g_gain == b_gain);
     const int m0_m1_precision = CSC_COEF_BCSH_PRECISION + 2;                   // 12
     const int m0_m1_shift_bit = CSC_COEF_BCSH_PRECISION * 2 - m0_m1_precision; // 8
     csc_matrix_mul_s32(&M0, &hue_matrix, &saturation_matrix);                  // 20bit

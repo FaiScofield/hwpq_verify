@@ -291,7 +291,7 @@ int parse_csc_config(const char *cfg_path, struct post_csc_coef *coef, struct po
         mode.pixel_depth = pixel_depth;
         mode.coef_precision = precision;
         ret = rockchip_calc_post_csc(&bcsh_cfg, coef, &mode);
-        ret = rockchip_calc_post_csc_coefs(&bcsh_cfg, &mode, coef);
+        ret = rockchip_calc_post_csc_coefs(&bcsh_cfg, coef, &mode);
         LOGI("\t- get csc coefs from convert mode...\n");
     }
     else {
@@ -428,6 +428,7 @@ int main(int argc, char *const argv[])
     int ret = 0;
 
     /* parse cmd parameters */
+    opterr = 0; // disable getopt error message
     struct common_verify_cmd_config cmd_config = {0};
     struct cmd_config_addition_csc cmd_config2 = {0};
     ret = common_verify_arg_get_cmd_config(argc, argv, &cmd_config);
@@ -457,7 +458,7 @@ int main(int argc, char *const argv[])
         LOGI(" - get a valid csc mode(%d, %s), test with standard coefs!\n", mode_idx, g_csc_mode_strs[mode_idx]);
         memcpy(&csc_mode, &g_supported_standard_convert_mode[mode_idx], sizeof(struct post_csc_convert_mode));
         ret = rockchip_calc_post_csc(NULL, &csc_coefs, &csc_mode);
-        ret = rockchip_calc_post_csc_coefs(NULL, &mode, coef);
+        ret = rockchip_calc_post_csc_coefs(NULL, &csc_coefs, &csc_mode);
     }
     // parse csc coefs from 'cmd_config2.mode_str'
     else if (cmd_config2.mode_str[0] != '\0') {
@@ -465,11 +466,11 @@ int main(int argc, char *const argv[])
         csc_mode.pixel_depth = cmd_config2.pixel_depth;
         csc_mode.coef_precision = cmd_config2.coef_precision;
         ret |= rockchip_calc_post_csc(NULL, &csc_coefs, &csc_mode);
-        ret |= rockchip_calc_post_csc_coefs(NULL, &mode, coef);
+        ret |= rockchip_calc_post_csc_coefs(NULL, &csc_coefs, &csc_mode);
         mode_idx = csc_get_mode_index(&csc_mode);
         LOGI(" - pixel_depth: %d\n", cmd_config2.pixel_depth);
         LOGI(" - coef_precision: %d\n", cmd_config2.coef_precision);
-        LOGI(" - mode_string: %s -> index: $d\n", cmd_config2.mode_str, mode_idx);
+        LOGI(" - mode_string: %s -> index: %d\n", cmd_config2.mode_str, mode_idx);
     }
     // parse csc coefs from 'cmd_config.config_file'
     else if (cmd_config.config_file[0] != '\0') {
@@ -534,6 +535,7 @@ int main(int argc, char *const argv[])
         run_csc_with_coef(p_src, p_dst, cmd_config.src_wid, cmd_config.src_hgt, &csc_coefs, &csc_mode);
         dump_csc_regs(NULL, 0x0, &csc_coefs, bIsPostCsc);
         fwrite(p_dst, 2, cmd_config.src_wid * cmd_config.src_hgt * 3, fp_dst);
+        fwrite(p_src, 2, cmd_config.src_wid * cmd_config.src_hgt * 3, fp_dst); // write src after dst
 
         // get CRC
         crc_val = get_crc_for_planar_frame_10bit(p_dst, cmd_config.src_wid, cmd_config.src_hgt, bIsOutputYuv);

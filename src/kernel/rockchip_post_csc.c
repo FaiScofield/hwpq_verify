@@ -669,7 +669,7 @@ static const struct rk_pq_csc_coef rk_csc_table_y2r_l2l_2020 = {1024, 0, 1476, 1
 static const struct rk_pq_csc_coef rk_csc_table_y2r_l2f_2020 = {1196, 0, 1724, 1196, -192, -668, 1196, 2200, 0};
 static const struct rk_pq_csc_coef rk_csc_table_y2r_f2l_2020 = {877, 0, 1293, 877, -144, -501, 877, 1650, 0};
 
-/* 10bit Hue Sin Look Up Table -> range[-30, 30] */
+/* 10bit Hue Sin Look Up Table -> range[30, -30] */
 static const s32 g_hue_sin_table[PQ_CSC_HUE_TABLE_NUM] = {
 	512, 508, 505, 501, 497, 494, 490, 486,
 	483, 479, 475, 472, 468, 464, 460, 457,
@@ -1409,7 +1409,7 @@ static struct rk_pq_csc_coef create_hue_matrix(s32 hue)
 	s32 cos_hue;
 
 	hue_idx = CLIP(hue / PQ_CSC_HUE_TABLE_DIV_COEF, 0, PQ_CSC_HUE_TABLE_NUM - 1);
-	sin_hue = g_hue_sin_table[hue_idx];
+	sin_hue = g_hue_sin_table[hue_idx]; // note: the angle is reversed!
 	cos_hue = g_hue_cos_table[hue_idx];
 
 	m.csc_coef00 = 1024;
