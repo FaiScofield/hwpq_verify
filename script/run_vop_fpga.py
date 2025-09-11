@@ -127,7 +127,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
     if 0 == nb_input and args.input_file != "":
         input_list = {os.path.basename(args.input_file): (img_wid, img_hgt)}
     # input_list = {'input_1920x1080_yuv444p_601F_5frames.yuv': (1920, 1080)}  # basename: (width, height)
-    input_list['input_1920x1080_nv24_601F_5frames.yuv'] = (1920, 1080)
+    # input_list['input_1920x1080_nv24_601F_5frames.yuv'] = (1920, 1080)
     if nb_input > 0:
         logger.warning(
             f"about to generate {nb_input} random input frames from seed {input_seed}, existing frames will be overwritten!"
@@ -196,7 +196,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
     if len(config_list) == 0:
         logger.error(f"no input configs in {config_dir}, please check!")
         exit(-1)
-    config_list = config_list[0:10]
+    # config_list = config_list[0:10]
 
     ## run command & get CRC/Reg result
     if exe != "":
