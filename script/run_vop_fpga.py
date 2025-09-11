@@ -16,9 +16,10 @@ import re
 import random
 
 # import crcmod
-import filecmp
+# import filecmp
 import numpy as np
 from datetime import datetime
+from tqdm import tqdm
 
 sys.path.append(os.path.normpath(os.path.dirname(__file__)))
 from config_def import *
@@ -65,7 +66,7 @@ def parse_common_args(args):
         "-cp",
         "--config_passthrough",
         action="store_true",
-        help="set passthrough mode for randomconfigs, used when config_num > 0",
+        help="set passthrough mode for random configs, used when config_num > 0",
     )
     args = parser.parse_args(args)
     return args, parser
@@ -126,7 +127,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
     if 0 == nb_input and args.input_file != "":
         input_list = {os.path.basename(args.input_file): (img_wid, img_hgt)}
     # input_list = {'input_1920x1080_yuv444p_601F_5frames.yuv': (1920, 1080)}  # basename: (width, height)
-    # input_list['input_1920x1080_yuv444p_601F_5frames.yuv'] = (1920, 1080)
+    input_list['input_1920x1080_nv24_601F_5frames.yuv'] = (1920, 1080)
     if nb_input > 0:
         logger.warning(
             f"about to generate {nb_input} random input frames from seed {input_seed}, existing frames will be overwritten!"
@@ -195,6 +196,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
     if len(config_list) == 0:
         logger.error(f"no input configs in {config_dir}, please check!")
         exit(-1)
+    config_list = config_list[0:10]
 
     ## run command & get CRC/Reg result
     if exe != "":
@@ -220,7 +222,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
             logger.warning(f"removed the old regs binary file: {exe_output_reg_file} !")
 
             config_idx = 0
-            for config in config_list:
+            for config in tqdm(config_list, desc="iterate for different json configs"):
                 config_path = os.path.join(config_dir, config)
                 # config_handler.load(config_path)
                 # seed = config_handler.randSeed

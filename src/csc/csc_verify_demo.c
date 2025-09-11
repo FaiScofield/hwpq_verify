@@ -85,7 +85,7 @@ int get_cmd_config_addition(int argc, char *const argv[], struct cmd_config_addi
         {   (char *)"pixel_depth", ARG_REQ, NULL, 'D'},
         {(char *)"coef_precision", ARG_REQ, NULL, 'P'},
         {      (char *)"mode_str", ARG_REQ, NULL, 'M'},
-        {                       0,       0, NULL,   0}  // end of option list
+        {                       0,       0,    0,   0}  // end of option list
     };
 
     cmd_config->pixel_depth = 10;
@@ -492,8 +492,8 @@ int main(int argc, char *const argv[])
         csc_coefs.csc_dc2, csc_coefs.range_type);
     // LOGI(" - csc_coef limit: range0=[%d, %d] range1=[%d, %d]\n", csc_limits[0], csc_limits[1], csc_limits[2], csc_limits[3]);
     const int bCscEnable = 1; //csc_coefs[12] > 0;
-    const int bIsInputYuv = cmd_config.src_clrspc > RGBFULL;
-    const int bIsOutputYuv = bCscEnable ? (cmd_config.dst_clrspc > RGBFULL) : bIsInputYuv;
+    const int bIsInputYuv = csc_mode.is_input_yuv;
+    const int bIsOutputYuv = bCscEnable ? csc_mode.is_output_yuv : bIsInputYuv;
     const int bIsPostCsc = 0;
     LOGI(" - bCscEnable: %d, bIsOutputYuv: %d, bIsPostCsc: %d\n", bCscEnable, bIsOutputYuv, bIsPostCsc);
 
@@ -521,6 +521,7 @@ int main(int argc, char *const argv[])
             strerror(errno));
     }
 
+    int crc_val = -1;
     for (int k = 0; k < cmd_config.nb_frame; k++) {
         fseek(fp_src, frame_size * k, SEEK_SET);
         ret = read_image_2_10bit_planar(fp_src, (ushort *)p_src, k, cmd_config.src_wid, cmd_config.src_hgt, cmd_config.src_fmt);
@@ -529,7 +530,7 @@ int main(int argc, char *const argv[])
             break;
         }
 
-        int crc_val = get_crc_for_planar_frame_10bit(p_src, cmd_config.src_wid, cmd_config.src_hgt, bIsInputYuv);
+        crc_val = get_crc_for_planar_frame_10bit(p_src, cmd_config.src_wid, cmd_config.src_hgt, bIsInputYuv);
         LOGI("src CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsInputYuv ? "VYU" : "RGB", k, crc_val);
 
         run_csc_with_coef(p_src, p_dst, cmd_config.src_wid, cmd_config.src_hgt, &csc_coefs, &csc_mode);
@@ -542,12 +543,14 @@ int main(int argc, char *const argv[])
         LOGI("dst CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
         if (fp_crc) {
             if (mode_idx >= 0 && mode_idx < DRM_CSC_MODE_MAX) {
-                fprintf(fp_crc, "input: %s, cmd_config: csc_standard_mode_%02d_%s, crc of frame #%04d: 0x%08X\n",
-                    get_basename(cmd_config.input_file), mode_idx, g_csc_mode_strs[mode_idx], k, crc_val);
+                fprintf(fp_crc, "input: %s, cmd_config: csc_standard_mode_%02d_%s, crc (%s MSB order) of frame #%04d: 0x%08X\n",
+                    get_basename(cmd_config.input_file), mode_idx, g_csc_mode_strs[mode_idx],
+                    bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
             }
             else {
-                fprintf(fp_crc, "input: %s, cmd_config: %s, crc of frame #%04d: 0x%08X\n",
-                    get_basename(cmd_config.input_file), get_basename(cmd_config.config_file), k, crc_val);
+                fprintf(fp_crc, "input: %s, cmd_config: %s, crc (%s MSB order) of frame #%04d: 0x%08X\n",
+                    get_basename(cmd_config.input_file), get_basename(cmd_config.config_file),
+                    bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
             }
         }
     }
