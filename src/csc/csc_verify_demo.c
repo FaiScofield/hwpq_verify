@@ -18,50 +18,6 @@
 #include <string.h>
 
 
-static const char *g_csc_mode_strs[DRM_CSC_MODE_MAX] = {
-    "RGBL_TO_RGBF",
-    "RGBL_TO_YUV601L",
-    "RGBL_TO_YUV601F",
-    "RGBL_TO_YUV709L",
-    "RGBL_TO_YUV709F",
-    "RGBL_TO_YUV2020L",
-    "RGBL_TO_YUV2020F",
-    "RGBF_TO_RGBL",
-    "RGBF_TO_YUV601L",
-    "RGBF_TO_YUV601F",
-    "RGBF_TO_YUV709L",
-    "RGBF_TO_YUV709F",
-    "RGBF_TO_YUV2020L",
-    "RGBF_TO_YUV2020F",
-    "YUV601L_TO_RGBL",
-    "YUV601L_TO_RGBF",
-    "YUV601L_TO_YUV601F",
-    "YUV601L_TO_YUV709L",
-    "YUV601L_TO_YUV709F",
-    "YUV601F_TO_RGBL",
-    "YUV601F_TO_RGBF",
-    "YUV601F_TO_YUV601L",
-    "YUV601F_TO_YUV709L",
-    "YUV601F_TO_YUV709F",
-    "YUV709L_TO_RGBL",
-    "YUV709L_TO_RGBF",
-    "YUV709L_TO_YUV601L",
-    "YUV709L_TO_YUV601F",
-    "YUV709L_TO_YUV709F",
-    "YUV709F_TO_RGBL",
-    "YUV709F_TO_RGBF",
-    "YUV709F_TO_YUV601L",
-    "YUV709F_TO_YUV601F",
-    "YUV709F_TO_YUV709L",
-    "YUV2020L_TO_RGBL",
-    "YUV2020L_TO_RGBF",
-    "YUV2020L_TO_YUV2020F",
-    "YUV2020F_TO_RGBL",
-    "YUV2020F_TO_RGBF",
-    "YUV2020F_TO_YUV2020L",
-    "Identity_Convertion",
-};
-
 struct cmd_config_addition_csc
 {
     char mode_str[32];   // csc mode string like: '709l_to_rgbf'
@@ -236,8 +192,8 @@ int parse_csc_config(const char *cfg_path, struct post_csc_coef *coef, struct po
     }
     if (cJSON_HasObjectItem(node_csc, "cscConvertMode")) {
         mode_idx = cJSON_GetObjectItem(node_csc, "cscConvertMode")->valueint;
-        LOGI("\t- load cscConvertMode: %d (%s)\n", mode_idx, g_csc_mode_strs[mode_idx]);
-        if (mode_idx >= 0 && mode_idx < DRM_CSC_MODE_MAX) {
+        LOGI("\t- load cscConvertMode: %d (%s)\n", mode_idx, g_supported_csc_mode_str[mode_idx]);
+        if (mode_idx >= 0 && mode_idx < CSC_MODE_MAX) {
             convert_mode = &g_supported_standard_convert_mode[mode_idx];
             if (mode) {
                 memcpy(mode, convert_mode, sizeof(struct post_csc_convert_mode));
@@ -303,7 +259,6 @@ int parse_csc_config(const char *cfg_path, struct post_csc_coef *coef, struct po
 
     return ret;
 }
-
 
 void run_csc_with_coef(const void *p_src, void *p_dst, int img_w, int img_h, const struct post_csc_coef *csc_coefs,
     const struct post_csc_convert_mode *mode)
@@ -454,8 +409,8 @@ int main(int argc, char *const argv[])
     int precision = cmd_config2.coef_precision;
 
     // parse csc coefs from 'cmd_config.mode' (mode=ppii: pp-precision, ii-index)
-    if (mode_idx >= 0 && mode_idx < DRM_CSC_MODE_MAX) {
-        LOGI(" - get a valid csc mode(%d, %s), test with standard coefs!\n", mode_idx, g_csc_mode_strs[mode_idx]);
+    if (mode_idx >= 0 && mode_idx < CSC_MODE_MAX) {
+        LOGI(" - get a valid csc mode(%d, %s), test with standard coefs!\n", mode_idx, g_supported_csc_mode_str[mode_idx]);
         memcpy(&csc_mode, &g_supported_standard_convert_mode[mode_idx], sizeof(struct post_csc_convert_mode));
         ret = rockchip_calc_post_csc(NULL, &csc_coefs, &csc_mode);
         ret = rockchip_calc_post_csc_coefs(NULL, &csc_coefs, &csc_mode);
@@ -467,6 +422,7 @@ int main(int argc, char *const argv[])
         csc_mode.coef_precision = cmd_config2.coef_precision;
         ret |= rockchip_calc_post_csc(NULL, &csc_coefs, &csc_mode);
         ret |= rockchip_calc_post_csc_coefs(NULL, &csc_coefs, &csc_mode);
+
         mode_idx = csc_get_mode_index(&csc_mode);
         LOGI(" - pixel_depth: %d\n", cmd_config2.pixel_depth);
         LOGI(" - coef_precision: %d\n", cmd_config2.coef_precision);
@@ -542,9 +498,9 @@ int main(int argc, char *const argv[])
         crc_val = get_crc_for_planar_frame_10bit(p_dst, cmd_config.src_wid, cmd_config.src_hgt, bIsOutputYuv);
         LOGI("dst CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
         if (fp_crc) {
-            if (mode_idx >= 0 && mode_idx < DRM_CSC_MODE_MAX) {
+            if (mode_idx >= 0 && mode_idx < CSC_MODE_MAX) {
                 fprintf(fp_crc, "input: %s, cmd_config: csc_standard_mode_%02d_%s, crc (%s MSB order) of frame #%04d: 0x%08X\n",
-                    get_basename(cmd_config.input_file), mode_idx, g_csc_mode_strs[mode_idx],
+                    get_basename(cmd_config.input_file), mode_idx, g_supported_csc_mode_str[mode_idx],
                     bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
             }
             else {

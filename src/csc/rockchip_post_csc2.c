@@ -14,7 +14,6 @@
 
 #define CSC_COEF_BCSH_PRECISION (10) // 10bit fixed for BSCH adjust
 
-
 #ifndef CLIP
 #define MAX(a, b)             ((a) > (b) ? (a) : (b))
 #define MIN(a, b)             ((a) < (b) ? (a) : (b))
@@ -23,7 +22,51 @@
 
 
 /* extern var */
-const struct post_csc_convert_mode g_supported_standard_convert_mode[DRM_CSC_MODE_MAX] = {
+const char *g_supported_csc_mode_str[CSC_MODE_MAX] = {
+    "RGBL_TO_RGBF",
+    "RGBL_TO_YUV601L",
+    "RGBL_TO_YUV601F",
+    "RGBL_TO_YUV709L",
+    "RGBL_TO_YUV709F",
+    "RGBL_TO_YUV2020L",
+    "RGBL_TO_YUV2020F",
+    "RGBF_TO_RGBL",
+    "RGBF_TO_YUV601L",
+    "RGBF_TO_YUV601F",
+    "RGBF_TO_YUV709L",
+    "RGBF_TO_YUV709F",
+    "RGBF_TO_YUV2020L",
+    "RGBF_TO_YUV2020F",
+    "YUV601L_TO_RGBL",
+    "YUV601L_TO_RGBF",
+    "YUV601L_TO_YUV601F",
+    "YUV601L_TO_YUV709L",
+    "YUV601L_TO_YUV709F",
+    "YUV601F_TO_RGBL",
+    "YUV601F_TO_RGBF",
+    "YUV601F_TO_YUV601L",
+    "YUV601F_TO_YUV709L",
+    "YUV601F_TO_YUV709F",
+    "YUV709L_TO_RGBL",
+    "YUV709L_TO_RGBF",
+    "YUV709L_TO_YUV601L",
+    "YUV709L_TO_YUV601F",
+    "YUV709L_TO_YUV709F",
+    "YUV709F_TO_RGBL",
+    "YUV709F_TO_RGBF",
+    "YUV709F_TO_YUV601L",
+    "YUV709F_TO_YUV601F",
+    "YUV709F_TO_YUV709L",
+    "YUV2020L_TO_RGBL",
+    "YUV2020L_TO_RGBF",
+    "YUV2020L_TO_YUV2020F",
+    "YUV2020F_TO_RGBL",
+    "YUV2020F_TO_RGBF",
+    "YUV2020F_TO_YUV2020L",
+    "Identity_Convertion",
+};
+
+const struct post_csc_convert_mode g_supported_standard_convert_mode[CSC_MODE_MAX] = {
     { DRM_COLOR_YCBCR_BT709,  DRM_COLOR_YCBCR_BT709, 0, 0, 0, 1}, // rgbl_to_rgbf
     { DRM_COLOR_YCBCR_BT601,  DRM_COLOR_YCBCR_BT601, 0, 1, 0, 0}, // rgbl_to_601l
     { DRM_COLOR_YCBCR_BT601,  DRM_COLOR_YCBCR_BT601, 0, 1, 0, 1}, // rgbl_to_601f
@@ -470,7 +513,7 @@ static bool csc_fixed_coefs_fine_tuning(const struct post_csc_convert_mode *mode
 #else
 
 /* for 8bit pixel depth + 8bit coef precision case */
-static const union csc_matrix_s32 g_csc_fixed_coefs_8bit_pix_8bit_precision[DRM_CSC_MODE_MAX] = {
+static const union csc_matrix_s32 g_csc_fixed_coefs_8bit_pix_8bit_precision[CSC_MODE_MAX] = {
     {298,   0,   0,   0,  298,    0,   0,    0, 298}, /*DRM_RGBL_TO_RGBF*/
     { 77, 150,  29, -44,  -87,  131, 131, -110, -21}, /*DRM_RGBL_TO_BT601L*/
     { 89, 175,  34, -50,  -99,  149, 149, -125, -24}, /*DRM_RGBL_TO_BT601F*/
@@ -514,7 +557,7 @@ static const union csc_matrix_s32 g_csc_fixed_coefs_8bit_pix_8bit_precision[DRM_
 };
 
 /* for 10bit pixel depth + 10bit coef precision case */
-static const union csc_matrix_s32 g_csc_fixed_coefs_10bit_pix_10bit_precision[DRM_CSC_MODE_MAX] = {
+static const union csc_matrix_s32 g_csc_fixed_coefs_10bit_pix_10bit_precision[CSC_MODE_MAX] = {
     {1196,    0,    0,    0, 1196,    0,    0,    0, 1196}, /*DRM_RGBL_TO_RGBF*/
     { 306,  601,  117, -177, -347,  524,  524, -439,  -85}, /*DRM_RGBL_TO_BT601L*/
     { 358,  702,  136, -202, -396,  598,  598, -501,  -97}, /*DRM_RGBL_TO_BT601F*/
@@ -558,7 +601,7 @@ static const union csc_matrix_s32 g_csc_fixed_coefs_10bit_pix_10bit_precision[DR
 };
 
 /* for 10bit pixel depth + 13bit coef precision case */
-static const union csc_matrix_s32 g_csc_fixed_coefs_10bit_pix_13bit_precision[DRM_CSC_MODE_MAX] = {
+static const union csc_matrix_s32 g_csc_fixed_coefs_10bit_pix_13bit_precision[CSC_MODE_MAX] = {
     {9567,     0,     0,     0,  9567,     0,    0,     0, 9567}, /*DRM_RGBL_TO_RGBF*/
     {2449,  4809,   934, -1414, -2776,  4190, 4189, -3508, -681}, /*DRM_RGBL_TO_BT601L*/
     {2860,  5616,  1091, -1614, -3169,  4783, 4783, -4005, -778}, /*DRM_RGBL_TO_BT601F*/
@@ -803,9 +846,9 @@ static void csc_get_fixed_coefs_offset(const union csc_matrix_s32 *fixed_mat, co
     final_vec->val[2] = tmp_vec.val[2] + offset_vec_o->val[2] * factor;
 }
 
-static int csc_get_drm_csc_mode_enum(const struct post_csc_convert_mode *mode)
+int csc_get_mode_index(const struct post_csc_convert_mode *mode)
 {
-    for (int i = 0; i < DRM_CSC_MODE_MAX; ++i) {
+    for (int i = 0; i < ARRAY_SIZE(g_supported_standard_convert_mode); ++i) {
         const struct post_csc_convert_mode *mode_i = &g_supported_standard_convert_mode[i];
         if (mode_i->intput_color_encoding == mode->intput_color_encoding &&
             mode_i->output_color_encoding == mode->output_color_encoding && mode_i->is_input_yuv == mode->is_input_yuv &&
@@ -855,8 +898,8 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
         fine_tuned = csc_fixed_coefs_fine_tuning(convert_mode, &final_mat, &out_matrix);
     }
 #else // ENABLE_POST_CSC_FLOATING_POINT
-    int mode_idx = csc_get_drm_csc_mode_enum(convert_mode);
-    if (mode_idx < 0 || mode_idx >= DRM_CSC_MODE_MAX) {
+    int mode_idx = csc_get_mode_index(convert_mode);
+    if (mode_idx < 0 || mode_idx >= CSC_MODE_MAX) {
         printf("ERROR: unsupported CSC convert mode!\n");
         return -1;
     }
