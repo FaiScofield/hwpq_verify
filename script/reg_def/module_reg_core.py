@@ -181,7 +181,7 @@ class ModuleRegisterCore(ABC):
                 or (name is not None and self.regs[i].name == name)
                 or (offset is not None and self.regs[i].offset == offset)
             ):
-                self.regs[i].value = np.uint32(value)
+                self.regs[i].value = np.uint32(value) if value >= 0 else np.uint32(2**32 + value)
                 ret = True
                 break
             else:

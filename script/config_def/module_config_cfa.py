@@ -4,7 +4,7 @@ FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-08-14
+LastEditTime: 2025-09-11
 """
 
 import os
@@ -18,6 +18,16 @@ sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import *
 from utils import NoIndent, CompactArrayEncoder
 
+cfa_pattern_names = {
+    0x0: "PtnGrag",
+    0x1000: "Ptn3x3RGBGBRBRG",
+    0x1001: "Ptn3x3GBRBRGRGB",
+    0x1002: "Ptn3x3RBGGRBBGR",
+    0x2000: "Ptn2x2BWGR",
+    0x2001: "Ptn2x2RGWB",
+    0x3000: "Ptn2x6GBBRRGRRGGBB",
+    -1: "PtnUnknown"
+}
 
 class CfaConfig(ModuleConfigCore):
     def __init__(self, name: str = "CFA", platform: str = "RK3572"):
@@ -33,28 +43,28 @@ class CfaConfig(ModuleConfigCore):
         self.nDstHgtStride = 0
         self.nCurrC2pWidStride = 0
         self.nCurrC2pHgtStride = 0
-        self.ePlatform = 0
-        self.eCfaPattern = 0
-        self.eAlgoType = 0
-        self.eImgFormat = 0
-        self.eOutFormat = 0
-        self.eDisplayMode = 0
-        self.nColorDepth = 0
-        self.nContrastGain = 0
-        self.nSaturationGain = 0
-        self.nLuminanceGain = 0
-        self.nSharpenGain = 0
-        self.nStretchBlack = 0
-        self.nStretchWhite = 0
-        self.bDither = 0
-        self.bDeFalseColor4Gray = 0
-        self.bContrastEqual = 0
-        self.bForceRunWithCpu = 0
-        self.nRegalType = 0
-        self.nA2AlgoType = 0
-        self.nA2CompLevel = 0
-        self.bA2Modulate = 0
-        self.bClearLow4bits = 0
+        self.ePlatform = 0  # DEPRECATED
+        self.eCfaPattern = 0  # {0x0, 0x1000, 0x1001, 0x1002, 0x2000, 0x2001}
+        self.eAlgoType = 0  # [0, 2]
+        self.eImgFormat = 0  # [0, 10]
+        self.eOutFormat = 0  # [11, 13]
+        self.eDisplayMode = 0  # ignore, kernel prop
+        self.nColorDepth = 0  # DEPRECATED
+        self.nContrastGain = 0  # [0, 128]
+        self.nSaturationGain = 0  # [0, 128]
+        self.nLuminanceGain = 0  # [0, 128]
+        self.nSharpenGain = 0  # [0, 127]
+        self.nStretchBlack = 0  # [0, 96]
+        self.nStretchWhite = 0  # [160, 255]
+        self.bDither = 0  # [0, 2]
+        self.bDeFalseColor4Gray = 0  # [0, 1]
+        self.bContrastEqual = 0  # [0, 1]
+        self.bForceRunWithCpu = 0  # [0, 1]
+        self.nRegalType = 0  # [0, 5]
+        self.nA2AlgoType = 0  # {0, 1, 21}
+        self.nA2CompLevel = 0  # [0, 63]
+        self.bA2Modulate = 0  # [0, 7]
+        self.bClearLow4bits = 0  # [0, 1]
         self.sRoiInfo = [0, 0, 0, 0, 0, 0]  # x6
         self.aReserved = [0, 0, 0, 0, 0, 0, 0, 0]  # x8
 
@@ -66,8 +76,8 @@ class CfaConfig(ModuleConfigCore):
             "nCallCnt": self.nCallCnt,
             "ePlatform": self.ePlatform,
             "eCfaPattern": self.eCfaPattern,
+            "#cfaPatternStr": cfa_pattern_names[self.eCfaPattern],
             "eDisplayMode": self.eDisplayMode,
-            "bClearLow4bits": self.bClearLow4bits,
             "sFrameInfo": {
                 "nFrameIdx": self.nFrameIdx,
                 "nImgWid": self.nImgWid,
@@ -98,6 +108,7 @@ class CfaConfig(ModuleConfigCore):
                 "nA2CompLevel": self.nA2CompLevel,
                 "bA2Modulate": self.bA2Modulate,
                 "bForceRunWithCpu": self.bForceRunWithCpu,
+                "bClearLow4bits": self.bClearLow4bits,
                 ## keep list data in one line by using NoIndent & CompactArrayEncoder
                 "sRoiInfo": NoIndent(self.sRoiInfo),
                 "aReserved": NoIndent(self.aReserved),
@@ -137,7 +148,6 @@ class CfaConfig(ModuleConfigCore):
                 self.ePlatform = data["ePlatform"]
                 self.eCfaPattern = data["eCfaPattern"]
                 self.eDisplayMode = data["eDisplayMode"]
-                self.bClearLow4bits = data["bClearLow4bits"] if "bClearLow4bits" in data else -1
                 if "sFrameInfo" in dataRoot:
                     data = dataRoot["sFrameInfo"]
                 self.nFrameIdx = data["nFrameIdx"]
@@ -169,6 +179,7 @@ class CfaConfig(ModuleConfigCore):
                 self.nA2AlgoType = data["nA2AlgoType"]
                 self.nA2CompLevel = data["nA2CompLevel"]
                 self.bA2Modulate = data["bA2Modulate"]
+                self.bClearLow4bits = data["bClearLow4bits"] if "bClearLow4bits" in data else -1
                 self.sRoiInfo = data["sRoiInfo"]
                 self.aReserved = data["aReserved"]
                 return True
@@ -213,18 +224,19 @@ class CfaConfig(ModuleConfigCore):
         self.nContrastGain = random.randint(0, 128)  # [0, 128]
         self.nSaturationGain = random.randint(0, 128)  # [0, 128]
         self.nLuminanceGain = random.randint(0, 128)  # [0, 128]
-        self.nSharpenGain = random.randint(0, 128)  # [0, 128]
+        self.nSharpenGain = random.randint(0, 127)  # [0, 127]
         self.nStretchBlack = random.randint(0, 96)  # [0, 96]
         self.nStretchWhite = random.randint(160, 255)  # [160, 255]
-        self.bDither = int(random.randint(0, 99) < 75) * 2  # 0 or 2, 75% ON
+        self.bDither = random.randint(0, 2)  # 0-Off, 1-OD, 2-ED
         self.bDeFalseColor4Gray = int(random.randint(0, 99) < 75)  # 75% ON
         self.bContrastEqual = 0
-        self.bForceRunWithCpu = random.randint(0, 1)
-        self.nRegalType = 0
-        self.nA2AlgoType = 0  # always 0 for hardware mode
-        self.nA2CompLevel = random.randint(0, 80)  # [0, 64]
-        self.bA2Modulate = random.randint(0, 10)  # [0, 7]
-        self.bClearLow4bits = 1  # random.randint(0, 1)  # [0, 1]
+        self.bForceRunWithCpu = 1
+        self.nRegalType = random.randint(0, 5)
+        self.nA2AlgoType = random.choice([0, 21])
+        self.nA2CompLevel = random.randint(0, 63)  # [0, 63]
+        self.bA2Modulate = random.randint(0, 7)  # [0, 7]
+        self.bClearLow4bits = 0 if self.bDither == 1 or self.eAlgoType == 1 else 1
+        self.bClearLow4bits = 0 if self.eAlgoType == 2 and self.nA2AlgoType != 0 else self.bClearLow4bits
         self.sRoiInfo = [0, 0, 0, 0, 0, 0]  # x6
         self.aReserved = [0, 0, 0, 0, 0, 0, 0, 0]  # x8
 

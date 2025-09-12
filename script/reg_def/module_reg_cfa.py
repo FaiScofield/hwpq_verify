@@ -4,7 +4,7 @@ FilePath    : reg_def_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-08-11
 Description :
-LastEditTime: 2025-09-01
+LastEditTime: 2025-09-12
 """
 
 import os
@@ -21,13 +21,13 @@ from config_def import CfaConfig
 
 class CfaC2pInfo(Enum):
     ## eCfaPattern_value, c2p_id, c2p_apattern, dither_coef05, dither_coef6B, name
-    RKCFA_PATTERN_GRAY = (0x0000, 3, 0x0, 0x0, 0x0, "PtnGray")
-    RKCFA_PATTERN_3X3_RGBGBRBRG = (0x1000, 0, 0x12264, 0x0, 0x0, "Ptn3x3RGBGBRBRG")
-    RKCFA_PATTERN_3X3_GBRBRGRGB = (0x1001, 0, 0x24489, 0x0, 0x0, "Ptn3x3GBRBRGRGB")
-    RKCFA_PATTERN_3x3_RBGGRBBGR = (0x1002, 0, 0x06858, 0x0, 0x0, "Ptn3x3RBGGRBBGR")
-    RKCFA_PATTERN_2x2_BWGR = (0x2000, 2, 0x1E, 0x0, 0x0, "Ptn2x2BWGR")
-    RKCFA_PATTERN_2x2_RGWB = (0x2001, 2, 0xB4, 0x0, 0x0, "Ptn2x2RGWB")
-    RKCFA_PATTERN_2x6_GBBRRGRRGGBB = (0x3000, 1, 0xA50429, 0x0, 0x0, "Ptn2x6GBBRRGRRGGBB")
+    RKCFA_PATTERN_GRAY = (0x0000, 3, 0x0, 0x4A3000E, 0x0, "PtnGray")
+    RKCFA_PATTERN_3X3_RGBGBRBRG = (0x1000, 0, 0x12264, 0x6338443, 0x2310444, "Ptn3x3RGBGBRBRG")
+    RKCFA_PATTERN_3X3_GBRBRGRGB = (0x1001, 0, 0x24489, 0x6338443, 0x2310444, "Ptn3x3GBRBRGRGB")
+    RKCFA_PATTERN_3x3_RBGGRBBGR = (0x1002, 0, 0x6858, 0xE411043, 0x4110C21, "Ptn3x3RBGGRBBGR")
+    RKCFA_PATTERN_2x2_BWGR = (0x2000, 2, 0x1E, 0x44104A4, 0x6128461, "Ptn2x2BWGR")
+    RKCFA_PATTERN_2x2_RGWB = (0x2001, 2, 0xB4, 0x44104A4, 0x6128461, "Ptn2x2RGWB")
+    RKCFA_PATTERN_2x6_GBBRRGRRGGBB = (0x3000, 1, 0xA50429, 0xAB2800B, 0x0, "Ptn2x6GBBRRGRRGGBB")
     RKCFA_PATTERN_UNKNOWN = (-1, 3, 0x0, 0x0, "PtnUnknown")
 
     @classmethod
@@ -91,13 +91,13 @@ class CfaRegister(ModuleRegisterCore):
         sw_cfa_highpass_en = int(cfg.nSharpenGain != 64)
         sw_cfa_panel_mode = int(cfg.eCfaPattern > 0)  # if cfg.eCfaPattern >= 0 else int(cfg.ePlatform > 0)
         c2p_info = CfaC2pInfo.from_value(cfg.eCfaPattern)
-        sw_cfa_c2p_id = c2p_info.value[1]
+        sw_cfa_c2p_id = c2p_info.value[1] & RM3
         sw_cfa_c2p_apattern = c2p_info.value[2]
         sw_cfa_dither_coef05 = c2p_info.value[3]
         sw_cfa_dither_coef6B = c2p_info.value[4]
-        sw_cfa_r2y_mode = 1
-        sw_cfa_r2y_clip = 0
-        sw_cfa_sat_gain = 64 - min(cfg.nSaturationGain, 128)  # [0, 128] -> [-64, 64]
+        sw_cfa_r2y_mode = 1 & RM2
+        sw_cfa_r2y_clip = 0 & RM1
+        sw_cfa_sat_gain = (64 - min(cfg.nSaturationGain, 128)) & RM8  # [0, 128] -> [-64, 64]
         val = (
             0x1
             | (sw_cfa_bcsh_lut_en << 1)
@@ -122,8 +122,8 @@ class CfaRegister(ModuleRegisterCore):
         sw_cfa_comps_en = int(cfg.nA2CompLevel > 0)
         sw_cfa_out_fmt = (cfg.eOutFormat - 10) & RM2
         sw_cfa_pat_out_en = 1
-        sw_cfa_sharp_level = min(cfg.nSharpenGain, 128)
-        sw_cfa_comps_level = min(cfg.nA2CompLevel, 128) >> 1
+        sw_cfa_sharp_level = min(cfg.nSharpenGain, 127) & RM7
+        sw_cfa_comps_level = min(cfg.nA2CompLevel, 63) & RM6
         val = (
             (sw_cfa_dither_en << 0)
             | (sw_cfa_modulate_lps_en << 1)
@@ -161,6 +161,8 @@ class CfaRegister(ModuleRegisterCore):
         try:
             ## TODO: read regs and update config
             val = self.get(offset=0x00)
+            self.logger.error(f"function not ready!")
+            return False
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
             self.logger.error(f"regs2config error in '{os.path.basename(tb.filename)}'-{tb.lineno}: {e}")
