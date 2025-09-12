@@ -33,7 +33,7 @@ const struct option g_common_verify_arg_supported_options[] = {
     {     "crc",  ARG_REQ, NULL, 'C'}, // crc file ('.txt/.dat'), set to 'NULL' if not specified
     {"platform",  ARG_REQ, NULL, 'p'}, // RK3572, RK3576, RK3538..., set to 'RK3572' if not specified
     {    "mode",  ARG_REQ, NULL, 'm'}, // test mode, customized by each model, set to '-1' if not specified
-    {      NULL,        0, NULL,   0}  // end of option list
+    {         0,        0,    0,   0}  // end of option list
 };
 
 void common_verify_arg_print_usage(const char *program)
@@ -164,25 +164,25 @@ int common_verify_arg_dump_config(struct common_verify_cmd_config *config)
     if (!config) {
         return -1;
     }
-    printf("----------------------------------------\n");
-    printf("dump common verify cmd config below: \n");
-    printf(" - input_file: %s\n", config->input_file);
-    printf(" - output_file: %s\n", config->output_file);
-    printf(" - output_dir: %s\n", config->output_dir);
-    printf(" - config_file: %s\n", config->config_file);
-    printf(" - crc_file: %s\n", config->crc_file);
-    printf(" - platform name: %s\n", config->platform_name);
-    printf(" - src_wid: %d\n", config->src_wid);
-    printf(" - src_hgt: %d\n", config->src_hgt);
-    printf(" - src_fmt: %d (%s)\n", config->src_fmt, common_verify_imgfmt_str(config->src_fmt));
-    printf(" - src_clrspc: %d (%s)\n", config->src_clrspc, common_verify_clrspc_str(config->src_clrspc));
-    printf(" - dst_wid: %d\n", config->dst_wid);
-    printf(" - dst_hgt: %d\n", config->dst_hgt);
-    printf(" - dst_fmt: %d (%s)\n", config->dst_fmt, common_verify_imgfmt_str(config->dst_fmt));
-    printf(" - dst_clrspc: %d (%s)\n", config->dst_clrspc, common_verify_clrspc_str(config->dst_clrspc));
-    printf(" - nb_frame: %d\n", config->nb_frame);
-    printf(" - custom mode: %d\n", config->mode);
-    printf(" - random seed: %d\n", config->seed);
-    printf("----------------------------------------\n");
+    LOGI("----------------------------------------\n");
+    LOGI("dump common verify cmd config below: \n");
+    LOGI(" - input_file: %s\n", config->input_file);
+    LOGI(" - output_file: %s\n", config->output_file);
+    LOGI(" - output_dir: %s\n", config->output_dir);
+    LOGI(" - config_file: %s\n", config->config_file);
+    LOGI(" - crc_file: %s\n", config->crc_file);
+    LOGI(" - platform name: %s\n", config->platform_name);
+    LOGI(" - src_wid: %d\n", config->src_wid);
+    LOGI(" - src_hgt: %d\n", config->src_hgt);
+    LOGI(" - src_fmt: %d (%s)\n", config->src_fmt, common_verify_imgfmt_str(config->src_fmt));
+    LOGI(" - src_clrspc: %d (%s)\n", config->src_clrspc, common_verify_clrspc_str(config->src_clrspc));
+    LOGI(" - dst_wid: %d\n", config->dst_wid);
+    LOGI(" - dst_hgt: %d\n", config->dst_hgt);
+    LOGI(" - dst_fmt: %d (%s)\n", config->dst_fmt, common_verify_imgfmt_str(config->dst_fmt));
+    LOGI(" - dst_clrspc: %d (%s)\n", config->dst_clrspc, common_verify_clrspc_str(config->dst_clrspc));
+    LOGI(" - nb_frame: %d\n", config->nb_frame);
+    LOGI(" - custom mode: %d\n", config->mode);
+    LOGI(" - random seed: %d\n", config->seed);
+    LOGI("----------------------------------------\n");
     return 0;
 }

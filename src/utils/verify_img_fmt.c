@@ -51,7 +51,7 @@ const char *common_verify_imgfmt_exten_str(int fmt)
     if (fmt < 30) {
         return fmt % 10 < 3 ? "rgb" : "yuv";
     }
-    printf("%s: UnknownImgFmt=%d!\n", __func__, fmt);
+    LOGE("%s: UnknownImgFmt=%d!\n", __func__, fmt);
     return "bin";
 }
 
@@ -87,7 +87,7 @@ int common_verify_imgfmt_bpp(int fmt)
     case YUV422SP_10PACKED:  return 20; // 16/4*5
     case YUV420P_10PACKED:
     case YUV420SP_10PACKED:  return 15; // 12/4*5
-    default:                 printf("%s: UnknownImgFmt=%d!\n", __func__, fmt); return 0;
+    default:                 LOGE("%s: UnknownImgFmt=%d!\n", __func__, fmt); return 0;
     }
 }
 
@@ -127,7 +127,7 @@ int common_verify_imgfmt_check(int fmt)
         return 1;
     default:
         // TODO: unsupported by now
-        printf("%s: unsupported image format %d for now!\n", __func__, fmt);
+        LOGE("%s: unsupported image format %d for now!\n", __func__, fmt);
         return 0;
     }
 }
@@ -154,7 +154,7 @@ int common_verify_clrspc_offset(int clrspc, int bit_depth, int *offsetx3)
         return -1;
     }
     if (bit_depth != 8 || bit_depth != 10 || bit_depth != 13) {
-        printf("%s: Unsupported bit_depth=%d! It should be 8/10/13.\n", __func__, bit_depth);
+        LOGE("%s: Unsupported bit_depth=%d! It should be 8/10/13.\n", __func__, bit_depth);
         return -1;
     }
     int offset[3] = {0, 128, 128};
@@ -173,7 +173,7 @@ int common_verify_clrspc_offset(int clrspc, int bit_depth, int *offsetx3)
         offset[0] = 0;
         offset[1] = offset[2] = 128;
         break;
-    default: printf("%s: UnknownClrspc=%d!\n", __func__, clrspc); return -1;
+    default: LOGE("%s: UnknownClrspc=%d!\n", __func__, clrspc); return -1;
     }
 
     offsetx3[0] = offset[0] << (bit_depth - 8);

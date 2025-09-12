@@ -27,7 +27,7 @@ bool is_directory(const char *path)
     DWORD attr = GetFileAttributes(path);
     if (attr == INVALID_FILE_ATTRIBUTES) {
         DWORD err = GetLastError();
-        printf("GetFileAttributes(%s) failed! error code: %d - %s\n", path, (int)err, errcode2str(err));
+        LOGE("GetFileAttributes(%s) failed! error code: %d - %s\n", path, (int)err, errcode2str(err));
         return -1;
     }
     return (attr & FILE_ATTRIBUTE_DIRECTORY) != 0;
@@ -38,7 +38,7 @@ bool is_regular_file(const char *path)
     DWORD attr = GetFileAttributes(path);
     if (attr == INVALID_FILE_ATTRIBUTES) {
         DWORD err = GetLastError();
-        printf("GetFileAttributes(%s) failed! error code: %d - %s\n", path, (int)err, errcode2str(err));
+        LOGE("GetFileAttributes(%s) failed! error code: %d - %s\n", path, (int)err, errcode2str(err));
         return -1;
     }
     return (attr & FILE_ATTRIBUTE_DIRECTORY) == 0;
@@ -92,7 +92,7 @@ bool is_directory(const char *path)
 {
     struct stat statbuf;
     if (lstat(path, &statbuf) != 0) {
-        printf("%s: call lstat failed! %s\n", __func__, strerror(errno));
+        LOGE("%s: call lstat failed! %s\n", __func__, strerror(errno));
         return -1;
     }
     return S_ISDIR(statbuf.st_mode);
@@ -102,7 +102,7 @@ bool is_regular_file(const char *path)
 {
     struct stat statbuf;
     if (lstat(path, &statbuf) != 0) {
-        printf("%s: call lstat failed! %s\n", __func__, strerror(errno));
+        LOGE("%s: call lstat failed! %s\n", __func__, strerror(errno));
         return -1;
     }
     return S_ISREG(statbuf.st_mode);
