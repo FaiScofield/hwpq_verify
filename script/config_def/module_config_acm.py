@@ -152,12 +152,13 @@ if __name__ == "__main__":
 
     config = AcmConfig(platform=args.platform)
     if args.interface == "gen":
-        seed = config.gen(args.seed)
-        config.dump(args.file)
-        load_ok = True
+        load_ok = config.gen(args.seed)
+        if load_ok:
+            config.dump(args.file)
     elif args.interface == "load":
         load_ok = config.load(args.file)
-        config.dump()
+        if load_ok:
+            config.dump()
     elif args.interface == "dump":
         load_ok = config.dump(args.file)
     else:
