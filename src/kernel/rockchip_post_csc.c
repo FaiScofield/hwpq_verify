@@ -245,17 +245,17 @@ static const struct rk_pq_csc_coef g_mode_csc_coefs_10bit_pix_10bit_precision[] 
 	{306, 601, 117, -177, -347, 524, 524, -439, -85}, /* RGBL_TO_YUV601L */
 	{358, 702, 136, -202, -396, 598, 598, -501, -97}, /* RGBL_TO_YUV601F */
 	{218, 732, 74, -120, -404, 524, 524, -476, -48},  /* RGBL_TO_YUV709L */
-	{254, 855, 86, -137, -461, 598, 598, -543, -55},  /* RGBL_TO_YUV709F */
-	{269, 694, 61, -146, -377, 524, 524, -482, -42},  /* RGBL_TO_YUV2020L */
+	{254, 855, 86, -137, -461, 598, 598, -543, -55},  /**RGBL_TO_YUV709F */
+	{269, 694, 61, -146, -377, 524, 524, -482, -42},  /**RGBL_TO_YUV2020L */
 	{314, 811, 71, -167, -431, 598, 598, -550, -48},  /* RGBL_TO_YUV2020F */
 	{877, 0, 0, 0, 877, 0, 0, 0, 877},                /* RGBF_TO_RGBL */
-	{262, 515, 100, -151, -297, 448, 448, -376, -73}, /* RGBF_TO_YUV601L */
+	{262, 515, 100, -151, -297, 448, 448, -376, -73}, /**RGBF_TO_YUV601L */
 	{306, 601, 117, -173, -339, 512, 512, -429, -83}, /* RGBF_TO_YUV601F */
-	{186, 627, 63, -103, -346, 448, 448, -407, -41},  /* RGBF_TO_YUV709L */
+	{186, 627, 63, -103, -346, 448, 448, -407, -41},  /**RGBF_TO_YUV709L */
 	{218, 732, 74, -117, -395, 512, 512, -465, -47},  /* RGBF_TO_YUV709F */
 	{230, 595, 52, -125, -323, 448, 448, -412, -36},  /* RGBF_TO_YUV2020L */
 	{269, 694, 61, -143, -369, 512, 512, -471, -41},  /* RGBF_TO_YUV2020F */
-	{1024, 0, 1404, 1024, -344, -715, 1024, 1774, 0}, /* YUV601L_TO_RGBL */
+	{1024, 0, 1404, 1024, -344, -715, 1024, 1774, 0}, /**YUV601L_TO_RGBL */
 	{1196, 0, 1639, 1196, -402, -835, 1196, 2072, 0}, /* YUV601L_TO_RGBF */
 	{1196, 0, 0, 0, 1169, 0, 0, 0, 1169},             /* YUV601L_TO_YUV601F */
 	{1024, -118, -213, 0, 1043, 117, 0, 77, 1050},    /* YUV601L_TO_YUV709L */
@@ -263,16 +263,16 @@ static const struct rk_pq_csc_coef g_mode_csc_coefs_10bit_pix_10bit_precision[] 
 	{877, 0, 1229, 877, -302, -626, 877, 1554, 0},    /* YUV601F_TO_RGBL */
 	{1024, 0, 1436, 1024, -352, -731, 1024, 1815, 0}, /* YUV601F_TO_RGBF */
 	{877, 0, 0, 0, 897, 0, 0, 0, 897},                /* YUV601F_TO_YUV601L */
-	{877, -106, -191, 0, 914, 103, 0, 67, 920},       /* YUV601F_TO_YUV709L */
+	{877, -106, -191, 0, 914, 103, 0, 67, 920},       /**YUV601F_TO_YUV709L */
 	{1024, -121, -218, 0, 1043, 117, 0, 77, 1050},    /* YUV601F_TO_YUV709F */
 	{1024, 0, 1577, 1024, -188, -469, 1024, 1858, 0}, /* YUV709L_TO_RGBL */
 	{1196, 0, 1841, 1196, -219, -547, 1196, 2169, 0}, /* YUV709L_TO_RGBF */
-	{1024, 104, 201, 0, 1014, -113, 0, -74, 1007},    /* YUV709L_TO_YUV601L */
+	{1024, 104, 201, 0, 1014, -113, 0, -74, 1007},    /**YUV709L_TO_YUV601L */
 	{1196, 119, 229, 0, 1157, -129, 0, -85, 1150},    /* YUV709L_TO_YUV601F */
 	{1196, 0, 0, 0, 1169, 0, 0, 0, 1169},             /* YUV709L_TO_YUV709F */
 	{877, 0, 1381, 877, -164, -410, 877, 1627, 0},    /* YUV709F_TO_RGBL */
 	{1024, 0, 1613, 1024, -192, -479, 1024, 1900, 0}, /* YUV709F_TO_RGBF */
-	{877, 91, 176, 0, 888, -99, 0, -65, 882},         /* YUV709F_TO_YUV601L */
+	{877, 91, 176, 0, 888, -99, 0, -65, 882},         /**YUV709F_TO_YUV601L */
 	{1024, 104, 201, 0, 1014, -113, 0, -74, 1007},    /* YUV709F_TO_YUV601F */
 	{877, 0, 0, 0, 897, 0, 0, 0, 897},                /* YUV709F_TO_YUV709L */
 	{1024, 0, 1476, 1024, -165, -572, 1024, 1884, 0}, /* YUV2020L_TO_RGBL */
@@ -914,16 +914,17 @@ static void csc_get_range_offset(const struct post_csc_convert_mode *convert_mod
 {
 	int offset_y = convert_mode->is_input_full_range ? 0 : 16;
 	int offset_c = convert_mode->is_input_yuv ? 128 : offset_y;
+	int offset_shift_bits = convert_mode->pixel_depth - 8;
 
-	csc_dc_coef->csc_in_dc0 = -offset_y * 4;
-	csc_dc_coef->csc_in_dc1 = -offset_c * 4;
-	csc_dc_coef->csc_in_dc2 = -offset_c * 4;
+	csc_dc_coef->csc_in_dc0 = -offset_y << offset_shift_bits;
+	csc_dc_coef->csc_in_dc1 = -offset_c << offset_shift_bits;
+	csc_dc_coef->csc_in_dc2 = -offset_c << offset_shift_bits;
 
 	offset_y = convert_mode->is_output_full_range ? 0 : 16;
 	offset_c = convert_mode->is_output_yuv ? 128 : offset_y;
-	csc_dc_coef->csc_out_dc0 = offset_y * 4;
-	csc_dc_coef->csc_out_dc1 = offset_c * 4;
-	csc_dc_coef->csc_out_dc2 = offset_c * 4;
+	csc_dc_coef->csc_out_dc0 = offset_y << offset_shift_bits;
+	csc_dc_coef->csc_out_dc1 = offset_c << offset_shift_bits;
+	csc_dc_coef->csc_out_dc2 = offset_c << offset_shift_bits;
 }
 
 static int csc_calc_default_output_coef(const struct post_csc_convert_mode *convert_mode,
