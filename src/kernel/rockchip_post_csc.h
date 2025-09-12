@@ -16,7 +16,4 @@ int rockchip_calc_post_csc(struct post_csc *csc_cfg, struct post_csc_coef *csc_s
 			   struct post_csc_convert_mode *convert_mode);
 
 
-// make below function callable for 'csc_verify_demo.c'
-int csc_get_mode_index(struct post_csc_convert_mode *convert_mode);
-
 #endif
