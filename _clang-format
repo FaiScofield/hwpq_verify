@@ -10,8 +10,8 @@ AlignConsecutiveAssignments:
   Enabled:         false
   AcrossEmptyLines: false
   AcrossComments:  false
-  AlignCompound:   true
-  PadOperators:    true
+  AlignCompound:   false
+  PadOperators:    false
 AlignConsecutiveBitFields:
   Enabled:         true
   AcrossEmptyLines: true
@@ -59,7 +59,7 @@ AttributeMacros:
   - __unused
 BinPackArguments: true
 BinPackParameters: true
-BitFieldColonSpacing: After
+BitFieldColonSpacing: Both
 BraceWrapping:
   AfterCaseLabel:  false
   AfterClass:      true

@@ -7,6 +7,7 @@ set MINGW_DIR="D:/mingw64"
 SET RK_SOC="RK3572"
 set BUILD_TYPE=Debug
 
+:: parse command line arguments
 if /i "%~1" == "Release" (
     set BUILD_TYPE=Release
     @echo get BUILD_TYPE from cmd: %~1
