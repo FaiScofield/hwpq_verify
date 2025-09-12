@@ -87,9 +87,9 @@ class CfaRegister(ModuleRegisterCore):
             or cfg.nStretchBlack != 0
             or cfg.nStretchWhite != 255
         )
-        sw_cfa_midflt_en = cfg.bDeFalseColor4Gray & RM1
-        sw_cfa_highpass_en = int(cfg.nSharpenGain != 64)
         sw_cfa_panel_mode = int(cfg.eCfaPattern > 0)  # if cfg.eCfaPattern >= 0 else int(cfg.ePlatform > 0)
+        sw_cfa_midflt_en = int(cfg.bDeFalseColor4Gray and sw_cfa_panel_mode != 0)
+        sw_cfa_highpass_en = int(cfg.nSharpenGain != 64)
         c2p_info = CfaC2pInfo.from_value(cfg.eCfaPattern)
         sw_cfa_c2p_id = c2p_info.value[1] & RM3
         sw_cfa_c2p_apattern = c2p_info.value[2]
@@ -115,10 +115,26 @@ class CfaRegister(ModuleRegisterCore):
         sw_cfa_modulate_hps_en = int(cfg.bA2Modulate >> 1) & RM1
         sw_cfa_modulate_err_en = int(cfg.bA2Modulate >> 2) & RM1
         sw_cfa_cfa_mode = cfg.eAlgoType & RM2
-        if cfg.bClearLow4bits >= 0:
-            sw_cfa_clr_low4bit_en = cfg.bClearLow4bits & RM1
+        '''
+            NOTE: case need to use software to clear the low 4 bits:
+            | eAlgoType[0,2] | bDither[0,2] | bBlendPrev[0,1] | clearLow4Bits[0,1] |
+            | -------------- | ------------ | --------------- | ------------------ |
+            |   0 (common)   |   0 (OFF)    |      0/1        |       1/0          |
+            |   0 (common)   |   1 (ED)     |      0/1        |       1/0          |
+            |   0 (common)   |   2 (OD)     |       x         |        0           |
+            |   1 (regal)    |     x        |       x         |        0           |
+            |   2 (a2)       |     x        |       x         |        1           |
+        '''
+        if self.eAlgoType == 2:
+            bClearLow4bits = 1
+        elif self.eAlgoType == 1:
+            bClearLow4bits = 0
         else:
-            sw_cfa_clr_low4bit_en = int(cfg.eAlgoType != 1 and cfg.bDither != 1)
+            bClearLow4bits = int(cfg.bDither <= 1 and cfg.bBlendPrevData == 0)
+        sw_cfa_clr_low4bit_en = bClearLow4bits
+        if cfg.bClearLow4bits != sw_cfa_clr_low4bit_en:
+            self.logger.warning(f"bClearLow4bits={bClearLow4bits} is not equal to config.bClearLow4bits {cfg.bClearLow4bits}!")
+
         sw_cfa_comps_en = int(cfg.nA2CompLevel > 0)
         sw_cfa_out_fmt = (cfg.eOutFormat - 10) & RM2
         sw_cfa_pat_out_en = 1

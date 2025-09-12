@@ -4,7 +4,7 @@ FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-09-11
+LastEditTime: 2025-09-12
 """
 
 import os
@@ -19,15 +19,16 @@ from config_def.module_config_core import *
 from utils import NoIndent, CompactArrayEncoder
 
 cfa_pattern_names = {
-    0x0: "PtnGrag",
-    0x1000: "Ptn3x3RGBGBRBRG",
-    0x1001: "Ptn3x3GBRBRGRGB",
-    0x1002: "Ptn3x3RBGGRBBGR",
-    0x2000: "Ptn2x2BWGR",
-    0x2001: "Ptn2x2RGWB",
-    0x3000: "Ptn2x6GBBRRGRRGGBB",
-    -1: "PtnUnknown"
+    0x0: "GRAY",
+    0x1000: "3x3_RGBGBRBRG",
+    0x1001: "3x3_GBRBRGRGB",
+    0x1002: "3x3_RBGGRBBGR",
+    0x2000: "2x2_BWGR",
+    0x2001: "2x2_RGWB",
+    0x3000: "2x6_GBBRRGRRGGBB",
+    -1: "UnknownPattern",
 }
+
 
 class CfaConfig(ModuleConfigCore):
     def __init__(self, name: str = "CFA", platform: str = "RK3572"):
@@ -65,8 +66,9 @@ class CfaConfig(ModuleConfigCore):
         self.nA2CompLevel = 0  # [0, 63]
         self.bA2Modulate = 0  # [0, 7]
         self.bClearLow4bits = 0  # [0, 1]
+        self.bBlendPrevData = 0  # [0, 1]
         self.sRoiInfo = [0, 0, 0, 0, 0, 0]  # x6
-        self.aReserved = [0, 0, 0, 0, 0, 0, 0, 0]  # x8
+        self.aReserved = [self.bClearLow4bits, self.bBlendPrevData, self.randSeed, 0, 0, 0, 0, 0]  # x8
 
     ## =============== overwrite methods  ===============
     def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
@@ -109,6 +111,7 @@ class CfaConfig(ModuleConfigCore):
                 "bA2Modulate": self.bA2Modulate,
                 "bForceRunWithCpu": self.bForceRunWithCpu,
                 "bClearLow4bits": self.bClearLow4bits,
+                "bBlendPrevData": self.bBlendPrevData,
                 ## keep list data in one line by using NoIndent & CompactArrayEncoder
                 "sRoiInfo": NoIndent(self.sRoiInfo),
                 "aReserved": NoIndent(self.aReserved),
@@ -180,6 +183,7 @@ class CfaConfig(ModuleConfigCore):
                 self.nA2CompLevel = data["nA2CompLevel"]
                 self.bA2Modulate = data["bA2Modulate"]
                 self.bClearLow4bits = data["bClearLow4bits"] if "bClearLow4bits" in data else -1
+                self.bBlendPrevData = data["bBlendPrevData"] if "bBlendPrevData" in data else -1
                 self.sRoiInfo = data["sRoiInfo"]
                 self.aReserved = data["aReserved"]
                 return True
@@ -228,17 +232,34 @@ class CfaConfig(ModuleConfigCore):
         self.nStretchBlack = random.randint(0, 96)  # [0, 96]
         self.nStretchWhite = random.randint(160, 255)  # [160, 255]
         self.bDither = random.randint(0, 2)  # 0-Off, 1-OD, 2-ED
-        self.bDeFalseColor4Gray = int(random.randint(0, 99) < 75)  # 75% ON
+        self.bDeFalseColor4Gray = (
+            int(random.randint(0, 99) < 75) if self.eCfaPattern != 0 else 0
+        )  # 75% ON if color pattern
         self.bContrastEqual = 0
         self.bForceRunWithCpu = 1
         self.nRegalType = random.randint(0, 5)
         self.nA2AlgoType = random.choice([0, 21])
         self.nA2CompLevel = random.randint(0, 63)  # [0, 63]
         self.bA2Modulate = random.randint(0, 7)  # [0, 7]
-        self.bClearLow4bits = 0 if self.bDither == 1 or self.eAlgoType == 1 else 1
-        self.bClearLow4bits = 0 if self.eAlgoType == 2 and self.nA2AlgoType != 0 else self.bClearLow4bits
+        '''
+            NOTE: case need to use software to clear the low 4 bits:
+            | eAlgoType[0,2] | bDither[0,2] | bBlendPrev[0,1] | clearLow4Bits[0,1] |
+            | -------------- | ------------ | --------------- | ------------------ |
+            |   0 (common)   |   0 (OFF)    |      0/1        |       1/0          |
+            |   0 (common)   |   1 (ED)     |      0/1        |       1/0          |
+            |   0 (common)   |   2 (OD)     |       x         |        0           |
+            |   1 (regal)    |     x        |       x         |        0           |
+            |   2 (a2)       |     x        |       x         |        1           |
+        '''
+        self.bBlendPrevData = 0  # [0, 1]
+        if self.eAlgoType == 2:
+            self.bClearLow4bits = 1
+        elif self.eAlgoType == 1:
+            self.bClearLow4bits = 0
+        else:
+            self.bClearLow4bits = int(self.bDither <= 1 and self.bBlendPrevData == 0)
         self.sRoiInfo = [0, 0, 0, 0, 0, 0]  # x6
-        self.aReserved = [0, 0, 0, 0, 0, 0, 0, 0]  # x8
+        self.aReserved = [self.bClearLow4bits, self.bBlendPrevData, self.randSeed, 0, 0, 0, 0, 0]  # x8
 
         self.randSeed = seed
         return True
@@ -255,12 +276,13 @@ if __name__ == "__main__":
 
     config = CfaConfig(platform=args.platform)
     if args.interface == "gen":
-        seed = config.gen(args.seed)
-        config.dump(args.file)
-        load_ok = True
+        load_ok = config.gen(args.seed)
+        if load_ok:
+            config.dump(args.file)
     elif args.interface == "load":
         load_ok = config.load(args.file)
-        config.dump()
+        if load_ok:
+            config.dump()
     elif args.interface == "dump":
         load_ok = config.dump(args.file)
     else:
