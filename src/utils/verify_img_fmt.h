@@ -9,6 +9,7 @@
 #ifndef _VERIFY_IMG_FMT_H_
 #define _VERIFY_IMG_FMT_H_
 
+/* image format definition */
 enum common_verify_image_format
 {
     RGB888 = 0,
@@ -50,6 +51,7 @@ int common_verify_imgfmt_bpp(int fmt);
 int common_verify_imgfmt_check(int fmt);
 
 
+/* colorspace definition */
 enum common_verify_colorspace
 {
     RGBLIMIT = 0x0,

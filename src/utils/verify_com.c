@@ -5,7 +5,7 @@
  * @create: 2025-09-05
  * @history:
  *  2025-09-08 vance.wu: Add common macros & functions for commonly usage
- *  2025-09-15 vance.wu: Add function 'dump_regs_to_dat()' for dumping registers to file
+ *  2025-09-15 vance.wu: Add pixel format pack/unpack functions
  */
 
 #include "verify_com.h"
@@ -271,6 +271,189 @@ int image_write(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt)
 
     return 0;
 }
+
+/* pack / unpack */
+inline static void pack_data_10bit(uint16_t const *unpacked_data_u16x4, uint8_t *packed_data_u8x5)
+{
+    packed_data_u8x5[0] = unpacked_data_u16x4[0] & 0xFF;
+    packed_data_u8x5[1] = ((unpacked_data_u16x4[1] & 0x3F) << 2) | ((unpacked_data_u16x4[0] >> 8) & 0x03);
+    packed_data_u8x5[2] = ((unpacked_data_u16x4[2] & 0x0F) << 4) | ((unpacked_data_u16x4[1] >> 6) & 0x0F);
+    packed_data_u8x5[3] = ((unpacked_data_u16x4[3] & 0x03) << 6) | ((unpacked_data_u16x4[2] >> 4) & 0x3F);
+    packed_data_u8x5[4] = (unpacked_data_u16x4[3] >> 2) & 0xFF;
+}
+
+inline static void unpack_data_10bit(uint8_t const *packed_data_u8x5, uint16_t *unpacked_data_u16x4)
+{
+    unpacked_data_u16x4[0] = (uint16_t)((packed_data_u8x5[0] >> 0) & 0xFF) | ((packed_data_u8x5[1] & 0x03) << 8);
+    unpacked_data_u16x4[1] = (uint16_t)((packed_data_u8x5[1] >> 2) & 0x3F) | ((packed_data_u8x5[2] & 0x0F) << 6);
+    unpacked_data_u16x4[2] = (uint16_t)((packed_data_u8x5[2] >> 4) & 0x0F) | ((packed_data_u8x5[3] & 0x3F) << 4);
+    unpacked_data_u16x4[3] = (uint16_t)((packed_data_u8x5[3] >> 6) & 0x03) | ((packed_data_u8x5[4] & 0xFF) << 2);
+}
+
+inline static void unpack_data_1010102(uint32_t packed_data, uint16_t *unpacked_data_u16x4, bool save_alpha)
+{
+    unpacked_data_u16x4[0] = (packed_data >> 0) & 0x03FF;
+    unpacked_data_u16x4[1] = (packed_data >> 10) & 0x03FF;
+    unpacked_data_u16x4[2] = (packed_data >> 20) & 0x03FF;
+    if (save_alpha) {
+        unpacked_data_u16x4[3] = (packed_data >> 30) & 0x03;
+    }
+}
+
+int imgcvt_pack_10bit(uint16_t *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt)
+{
+    switch (fmt) {
+    case RGB_101010LSB:
+    case YUV444I_10LSB: {
+        for (int i = 0; i < h; i++) {
+            const uint16_t *src_y = (uint16_t *)((uint8_t *)p_src + i * src_strd);
+            uint8_t *dst_y = (uint8_t *)((uint8_t *)p_dst + i * dst_strd);
+            for (int j = 0, k = 0; j < w * 3; j += 4, k += 5) {
+                pack_data_10bit(src_y + j, dst_y + k);
+            }
+        }
+    } break;
+    case RGB_PLANAR10LSB:
+    case YUV444P_10LSB:   {
+        for (int i = 0; i < h; i++) {
+            const uint16_t *src_y = (uint16_t *)((uint8_t *)p_src + i * src_strd);
+            const uint16_t *src_u = (uint16_t *)((uint8_t *)src_y + src_strd * h);
+            const uint16_t *src_v = (uint16_t *)((uint8_t *)src_u + src_strd * h);
+            uint8_t *dst_y = (uint8_t *)((uint8_t *)p_dst + i * dst_strd);
+            uint8_t *dst_u = (uint8_t *)((uint8_t *)dst_y + dst_strd * h);
+            uint8_t *dst_v = (uint8_t *)((uint8_t *)dst_u + dst_strd * h);
+            for (int j = 0, k = 0; j < w; j += 4, k += 5) {
+                pack_data_10bit(src_y + j, dst_y + k);
+                pack_data_10bit(src_u + j, dst_u + k);
+                pack_data_10bit(src_v + j, dst_v + k);
+            }
+        }
+    } break;
+    case YUV444SP_10LSB: {
+        for (int i = 0; i < h; i++) {
+            const uint16_t *src_y = (uint16_t *)((uint8_t *)p_src + i * src_strd);
+            const uint16_t *src_c = (uint16_t *)((uint8_t *)src_y + src_strd * h);
+            uint8_t *dst_y = (uint8_t *)((uint8_t *)p_dst + i * dst_strd);
+            uint8_t *dst_c = (uint8_t *)((uint8_t *)dst_y + dst_strd * h);
+            int jc = 0, kc = 0;
+            for (int j = 0, k = 0; j < w; j += 4, k += 5) {
+                pack_data_10bit(src_y + j, dst_y + k);
+                pack_data_10bit(src_c + jc, dst_c + kc);
+                pack_data_10bit(src_c + jc + 4, dst_c + kc + 5);
+                jc += 8;
+                kc += 10;
+            }
+        }
+    } break;
+    case YUV422SP_10LSB: {
+        for (int i = 0; i < h; i++) {
+            const uint16_t *src_y = (uint16_t *)((uint8_t *)p_src + i * src_strd);
+            const uint16_t *src_c = (uint16_t *)((uint8_t *)src_y + src_strd * h);
+            uint8_t *dst_y = (uint8_t *)((uint8_t *)p_dst + i * dst_strd);
+            uint8_t *dst_c = (uint8_t *)((uint8_t *)dst_y + dst_strd * h);
+            for (int j = 0, k = 0; j < w; j += 4, k += 5) {
+                pack_data_10bit(src_y + j, dst_y + k);
+                pack_data_10bit(src_c + j, dst_c + k);
+            }
+        }
+    } break;
+    case YUV420SP_10LSB: {
+        for (int i = 0; i < h / 2; i++) {
+            const uint16_t *src_y0 = (uint16_t *)((uint8_t *)p_src + i * 2 * src_strd);
+            const uint16_t *src_y1 = (uint16_t *)((uint8_t *)src_y0 + src_strd);
+            const uint16_t *src_uv = (uint16_t *)((uint8_t *)p_src + h * src_strd + i * src_strd);
+            uint8_t *dst_y0 = (uint8_t *)((uint8_t *)p_dst + i * 2 * dst_strd);
+            uint8_t *dst_y1 = (uint8_t *)((uint8_t *)dst_y0 + dst_strd);
+            uint8_t *dst_uv = (uint8_t *)((uint8_t *)p_dst + h * dst_strd + i * dst_strd);
+            for (int j = 0, k = 0; j < w; j += 4, k += 5) {
+                pack_data_10bit(src_y0 + j, dst_y0 + k);
+                pack_data_10bit(src_y1 + j, dst_y1 + k);
+                pack_data_10bit(src_uv + j, dst_uv + k);
+            }
+        }
+    } break;
+    default: LOGE("unsupported image format %d case to pack !\n", fmt); return -1;
+    }
+    return 0;
+}
+
+int imgcvt_unpack_10bit(uint8_t *p_src, uint16_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt)
+{
+    switch (fmt) {
+    case RGB_10PACKED:
+    case YUV444I_10PACKED: {
+        for (int i = 0; i < h; i++) {
+            const uint8_t *src_y = (uint8_t *)((uint8_t *)p_src + i * src_strd);
+            uint16_t *dst_y = (uint16_t *)((uint8_t *)p_dst + i * dst_strd);
+            for (int j = 0, k = 0; j < w * 3; j += 4, k += 5) {
+                unpack_data_10bit(src_y + k, dst_y + j);
+            }
+        }
+    } break;
+    case RGB_PLANAR10PACKED:
+    case YUV444P_10PACKED:   {
+        for (int i = 0; i < h; i++) {
+            const uint8_t *src_y = (uint8_t *)((uint8_t *)p_src + i * src_strd);
+            const uint8_t *src_u = (uint8_t *)((uint8_t *)src_y + src_strd * h);
+            const uint8_t *src_v = (uint8_t *)((uint8_t *)src_u + src_strd * h);
+            uint16_t *dst_y = (uint16_t *)((uint8_t *)p_dst + i * dst_strd);
+            uint16_t *dst_u = (uint16_t *)((uint8_t *)dst_y + dst_strd * h);
+            uint16_t *dst_v = (uint16_t *)((uint8_t *)dst_u + dst_strd * h);
+            for (int j = 0, k = 0; j < w; j += 4, k += 5) {
+                unpack_data_10bit(src_y + k, dst_y + j);
+                unpack_data_10bit(src_u + k, dst_u + j);
+                unpack_data_10bit(src_v + k, dst_v + j);
+            }
+        }
+    } break;
+    case YUV444SP_10PACKED: {
+        for (int i = 0; i < h; i++) {
+            const uint8_t *src_y = (uint8_t *)((uint8_t *)p_src + i * src_strd);
+            const uint8_t *src_c = (uint8_t *)((uint8_t *)src_y + src_strd * h);
+            uint16_t *dst_y = (uint16_t *)((uint8_t *)p_dst + i * dst_strd);
+            uint16_t *dst_c = (uint16_t *)((uint8_t *)dst_y + dst_strd * h);
+            int jc = 0, kc = 0;
+            for (int j = 0, k = 0; j < w; j += 4, k += 5) {
+                unpack_data_10bit(src_y + k, dst_y + j);
+                unpack_data_10bit(src_c + kc, dst_c + jc);
+                unpack_data_10bit(src_c + kc + 5, dst_c + jc + 4);
+                jc += 8;
+                kc += 10;
+            }
+        }
+    } break;
+    case YUV422SP_10PACKED: {
+        for (int i = 0; i < h; i++) {
+            const uint8_t *src_y = (uint8_t *)((uint8_t *)p_src + i * src_strd);
+            const uint8_t *src_c = (uint8_t *)((uint8_t *)src_y + src_strd * h);
+            uint16_t *dst_y = (uint16_t *)((uint8_t *)p_dst + i * dst_strd);
+            uint16_t *dst_c = (uint16_t *)((uint8_t *)dst_y + dst_strd * h);
+            for (int j = 0, k = 0; j < w; j += 4, k += 5) {
+                unpack_data_10bit(src_y + k, dst_y + j);
+                unpack_data_10bit(src_c + k, dst_c + j);
+            }
+        }
+    } break;
+    case YUV420SP_10PACKED: {
+        for (int i = 0; i < h / 2; i++) {
+            const uint8_t *src_y0 = (uint8_t *)((uint8_t *)p_src + i * 2 * src_strd);
+            const uint8_t *src_y1 = (uint8_t *)((uint8_t *)src_y0 + src_strd);
+            const uint8_t *src_uv = (uint8_t *)((uint8_t *)p_src + h * src_strd + i * src_strd);
+            uint16_t *dst_y0 = (uint16_t *)((uint8_t *)p_dst + i * 2 * dst_strd);
+            uint16_t *dst_y1 = (uint16_t *)((uint8_t *)dst_y0 + dst_strd);
+            uint16_t *dst_uv = (uint16_t *)((uint8_t *)p_dst + h * dst_strd + i * dst_strd);
+            for (int j = 0, k = 0; j < w; j += 4, k += 5) {
+                unpack_data_10bit(src_y0 + k, dst_y0 + j);
+                unpack_data_10bit(src_y1 + k, dst_y1 + j);
+                unpack_data_10bit(src_uv + k, dst_uv + j);
+            }
+        }
+    } break;
+    default: LOGE("unsupported image format %d case to pack !\n", fmt); return -1;
+    }
+    return 0;
+}
+
 
 void dump_regs_to_dat(const char *filename, uint const *regs, int nb_regs, unsigned int start_addr)
 {

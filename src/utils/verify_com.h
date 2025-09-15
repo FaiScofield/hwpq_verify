@@ -5,7 +5,7 @@
  * @create: 2025-09-05
  * @history:
  *  2025-09-08 vance.wu: Add common macros & functions for commonly usage
- *  2025-09-15 vance.wu: Add function 'dump_regs_to_dat()' for dumping registers to file
+ *  2025-09-15 vance.wu: Add pixel format pack/unpack functions
  */
 
 #ifndef _VERIFY_COM_H_
@@ -13,6 +13,7 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -141,6 +142,9 @@ int image_read_to_10bit_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, 
 int image_read(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt);
 // write image data to fp
 int image_write(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt);
+
+int imgcvt_pack_10bit(uint16_t *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt);
+int imgcvt_unpack_10bit(uint8_t *p_src, uint16_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt);
 
 
 // dump regisers data to a file or stdout, with 4 registers in each row
