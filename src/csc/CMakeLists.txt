@@ -1,6 +1,6 @@
 
 include_directories(${CMAKE_CURRENT_LIST_DIR})
-message(STATUS "VERIFY_LIBS on CSC: ${VERIFY_LIBS}")
+# message(STATUS "[CSC] VERIFY_LIBS on CSC: ${VERIFY_LIBS}")
 
 set(POST_CSC_DEMO_SRC
     ${CMAKE_CURRENT_LIST_DIR}/../kernel/rockchip_post_csc.c # post_csc from RK3576 kernel

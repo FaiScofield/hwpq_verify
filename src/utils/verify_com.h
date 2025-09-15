@@ -5,6 +5,7 @@
  * @create: 2025-09-05
  * @history:
  *  2025-09-08 vance.wu: Add common macros & functions for commonly usage
+ *  2025-09-15 vance.wu: Add function 'dump_regs_to_dat()' for dumping registers to file
  */
 
 #ifndef _VERIFY_COM_H_
@@ -68,8 +69,8 @@ static char g_logbuf[2048];
 #define ALIGN_32(x)        (((x) + 31) & (~31))
 #define ALIGN_64(x)        (((x) + 63) & (~63))
 #define ALIGN_128(x)       (((x) + 127) & (~127))
-#define ALIGN_N(x, n)      (((x) + ((n)-1)) & (~((n)-1))) // n > 0
-#define ALIGN_N_DIV(x, n)  (((x) + ((n)-1)) / (n) * (n))
+#define ALIGN_N(x, n)      (((x) + ((n) - 1)) & (~((n) - 1))) // n > 0
+#define ALIGN_N_DIV(x, n)  (((x) + ((n) - 1)) / (n) * (n))
 
 /* minimum, maximum, clip */
 #define MAX(a, b)          ((a) > (b) ? (a) : (b))
@@ -97,8 +98,8 @@ static char g_logbuf[2048];
 
 /* rounding */
 #define ROUND_U(x)         ((float)(x) + 0.5f)
-#define ROUND_F(x)         ((x) > 0 ? ((float)(x) + 0.5f) : ((float)(x)-0.5f))
-#define ROUND_D(x)         ((x) > 0 ? ((double)(x) + 0.5) : ((double)(x)-0.5))
+#define ROUND_F(x)         ((x) > 0 ? ((float)(x) + 0.5f) : ((float)(x) - 0.5f))
+#define ROUND_D(x)         ((x) > 0 ? ((double)(x) + 0.5) : ((double)(x) - 0.5))
 #define ROUND_U8(x)        (uchar) ROUND_U(x)
 #define ROUND_U16(x)       (ushort) ROUND_U(x)
 #define ROUND_U32(x)       (uint) ROUND_U(x)
@@ -133,8 +134,16 @@ const char *get_basename(const char *path);
 
 /********** image io functions **********/
 #include "verify_img_fmt.h"
-int read_image_2_10bit_planar(FILE *fp, ushort *p_buf, int frmidx, int w, int h,
-    int fmt); // read image data from fp then shift to U10 YUV444P or planar RGB
-int write_10bit_planar_image(FILE *fp, ushort *p_buf, int frmidx, int w, int h, int fmt);
+
+// read image data from fp then shift to U10bit YUV444P or planar RGB
+int image_read_to_10bit_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt);
+// read image data from fp
+int image_read(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt);
+// write image data to fp
+int image_write(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt);
+
+
+// dump regisers data to a file or stdout, with 4 registers in each row
+void dump_regs_to_dat(const char *filename, uint const *regs, int nb_regs, uint start_addr);
 
 #endif /* _VERIFY_COM_H_ */

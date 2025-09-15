@@ -460,9 +460,9 @@ int main(int argc, char *const argv[])
     LOGI(" - bCscEnable: %d, bIsOutputYuv: %d, bIsPostCsc: %d\n", bCscEnable, bIsOutputYuv, bIsPostCsc);
 
     /* alloc i/o/t memories */
-    const int frame_size = cmd_config.src_wid * cmd_config.src_hgt * 3;
-    void *p_src = calloc(cmd_config.src_wid * cmd_config.src_hgt * sizeof(unsigned short) * 4, 1);
-    void *p_dst = calloc(cmd_config.src_wid * cmd_config.src_hgt * sizeof(unsigned short) * 4, 1);
+    const size_t frame_size_max = cmd_config.src_wid * cmd_config.src_hgt * 4 * 2; // 4 channels x 16bpp
+    void *p_src = calloc(frame_size_max, 1);
+    void *p_dst = calloc(frame_size_max, 1);
     if (!p_src || !p_dst) {
         return -1;
     }
@@ -485,8 +485,7 @@ int main(int argc, char *const argv[])
 
     int crc_val = -1;
     for (int k = 0; k < cmd_config.nb_frame; k++) {
-        fseek(fp_src, frame_size * k, SEEK_SET);
-        ret = read_image_2_10bit_planar(fp_src, (ushort *)p_src, k, cmd_config.src_wid, cmd_config.src_hgt, cmd_config.src_fmt);
+        ret = image_read_to_10bit_planar(fp_src, (ushort *)p_src, k, cmd_config.src_wid, cmd_config.src_hgt, cmd_config.src_fmt);
         if (ret) {
             LOGE("Failed to read frame #%d from input file '%s'! %s\n", k, cmd_config.input_file, strerror(errno));
             break;

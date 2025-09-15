@@ -91,7 +91,7 @@ int common_verify_imgfmt_bpp(int fmt)
     }
 }
 
-// used in `read_image_2_10bit_planar()`
+// used in `image_read_to_10bit_planar()`
 int common_verify_imgfmt_check(int fmt)
 {
     switch (fmt) {

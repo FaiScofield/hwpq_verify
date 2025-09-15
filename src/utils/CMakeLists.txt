@@ -2,7 +2,7 @@ aux_source_directory(${CMAKE_CURRENT_LIST_DIR} VERIFY_UTILS_SRC)
 if(NOT WIN32)
     list(REMOVE_ITEM VERIFY_UTILS_SRC ${CMAKE_CURRENT_LIST_DIR}/getopt_win32.c)
 endif()
-# message(STATUS "get VERIFY_UTILS_SRC: ${VERIFY_UTILS_SRC}")
+# message(STATUS "[UTILS] get VERIFY_UTILS_SRC: ${VERIFY_UTILS_SRC}")
 
 add_library(verify_utils STATIC ${VERIFY_UTILS_SRC})
 
