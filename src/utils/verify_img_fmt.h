@@ -9,6 +9,10 @@
 #ifndef _VERIFY_IMG_FMT_H_
 #define _VERIFY_IMG_FMT_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* image format definition */
 enum common_verify_image_format
 {
@@ -67,5 +71,7 @@ enum common_verify_colorspace
 const char *common_verify_clrspc_str(int clrspc);
 int common_verify_clrspc_offset(int clrspc, int bit_depth, int *offsetx3);
 
-
+#ifdef __cplusplus
+}
+#endif
 #endif // _VERIFY_IMG_FMT_H_

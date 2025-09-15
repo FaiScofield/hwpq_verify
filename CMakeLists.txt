@@ -6,6 +6,8 @@ project(hwpq_verify)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 ################################################################################
 ## Build type & build options
@@ -21,7 +23,7 @@ if(MSVC)
     add_compile_options(/wd4996)
     add_definitions(-D_CRT_SECURE_NO_WARNINGS)
 else()
-    add_compile_options(-std=c99 -Wno-deprecated-declarations -Wno-format-truncation)
+    add_compile_options(-Wno-deprecated-declarations -Wno-format-truncation)
     if(CMAKE_BUILD_TYPE MATCHES "Debug")
         add_compile_options(-g -fno-inline -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer)
     endif()

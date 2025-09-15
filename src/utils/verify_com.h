@@ -125,6 +125,9 @@ static char g_logbuf[2048];
 
 #define IS_POWER_OF_2(x)   (((x) & -(x)) == (x)).
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /********** directory / file functions **********/
 bool is_directory(const char *path);
@@ -150,4 +153,7 @@ int imgcvt_unpack_10bit(uint8_t *p_src, uint16_t *p_dst, int w, int h, int src_s
 // dump regisers data to a file or stdout, with 4 registers in each row
 void dump_regs_to_dat(const char *filename, uint const *regs, int nb_regs, uint start_addr);
 
+#ifdef __cplusplus
+}
+#endif
 #endif /* _VERIFY_COM_H_ */

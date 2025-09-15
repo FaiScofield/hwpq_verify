@@ -23,6 +23,10 @@
 #include "getopt_win32.h"
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* common verify arguments */
 struct common_verify_cmd_config
 {
@@ -52,4 +56,7 @@ int common_verify_arg_dump_config(struct common_verify_cmd_config *config);
 
 extern const struct option g_common_verify_arg_supported_options[];
 
+#ifdef __cplusplus
+}
+#endif
 #endif /* _VERIFY_CMD_PARSER_ */

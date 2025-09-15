@@ -29,4 +29,5 @@ message(STATUS "[SRC] built VERIFY_LIBS: ${VERIFY_LIBS}")
 
 ## add module verify directories
 add_subdirectory(csc)
+add_subdirectory(acm)
 add_subdirectory(dci)

@@ -14,11 +14,19 @@
 #include <stdio.h>
 #include <string.h>
 
+class rkvop_pq_dci_sw;
+class rkvop_interface;
+class rkvop_register_global;
+
+struct dci_verify_ctx
+{
+    rkvop_pq_dci_sw *sw_handle;
+};
 
 int main(int argc, char *const argv[])
 {
     int ret = 0;
-// dump_regs_to_dat();
+    // dump_regs_to_dat();
     /* parse cmd parameters */
     opterr = 0; // disable getopt error message
     struct common_verify_cmd_config cmd_config = {0};
@@ -60,6 +68,14 @@ int main(int argc, char *const argv[])
         LOGW("Failed to open the crc output file '%s'! %s. CRC value will not be written!\n", cmd_config.crc_file,
             strerror(errno));
     }
+
+    // rkvop_interface *intf_src = NULL;
+    // rkvop_interface *intf_dst = NULL;
+    // rkvop_register_global *glb_reg = NULL;
+    // dci_verify_ctx ctx;
+    // ctx.sw_handle = new rkvop_pq_dci_sw();
+    // ret = ctx.sw_handle->run(intf_src, intf_dst);
+    // ret = ctx.sw_handle->cfg(glb_reg);
 #if 0
     int crc_val = -1;
     for (int k = 0; k < cmd_config.nb_frame; k++) {
