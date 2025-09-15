@@ -55,7 +55,8 @@ int get_cmd_config_addition(int argc, char *const argv[], struct cmd_config_addi
         switch (opt) {
         case 'D': cmd_config->pixel_depth = atoi(optarg); break;
         case 'P': cmd_config->coef_precision = atoi(optarg); break;
-        case 'M': strcpy_s(cmd_config->mode_str, 32, optarg); break;
+        // case 'M': snprintf(cmd_config->mode_str, 32, "%s", optarg); break;
+        case 'M': strncpy(cmd_config->mode_str, optarg, 32); break;
         default:  break;
         }
     }
@@ -66,7 +67,7 @@ int get_cmd_config_addition(int argc, char *const argv[], struct cmd_config_addi
 /* parse mode string like 'rgbl_to_601f' */
 int parse_csc_mode_str(const char *mode_str, struct post_csc_convert_mode *mode)
 {
-    LOGI("parse from csc_mode_str: %s\n", mode_str);
+    LOGI("parsing csc mode from csc_mode_str: %s\n", mode_str);
     int ret = 0;
     int out_clr_pos = 8;
     int in_clr = -1;
@@ -90,8 +91,8 @@ int parse_csc_mode_str(const char *mode_str, struct post_csc_convert_mode *mode)
         out_clr_pos = 9;
     }
     else {
-        LOGE("unknow csc_mode_str: %s\n", mode_str);
-        ret = -1;
+        LOGE("unknow csc_mode_str: %s !\n", mode_str);
+        return -1;
     }
 
     mode->is_output_yuv = 1;
@@ -111,8 +112,8 @@ int parse_csc_mode_str(const char *mode_str, struct post_csc_convert_mode *mode)
         mode->is_output_full_range = mode_str[out_clr_pos + 4] == 'f' || mode_str[out_clr_pos + 4] == 'F';
     }
     else {
-        LOGE("unknow csc_mode_str: %s\n", mode_str);
-        ret = -1;
+        LOGE("unknow csc_mode_str: %s !\n", mode_str);
+        return -1;
     }
 
     // update input/output colorspace if not specified
@@ -418,15 +419,20 @@ int main(int argc, char *const argv[])
     // parse csc coefs from 'cmd_config2.mode_str'
     else if (cmd_config2.mode_str[0] != '\0') {
         ret = parse_csc_mode_str(cmd_config2.mode_str, &csc_mode);
+        if (ret) {
+            return ret;
+        }
         csc_mode.pixel_depth = cmd_config2.pixel_depth;
         csc_mode.coef_precision = cmd_config2.coef_precision;
         ret |= rockchip_calc_post_csc(NULL, &csc_coefs, &csc_mode);
         ret |= rockchip_calc_post_csc_coefs(NULL, &csc_coefs, &csc_mode);
-
         mode_idx = csc_get_mode_index(&csc_mode);
         LOGI(" - pixel_depth: %d\n", cmd_config2.pixel_depth);
         LOGI(" - coef_precision: %d\n", cmd_config2.coef_precision);
-        LOGI(" - mode_string: %s -> index: %d\n", cmd_config2.mode_str, mode_idx);
+        LOGI(" - mode_string: %s -> mode_index: %d\n", cmd_config2.mode_str, mode_idx);
+        if (ret || mode_idx < 0 || mode_idx >= CSC_MODE_MAX) {
+            return ret;
+        }
     }
     // parse csc coefs from 'cmd_config.config_file'
     else if (cmd_config.config_file[0] != '\0') {

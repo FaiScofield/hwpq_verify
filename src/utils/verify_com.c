@@ -84,7 +84,8 @@ const char *get_basename(const char *path)
 
 #else
 
-#include <sys/stat.h>
+#include <sys/stat.h> // lstat
+#include <libgen.h>   // POSIX header for dirname, basename
 #include <errno.h>
 #include <string.h>
 

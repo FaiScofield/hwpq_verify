@@ -82,11 +82,11 @@ int common_verify_arg_get_cmd_config(int argc, char *const argv[], struct common
     while ((opt = getopt_long(argc, argv, short_option_str, g_common_verify_arg_supported_options, &idx)) != -1) {
         switch (opt) {
         case 'h': common_verify_arg_print_usage(argv[0]); return -1;
-        case 'i': strcpy_s(config.input_file, 1024, optarg); break;
-        case 'o': strcpy_s(config.output_file, 1024, optarg); break;
-        case 'c': strcpy_s(config.config_file, 1024, optarg); break;
-        case 'C': strcpy_s(config.crc_file, 1024, optarg); break;
-        case 'p': strcpy_s(config.platform_name, 32, optarg); break;
+        case 'i': strncpy(config.input_file, optarg, 1024); break;
+        case 'o': strncpy(config.output_file, optarg, 1024); break;
+        case 'c': strncpy(config.config_file, optarg, 1024); break;
+        case 'C': strncpy(config.crc_file, optarg, 1024); break;
+        case 'p': strncpy(config.platform_name, optarg, 32); break;
         case 'w': config.src_wid = atoi(optarg); break;
         case 'g': config.src_hgt = atoi(optarg); break;
         case 'f': config.src_fmt = atoi(optarg); break;
@@ -108,7 +108,7 @@ int common_verify_arg_get_cmd_config(int argc, char *const argv[], struct common
         // return -1;
     }
     if (config.platform_name[0] == '\0') {
-        strcpy_s(config.platform_name, 32, "RK3572");
+        strncpy(config.platform_name, "RK3572", 32);
     }
     if (config.src_wid < 0) {
         config.src_wid = 1920;
@@ -138,17 +138,17 @@ int common_verify_arg_get_cmd_config(int argc, char *const argv[], struct common
         config.nb_frame = 1;
     }
     if (config.output_file[0] == '\0') {
-        strcpy_s(config.output_dir, 1024, get_dirname(config.input_file));
+        strncpy(config.output_dir, get_dirname(config.input_file), 1024);
         snprintf(config.output_file, 1024, "%s/verify_out_%dx%d_%s.%s", config.output_dir, config.dst_wid,
             config.dst_hgt, common_verify_imgfmt_str(config.dst_fmt), common_verify_imgfmt_exten_str(config.dst_fmt));
         printf(" - output_file no set, force update to '%s'!\n", config.output_file);
     }
     else {
-        strcpy_s(config.output_dir, 1024, get_dirname(config.output_file));
+        strncpy(config.output_dir, get_dirname(config.output_file), 1024);
         mkdir(config.output_dir, 0777); // mkdir before checking
         int flag = is_directory(config.output_file);
         if (flag == 1) {
-            strcpy_s(config.output_dir, 1024, config.output_file);
+            strncpy(config.output_dir, config.output_file, 1024);
             snprintf(config.output_file, 1024, "%s/verify_out_%dx%d_%s.%s", config.output_dir, config.dst_wid,
                 config.dst_hgt, common_verify_imgfmt_str(config.dst_fmt), common_verify_imgfmt_exten_str(config.dst_fmt));
             printf(" - output_file is a directory, force update to: '%s'!\n", config.output_file);
