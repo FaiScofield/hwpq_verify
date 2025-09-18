@@ -1,6 +1,45 @@
 # FPGA 验证说明
 
-## 1. 环境准备
+## 1. 验证工程介绍
+
+### 1.1 文件框架
+
+### 1.2 模块
+
+```mermaid
+sequenceDiagram
+autonumber
+
+title: verify工程模块调用流程
+
+participant usr as User # @{ "type" : "entity" }
+participant exe as xxx_verify.exe
+participant fpga as FPGA
+participant py as crc_verify.py
+    
+opt 随机配置生成
+  usr->>+exe: 生成随机配置(func=gen_rand_config)
+  exe-->>-usr: 随机配置文件(.json/.bin/.blob)
+end
+
+par fpga随机CRC验证
+  usr->>+fpga: 执行fpga仿真，<br/>传入.bin文件和输入图像
+  activate  py
+  fpga->>-py: 返回仿真结果crc1
+  usr->>+exe: 执行软件仿真(func=sim, mode=0/1)，<br/>传入.json/.bin文件和输入图像
+  exe->>-py: 返回仿真结果crc2
+  py->>py: 验证结果crc1和crc2的一致性
+  deactivate  py
+end
+
+alt fpga内核验证
+  usr->>+exe: TODO
+end
+```
+
+## 2. 验证流程
+
+### 2.1. 环境准备
 
 相关软件放于路径 `\\172.16.4.246\vop\3572_pq环境\fpag_software`
 参考文件夹内`Marsvip S2800Hard平台使用说明.pdf`，安装FPGA开发板驱动、cygwin环境、ARMDS IDE等。
@@ -19,9 +58,10 @@
   - `8224@172.16.12.252`
   - `8224@172.16.13.206`
 
-## 2. 寄存器对应功能熟悉
+### 2.2. 寄存器对应功能熟悉
 
-### RK3572 VOP
+#### RK3572 VOP
+
 :warning: 以下仅列出一些常用的或关键的寄存器
 
 | 寄存器地址 | 寄存器名称 | bitfield内容 | 对应功能 |
@@ -41,7 +81,8 @@
 | 0x9F006764 ~ 0x9F006AD4 | YHS_GAIN_BY_S_SEG0 ~ YHS_GAIN_BY_S_SEG220 |  | s_gain表，13x17=221个 |
 | 0x9F006AD8 ~ 0x9F006BD8 | YHS_DEL_BY_H_SEG0 ~ YHS_DEL_BY_H_SEG64    |  | delta表，65个 |
 
-#### VOP Cluster layer
+##### VOP Cluster layer
+
 - **0x00001000** `CLUSTER0.WIN0_CTRL0.win0_data_fmt` 输入格式支持说明
   - `6'b00_0000 | 0x00`: ARGB888 - 32bit MSB ARGB, A高B低,
   - `6'b00_0001 | 0x01`: RGB888 - 24bit MSB RGB, R高B低
@@ -68,11 +109,14 @@
 - **0x00001000** `CLUSTER0.WIN0_CTRL0.win0_uv_swap`: 0-YUV, 1-YVU
 - **0x00001000** `CLUSTER0.WIN0_CTRL0.win0_yuv_clip`: 0-noClip, 1-ClipYuvBeforeY2R (Y-[16, 235], UV-[16, **239**]) 这个功能基本没用
 
-## Debug方法
-### CRC32 校验
+### 2.3. Debug方法
+
+#### CRC32 校验
+
 - RGA的CRC开关寄存器: `0xf9000C40(POST0_CTRL.POST_SCL_CTRL.crc_en)`
 - RGA的CRC值读取: `0xf9000C28(POST0_CTRL.POST_CRC_OUT)`
 - 注意CRC的精度问题： CRC模块计算节点在POST之后，计算的数据精度受`POST0_CTRL.POST_DSP_CTRL.dsp_out_mode`影响。需要将其设为`0xF`才能保证是10bit精度
+
   ```c
       // enable CRC. POST0_CTRL.POST_SCL_CTRL.crc_en
       word32(VOPLITE_BASE + VOP3_POST0_CTRL_BASE + 0x40) = 0x0100;
@@ -82,8 +126,8 @@
       int crc = word32(VOPLITE_BASE + VOP3_POST0_CTRL_BASE + 0x28);
   ```
 
+#### 利用 DEBUG_POINT 核对像素值
 
-### 利用 DEBUG_POINT 核对像素值
 - 开关寄存器: `0x6400(ACM.ACM_CTRL.debug_en) |= 1<<2`
 - 支持查看输入/输出和一些中间计算的结果，通过寄存器`(ACM.ACM_CTRL.debug_data_sel)`来切换要，具体种类包括:
   - `3'b000`: `((0<<3)|(1<<2)=0x04)` YUV in data
