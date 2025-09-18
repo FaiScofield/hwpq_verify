@@ -4,8 +4,9 @@
  * @brief: a demo for csc kernel verification
  * @author: vance.wu@rock-chips.com
  * @history:
- *  - 2025/09/04 vance.wu: implementation adjustment for new csc kernel verification.
- *  - 2025/08/19 vance.wu: enable to get csc coefs with cmd line arguments.
+ *  - 2025-09-18 vance.wu: adjust options of cmd line arguments.
+ *  - 2025-09-04 vance.wu: implementation adjustment for new csc kernel verification.
+ *  - 2025-08-19 vance.wu: enable to get csc coefs with cmd line arguments.
  */
 
 
@@ -45,6 +46,7 @@ struct cmd_config_t
     int b_print_all;           // [0, 1]
     int b_use_old_method;      // [0, 1]
     char output_file[1024];
+    char platform_name[32];
 };
 
 const struct option g_cmd_args_supported_options[] = {
@@ -54,13 +56,14 @@ const struct option g_cmd_args_supported_options[] = {
     {     (char *)"dst_color",  ARG_OPT, 0, 'C'},
     {       (char *)"dst_yuv",  ARG_OPT, 0, 'Y'},
     {     (char *)"dst_range",  ARG_OPT, 0, 'R'},
-    {      (char *)"csc_mode",  ARG_OPT, 0, 'm'},
-    {   (char *)"pixel_depth",  ARG_OPT, 0, 'd'},
-    {(char *)"coef_precision",  ARG_OPT, 0, 'p'},
+    {      (char *)"csc_mode",  ARG_OPT, 0, 'M'},
+    {   (char *)"pixel_depth",  ARG_OPT, 0, 'D'},
+    {(char *)"coef_precision",  ARG_OPT, 0, 'P'},
     {   (char *)"output_file",  ARG_OPT, 0, 'o'},
+    { (char *)"platform_name",  ARG_OPT, 0, 'p'},
     {     (char *)"print_all", ARG_NONE, 0, 'a'},
     { (char *)"swap_channels", ARG_NONE, 0, 's'},
-    {(char *)"use_old_method", ARG_NONE, 0, 'M'},
+    {(char *)"use_old_method", ARG_NONE, 0, 'm'},
     {          (char *)"help", ARG_NONE, 0, 'h'},
     {                       0,        0, 0,   0}  // end of option list
 };
@@ -75,14 +78,15 @@ void print_usage(const char *prog_name)
     printf("  -C  --dst_color      [val] | output colorspcae, range: [0, 1], default: 1\n");
     printf("  -Y  --dst_yuv        [val] | output yuv format, range: [0, 1], default: 1\n");
     printf("  -R  --dst_range      [val] | output full range, range: [0, 1], default: 1\n");
-    printf("  -m  --csc_mode       [val] | csc mode, like 'rgbl_to_601f'...,  default: NULL. "
+    printf("  -M  --csc_mode       [val] | csc mode, like 'rgbl_to_601f'...,  default: NULL. "
            "Recommend to use this option instead of above arguments!\n");
-    printf("  -d  --pixel_depth    [val] | pixel depth, range: {8,10}, default: 10bit\n");
-    printf("  -p  --coef_precision [val] | coef precision, range: {8,10,13}, default: 10bit\n");
+    printf("  -D  --pixel_depth    [val] | pixel depth, range: {8,10}, default: 10bit\n");
+    printf("  -P  --coef_precision [val] | coef precision, range: {8,10,13}, default: 10bit\n");
     printf("  -o  --output_file    [val] | write all coefs to an output file when '-a' specified\n");
+    printf("  -p  --platform_name  [val] | platform name like: 'rk3576'/'rk3572'...\n");
     printf("  -a  --print_all            | print coefs for all supported case,  range: [0, 1], default: 0\n");
     printf("  -s  --swap_channels        | swap channels, range: [0, 1], default: 0\n");
-    printf("  -M  --use_old_method       | use old method, range: [0, 1], default: 0\n");
+    printf("  -m  --use_old_method       | use old method, range: [0, 1], default: 0\n");
     printf("  -h  --help                 | print this message\n");
     printf("\n");
 }
@@ -93,7 +97,7 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
     int out_clr_pos = 0;
     int opt = 0;
     const char *mode_str = NULL;
-    while ((opt = getopt_long(argc, argv, "c:y:r:C:Y:R:m:d:p:o:asMh", g_cmd_args_supported_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "c:y:r:C:Y:R:M:D:P:o:p:asmh", g_cmd_args_supported_options, NULL)) != -1) {
         switch (opt) {
         case 'c': config->input_color_encoding = atoi(optarg); break;
         case 'y': config->is_input_yuv = atoi(optarg); break;
@@ -101,17 +105,18 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
         case 'C': config->output_color_encoding = atoi(optarg); break;
         case 'Y': config->is_output_yuv = atoi(optarg); break;
         case 'R': config->is_output_full_range = atoi(optarg); break;
-        case 'd': config->pixel_depth = atoi(optarg); break;
-        case 'p': config->coef_precision = atoi(optarg); break;
+        case 'D': config->pixel_depth = atoi(optarg); break;
+        case 'P': config->coef_precision = atoi(optarg); break;
         case 'o': strncpy(config->output_file, optarg, 1024); break;
+        case 'p': strncpy(config->platform_name, optarg, 32); break;
         case 'a': config->b_print_all = 1; break;
         case 's': config->swap_channels = 1; break;
-        case 'M': config->b_use_old_method = 1; break;
+        case 'm': config->b_use_old_method = 1; break;
         case 'h':
             print_usage(argv[0]);
             ret = -1;
             break;
-        case 'm':
+        case 'M':
             // parse mode string like 'rgbl_to_601f'
             mode_str = (const char *)optarg;
             printf("parse from csc_mode_str: %s\n", mode_str);
@@ -204,6 +209,7 @@ int main(int argc, char *const argv[])
     printf("\t- swap_channels: %d, channel order: %s\n", config.swap_channels,
         config.swap_channels ? "B-G-R/V-Y-U" : "R-G-B/Y-U-V");
     printf("\t- output file: %s\n", config.output_file);
+    printf("\t- platform name: %s\n", config.platform_name[0] == '\0' ? "RK3572 (default)" : config.platform_name);
     printf("\t- use old method: %d %s\n", config.b_use_old_method,
         config.b_use_old_method ? "(only 10-10bit coefs supported)" : "");
     if (config.pixel_depth < 8 || config.pixel_depth > 16) {
@@ -239,6 +245,10 @@ int main(int argc, char *const argv[])
     convert_mode.swap_channels = config.swap_channels;
     convert_mode.pixel_depth = config.pixel_depth;
     convert_mode.coef_precision = config.coef_precision;
+    convert_mode.plat = VOP_VERSION_RK3572;
+    if (0 == strcmp(config.platform_name, "rk3576")) {
+        convert_mode.plat = VOP_VERSION_RK3576;
+    }
 
     // get CSC coefs & dump
     int nb_mode = 1;

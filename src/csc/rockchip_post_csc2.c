@@ -5,7 +5,8 @@
  *        This is not the offical updated version but a new implementation for HWPQ kernel verification.
  * @author: vance.wu@rock-chips.com
  * @history:
- *  - 2025/09/04 vance.wu: new implementation for HWPQ kernel verification.
+ *  - 2025-09-18 vance.wu: add rk_qp_csc_version, sync with 'rockchip_post_csc.c'
+ *  - 2025-09-04 vance.wu: new implementation for HWPQ kernel verification.
  */
 
 #include "rockchip_post_csc2.h"
@@ -138,6 +139,23 @@ union csc_vector_s32
     int val[3];
 };
 
+enum rk_qp_csc_version
+{
+    RK_PQ_CSC_UNKNOWN = 0,
+    RK_PQ_CSC_V1,
+    RK_PQ_CSC_V2,
+};
+
+static enum rk_qp_csc_version get_csc_version(u32 plat)
+{
+    switch (plat) {
+    case VOP_VERSION_RK3528:
+    case VOP_VERSION_RK3576: return RK_PQ_CSC_V1;
+    case VOP_VERSION_RK3572: return RK_PQ_CSC_V2;
+    default:                 return RK_PQ_CSC_UNKNOWN;
+    }
+}
+
 static inline void csc_matrix_mul_s32(union csc_matrix_s32 *dst, const union csc_matrix_s32 *m0, const union csc_matrix_s32 *m1)
 {
     assert(dst != m0 && dst != m1);
@@ -184,6 +202,7 @@ static inline void csc_vector_right_shift(union csc_vector_s32 *dst, int n)
         dst->val[2] = csc_simple_round(dst->val[2], n);
     }
 }
+
 
 #if ENABLE_POST_CSC_FLOATING_POINT
 
@@ -960,7 +979,7 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
     csc_simple_coef->csc_dc0 = out_dc.csc_offset0;
     csc_simple_coef->csc_dc1 = out_dc.csc_offset1;
     csc_simple_coef->csc_dc2 = out_dc.csc_offset2;
-    if (convert_mode->plat == VOP_VERSION_RK3576) {
+    if (get_csc_version(convert_mode->plat) == RK_PQ_CSC_V1) {
         csc_simple_coef->csc_dc0 = csc_simple_round(csc_simple_coef->csc_dc0, convert_mode->coef_precision);
         csc_simple_coef->csc_dc1 = csc_simple_round(csc_simple_coef->csc_dc1, convert_mode->coef_precision);
         csc_simple_coef->csc_dc2 = csc_simple_round(csc_simple_coef->csc_dc2, convert_mode->coef_precision);
