@@ -48,7 +48,7 @@ class CfaConfig(ModuleConfigCore):
         self.eCfaPattern = 0  # {0x0, 0x1000, 0x1001, 0x1002, 0x2000, 0x2001}
         self.eAlgoType = 0  # [0, 2]
         self.eImgFormat = 0  # [0, 10]
-        self.eOutFormat = 0  # [11, 13]
+        self.eOutFormat = 0  # [11, 13] => [0, 2]
         self.eDisplayMode = 0  # ignore, kernel prop
         self.nColorDepth = 0  # DEPRECATED
         self.nContrastGain = 0  # [0, 128]

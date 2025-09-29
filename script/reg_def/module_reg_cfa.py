@@ -125,21 +125,23 @@ class CfaRegister(ModuleRegisterCore):
             |   1 (regal)    |     x        |       x         |        0           |
             |   2 (a2)       |     x        |       x         |        1           |
         '''
-        if self.eAlgoType == 2:
+        if cfg.eAlgoType == 2:
             bClearLow4bits = 1
-        elif self.eAlgoType == 1:
+        elif cfg.eAlgoType == 1:
             bClearLow4bits = 0
         else:
-            bClearLow4bits = int(cfg.bDither <= 1 and cfg.bBlendPrevData == 0)
+            bClearLow4bits = int(cfg.bDither <= 1 and cfg.bBlendPrevData <= 0)
         sw_cfa_clr_low4bit_en = bClearLow4bits
         if cfg.bClearLow4bits != sw_cfa_clr_low4bit_en:
-            self.logger.warning(f"bClearLow4bits={bClearLow4bits} is not equal to config.bClearLow4bits {cfg.bClearLow4bits}!")
+            self.logger.warning(
+                f"bClearLow4bits={bClearLow4bits} is not equal to config.bClearLow4bits {cfg.bClearLow4bits}!"
+            )
 
-        sw_cfa_comps_en = int(cfg.nA2CompLevel > 0)
-        sw_cfa_out_fmt = (cfg.eOutFormat - 10) & RM2
+        sw_cfa_comps_en = int(cfg.nA2CompLevel > 0 and cfg.eAlgoType == 2)
+        sw_cfa_out_fmt = (cfg.eOutFormat - 11) & RM2
         sw_cfa_pat_out_en = 1
         sw_cfa_sharp_level = min(cfg.nSharpenGain, 127) & RM7
-        sw_cfa_comps_level = min(cfg.nA2CompLevel, 63) & RM6
+        sw_cfa_comps_level = min(cfg.nA2CompLevel, 63) & RM6  # if sw_cfa_comps_en else 0
         val = (
             (sw_cfa_dither_en << 0)
             | (sw_cfa_modulate_lps_en << 1)
@@ -161,7 +163,7 @@ class CfaRegister(ModuleRegisterCore):
         if sw_cfa_bcsh_lut_en:
             bcsh_lut = self.gen_lut()
         else:
-            bcsh_lut = [i for i in range(256)]
+            bcsh_lut = np.array([i for i in range(256)], dtype=np.uint32)
         for i in range(64):
             j = i * 4
             val = bcsh_lut[j] | (bcsh_lut[j + 1] << 8) | (bcsh_lut[j + 2] << 16) | (bcsh_lut[j + 3] << 24)
@@ -186,8 +188,42 @@ class CfaRegister(ModuleRegisterCore):
         return True
 
     def gen_lut(self) -> list[int]:
-        ## TODO
-        return [i for i in range(256)]
+        a = 0.5
+        b = 1.0
+        c = 0.5
+        d = 1.0  # a,b,c,d for contrast adjust
+        gamma = 1.0  # for lumaniance adjust
+
+        if self.config.nContrastGain > 64:
+            b = 1.0 + (self.config.nContrastGain - 64) / 21.0  # enhance: [1.0, 4.0]
+        elif self.config.nContrastGain < 64:
+            b = 21.0 / (21.0 + 64 - self.config.nContrastGain)  # recede:  [1/4, 1.0]
+
+        d = 1.0 / b
+        a = 0.5 ** (1.0 - b)
+        c = 0.5 ** (1.0 - d)
+        if self.config.nLuminanceGain > 64:
+            gamma = 32.0 / (self.config.nLuminanceGain - 32.0)  # enhance: [1.0, 1/3]
+        elif self.config.nLuminanceGain < 64:
+            gamma = (96.0 - self.config.nLuminanceGain) / 32.0  # recede:  [3.0, 1.0]
+
+        lut = [i for i in range(256)]
+        for i in range(256):
+            # contrast adjust
+            if self.config.nContrastGain != 64:
+                y = a * (i / 255.0) ** b if i < 128 else 0.5 + c * (i / 255.0 - 0.5) ** d
+                lut[i] = round(y * 255)
+
+            # lumaniance adjust
+            if gamma != 1.0:
+                lut[i] = round((lut[i] / 255.0) ** gamma * 255.0)
+
+            # stretch luma
+            if self.config.nStretchBlack != 0 or self.config.nStretchWhite != 255:
+                delta = self.config.nStretchWhite - self.config.nStretchBlack
+                lut[i] = np.clip(round(255.0 / delta * (lut[i] - self.config.nStretchBlack)), 0, 255)
+
+        return np.array(lut, dtype=np.uint32)
 
 
 if __name__ == "__main__":
