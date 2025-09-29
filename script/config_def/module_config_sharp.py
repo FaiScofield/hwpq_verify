@@ -107,12 +107,12 @@ class s_peaking:
     edge_shoot_s_direct_non = s_direct()
     # s_filter_cfg
     i_diag_enh_coef = 6
-    t_filt_core_H0 = [1, 10, 45, 120, 210, 252]
-    t_filt_core_H1 = [-9, -55, -119, -73, 128, 256]
+    t_filt_core_H0 = [1, 10, 45, 120, 210, 252] # S5/S7/S9/S10/S11/U10
+    t_filt_core_H1 = [-9, -55, -119, -73, 128, 256] # [-16, 15]/[-64, 63]/[-256, 255]/[-512, 511]/[-1024, 1023]/[0, 1023]
     t_filt_core_H2 = [0, 0, 0, -256, 0, 512]
     t_filt_core_H3 = [0, 0, 0, 0, -256, 512]
-    t_filt_core_V0 = [1, 4, 6]
-    t_filt_core_V1 = [-4, 0, 8]
+    t_filt_core_V0 = [1, 4, 6] # S4/S4/U4
+    t_filt_core_V1 = [-4, 0, 8] # [-8, 7]/[-8, 7]/[0, 15]
     t_filt_core_V2 = [0, -4, 8]
     t_filt_core_USM = [1, 4, 6]
     # peakingGain
@@ -819,11 +819,11 @@ class SharpConfig(ModuleConfigCore):
         self.s_peaking.edge_shoot_s_direct_non.i_alpha_under_unlimit = random.randint(0, 127)
 
         gen_filter_core_hx6 = lambda: [
-            random.randint(-15, 15),
-            random.randint(-63, 63),
-            random.randint(-255, 255),
-            random.randint(-511, 511),
-            random.randint(-1023, 1023),
+            random.randint(-16, 15),
+            random.randint(-64, 63),
+            random.randint(-256, 255),
+            random.randint(-512, 511),
+            random.randint(-1024, 1023),
             random.randint(0, 1023),
         ]
         gen_filter_core_vx3 = lambda: [random.randint(-8, 7), random.randint(-8, 7), random.randint(0, 15)]
