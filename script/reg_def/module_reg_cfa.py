@@ -82,7 +82,6 @@ class CfaRegister(ModuleRegisterCore):
 
         sw_cfa_bcsh_lut_en = int(
             cfg.nContrastGain != 64
-            or cfg.nSaturationGain != 64
             or cfg.nLuminanceGain != 64
             or cfg.nStretchBlack != 0
             or cfg.nStretchWhite != 255

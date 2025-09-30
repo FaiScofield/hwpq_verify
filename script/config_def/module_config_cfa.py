@@ -114,6 +114,7 @@ class CfaConfig(ModuleConfigCore):
                 "bBlendPrevData": self.bBlendPrevData,
                 ## keep list data in one line by using NoIndent & CompactArrayEncoder
                 "sRoiInfo": NoIndent(self.sRoiInfo),
+                "#aReservedStr": "[bClearLow4bits, bBlendPrevData, nRandSeed, ...]",
                 "aReserved": NoIndent(self.aReserved),
             },
         }
