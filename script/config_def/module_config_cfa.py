@@ -62,7 +62,7 @@ class CfaConfig(ModuleConfigCore):
         self.bContrastEqual = 0  # [0, 1]
         self.bForceRunWithCpu = 0  # [0, 1]
         self.nRegalType = 0  # [0, 5]
-        self.nA2AlgoType = 0  # {0, 1, 21}
+        self.nA2AlgoType = 0  # {0(HW_support), 1, 21}
         self.nA2CompLevel = 0  # [0, 63]
         self.bA2Modulate = 0  # [0, 7]
         self.bClearLow4bits = 0  # [0, 1]
@@ -239,7 +239,7 @@ class CfaConfig(ModuleConfigCore):
         self.bContrastEqual = 0
         self.bForceRunWithCpu = 1
         self.nRegalType = random.randint(0, 5)
-        self.nA2AlgoType = random.choice([0, 21])
+        self.nA2AlgoType = 0  #random.choice([0, 21])
         self.nA2CompLevel = random.randint(0, 63)  # [0, 63]
         self.bA2Modulate = random.randint(0, 7)  # [0, 7]
         '''

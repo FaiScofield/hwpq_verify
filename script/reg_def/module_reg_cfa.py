@@ -81,10 +81,7 @@ class CfaRegister(ModuleRegisterCore):
         cfg = self.config  # CfaConfig
 
         sw_cfa_bcsh_lut_en = int(
-            cfg.nContrastGain != 64
-            or cfg.nLuminanceGain != 64
-            or cfg.nStretchBlack != 0
-            or cfg.nStretchWhite != 255
+            cfg.nContrastGain != 64 or cfg.nLuminanceGain != 64 or cfg.nStretchBlack != 0 or cfg.nStretchWhite != 255
         )
         sw_cfa_panel_mode = int(cfg.eCfaPattern > 0)  # if cfg.eCfaPattern >= 0 else int(cfg.ePlatform > 0)
         sw_cfa_midflt_en = int(cfg.bDeFalseColor4Gray and sw_cfa_panel_mode != 0)
@@ -109,7 +106,7 @@ class CfaRegister(ModuleRegisterCore):
             | (sw_cfa_sat_gain << 12)
         )
         self.set(name="RKCFA_CTRL0", value=val)
-        sw_cfa_dither_en = int(cfg.bDither == 2)
+        sw_cfa_dither_en = int(cfg.bDither == 2 and cfg.eAlgoType != 2)
         sw_cfa_modulate_lps_en = int(cfg.bA2Modulate >> 0) & RM1
         sw_cfa_modulate_hps_en = int(cfg.bA2Modulate >> 1) & RM1
         sw_cfa_modulate_err_en = int(cfg.bA2Modulate >> 2) & RM1
@@ -206,21 +203,29 @@ class CfaRegister(ModuleRegisterCore):
         elif self.config.nLuminanceGain < 64:
             gamma = (96.0 - self.config.nLuminanceGain) / 32.0  # recede:  [3.0, 1.0]
 
+        delta = self.config.nStretchWhite - self.config.nStretchBlack
+
         lut = [i for i in range(256)]
         for i in range(256):
+            y = i / 255.0
+
             # contrast adjust
             if self.config.nContrastGain != 64:
-                y = a * (i / 255.0) ** b if i < 128 else 0.5 + c * (i / 255.0 - 0.5) ** d
+                if i < 128:
+                    y = a * y**b
+                elif i > 128:
+                    y = 0.5 + c * (y - 0.5) ** d
                 lut[i] = round(y * 255)
 
             # lumaniance adjust
             if gamma != 1.0:
-                lut[i] = round((lut[i] / 255.0) ** gamma * 255.0)
+                y = y**gamma
+                lut[i] = round(y * 255.0)
 
             # stretch luma
-            if self.config.nStretchBlack != 0 or self.config.nStretchWhite != 255:
-                delta = self.config.nStretchWhite - self.config.nStretchBlack
-                lut[i] = np.clip(round(255.0 / delta * (lut[i] - self.config.nStretchBlack)), 0, 255)
+            if delta != 255:
+                y = (y * 255.0 - self.config.nStretchBlack) / delta
+                lut[i] = np.clip(round(y * 255.0), 0, 255)
 
         return np.array(lut, dtype=np.uint32)
 
@@ -244,12 +249,18 @@ if __name__ == "__main__":
         if register.gen(args.seed):
             register.dump(args.file)
     elif args.interface in ["c2r", "config2regs"]:
-        register.config.gen(args.seed)
+        if args.file == "":
+            register.config.gen(args.seed)
+        else:
+            register.load(args.file)
         register.config.dump()
         if register.config2regs():
             register.dump()
     elif args.interface in ["r2c", "regs2config"]:
-        register.gen(args.seed)
+        if args.file == "":
+            register.gen(args.seed)
+        else:
+            register.load(args.file)
         register.dump()
         if register.regs2config():
             register.config.dump()
