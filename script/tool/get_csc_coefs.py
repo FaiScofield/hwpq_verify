@@ -430,6 +430,7 @@ if __name__ == '__main__':
     )
     parser.add_argument("-p", "--precision", type=int, default=10, help="the fixed coef precision bits 0 or [8, 16]")
     parser.add_argument("-d", "--depth", type=int, default=10, help="the pixel depth bits [8, 16]")
+    parser.add_argument("-r", "--reg_type", type=int, default=0, help="dump register values, type range: [0, 2]")
     parser.print_usage()
     args, _ = parser.parse_known_args()
 
@@ -443,6 +444,10 @@ if __name__ == '__main__':
         exit(-1)
     if precision > 0 and precision < depth:
         print(f"Warning: precision bits({precision}) better >= pixel_depth({depth})!")
+    reg_type = args.reg_type
+    if reg_type not in range(3):
+        print(f"Warning: reg_type({reg_type}) should be in range [0, 2]! ignore this option.")
+        reg_type = 0
 
     if args.mode:
         mode_str = args.mode.lower()
@@ -458,7 +463,7 @@ if __name__ == '__main__':
     csc_config.pixel_depth = depth
     csc_config.coef_precision = precision
     csc_config.tune_fix_coefs = args.fix_check
-    csc_config.platform = "RK3572"
+    csc_config.platform = "RK3572" # RK3576/RK3572/RK3538
 
     bcsh = CscBcshConfig()
     # bcsh.hue = 256
@@ -501,5 +506,24 @@ if __name__ == '__main__':
             print(f"CSC mode: {mode_str.upper()}:")
             print(f"\t- matrix: {np.array2string(mat.flatten(), separator=', ', formatter=float_fmt)}")
             print(f"\t- offset: {np.array2string(offset.flatten(), separator=', ', formatter=float_fmt)}")
+            if precision > 0 and reg_type > 0:
+                regs = [0] * 8
+                if reg_type == 2:
+                    regs[0] = 0x1 | (0x1 << 1) | ((mat[0, 0] & 0xFFFF) << 16)
+                    regs[1] = (mat[0, 1] & 0xFFFF) | ((mat[0, 2] & 0xFFFF) << 16)
+                    regs[2] = (mat[1, 0] & 0xFFFF) | ((mat[1, 1] & 0xFFFF) << 16)
+                    regs[3] = (mat[1, 2] & 0xFFFF) | ((mat[2, 0] & 0xFFFF) << 16)
+                    regs[4] = (mat[2, 1] & 0xFFFF) | ((mat[2, 2] & 0xFFFF) << 16)
+                else:
+                    regs[0] = (mat[0, 0] & 0xFFFF) | ((mat[0, 1] & 0xFFFF) << 16)
+                    regs[1] = (mat[0, 2] & 0xFFFF) | ((mat[1, 0] & 0xFFFF) << 16)
+                    regs[2] = (mat[1, 1] & 0xFFFF) | ((mat[1, 2] & 0xFFFF) << 16)
+                    regs[3] = (mat[2, 0] & 0xFFFF) | ((mat[2, 1] & 0xFFFF) << 16)
+                    regs[4] = mat[2, 2] & 0xFFFF
+                regs[5] = offset[0].astype(np.uint32)
+                regs[6] = offset[1].astype(np.uint32)
+                regs[7] = offset[2].astype(np.uint32)
+                print("\t- reg[0:4]: 0x%08X 0x%08X 0x%08X 0x%08X" % (regs[0], regs[1], regs[2], regs[3]))
+                print("\t- reg[4:8]: 0x%08X 0x%08X 0x%08X 0x%08X" % (regs[4], regs[5], regs[6], regs[7]))
         else:
             print(f"invalid csc mode: {mode_str.upper()}!")

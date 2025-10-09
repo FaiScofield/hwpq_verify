@@ -44,7 +44,7 @@ RM32 = 0xFFFFFFFF
 class Reg:
     def __init__(self, offset: int, value: int, name: str = ""):
         self.offset = offset
-        self.value = np.uint32(value)
+        self.value = np.uint32(value) if value >= 0 else np.uint32(2**32 + value)
         self.name = name
 
         self.base_addr = 0x0
