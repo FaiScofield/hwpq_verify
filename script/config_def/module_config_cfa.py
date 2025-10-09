@@ -4,7 +4,7 @@ FilePath    : module_config_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-07
 Description :
-LastEditTime: 2025-09-12
+LastEditTime: 2025-10-09
 """
 
 import os
@@ -247,8 +247,8 @@ class CfaConfig(ModuleConfigCore):
             | eAlgoType[0,2] | bDither[0,2] | bBlendPrev[0,1] | clearLow4Bits[0,1] |
             | -------------- | ------------ | --------------- | ------------------ |
             |   0 (common)   |   0 (OFF)    |      0/1        |       1/0          |
-            |   0 (common)   |   1 (ED)     |      0/1        |       1/0          |
-            |   0 (common)   |   2 (OD)     |       x         |        0           |
+            |   0 (common)   |   1 (OD)     |      0/1        |       1/0          |
+            |   0 (common)   |   2 (ED)     |       x         |        0           |
             |   1 (regal)    |     x        |       x         |        0           |
             |   2 (a2)       |     x        |       x         |        1           |
         '''
@@ -258,7 +258,7 @@ class CfaConfig(ModuleConfigCore):
         elif self.eAlgoType == 1:
             self.bClearLow4bits = 0
         else:
-            self.bClearLow4bits = int(self.bDither <= 1 and self.bBlendPrevData == 0)
+            self.bClearLow4bits = int(self.bDither == 2 and self.bBlendPrevData == 0)
         self.sRoiInfo = [0, 0, 0, 0, 0, 0]  # x6
         self.aReserved = [self.bClearLow4bits, self.bBlendPrevData, self.randSeed, 0, 0, 0, 0, 0]  # x8
 

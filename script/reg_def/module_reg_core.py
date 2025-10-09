@@ -111,6 +111,8 @@ class ModuleRegisterCore(ABC):
             data = np.array([val for _, val, _ in regs], dtype=np.uint32)
             data.tofile(filename)
             return True
+        else:
+            self.logger.error(f"unsupported file suffix! Only .txt/.dat/.bin are supported!")
         return False
 
     def load(self, filename, **kwargs) -> bool:

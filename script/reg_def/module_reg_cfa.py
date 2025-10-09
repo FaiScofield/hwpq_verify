@@ -4,7 +4,7 @@ FilePath    : reg_def_cfa.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-08-11
 Description :
-LastEditTime: 2025-09-12
+LastEditTime: 2025-10-09
 """
 
 import os
@@ -116,8 +116,8 @@ class CfaRegister(ModuleRegisterCore):
             | eAlgoType[0,2] | bDither[0,2] | bBlendPrev[0,1] | clearLow4Bits[0,1] |
             | -------------- | ------------ | --------------- | ------------------ |
             |   0 (common)   |   0 (OFF)    |      0/1        |       1/0          |
-            |   0 (common)   |   1 (ED)     |      0/1        |       1/0          |
-            |   0 (common)   |   2 (OD)     |       x         |        0           |
+            |   0 (common)   |   1 (OD)     |      0/1        |       1/0          |
+            |   0 (common)   |   2 (ED)     |       x         |        0           |
             |   1 (regal)    |     x        |       x         |        0           |
             |   2 (a2)       |     x        |       x         |        1           |
         '''
@@ -126,7 +126,7 @@ class CfaRegister(ModuleRegisterCore):
         elif cfg.eAlgoType == 1:
             bClearLow4bits = 0
         else:
-            bClearLow4bits = int(cfg.bDither <= 1 and cfg.bBlendPrevData <= 0)
+            bClearLow4bits = int(cfg.bDither == 2 and cfg.bBlendPrevData <= 0)
         sw_cfa_clr_low4bit_en = bClearLow4bits
         if cfg.bClearLow4bits != sw_cfa_clr_low4bit_en:
             self.logger.warning(
