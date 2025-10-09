@@ -513,17 +513,17 @@ static const struct rk_pq_csc_coef *csc_get_csc_coef(struct post_csc_convert_mod
 	if (!csc_mode_coef)
 		return NULL;
 
+	input_color_space = get_color_space_type(convert_mode->intput_color_encoding,
+						 is_input_yuv);
+	output_color_space = get_color_space_type(convert_mode->output_color_encoding,
+						  is_output_yuv);
+
 	/* csc input and output format is equal */
 	if ((is_input_full_range == is_output_full_range) && (is_input_yuv == is_output_yuv) &&
-	    (convert_mode->intput_color_encoding == convert_mode->output_color_encoding))
+	    (input_color_space == output_color_space))
 		return &csc_mode_coef->csc_coef[RK_PQ_CSC_IDENTITY_MODE];
 
 	for (i = 0; i < 2; i++) {
-		input_color_space = get_color_space_type(convert_mode->intput_color_encoding,
-							 is_input_yuv);
-		output_color_space = get_color_space_type(convert_mode->output_color_encoding,
-							  is_output_yuv);
-
 		/* Search for csc coef at different csc input/output format */
 		for (j = 0; j < ARRAY_SIZE(g_csc_color_info); j++) {
 			if (g_csc_color_info[j].input_color_space == input_color_space &&
@@ -539,6 +539,10 @@ static const struct rk_pq_csc_coef *csc_get_csc_coef(struct post_csc_convert_mod
 		 * on colorspace of post-csc output.
 		 */
 		convert_mode->intput_color_encoding = convert_mode->output_color_encoding;
+		input_color_space = get_color_space_type(convert_mode->intput_color_encoding,
+							 is_input_yuv);
+		output_color_space = get_color_space_type(convert_mode->output_color_encoding,
+							  is_output_yuv);
 	}
 
 	return NULL;
@@ -868,9 +872,12 @@ static int csc_calc_adjust_output_coef(struct post_csc_convert_mode *convert_mod
 		csc_matrix_element_right_shift(&temp0, PQ_CSC_PARAM_FIX_BIT_WIDTH);
 		csc_matrix_multiply(&temp1, &temp0, &saturation_matrix);
 		csc_matrix_element_right_shift(&temp1, PQ_CSC_PARAM_HALF_FIX_BIT_WIDTH);
-		csc_matrix_multiply(out_matrix, &temp1, r2y_matrix);
+		csc_matrix_multiply(&temp0, &temp1, r2y_matrix);
+		csc_matrix_element_right_shift(&temp0, PQ_CSC_PARAM_FIX_BIT_WIDTH);
+		csc_matrix_multiply(out_matrix, csc_coef, &temp0);
 		csc_matrix_element_right_shift_with_simple_round(out_matrix,
-			PQ_CSC_PARAM_FIX_BIT_WIDTH + PQ_CALC_ENHANCE_BIT);
+								 PQ_CSC_PARAM_FIX_BIT_WIDTH +
+								 PQ_CALC_ENHANCE_BIT);
 
 		dc_in_ventor.csc_offset0 = dc_in_offset;
 		dc_in_ventor.csc_offset1 = dc_in_offset;
