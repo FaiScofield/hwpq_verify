@@ -496,8 +496,12 @@ int main(int argc, char *const argv[])
 
         run_csc_with_coef(p_src, p_dst, cmd_config.src_wid, cmd_config.src_hgt, &csc_coefs, &csc_mode);
         dump_csc_regs(NULL, 0x0, &csc_coefs, bIsPostCsc);
-        fwrite(p_dst, 2, cmd_config.src_wid * cmd_config.src_hgt * 3, fp_dst);
-        fwrite(p_src, 2, cmd_config.src_wid * cmd_config.src_hgt * 3, fp_dst); // write src after dst
+        ret = image_write_from_10bit_plannar(fp_dst, (ushort *)p_dst, k, cmd_config.dst_wid, cmd_config.dst_hgt,
+            cmd_config.dst_fmt);
+        if (ret) {
+            break;
+        }
+        // fwrite(p_src, 2, cmd_config.src_wid * cmd_config.src_hgt * 3, fp_dst); // write src after dst
 
         // get CRC
         crc_val = get_crc_for_planar_frame_10bit(p_dst, cmd_config.src_wid, cmd_config.src_hgt, bIsOutputYuv);
@@ -515,7 +519,12 @@ int main(int argc, char *const argv[])
             }
         }
     }
-    LOGI("done. write output to file: '%s'\n", cmd_config.output_file);
+    if (0 == ret) {
+        LOGI("done. write output to file: '%s'\n", cmd_config.output_file);
+    }
+    else {
+        LOGE("error happened, please have a check!\n");
+    }
 
     fclose(fp_src);
     fclose(fp_dst);

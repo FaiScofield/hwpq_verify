@@ -42,7 +42,7 @@ def getXYbyColorSpace(color_space):
         g_xy = [0.3000, 0.6000]  # z=0.10
         b_xy = [0.1500, 0.0600]  # z=0.79
         w_xy = [0.3127, 0.3290]  # z=0.3582. why [0.95047， 1.0， 1.08883] ?
-    elif color_space == 'bt2020':
+    elif color_space == 'bt2020' or color_space == 'bt2100':
         r_xy = [0.7080, 0.2920]
         g_xy = [0.1700, 0.7970]
         b_xy = [0.1310, 0.0460]
@@ -68,11 +68,12 @@ def getXYbyColorSpace(color_space):
     #     b_xy = [0.150, 0.060]
     #     w_xy = [0.3127, 0.3290] # D65
     # elif color_space == 'dci-p3':
-    #     r_xy = [0.64, 0.33]  # 0.6800, 0.3200
-    #     g_xy = [0.21, 0.71]  # 0.2650， 0.6900
-    #     b_xy = [0.15, 0.06]  # 0.1500， 0.0600
-    #     w_xy = [0.3140, 0.3510] # Theatrical
-    #     # w_xy = [0.3127, 0.3290] # D65
+    #     r_xy = [0.6800, 0.3200]
+    #     g_xy = [0.2650, 0.6900]
+    #     b_xy = [0.1500, 0.0600]
+    #   # w_xy = [0.32168, 0.33767] # Cinema, p3-D60(K=6000)
+    #   # w_xy = [0.3140, 0.3510] # Theater, p3-DCI(K=6300)
+    #     w_xy = [0.3127, 0.3290] # Display, p3-D65(K=6504)
     # elif color_space == 'dci-p3+':
     #     r_xy = [0.7400, 0.2700]
     #     g_xy = [0.2200, 0.2700]

@@ -867,6 +867,12 @@ static void csc_get_fixed_coefs_offset(const union csc_matrix_s32 *fixed_mat, co
 
 int csc_get_mode_index(const struct post_csc_convert_mode *mode)
 {
+    if (mode->intput_color_encoding == mode->output_color_encoding && mode->is_input_yuv == mode->is_output_yuv &&
+        mode->is_input_full_range == mode->is_output_full_range)
+    {
+        return CSC_MODE_MAX - 1;
+    }
+
     for (int i = 0; i < ARRAY_SIZE(g_supported_standard_convert_mode); ++i) {
         const struct post_csc_convert_mode *mode_i = &g_supported_standard_convert_mode[i];
         if (mode_i->intput_color_encoding == mode->intput_color_encoding &&
