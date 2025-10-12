@@ -4,8 +4,9 @@
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-05
  * @history:
- *  2025-09-08 vance.wu: Add common macros & functions for commonly usage
- *  2025-09-15 vance.wu: Add pixel format pack/unpack functions
+ *  2025-10-12 vance.wu: Add 10bit-packed-YUV444 formats support for IO.
+ *  2025-09-08 vance.wu: Add common macros & functions for commonly usage.
+ *  2025-09-15 vance.wu: Add pixel format pack/unpack functions.
  */
 
 #ifndef _VERIFY_COM_H_
@@ -130,8 +131,8 @@ extern "C" {
 #endif
 
 /********** directory / file functions **********/
-bool is_directory(const char *path);
-bool is_regular_file(const char *path);
+int is_directory(const char *path);
+int is_regular_file(const char *path);
 const char *get_dirname(const char *path);
 const char *get_basename(const char *path);
 
@@ -139,15 +140,25 @@ const char *get_basename(const char *path);
 /********** image io functions **********/
 #include "verify_img_fmt.h"
 
-// read image data from fp then shift to U10bit YUV444P or planar RGB
+// read image data from fp (then shift) to U10bit YUV444P or planar RGB
 int image_read_to_10bit_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt);
+// write 10bit image data to fp from U10bit YUV444P or planar RGB
+int image_write_from_10bit_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt);
 // read image data from fp
 int image_read(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt);
 // write image data to fp
 int image_write(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt);
 
-int imgcvt_pack_10bit(uint16_t *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt);
-int imgcvt_unpack_10bit(uint8_t *p_src, uint16_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt);
+// pack an 10bit-lsb image format
+int imgcvt_pack_10bit(uint16_t const *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt);
+// unpack an 10bit-packed image format
+int imgcvt_unpack_10bit(uint8_t const *p_src, uint16_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt);
+// convert image to 10bit lsb planar format from any input format
+int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt,
+    bool has_alpha);
+// convert image to any output format from 10bit lsb planar format
+int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd,
+    int fmt, bool has_alpha);
 
 
 // dump regisers data to a file or stdout, with 4 registers in each row

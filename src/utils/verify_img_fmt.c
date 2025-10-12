@@ -4,6 +4,7 @@
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-05
  * @history:
+ *  2025-10-12 vance.wu: Add function 'common_verify_imgfmt_pitch_ratio' to calculate row pitch (unit: byte).
  */
 
 #include "verify_img_fmt.h"
@@ -115,16 +116,15 @@ int common_verify_imgfmt_check(int fmt)
     // case YUV420P_10LSB:
     // case YUV420SP_10LSB:
     case RGBA_1010102:
-        // case RGB_10PACKED:
-        // case RGB_PLANAR10PACKED:
-        // case YUV444P_10PACKED:
-        // case YUV444SP_10PACKED:
-        // case YUV444I_10PACKED:
-        // case YUV422P_10PACKED:
-        // case YUV422SP_10PACKED:
-        // case YUV420P_10PACKED:
-        // case YUV420SP_10PACKED:
-        return 1;
+    case RGB_10PACKED:
+    case RGB_PLANAR10PACKED:
+    case YUV444P_10PACKED:
+    case YUV444SP_10PACKED:
+    case YUV444I_10PACKED:
+    // case YUV422P_10PACKED:
+    case YUV422SP_10PACKED:
+    // case YUV420P_10PACKED:
+    case YUV420SP_10PACKED:  return 1;
     default:
         // TODO: unsupported by now
         LOGE("%s: unsupported image format %d for now!\n", __func__, fmt);
@@ -132,6 +132,41 @@ int common_verify_imgfmt_check(int fmt)
     }
 }
 
+float common_verify_imgfmt_pitch_ratio(int fmt)
+{
+    switch (fmt) {
+    case RGB888:
+    case YUV444I:            return 3.f;
+    case RGBA8888:           return 4.f;
+    case RGB_PLANAR:
+    case YUV444P:
+    case YUV444SP:
+    case YUV422P:
+    case YUV422SP:
+    case YUV420P:
+    case YUV420SP:           return 1.f;
+    case RGB_101010LSB:
+    case YUV444I_10LSB:      return 3 * 2.f;
+    case RGB_PLANAR10LSB:
+    case YUV444P_10LSB:
+    case YUV444SP_10LSB:
+    case YUV422P_10LSB:
+    case YUV422SP_10LSB:
+    case YUV420P_10LSB:
+    case YUV420SP_10LSB:     return 2.f;
+    case RGB_10PACKED:
+    case YUV444I_10PACKED:   return 3 * 5 / 4.f;
+    case RGBA_1010102:       return 4.f;
+    case RGB_PLANAR10PACKED:
+    case YUV444P_10PACKED:
+    case YUV444SP_10PACKED:
+    case YUV422P_10PACKED:
+    case YUV422SP_10PACKED:
+    case YUV420P_10PACKED:
+    case YUV420SP_10PACKED:  return 5 / 4.f;
+    default:                 LOGE("%s: unsupported image format %d for now!\n", __func__, fmt); return 0.f;
+    }
+}
 
 const char *common_verify_clrspc_str(int clrspc)
 {
