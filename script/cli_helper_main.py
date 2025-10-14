@@ -4,7 +4,7 @@ FilePath    : cli_helper_main.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-07-25
+LastEditTime: 2025-10-14
 '''
 
 from cli_helper import *
@@ -37,7 +37,7 @@ class MainApp(ModuleHelperCore):
         }
 
     ## =============== 主程序不需要实现该抽象方法 ===============
-    def update_attributes(self) -> tuple[Optional[ModuleConfigCore], Optional[ModuleRegisterCore]]:
+    def update_attributes(self, platform: str) -> tuple[Optional[ModuleConfigCore], Optional[ModuleRegisterCore]]:
         return None, None
 
     ## =============== 主循环函数 ===============
@@ -104,5 +104,8 @@ class MainApp(ModuleHelperCore):
 
 
 if __name__ == "__main__":
-    app = MainApp()
+    platform = "RK3572"
+    if len(sys.argv) > 1:
+        platform = sys.argv[1].upper()
+    app = MainApp(platform=platform)
     app.run()

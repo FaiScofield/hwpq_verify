@@ -4,7 +4,7 @@ FilePath    : cli_helper_core.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-02
 Description :
-LastEditTime: 2025-09-10
+LastEditTime: 2025-10-14
 """
 
 import sys
@@ -41,7 +41,7 @@ class ModuleHelperCore(ABC):
         self.name = name.upper()
         self.platform = platform.upper()
         self.parent = parent  # 无上级窗口则为空
-        self.config, self.register = self.update_attributes(self.platform)  # 子类需要复写`define_config_and_regs`的实现
+        self.config, self.register = self.update_attributes(self.platform)  # 子类需要复写`update_attributes`的实现
         self.submodules = {}  # 空的子模块，仅供顶层Main模块使用
 
         ## 常驻命令注册表: name, (handler, param_desc, description)
@@ -559,7 +559,7 @@ class ModuleHelperCore(ABC):
                 if old.value != new.value:
                     print(
                         "[%s] register 0x%08X changed: 0x%08X ==> 0x%08X"
-                        % (self.name, old.offset, old.value, new.value)
+                        % (self.name, old.offset, old.value.astype(np.uint32), new.value.astype(np.uint32))
                     )
                     cnt_changed += 1
             if cnt_changed == 0:

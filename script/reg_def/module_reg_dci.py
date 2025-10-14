@@ -4,7 +4,7 @@ FilePath    : reg_def_dci.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-09-01
+LastEditTime: 2025-10-14
 """
 
 import os
@@ -53,6 +53,7 @@ class DciRegister(ModuleRegisterCore):
         if self.platform.lower() == "rk3572":
             self.ip_addr = self.index.value[1]
             self.base_addr = self.index.value[1]
+            self.ip_offset = self.index.value[2]
             self.nb_regs = self.index.value[3]
             self.reg_dicts[DciModuleIndex.VDPP_VEP] = [
                 Reg(0x00001004, 0x0, "CONFIG0"),
@@ -88,7 +89,7 @@ class DciRegister(ModuleRegisterCore):
             self.packed_lut = np.zeros(5632, dtype=np.uint8)
             self.regs = self.reg_dicts[self.index]
 
-            assert self.regs[0].offset == self.base_addr
+            assert self.regs[0].offset == self.ip_offset
             return self.check_regs()
         else:
             self.logger.error(f"Platform {self.platform} is not supported now!")
