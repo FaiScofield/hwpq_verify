@@ -24,7 +24,7 @@ class DciModuleIndex(Enum):
     """enum = (name, ip_address, offset, nb_regs)"""
 
     VDPP_VEP = ("VDPP_VEP", 0x0, 0x00001004, 7)
-    VOP_CLUSTER0 = ("VOP_CLUSTER0", 0xF90000000, 0x00001104, 17 + 1408)  # 1408=5632/4
+    VOP_CLUSTER0 = ("VOP_CLUSTER0", 0xF90000000, 0x00001104, 23 + 1408)  # 1408=5632/4
 
 
 class DciRegister(ModuleRegisterCore):
@@ -72,19 +72,25 @@ class DciRegister(ModuleRegisterCore):
                 Reg(0x00001114, 0x0, "DCI_LUMA_SAT_ADJ_1"),
                 Reg(0x00001118, 0x0, "DCI_CTRL"),
                 Reg(0x0000111C, 0x0, "DCI_LUT_MST"),
-                Reg(0x0000111C, 0x0, "DCI_DBG_CTRL"),
-                Reg(0x0000111C, 0x0, "DCI_DBG_PIX"),
-                Reg(0x0000111C, 0x0, "DCI_CSC_COE01_00"),
-                Reg(0x0000111C, 0x0, "DCI_CSC_COE10_02"),
-                Reg(0x0000111C, 0x0, "DCI_CSC_COE12_11"),
-                Reg(0x0000111C, 0x0, "DCI_CSC_COE21_20"),
-                Reg(0x0000111C, 0x0, "DCI_CSC_COE22"),
-                Reg(0x0000111C, 0x0, "DCI_CSC_OFFSET0"),
-                Reg(0x0000111C, 0x0, "DCI_CSC_OFFSET1"),
-                Reg(0x0000111C, 0x0, "DCI_CSC_OFFSET2"),
+                Reg(0x00001120, 0x0, "DCI_DBG_CTRL"),
+                Reg(0x00001124, 0x0, "RESERVED_0124"),
+                Reg(0x00001128, 0x0, "RESERVED_0128"),
+                Reg(0x0000112C, 0x0, "RESERVED_012C"),
+                Reg(0x00001130, 0x0, "DCI_DBG_PIX"),
+                Reg(0x00001134, 0x0, "RESERVED_0134"),
+                Reg(0x00001138, 0x0, "RESERVED_0138"),
+                Reg(0x0000113C, 0x0, "RESERVED_013C"),
+                Reg(0x00001140, 0x0, "DCI_CSC_COE01_00"),
+                Reg(0x00001144, 0x0, "DCI_CSC_COE10_02"),
+                Reg(0x00001148, 0x0, "DCI_CSC_COE12_11"),
+                Reg(0x0000114C, 0x0, "DCI_CSC_COE21_20"),
+                Reg(0x00001150, 0x0, "DCI_CSC_COE22"),
+                Reg(0x00001154, 0x0, "DCI_CSC_OFFSET0"),
+                Reg(0x00001158, 0x0, "DCI_CSC_OFFSET1"),
+                Reg(0x0000115C, 0x0, "DCI_CSC_OFFSET2"),
             ]
             self.reg_dicts[DciModuleIndex.VOP_CLUSTER0] += [
-                Reg(0x0001124 + idx * 4, 0x0, f"DCI_LUT_DATA{idx}") for idx in range(1408)
+                Reg(0x00001160 + idx * 4, 0x0, f"DCI_LUT_DATA{idx}") for idx in range(1408)
             ]
             self.packed_lut = np.zeros(5632, dtype=np.uint8)
             self.regs = self.reg_dicts[self.index]

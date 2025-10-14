@@ -303,7 +303,7 @@ class ModuleRegisterCore(ABC):
             self.logger.error(f"duplicate register name found: {dup_names}!")
             return False
         if len(dup_offsets) > 0:
-            self.logger.error(f"duplicate register offset found: {dup_offsets}!")
+            self.logger.error("duplicate register offset found: 0x%08X !" % dup_offsets)
             return False
         if len(self.regs) != self.nb_regs:
             self.logger.error(
