@@ -160,7 +160,7 @@ class ModuleHelperCore(ABC):
         ## parse args & check
         parser = argparse.ArgumentParser(exit_on_error=False)
         parser.add_argument(
-            "-a", "--pretty_array_stdout", default=64, type=int, help="控制台美观输出：限制数组类型参数的输出元素量"
+            "-a", "--pretty_array_stdout", default=32, type=int, help="控制台美观输出：限制数组类型参数的输出元素量"
         )
         parser.add_argument(
             "-l", "--pretty_lines_stdout", default=16, type=int, help="控制台美观输出：限制寄存器输出最大行数"

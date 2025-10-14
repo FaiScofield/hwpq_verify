@@ -216,36 +216,58 @@ class DciConfig(ModuleConfigCore):
                 self.version = data["version"] if "version" in data else "unknown"
                 self.randSeed = data["randSeed"] if "randSeed" in data else -1
 
-                vdpp_data = data["vdpp_config"]
-                self.vdpp_config.working_mode = vdpp_data["working_mode"]
-                self.vdpp_config.dci_data_format = vdpp_data["dci_data_format"]
-                self.vdpp_config.dci_csc_range = vdpp_data["dci_csc_range"]
-                self.vdpp_config.dci_vsd_mode = vdpp_data["dci_vsd_mode"]
-                self.vdpp_config.dci_hsd_mode = vdpp_data["dci_hsd_mode"]
-                self.vdpp_config.dci_alpha_swap = vdpp_data["dci_alpha_swap"]
-                self.vdpp_config.dci_rb_swap = vdpp_data["dci_rb_swap"]
-                self.vdpp_config.dci_blk_hsize = vdpp_data["dci_blk_hsize"]
-                self.vdpp_config.dci_blk_vsize = vdpp_data["dci_blk_vsize"]
+                if "s_vdpp_hist_cnt" in data:
+                    vdpp_data = data["s_vdpp_hist_cnt"]
+                    self.vdpp_config.dci_vsd_mode = vdpp_data["dci_vsd_mode"]
+                    self.vdpp_config.dci_hsd_mode = vdpp_data["dci_hsd_mode"]
+                elif "vdpp_config" in data:
+                    vdpp_data = data["vdpp_config"]
+                    self.vdpp_config.working_mode = vdpp_data["working_mode"]
+                    self.vdpp_config.dci_data_format = vdpp_data["dci_data_format"]
+                    self.vdpp_config.dci_csc_range = vdpp_data["dci_csc_range"]
+                    self.vdpp_config.dci_vsd_mode = vdpp_data["dci_vsd_mode"]
+                    self.vdpp_config.dci_hsd_mode = vdpp_data["dci_hsd_mode"]
+                    self.vdpp_config.dci_alpha_swap = vdpp_data["dci_alpha_swap"]
+                    self.vdpp_config.dci_rb_swap = vdpp_data["dci_rb_swap"]
+                    self.vdpp_config.dci_blk_hsize = vdpp_data["dci_blk_hsize"]
+                    self.vdpp_config.dci_blk_vsize = vdpp_data["dci_blk_vsize"]
+                else:
+                    return False
 
-                vop_data = data["vop_config"]
-                self.vop_config.dci_enable = vop_data["dci_enable"]
-                self.vop_config.blk_size_fix = vop_data["blk_size_fix"]
-                self.vop_config.act_width = vop_data["act_width"]
-                self.vop_config.act_height = vop_data["act_height"]
-                self.vop_config.act_start_h_idx = vop_data["act_start_h_idx"]
-                self.vop_config.act_start_v_idx = vop_data["act_start_v_idx"]
-                self.vop_config.act_start_h_offset = vop_data["act_start_h_offset"]
-                self.vop_config.act_start_v_offset = vop_data["act_start_v_offset"]
-                self.vop_config.act_blk_size_h = vop_data["act_blk_size_h"]
-                self.vop_config.act_blk_size_v = vop_data["act_blk_size_v"]
-                self.vop_config.ca_enable = vop_data["ca_enable"]
-                self.vop_config.sat_w = vop_data["sat_w"]
-                self.vop_config.luma_sat_adj_zero = vop_data["luma_sat_adj_zero"]
-                self.vop_config.luma_sat_adj_thrd = vop_data["luma_sat_adj_thrd"]
-                self.vop_config.luma_sat_adj_k = vop_data["luma_sat_adj_k"]
-                self.vop_config.dci_local_lut = np.array(vop_data["dci_local_lut"], dtype=np.uint16)
-                self.vop_config.dci_locat_ratio = np.array(vop_data["dci_locat_ratio"], dtype=np.uint8)
-                self.vop_config.dci_global_lut = np.array(vop_data["dci_global_lut"], dtype=np.uint16)
+                if "vop_config" in data:
+                    vop_data = data["vop_config"]
+                    self.vop_config.dci_enable = vop_data["dci_enable"]
+                    self.vop_config.blk_size_fix = vop_data["blk_size_fix"]
+                    self.vop_config.act_width = vop_data["act_width"]
+                    self.vop_config.act_height = vop_data["act_height"]
+                    self.vop_config.act_start_h_idx = vop_data["act_start_h_idx"]
+                    self.vop_config.act_start_v_idx = vop_data["act_start_v_idx"]
+                    self.vop_config.act_start_h_offset = vop_data["act_start_h_offset"]
+                    self.vop_config.act_start_v_offset = vop_data["act_start_v_offset"]
+                    self.vop_config.act_blk_size_h = vop_data["act_blk_size_h"]
+                    self.vop_config.act_blk_size_v = vop_data["act_blk_size_v"]
+                    self.vop_config.ca_enable = vop_data["ca_enable"]
+                    self.vop_config.sat_w = vop_data["sat_w"]
+                    self.vop_config.luma_sat_adj_zero = vop_data["luma_sat_adj_zero"]
+                    self.vop_config.luma_sat_adj_thrd = vop_data["luma_sat_adj_thrd"]
+                    self.vop_config.luma_sat_adj_k = vop_data["luma_sat_adj_k"]
+                    self.vop_config.dci_local_lut = np.array(vop_data["dci_local_lut"], dtype=np.uint16)
+                    self.vop_config.dci_locat_ratio = np.array(vop_data["dci_locat_ratio"], dtype=np.uint8)
+                    self.vop_config.dci_global_lut = np.array(vop_data["dci_global_lut"], dtype=np.uint16)
+                elif "s_vop_dci_interp_params" in data:
+                    vop_data = data["s_vop_dci_interp_params"]
+                    vop_dci_ctrl = vop_data['s_vop_dci_ctrl']
+                    cf_params = vop_data["s_curve_fitting_params"]
+                    he_params = vop_data["s_he_params"]
+                    bs_params = vop_data["s_bs_params"]
+                    ws_params = vop_data["s_ws_params"]
+                    clahe_params = vop_data["s_clahe_params"]
+                    abld_params = vop_data["s_time_abld_params"]
+                    ca_params = vop_data["s_color_adjust_params"]
+                    ## TODO: parse other params. need resolution info
+                    self.vop_config.dci_enable = vop_dci_ctrl['i_dciEnable']
+                else:
+                    return False
                 return True
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack

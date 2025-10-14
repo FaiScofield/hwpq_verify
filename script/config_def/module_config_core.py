@@ -53,7 +53,7 @@ class ModuleConfigCore(ABC):
         else:
             if isinstance(val, NoIndent):
                 val = val.value
-            if isinstance(val, (list, tuple, set, np.ndarray)) and len(val) > pretty_array_stdout:
+            if isinstance(val, (list, tuple, set, np.ndarray)) and len(val) > pretty_array_stdout + 8:
                 half_len = (pretty_array_stdout + 1) // 2
                 self.logger.info(" " * indent + f"- {key}[0, {half_len-1}]: {val[:half_len]}")
                 self.logger.info(
