@@ -18,6 +18,7 @@ sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from reg_def.module_reg_core import ModuleRegisterCore, Reg
 from config_def.module_config_csc import CscConfig
 from utils import enum_with_index
+import tool.get_csc_coefs as csc_core
 
 
 @enum_with_index
@@ -148,8 +149,36 @@ class CscRegister(ModuleRegisterCore):
 
         self.regs = self.reg_dicts[self.index]  # [offset, value, name]
         CM = np.uint16(0xFFFF)  # coef mask = 0x3FF or 0xFFFF
-        cscMatrix = self.config.cscMatrix.astype(np.int32)  # s16->s32 first
-        cscVector = self.config.cscVector.astype(np.int32)  # s32->s32 first
+        if self.config.cscPassthrough:
+            cscMatrix = self.config.cscMatrix.astype(np.int32)  # s16->s32 first
+            cscVector = self.config.cscVector.astype(np.int32)  # s32->s32 first
+        else:
+            ## generate csc matrix and vector with CscCoefConfig
+            csc_config = csc_core.CscCoefConfig()
+            csc_config.platform = self.platform
+            csc_config.pixel_depth = self.config.cscPixelDepth
+            csc_config.coef_precision = self.config.cscCoefPrecision
+            if self.config.cscConvertMode in range(0, 41):
+                mode_key = list(csc_core.g_supported_standard_convert_modes.keys())[self.config.cscConvertMode]
+                csc_config.csc_mode = csc_core.g_supported_standard_convert_modes[mode_key]
+            else:
+                self.logger.error(f"Invalid cscConvertMode {self.config.cscConvertMode}! Valid range: [0, 40]!")
+                return False
+
+            ## adjust csc matri with BCSH config
+            bcsh_config = csc_core.CscBcshConfig()
+            bcsh_config.hue = self.config.cscHue
+            bcsh_config.saturation = self.config.cscSaturation
+            bcsh_config.contrast = self.config.cscContrast
+            bcsh_config.brightness = self.config.cscBrightness
+            bcsh_config.r_gain = self.config.cscRGain
+            bcsh_config.g_gain = self.config.cscGGain
+            bcsh_config.b_gain = self.config.cscBGain
+            bcsh_config.r_offset = self.config.cscROffset
+            bcsh_config.g_offset = self.config.cscGOffset
+            bcsh_config.b_offset = self.config.cscBOffset
+            cscMatrix, cscVector = csc_core.get_csc_coefs(csc_config, bcsh_config)
+
         if self.index in g_post_csc:
             self.regs[0].value = 0x1 | ((self.config.cscEnable * 0x1) << 1) | ((cscMatrix[0, 0] & CM) << 16)
             self.regs[1].value = (cscMatrix[0, 1] & CM) | ((cscMatrix[0, 2] & CM) << 16)

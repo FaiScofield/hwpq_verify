@@ -307,7 +307,7 @@ int main(int argc, char *const argv[])
     if (nb_mode == 1 && config.reg_dump_type > 0) {
         int regs[8] = {0};
         if (config.reg_dump_type == 2) {
-            regs[0] = 0x1 | (0x1 << 1) | ((csc_simple_coef.csc_coef00 & 0xFFFF) << 16);
+            regs[0] = 0x1 | (0x1 << 1) | ((csc_simple_coef.csc_coef00 & 0xFFFF) << 16); // 0-bypass, 1-en, 15-coef00
             regs[1] = (csc_simple_coef.csc_coef01 & 0xFFFF) | ((csc_simple_coef.csc_coef02 & 0xFFFF) << 16);
             regs[2] = (csc_simple_coef.csc_coef10 & 0xFFFF) | ((csc_simple_coef.csc_coef11 & 0xFFFF) << 16);
             regs[3] = (csc_simple_coef.csc_coef12 & 0xFFFF) | ((csc_simple_coef.csc_coef20 & 0xFFFF) << 16);

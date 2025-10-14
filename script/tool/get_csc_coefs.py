@@ -116,6 +116,7 @@ g_supported_standard_convert_modes = {
     "2020f_to_rgbl": CscMode(ColorSpace.BT2020, ColorSpace.BT2020, 1, 0, 1, 0),
     "2020f_to_rgbf": CscMode(ColorSpace.BT2020, ColorSpace.BT2020, 1, 0, 1, 1),
     "2020f_to_2020l": CscMode(ColorSpace.BT2020, ColorSpace.BT2020, 1, 1, 1, 0),
+    "identity_mode": CscMode(ColorSpace.BT709, ColorSpace.BT709, 0, 0, 1, 1),
 }
 
 
