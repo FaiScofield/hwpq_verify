@@ -4,6 +4,7 @@
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-05
  * @history:
+ *  2025-10-15 vance.wu: Fix ABS macro, remove ABS_U8/16/32 macros.
  *  2025-10-12 vance.wu: Add 10bit-packed-YUV444 formats support for IO.
  *  2025-09-08 vance.wu: Add common macros & functions for commonly usage.
  *  2025-09-15 vance.wu: Add pixel format pack/unpack functions.
@@ -87,15 +88,12 @@ static char g_logbuf[2048];
 #define CLAMP(x, a, b)     CLIP(x, a, b)
 
 /* absolute value */
-#define ABS_S8(x)          (char)((x) + ((x) >> 7)) ^ (((x) >> 7)) // without branching
-#define ABS_U8(x)          (uchar)((x) + ((x) >> 7)) ^ (((x) >> 7))
-#define ABS_S16(x)         (short)((x) + ((x) >> 15)) ^ (((x) >> 15))
-#define ABS_U16(x)         (ushort)((x) + ((x) >> 15)) ^ (((x) >> 15))
-#define ABS_S32(x)         (int)((x) + ((x) >> 31)) ^ (((x) >> 31))
-#define ABS_U32(x)         (uint)((x) + ((x) >> 31)) ^ (((x) >> 31))
+#define ABS_S8(x)          (uchar)(((char)(x) ^ ((char)(x) >> 7)) - ((char)(x) >> 7)) // without branching
+#define ABS_S16(x)         (ushort)(((short)(x) ^ ((short)(x) >> 15)) - ((short)(x) >> 15))
+#define ABS_S32(x)         (uint)(((int)(x) ^ ((int)(x) >> 31)) - ((int)(x) >> 31))
 #define ABS_F32(x)         (float)((x) > 0 ? (x) : (-(x)))
 #define ABS_F64(x)         (double)((x) > 0 ? (x) : (-(x)))
-#define ABS(x)             ABS_S32(x)
+#define ABS(x)             ((x) > 0 ? (x) : (-(x)))
 #define ABSF(x)            ABS_F32(x)
 
 /* rounding */
