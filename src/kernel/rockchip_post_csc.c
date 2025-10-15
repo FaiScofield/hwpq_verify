@@ -431,6 +431,7 @@ static const struct rk_pq_csc_coef y2r_for_r2r = {
 	1024, 1900, -2,
 }; // a little bit different to 'YUV709F->RGBF'
 
+/* RGB->BRG, YUV->VYU */
 static const struct rk_pq_csc_coef rgb_input_swap_matrix = {
 	0, 0, 1,
 	1, 0, 0,
@@ -990,22 +991,48 @@ static void rockchip_swap_color_channel(const struct post_csc_convert_mode *mode
 					struct rk_pq_csc_coef *out_matrix,
 					struct rk_pq_csc_ventor *out_dc)
 {
-	struct rk_pq_csc_coef tmp_matrix;
-	struct rk_pq_csc_ventor tmp_v;
+    static const struct rk_pq_csc_coef swap_mat = {0, 0, 1, 1, 0, 0, 0, 1, 0};
+    static const struct rk_pq_csc_coef inv_swap_mat = {0, 1, 0, 0, 0, 1, 1, 0, 0};
+    struct rk_pq_csc_coef tmp_mat;
+    struct rk_pq_csc_ventor tmp_vec;
 
-	if (mode->swap_channels) {
-		if (!mode->is_input_yuv) {
-			memcpy(&tmp_matrix, out_matrix, sizeof(struct rk_pq_csc_coef));
-			csc_matrix_multiply(out_matrix, &tmp_matrix, &rgb_input_swap_matrix);
-		}
-
-		if (mode->is_output_yuv) {
-			memcpy(&tmp_matrix, out_matrix, sizeof(struct rk_pq_csc_coef));
-			memcpy(&tmp_v, out_dc, sizeof(struct rk_pq_csc_ventor));
-			csc_matrix_multiply(out_matrix, &yuv_output_swap_matrix, &tmp_matrix);
-			csc_matrix_ventor_multiply(out_dc, &yuv_output_swap_matrix, &tmp_v);
-		}
-	}
+    switch (mode->swap_channels) {
+    case 1: { // for RK3576, Y2R?
+        if (!mode->is_input_yuv) {
+            memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
+            csc_matrix_multiply(out_matrix, &tmp_mat, &rgb_input_swap_matrix);
+        }
+        if (mode->is_output_yuv) {
+            memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
+            memcpy(&tmp_vec, out_dc, sizeof(struct rk_pq_csc_ventor));
+            csc_matrix_multiply(out_matrix, &yuv_output_swap_matrix, &tmp_mat);
+            csc_matrix_ventor_multiply(out_dc, &yuv_output_swap_matrix, &tmp_vec);
+        }
+        // printf("NOTE: CSC coefs & offset has been swapped!\n");
+    } break;
+    case 2: { // for RK3572, Y2R_CSC + R2R coefs
+        memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
+        csc_matrix_multiply(out_matrix, &tmp_mat, &swap_mat);
+    } break;
+    case 3: { // for RK3572, Y2R_CSC + Y2Y coefs
+        memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
+        memcpy(&tmp_vec, out_dc, sizeof(struct rk_pq_csc_ventor));
+        csc_matrix_multiply(out_matrix, &inv_swap_mat, &tmp_mat);
+        csc_matrix_ventor_multiply(out_dc, &inv_swap_mat, &tmp_vec);
+    } break;
+    case 4: { // for RK3572, R2Y_CSC + R2R coefs
+        memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
+        memcpy(&tmp_vec, out_dc, sizeof(struct rk_pq_csc_ventor));
+        csc_matrix_multiply(out_matrix, &swap_mat, &tmp_mat);
+        csc_matrix_ventor_multiply(out_dc, &swap_mat, &tmp_vec);
+    } break;
+    case 5: { // for RK3572, R2Y_CSC + Y2Y coefs
+        memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
+        csc_matrix_multiply(out_matrix, &tmp_mat, &inv_swap_mat);
+    } break;
+    case 0:  break;
+    default: DRM_ERROR("Invalid type of swap_channels: %d\n", mode->swap_channels); break;
+    }
 }
 
 int rockchip_calc_post_csc(struct post_csc *csc_cfg, struct post_csc_coef *csc_simple_coef,

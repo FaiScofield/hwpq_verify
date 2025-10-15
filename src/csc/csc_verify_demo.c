@@ -93,7 +93,7 @@ int get_cmd_config_addition(int argc, char *const argv[], struct cmd_config_addi
     optind = 1;
     int opt = -1;
     int idx = -1;
-    while ((opt = getopt_long(argc, argv, "-M:D:P:d:O:", g_cmd_args_options_csc, &idx)) != -1) {
+    while ((opt = getopt_long(argc, argv, "-M:D:P:d:O", g_cmd_args_options_csc, &idx)) != -1) {
         switch (opt) {
         case 0: {
             switch (idx) {

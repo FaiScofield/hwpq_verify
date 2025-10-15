@@ -103,7 +103,7 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
     int out_clr_pos = 0;
     int opt = 0, idx = 0;
     const char *mode_str = NULL;
-    while ((opt = getopt_long(argc, argv, "M:D:P:s:o:p:d:O:ah", g_cmd_args_supported_options, &idx)) != -1) {
+    while ((opt = getopt_long(argc, argv, "M:D:P:s:o:p:d:aOh", g_cmd_args_supported_options, &idx)) != -1) {
         switch (opt) {
         case 0: {
             switch (idx) {
