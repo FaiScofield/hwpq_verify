@@ -5,7 +5,8 @@
  *        This is not the offical updated version but a new implementation for HWPQ kernel verification.
  * @author: vance.wu@rock-chips.com
  * @history:
- *  - 2025/09/04 vance.wu: new implementation for HWPQ kernel verification.
+ *  - 2025-10-15 vance.wu: add auxiliary function 'parse_csc_mode_str'.
+ *  - 2025-09-04 vance.wu: new implementation for HWPQ kernel verification.
  */
 
 #ifndef _ROCKCHIP_POST_CSC2_H
@@ -32,6 +33,9 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *csc_cfg, // [I] CSC conf
 
 
 int csc_get_mode_index(const struct post_csc_convert_mode *convert_mode);
+
+/* parse mode string like 'rgbl_to_601f' */
+int parse_csc_mode_str(const char *mode_str, struct post_csc_convert_mode *mode);
 
 extern const struct post_csc_convert_mode g_supported_standard_convert_mode[CSC_MODE_MAX];
 extern const char *g_supported_csc_mode_str[CSC_MODE_MAX];

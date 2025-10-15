@@ -4,7 +4,8 @@
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-05
  * @history:
- *  2025-09-10 vance.wu: print crc32 value for input/output data.
+ *  - 2025-10-15 vance.wu: add BSCH options of cmd line arguments.
+ *  - 2025-09-10 vance.wu: print crc32 value for input/output data.
  */
 
 #include "verify_com.h"
@@ -20,111 +21,104 @@
 
 struct cmd_config_addition_csc
 {
-    char mode_str[32];   // csc mode string like: '709l_to_rgbf'
-    int pixel_depth;     // {8,10}
-    int coef_precision;  // {8,10,13}
-    bool use_float_coef; // {0, 1} TODO
+    struct post_csc_convert_mode convert_mode;
+    struct post_csc bcsh_cfg;
+
+    char mode_str[32];
+    bool b_use_float_coef; // {0, 1} TODO
+    bool b_use_old_method; // [0, 1]
+    int reg_dump_type;     // [0, 2]
 };
 
 void print_usage_addition()
 {
     LOGI("CSC Aditional Options:\n");
+    LOGI("      --bright         [val] | BCSH.brightness, range: [0, 511], default: 256\n");
+    LOGI("      --contrast       [val] | BCSH.contrast,   range: [0, 511], default: 256\n");
+    LOGI("      --saturation     [val] | BCSH.saturation, range: [0, 511], default: 256\n");
+    LOGI("      --hue            [val] | BCSH.hue,        range: [0, 511], default: 256\n");
+    LOGI("      --r_gain         [val] | BCSH.r_gain,     range: [0, 511], default: 256\n");
+    LOGI("      --g_gain         [val] | BCSH.g_gain,     range: [0, 511], default: 256\n");
+    LOGI("      --b_gain         [val] | BCSH.b_gain,     range: [0, 511], default: 256\n");
+    LOGI("      --r_ofs          [val] | BCSH.r_offset ,  range: [0, 511], default: 256\n");
+    LOGI("      --g_ofs          [val] | BCSH.g_offset ,  range: [0, 511], default: 256\n");
+    LOGI("      --b_ofs          [val] | BCSH.b_offset ,  range: [0, 511], default: 256\n");
+    LOGI("  -M  --csc_mode       [val] | csc mode string like: '709l_to_rgbf', default: 'NULL'\n");
     LOGI("  -D  --pixel_depth    [val] | pixel depth, range: {8,10}, default: 10bit\n");
     LOGI("  -P  --coef_precision [val] | coef precision, range: {8,10,13}, default: 10bit\n");
-    LOGI("  -M  --mode_str       [val] | csc mode string like: '709l_to_rgbf', default: 'NULL'\n");
+    LOGI("  -d  --reg_dump_type  [val] | dump type for register values, range: [0, 2]\n");
+    LOGI("  -O  --use_old_method       | use old method, range: [0, 1], default: 0\n");
+
     LOGI("\n");
 }
 
-int get_cmd_config_addition(int argc, char *const argv[], struct cmd_config_addition_csc *cmd_config)
+int get_cmd_config_addition(int argc, char *const argv[], struct cmd_config_addition_csc *config)
 {
     static const struct option g_cmd_args_options_csc[] = {
-        {   (char *)"pixel_depth", ARG_REQ, NULL, 'D'},
-        {(char *)"coef_precision", ARG_REQ, NULL, 'P'},
-        {      (char *)"mode_str", ARG_REQ, NULL, 'M'},
-        {                       0,       0,    0,   0}  // end of option list
+        {        (char *)"bright",  ARG_OPT,    0,   0},
+        {      (char *)"contrast",  ARG_OPT,    0,   0},
+        {    (char *)"saturation",  ARG_OPT,    0,   0},
+        {           (char *)"hue",  ARG_OPT,    0,   0},
+        {        (char *)"r_gain",  ARG_OPT,    0,   0},
+        {        (char *)"g_gain",  ARG_OPT,    0,   0},
+        {        (char *)"b_gain",  ARG_OPT,    0,   0},
+        {         (char *)"r_ofs",  ARG_OPT,    0,   0},
+        {         (char *)"g_ofs",  ARG_OPT,    0,   0},
+        {         (char *)"b_ofs",  ARG_OPT,    0,   0},
+        {      (char *)"csc_mode",  ARG_REQ, NULL, 'M'},
+        {   (char *)"pixel_depth",  ARG_REQ, NULL, 'D'},
+        {(char *)"coef_precision",  ARG_REQ, NULL, 'P'},
+        { (char *)"reg_dump_type",  ARG_OPT,    0, 'd'},
+        {(char *)"use_old_method", ARG_NONE,    0, 'O'},
+        {                       0,        0,    0,   0}  // end of option list
     };
 
-    cmd_config->pixel_depth = 10;
-    cmd_config->coef_precision = 10;
+    config->convert_mode.plat = VOP_VERSION_RK3572;
+    config->convert_mode.swap_channels = 0; // always be 0 in this file!
+    config->convert_mode.pixel_depth = 10;
+    config->convert_mode.coef_precision = 10;
+    config->bcsh_cfg.brightness = 256;
+    config->bcsh_cfg.contrast = 256;
+    config->bcsh_cfg.saturation = 256;
+    config->bcsh_cfg.hue = 256;
+    config->bcsh_cfg.r_gain = 256;
+    config->bcsh_cfg.g_gain = 256;
+    config->bcsh_cfg.b_gain = 256;
+    config->bcsh_cfg.r_offset = 256;
+    config->bcsh_cfg.g_offset = 256;
+    config->bcsh_cfg.b_offset = 256;
+    config->bcsh_cfg.csc_enable = 1;
 
     /*! NOTE: need to reset 'optind' before parsing addition options */
     optind = 1;
     int opt = -1;
     int idx = -1;
-    while ((opt = getopt_long(argc, argv, "-D:P:M:", g_cmd_args_options_csc, &idx)) != -1) {
+    while ((opt = getopt_long(argc, argv, "-M:D:P:d:O:", g_cmd_args_options_csc, &idx)) != -1) {
         switch (opt) {
-        case 'D': cmd_config->pixel_depth = atoi(optarg); break;
-        case 'P': cmd_config->coef_precision = atoi(optarg); break;
-        // case 'M': snprintf(cmd_config->mode_str, 32, "%s", optarg); break;
-        case 'M': strncpy(cmd_config->mode_str, optarg, 32); break;
+        case 0: {
+            switch (idx) {
+            case 0: config->bcsh_cfg.brightness = atoi(optarg); break;
+            case 1: config->bcsh_cfg.contrast = atoi(optarg); break;
+            case 2: config->bcsh_cfg.saturation = atoi(optarg); break;
+            case 3: config->bcsh_cfg.hue = atoi(optarg); break;
+            case 4: config->bcsh_cfg.r_gain = atoi(optarg); break;
+            case 5: config->bcsh_cfg.g_gain = atoi(optarg); break;
+            case 6: config->bcsh_cfg.b_gain = atoi(optarg); break;
+            case 7: config->bcsh_cfg.r_offset = atoi(optarg); break;
+            case 8: config->bcsh_cfg.g_offset = atoi(optarg); break;
+            case 9: config->bcsh_cfg.b_offset = atoi(optarg); break;
+            }
+        } break;
+        case 'M': strncpy(config->mode_str, optarg, 32); break;
+        case 'D': config->convert_mode.pixel_depth = atoi(optarg); break;
+        case 'P': config->convert_mode.coef_precision = atoi(optarg); break;
+        case 'd': config->reg_dump_type = atoi(optarg); break;
+        case 'O': config->b_use_old_method = 1; break;
         default:  break;
         }
     }
 
     return 0;
-}
-
-/* parse mode string like 'rgbl_to_601f' */
-int parse_csc_mode_str(const char *mode_str, struct post_csc_convert_mode *mode)
-{
-    LOGI("parsing csc mode from csc_mode_str: %s\n", mode_str);
-    int ret = 0;
-    int out_clr_pos = 8;
-    int in_clr = -1;
-    int out_clr = -1;
-
-    mode->is_input_yuv = 1;
-    mode->is_input_full_range = mode_str[3] == 'f' || mode_str[3] == 'F';
-    if (0 == strncmp(mode_str, "rgb", 3)) {
-        mode->intput_color_encoding = DRM_COLOR_ENCODING_MAX; // mark for later update
-        mode->is_input_yuv = 0;
-    }
-    else if (0 == strncmp(mode_str, "601", 3)) {
-        mode->intput_color_encoding = DRM_COLOR_YCBCR_BT601;
-    }
-    else if (0 == strncmp(mode_str, "709", 3)) {
-        mode->intput_color_encoding = DRM_COLOR_YCBCR_BT709;
-    }
-    else if (0 == strncmp(mode_str, "2020", 4)) {
-        mode->intput_color_encoding = DRM_COLOR_YCBCR_BT2020;
-        mode->is_input_full_range = mode_str[4] == 'f' || mode_str[4] == 'F';
-        out_clr_pos = 9;
-    }
-    else {
-        LOGE("unknow csc_mode_str: %s !\n", mode_str);
-        return -1;
-    }
-
-    mode->is_output_yuv = 1;
-    mode->is_output_full_range = mode_str[out_clr_pos + 3] == 'f' || mode_str[out_clr_pos + 3] == 'F';
-    if (0 == strncmp(mode_str + out_clr_pos, "rgb", 3)) {
-        mode->output_color_encoding = DRM_COLOR_ENCODING_MAX; // mark for later update
-        mode->is_output_yuv = 0;
-    }
-    else if (0 == strncmp(mode_str + out_clr_pos, "601", 3)) {
-        mode->output_color_encoding = DRM_COLOR_YCBCR_BT601;
-    }
-    else if (0 == strncmp(mode_str + out_clr_pos, "709", 3)) {
-        mode->output_color_encoding = DRM_COLOR_YCBCR_BT709;
-    }
-    else if (0 == strncmp(mode_str + out_clr_pos, "2020", 4)) {
-        mode->output_color_encoding = DRM_COLOR_YCBCR_BT2020;
-        mode->is_output_full_range = mode_str[out_clr_pos + 4] == 'f' || mode_str[out_clr_pos + 4] == 'F';
-    }
-    else {
-        LOGE("unknow csc_mode_str: %s !\n", mode_str);
-        return -1;
-    }
-
-    // update input/output colorspace if not specified
-    if (mode->intput_color_encoding == DRM_COLOR_ENCODING_MAX) {
-        mode->intput_color_encoding = (mode->output_color_encoding == DRM_COLOR_ENCODING_MAX) ? DRM_COLOR_YCBCR_BT709
-                                                                                              : mode->output_color_encoding;
-    }
-    if (mode->output_color_encoding == DRM_COLOR_ENCODING_MAX) {
-        mode->output_color_encoding = mode->intput_color_encoding;
-    }
-    return ret;
 }
 
 /* parse json cmd_config */
@@ -396,25 +390,43 @@ int main(int argc, char *const argv[])
     get_cmd_config_addition(argc, argv, &cmd_config2);
     common_verify_arg_dump_config(&cmd_config);
 
+    struct post_csc_convert_mode *p_mode = &cmd_config2.convert_mode;
+    struct post_csc *p_bcsh = &cmd_config2.bcsh_cfg;
+    LOGI("dump CSC mode info from cmd line:\n");
+    LOGI(" - pixel_depth/coef_precision: %d/%dbit\n", p_mode->pixel_depth, p_mode->coef_precision);
+    LOGI(" - b/c/s/h: %d/%d/%d/%d\n", p_bcsh->brightness, p_bcsh->contrast, p_bcsh->saturation, p_bcsh->hue);
+    LOGI(" - r/g/b_gain: %d/%d/%d\n", p_bcsh->r_gain, p_bcsh->g_gain, p_bcsh->b_gain);
+    LOGI(" - r/g/b_offset: %d/%d/%d\n", p_bcsh->r_offset, p_bcsh->g_offset, p_bcsh->b_offset);
+    LOGI(" - use old method: %d %s\n", cmd_config2.b_use_old_method,
+        cmd_config2.b_use_old_method ? "(only 10-10bit coefs supported)" : "");
+
     // check nessary parameters
     if (cmd_config.crc_file[0] == '\0') {
         snprintf(cmd_config.crc_file, 1024, "%s/csc_crc_out.dat", cmd_config.output_dir);
         LOGI(" - crc_file update to: '%s'!\n", cmd_config.crc_file);
     }
 
-    struct post_csc_convert_mode csc_mode = {0};
-    struct post_csc_coef csc_coefs = {0};
-    struct post_csc csc_bcsh = {0};
+    struct post_csc_convert_mode csc_mode = {0}; // final csc mode
+    struct post_csc_coef csc_coefs = {0};        // final csc coefs
     int mode_idx = cmd_config.mode;
-    int pixel_depth = cmd_config2.pixel_depth;
-    int precision = cmd_config2.coef_precision;
+    const int pixel_depth = p_mode->pixel_depth;
+    const int precision = p_mode->coef_precision;
+    const bool b_use_old_method = cmd_config2.b_use_old_method;
 
     // parse csc coefs from 'cmd_config.mode' (mode=ppii: pp-precision, ii-index)
     if (mode_idx >= 0 && mode_idx < CSC_MODE_MAX) {
         LOGI(" - get a valid csc mode(%d, %s), test with standard coefs!\n", mode_idx, g_supported_csc_mode_str[mode_idx]);
         memcpy(&csc_mode, &g_supported_standard_convert_mode[mode_idx], sizeof(struct post_csc_convert_mode));
-        ret = rockchip_calc_post_csc(NULL, &csc_coefs, &csc_mode);
-        ret = rockchip_calc_post_csc_coefs(NULL, &csc_coefs, &csc_mode);
+        csc_mode.plat = p_mode->plat;
+        csc_mode.swap_channels = 0;
+        csc_mode.pixel_depth = p_mode->pixel_depth;
+        csc_mode.coef_precision = p_mode->coef_precision;
+        if (b_use_old_method) {
+            ret = rockchip_calc_post_csc(NULL, &csc_coefs, &csc_mode);
+        }
+        else {
+            ret = rockchip_calc_post_csc_coefs(NULL, &csc_coefs, &csc_mode);
+        }
     }
     // parse csc coefs from 'cmd_config2.mode_str'
     else if (cmd_config2.mode_str[0] != '\0') {
@@ -422,13 +434,17 @@ int main(int argc, char *const argv[])
         if (ret) {
             return ret;
         }
-        csc_mode.pixel_depth = cmd_config2.pixel_depth;
-        csc_mode.coef_precision = cmd_config2.coef_precision;
-        ret |= rockchip_calc_post_csc(NULL, &csc_coefs, &csc_mode);
-        ret |= rockchip_calc_post_csc_coefs(NULL, &csc_coefs, &csc_mode);
+        csc_mode.plat = p_mode->plat;
+        csc_mode.swap_channels = 0;
+        csc_mode.pixel_depth = p_mode->pixel_depth;
+        csc_mode.coef_precision = p_mode->coef_precision;
+        if (b_use_old_method) {
+            ret = rockchip_calc_post_csc(p_bcsh, &csc_coefs, &csc_mode);
+        }
+        else {
+            ret = rockchip_calc_post_csc_coefs(p_bcsh, &csc_coefs, &csc_mode);
+        }
         mode_idx = csc_get_mode_index(&csc_mode);
-        LOGI(" - pixel_depth: %d\n", cmd_config2.pixel_depth);
-        LOGI(" - coef_precision: %d\n", cmd_config2.coef_precision);
         LOGI(" - mode_string: %s -> mode_index: %d\n", cmd_config2.mode_str, mode_idx);
         if (ret || mode_idx < 0 || mode_idx >= CSC_MODE_MAX) {
             return ret;
@@ -436,7 +452,7 @@ int main(int argc, char *const argv[])
     }
     // parse csc coefs from 'cmd_config.config_file'
     else if (cmd_config.config_file[0] != '\0') {
-        ret = parse_csc_config(cmd_config.config_file, &csc_coefs, &csc_bcsh, &csc_mode);
+        ret = parse_csc_config(cmd_config.config_file, &csc_coefs, p_bcsh, &csc_mode);
         if (ret) {
             return ret;
         }
@@ -447,12 +463,11 @@ int main(int argc, char *const argv[])
     }
 
 
-    LOGI(" - csc_coef matrix original: [%d, %d, %d; %d, %d, %d; %d, %d, %d]\n", csc_coefs.csc_coef00,
+    LOGI(" - get csc_coef matrix: [%d, %d, %d; %d, %d, %d; %d, %d, %d]\n", csc_coefs.csc_coef00,
         csc_coefs.csc_coef01, csc_coefs.csc_coef02, csc_coefs.csc_coef10, csc_coefs.csc_coef11, csc_coefs.csc_coef12,
         csc_coefs.csc_coef20, csc_coefs.csc_coef21, csc_coefs.csc_coef22);
-    LOGI(" - csc_coef offset original: [%d, %d, %d], bFullRangeOut: %d\n", csc_coefs.csc_dc0, csc_coefs.csc_dc1,
+    LOGI(" - get csc_coef offset: [%d, %d, %d], bFullRangeOut: %d\n", csc_coefs.csc_dc0, csc_coefs.csc_dc1,
         csc_coefs.csc_dc2, csc_coefs.range_type);
-    // LOGI(" - csc_coef limit: range0=[%d, %d] range1=[%d, %d]\n", csc_limits[0], csc_limits[1], csc_limits[2], csc_limits[3]);
     const int bCscEnable = 1; //csc_coefs[12] > 0;
     const int bIsInputYuv = csc_mode.is_input_yuv;
     const int bIsOutputYuv = bCscEnable ? csc_mode.is_output_yuv : bIsInputYuv;

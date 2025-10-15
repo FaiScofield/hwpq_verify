@@ -5,11 +5,13 @@
  *        This is not the offical updated version but a new implementation for HWPQ kernel verification.
  * @author: vance.wu@rock-chips.com
  * @history:
- *  - 2025-09-18 vance.wu: add rk_qp_csc_version, sync with 'rockchip_post_csc.c'
+ *  - 2025-10-15 vance.wu: add new swap_channels cases for RK3572.
+ *  - 2025-09-18 vance.wu: add rk_qp_csc_version, sync with 'rockchip_post_csc.c'.
  *  - 2025-09-04 vance.wu: new implementation for HWPQ kernel verification.
  */
 
 #include "rockchip_post_csc2.h"
+#include "verify_com.h"
 #include <assert.h>
 #include <string.h>
 
@@ -211,8 +213,8 @@ static inline void csc_vector_right_shift(union csc_vector_s32 *dst, int n)
 #ifndef M_PI
 #define M_PI 3.14159265358979323846f
 #endif
-#ifndef ABS
-#define ABS(x) ((x) >= 0 ? (x) : -(x))
+#ifndef ABSF
+#define ABSF(x) ((x) >= 0 ? (x) : -(x))
 #endif
 #ifndef ROUND
 #define ROUND(x) ((x) >= 0 ? ((x) + 0.5f) : ((x) + -0.5f))
@@ -384,11 +386,11 @@ static void csc_adjust_convert_matrix(const struct post_csc_convert_mode *mode, 
     const int offset_shift_bits = 3 - (mode->pixel_depth - 8); // [1, 3]
     if (offset_shift_bits >= 0) {
         r_offset >>= offset_shift_bits; // [-32, 32) for U8
-        g_offset >>= offset_shift_bits;
+        g_offset >>= offset_shift_bits; // [-128, 128) for U10
         b_offset >>= offset_shift_bits;
     }
     else {
-        r_offset <<= -offset_shift_bits;
+        r_offset <<= -offset_shift_bits; // [-512, 512) for U12
         g_offset <<= -offset_shift_bits;
         b_offset <<= -offset_shift_bits;
     }
@@ -490,7 +492,7 @@ static bool csc_fixed_coefs_fine_tuning(const struct post_csc_convert_mode *mode
                 int col = -1;
                 float min_diff = 999999.f;
                 for (int j = 0; j < 3; ++j) {
-                    float diff = ABS((float)(fixed_mat->val[i][j] + delta) - float_mat->val[i][j] * coef_factor);
+                    float diff = ABSF((float)(fixed_mat->val[i][j] + delta) - float_mat->val[i][j] * coef_factor);
                     if (diff < min_diff) {
                         min_diff = diff;
                         col = j;
@@ -836,10 +838,13 @@ static void csc_swap_color_channel(const struct post_csc_convert_mode *mode, uni
 {
     static const union csc_matrix_s32 rgb_input_swap_matrix = {0, 0, 1, 1, 0, 0, 0, 1, 0};  // BRG ?
     static const union csc_matrix_s32 yuv_output_swap_matrix = {0, 0, 1, 1, 0, 0, 0, 1, 0}; // VYU
+    static const union csc_matrix_s32 swap_mat = {0, 0, 1, 1, 0, 0, 0, 1, 0};
+    static const union csc_matrix_s32 inv_swap_mat = {0, 1, 0, 0, 0, 1, 1, 0, 0}; // VYU
     union csc_matrix_s32 tmp_mat = {0};
     union csc_vector_s32 tmp_vec = {0};
 
-    if (mode->swap_channels) {
+    switch (mode->swap_channels) {
+    case 1: { // for RK3576, Y2R?
         if (!mode->is_input_yuv) {
             memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
             csc_matrix_mul_s32(out_mat, &tmp_mat, &rgb_input_swap_matrix);
@@ -851,6 +856,29 @@ static void csc_swap_color_channel(const struct post_csc_convert_mode *mode, uni
             csc_matrix_vector_mul_s32(out_vec, &yuv_output_swap_matrix, &tmp_vec);
         }
         // printf("NOTE: CSC coefs & offset has been swapped!\n");
+    } break;
+    case 2: { // for RK3572, Y2R_CSC + R2R coefs
+        memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
+        csc_matrix_mul_s32(out_mat, &tmp_mat, &swap_mat);
+    } break;
+    case 3: { // for RK3572, Y2R_CSC + Y2Y coefs
+        memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
+        memcpy(&tmp_vec, out_vec, sizeof(union csc_vector_s32));
+        csc_matrix_mul_s32(out_mat, &inv_swap_mat, &tmp_mat);
+        csc_matrix_vector_mul_s32(out_vec, &inv_swap_mat, &tmp_vec);
+    } break;
+    case 4: { // for RK3572, R2Y_CSC + R2R coefs
+        memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
+        memcpy(&tmp_vec, out_vec, sizeof(union csc_vector_s32));
+        csc_matrix_mul_s32(out_mat, &swap_mat, &tmp_mat);
+        csc_matrix_vector_mul_s32(out_vec, &swap_mat, &tmp_vec);
+    } break;
+    case 5: { // for RK3572, R2Y_CSC + Y2Y coefs
+        memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
+        csc_matrix_mul_s32(out_mat, &tmp_mat, &inv_swap_mat);
+    } break;
+    case 0:  break;
+    default: printf("Invalid type of swap_channels: %d\n", mode->swap_channels); break;
     }
 }
 
@@ -992,5 +1020,67 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
     }
     csc_simple_coef->range_type = convert_mode->is_output_full_range;
 
+    return ret;
+}
+
+int parse_csc_mode_str(const char *mode_str, struct post_csc_convert_mode *mode)
+{
+    LOGI("parsing csc mode from csc_mode_str: %s\n", mode_str);
+    int ret = 0;
+    int out_clr_pos = 8;
+    int in_clr = -1;
+    int out_clr = -1;
+
+    mode->is_input_yuv = 1;
+    mode->is_input_full_range = mode_str[3] == 'f' || mode_str[3] == 'F';
+    if (0 == strncmp(mode_str, "rgb", 3)) {
+        mode->intput_color_encoding = DRM_COLOR_ENCODING_MAX; // mark for later update
+        mode->is_input_yuv = 0;
+    }
+    else if (0 == strncmp(mode_str, "601", 3)) {
+        mode->intput_color_encoding = DRM_COLOR_YCBCR_BT601;
+    }
+    else if (0 == strncmp(mode_str, "709", 3)) {
+        mode->intput_color_encoding = DRM_COLOR_YCBCR_BT709;
+    }
+    else if (0 == strncmp(mode_str, "2020", 4)) {
+        mode->intput_color_encoding = DRM_COLOR_YCBCR_BT2020;
+        mode->is_input_full_range = mode_str[4] == 'f' || mode_str[4] == 'F';
+        out_clr_pos = 9;
+    }
+    else {
+        LOGE("unknow csc_mode_str: %s !\n", mode_str);
+        return -1;
+    }
+
+    mode->is_output_yuv = 1;
+    mode->is_output_full_range = mode_str[out_clr_pos + 3] == 'f' || mode_str[out_clr_pos + 3] == 'F';
+    if (0 == strncmp(mode_str + out_clr_pos, "rgb", 3)) {
+        mode->output_color_encoding = DRM_COLOR_ENCODING_MAX; // mark for later update
+        mode->is_output_yuv = 0;
+    }
+    else if (0 == strncmp(mode_str + out_clr_pos, "601", 3)) {
+        mode->output_color_encoding = DRM_COLOR_YCBCR_BT601;
+    }
+    else if (0 == strncmp(mode_str + out_clr_pos, "709", 3)) {
+        mode->output_color_encoding = DRM_COLOR_YCBCR_BT709;
+    }
+    else if (0 == strncmp(mode_str + out_clr_pos, "2020", 4)) {
+        mode->output_color_encoding = DRM_COLOR_YCBCR_BT2020;
+        mode->is_output_full_range = mode_str[out_clr_pos + 4] == 'f' || mode_str[out_clr_pos + 4] == 'F';
+    }
+    else {
+        LOGE("unknow csc_mode_str: %s !\n", mode_str);
+        return -1;
+    }
+
+    // update input/output colorspace if not specified
+    if (mode->intput_color_encoding == DRM_COLOR_ENCODING_MAX) {
+        mode->intput_color_encoding = (mode->output_color_encoding == DRM_COLOR_ENCODING_MAX) ? DRM_COLOR_YCBCR_BT709
+                                                                                              : mode->output_color_encoding;
+    }
+    if (mode->output_color_encoding == DRM_COLOR_ENCODING_MAX) {
+        mode->output_color_encoding = mode->intput_color_encoding;
+    }
     return ret;
 }
