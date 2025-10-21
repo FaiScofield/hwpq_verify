@@ -46,6 +46,13 @@
 #define	MIN(a, b)				((a) < (b) ? (a) : (b))
 #define	CLIP(x, min_v, max_v)			MIN(MAX(x, min_v), max_v)
 
+#define ENABLE_DEBUG_LOG		1
+#if ENABLE_DEBUG_LOG
+#define DBG_LOG(fmt, args...)	printf("[DEBUG] " fmt, ##args)
+#else
+#define DBG_LOG(fmt, args...)
+#endif
+
 enum rk_pq_csc_mode {
 	RK_PQ_CSC_RGBL_TO_RGBF = 0,
 	RK_PQ_CSC_RGBL_TO_YUV601L,
@@ -192,6 +199,8 @@ static const struct rk_csc_colorspace_info g_csc_color_info[] = {
 	{OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, true, false},    /* YUV2020F_TO_RGBL */
 	{OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, true, true},     /* YUV2020F_TO_RGBF */
 	{OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_XV_YCC_2020, true, false}, /* YUV2020F_TO_YUV2020L */
+	{OPTM_CS_E_RGB_2020, OPTM_CS_E_RGB_2020, true, false},       /* RGB2020F_TO_RGB2020L */
+	{OPTM_CS_E_RGB_2020, OPTM_CS_E_RGB_2020, false, true},       /* RGB2020L_TO_RGB2020F */
 };
 
 /* for 8bit pixel depth + 8bit coef precision case */
@@ -237,6 +246,8 @@ static const struct rk_pq_csc_coef g_mode_csc_coefs_8bit_pix_8bit_precision[] = 
 	{256,   0, 377, 256,  -42, -146, 256,  482,   0}, /* YUV2020F_TO_RGBF */
 	{220,   0,   0,   0,  225,    0,   0,    0, 225}, /* YUV2020F_TO_YUV2020L */
 	{256,   0,   0,   0,  256,    0,   0,    0, 256}, /* IDENTITY_MODE */
+	{220,   0,   0,   0,  220,    0,   0,    0, 220}, /* RGB2020F_TO_RGB2020L */
+	{298,   0,   0,   0,  298,    0,   0,    0, 298}, /* RGB2020L_TO_RGB2020F */
 };
 
 /* for 10bit pixel depth + 10bit coef precision case */
@@ -282,6 +293,8 @@ static const struct rk_pq_csc_coef g_mode_csc_coefs_10bit_pix_10bit_precision[] 
 	{1024, 0, 1510, 1024, -169, -585, 1024, 1927, 0}, /* YUV2020F_TO_RGBF */
 	{877, 0, 0, 0, 897, 0, 0, 0, 897},                /* YUV2020F_TO_YUV2020L */
 	{1024, 0, 0, 0, 1024, 0, 0, 0, 1024},             /* IDENTITY_MODE */
+	{877, 0, 0, 0, 877, 0, 0, 0, 877},                /* RGB2020F_TO_RGB2020L */
+	{1196, 0, 0, 0, 1196, 0, 0, 0, 1196},             /* RGB2020L_TO_RGB2020F */
 };
 
 /* for 10bit pixel depth + 13bit coef precision case */
@@ -327,6 +340,8 @@ static const struct rk_pq_csc_coef g_mode_csc_coefs_10bit_pix_13bit_precision[] 
 	{8192,     0, 12080,  8192, -1348, -4681, 8192, 15412,    0}, /* YUV2020F_TO_RGBF */
 	{7015,     0,     0,     0,  7175,     0,    0,     0, 7175}, /* YUV2020F_TO_YUV2020L */
 	{8192,     0,     0,     0,  8192,     0,    0,     0, 8192}, /* IDENTITY_MODE */
+	{7015,     0,     0,     0,  7015,     0,    0,     0, 7015}, /* RGB2020F_TO_RGB2020L */
+	{9567,     0,     0,     0,  9567,     0,    0,     0, 9567}, /* RGB2020L_TO_RGB2020F */
 };
 
 static const struct rk_csc_mode_coef g_csc_mode_coefs[] = {
@@ -444,6 +459,21 @@ static const struct rk_pq_csc_coef yuv_output_swap_matrix = {
 	0, 1, 0,
 };
 
+static const struct rk_pq_csc_coef swap_mat = {
+	0, 0, 1,
+	1, 0, 0,
+	0, 1, 0,
+};
+
+static const struct rk_pq_csc_coef inv_swap_mat = {
+	0, 1, 0,
+	0, 0, 1,
+	1, 0, 0,
+};
+
+static void csc_get_range_offset(const struct post_csc_convert_mode *convert_mode,
+				 struct rk_pq_csc_dc_coef *csc_dc_coef);
+
 static enum rk_qp_csc_version get_csc_version(u32 plat) {
 	switch (plat) {
 	case VOP_VERSION_RK3528:
@@ -457,7 +487,7 @@ static enum rk_qp_csc_version get_csc_version(u32 plat) {
 }
 
 static
-enum color_space_type get_color_space_type(enum drm_color_encoding color_encoding, bool is_yuv)
+enum color_space_type get_color_space_type(u32 color_encoding, bool is_yuv)
 {
 	enum color_space_type color_space_type;
 
@@ -479,6 +509,12 @@ enum color_space_type get_color_space_type(enum drm_color_encoding color_encodin
 			color_space_type = OPTM_CS_E_XV_YCC_2020;
 		else
 			color_space_type = OPTM_CS_E_RGB_2020;
+		break;
+	case DRM_COLOR_DCI_P3:
+		if (is_yuv)
+			color_space_type = OPTM_CS_E_XV_YCC_709;
+		else
+			color_space_type = OPTM_CS_E_RGB;
 		break;
 	default:
 		if (is_yuv)
@@ -769,6 +805,13 @@ static int csc_calc_adjust_output_coef(struct post_csc_convert_mode *convert_mod
 	dc_in_offset = convert_mode->is_input_full_range ? 0 : -PQ_CSC_DC_IN_OFFSET;
 	dc_out_offset = convert_mode->is_output_full_range ? 0 : PQ_CSC_DC_IN_OFFSET;
 
+	struct rk_pq_csc_dc_coef tmp_dc = {0};
+	csc_get_range_offset(convert_mode, &tmp_dc);
+	DBG_LOG("before adjust mat: [%4d, %4d, %4d, %4d, %4d, %4d, %4d, %4d, %4d]\n", csc_coef->csc_coef00,
+		csc_coef->csc_coef01, csc_coef->csc_coef02, csc_coef->csc_coef10, csc_coef->csc_coef11,
+		csc_coef->csc_coef12, csc_coef->csc_coef20, csc_coef->csc_coef21, csc_coef->csc_coef22);
+	DBG_LOG("before adjust vec: [%d, %d, %d]\n", tmp_dc.csc_out_dc0, tmp_dc.csc_out_dc1, tmp_dc.csc_out_dc2);
+
 	/*
 	 * M0 = hue_matrix * saturation_matrix,
 	 * M1 = gain_matrix * constrast_matrix,
@@ -914,7 +957,11 @@ static int csc_calc_adjust_output_coef(struct post_csc_convert_mode *convert_mod
 	out_dc->csc_offset2 = v.csc_offset2 +
 		(dc_out_ventor.csc_offset2 << convert_mode->coef_precision);
 
-	return 0;
+    DBG_LOG("after adjust mat: [%4d, %4d, %4d, %4d, %4d, %4d, %4d, %4d, %4d]\n", out_matrix->csc_coef00,
+        out_matrix->csc_coef01, out_matrix->csc_coef02, out_matrix->csc_coef10, out_matrix->csc_coef11,
+        out_matrix->csc_coef12, out_matrix->csc_coef20, out_matrix->csc_coef21, out_matrix->csc_coef22);
+    DBG_LOG("after adjust vec: [%d, %d, %d]\n", out_dc->csc_offset0, out_dc->csc_offset1, out_dc->csc_offset2);
+    return 0;
 }
 
 static void csc_get_range_offset(const struct post_csc_convert_mode *convert_mode,
@@ -964,6 +1011,9 @@ static int csc_calc_default_output_coef(const struct post_csc_convert_mode *conv
 	dc_out_ventor.csc_offset1 = csc_dc_coef.csc_out_dc1;
 	dc_out_ventor.csc_offset2 = csc_dc_coef.csc_out_dc2;
 
+	DBG_LOG("dc_in_ventor.csc_offset:  [%d, %d, %d]\n", dc_in_ventor.csc_offset0, dc_in_ventor.csc_offset1, dc_in_ventor.csc_offset2);
+	DBG_LOG("dc_out_ventor.csc_offset: [%d, %d, %d]\n", dc_out_ventor.csc_offset0, dc_out_ventor.csc_offset1, dc_out_ventor.csc_offset2);
+
 	csc_matrix_ventor_multiply(&v, csc_coef, &dc_in_ventor);
 	out_dc->csc_offset0 = v.csc_offset0 +
 		(dc_out_ventor.csc_offset0 << convert_mode->coef_precision);
@@ -972,6 +1022,7 @@ static int csc_calc_default_output_coef(const struct post_csc_convert_mode *conv
 	out_dc->csc_offset2 = v.csc_offset2 +
 		(dc_out_ventor.csc_offset2 << convert_mode->coef_precision);
 
+	DBG_LOG("out_dc.csc_offset: [%d, %d, %d]\n", out_dc->csc_offset0, out_dc->csc_offset1, out_dc->csc_offset2);
 	return 0;
 }
 
@@ -991,13 +1042,21 @@ static void rockchip_swap_color_channel(const struct post_csc_convert_mode *mode
 					struct rk_pq_csc_coef *out_matrix,
 					struct rk_pq_csc_ventor *out_dc)
 {
-    static const struct rk_pq_csc_coef swap_mat = {0, 0, 1, 1, 0, 0, 0, 1, 0};
-    static const struct rk_pq_csc_coef inv_swap_mat = {0, 1, 0, 0, 0, 1, 1, 0, 0};
-    struct rk_pq_csc_coef tmp_mat;
-    struct rk_pq_csc_ventor tmp_vec;
+	struct rk_pq_csc_coef tmp_mat;
+	struct rk_pq_csc_ventor tmp_vec;
+
+    DBG_LOG("mode->swap_channels: %d\n", mode->swap_channels);
+    if (mode->swap_channels > 0) {
+        DBG_LOG("coefs before swap:\n");
+        DBG_LOG("[%5d, %5d, %5d]\n", out_matrix->csc_coef00, out_matrix->csc_coef01, out_matrix->csc_coef02);
+        DBG_LOG("[%5d, %5d, %5d]\n", out_matrix->csc_coef10, out_matrix->csc_coef11, out_matrix->csc_coef12);
+        DBG_LOG("[%5d, %5d, %5d]\n", out_matrix->csc_coef20, out_matrix->csc_coef21, out_matrix->csc_coef22);
+        DBG_LOG("[%5d, %5d, %5d]\n", out_dc->csc_offset0, out_dc->csc_offset1, out_dc->csc_offset2);
+    }
 
     switch (mode->swap_channels) {
-    case 1: { // for RK3576, Y2R?
+    case NO_SWAP:         break; // no swap
+    case RK3576_DEF_SWAP: {      // for RK3576
         if (!mode->is_input_yuv) {
             memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
             csc_matrix_multiply(out_matrix, &tmp_mat, &rgb_input_swap_matrix);
@@ -1008,30 +1067,60 @@ static void rockchip_swap_color_channel(const struct post_csc_convert_mode *mode
             csc_matrix_multiply(out_matrix, &yuv_output_swap_matrix, &tmp_mat);
             csc_matrix_ventor_multiply(out_dc, &yuv_output_swap_matrix, &tmp_vec);
         }
-        // printf("NOTE: CSC coefs & offset has been swapped!\n");
     } break;
-    case 2: { // for RK3572, Y2R_CSC + R2R coefs
+    case R2R_ON_Y2R: {
+        /**
+         * for RK3572, Y2R_CSC + R2R coefs
+         * we get: M_r2r * (T_inv * I_rgb) + V_rgb => O_gbr, but the internal swap make I_rgb -> I_gbr,
+         * so we need to swap the input channels from I_gbr to I_rgb, then:
+         * M_r2r' = M_r2r * T
+         */
         memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
         csc_matrix_multiply(out_matrix, &tmp_mat, &swap_mat);
     } break;
-    case 3: { // for RK3572, Y2R_CSC + Y2Y coefs
+    case R2R_ON_R2Y: {
+        /**
+         * for RK3572, R2Y_CSC + R2R coefs
+         * we get: T * (M_r2r * I_rgb + V_rgb) => O_brg, the internal swap make O_rgb -> O_brg,
+         * so we need to inversely swap the output channels before internal swap, then:
+         * M_r2r' = T_inv * M_r2r, V_rgb' = T_inv * V_rgb
+         */
         memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
         memcpy(&tmp_vec, out_dc, sizeof(struct rk_pq_csc_ventor));
         csc_matrix_multiply(out_matrix, &inv_swap_mat, &tmp_mat);
         csc_matrix_ventor_multiply(out_dc, &inv_swap_mat, &tmp_vec);
     } break;
-    case 4: { // for RK3572, R2Y_CSC + R2R coefs
+    case Y2Y_ON_Y2R: {
+        /**
+         * for RK3572, Y2R_CSC + Y2Y coefs
+         * we get: M_y2y * (T_inv * I_vyu) + V_yuv => O_yuv,
+         * so we need to swap the output channels from O_yuv to O_vyu, then:
+         * M_y2y' = T * M_y2y, V_yuv' = T * V_yuv
+         */
         memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
         memcpy(&tmp_vec, out_dc, sizeof(struct rk_pq_csc_ventor));
         csc_matrix_multiply(out_matrix, &swap_mat, &tmp_mat);
         csc_matrix_ventor_multiply(out_dc, &swap_mat, &tmp_vec);
     } break;
-    case 5: { // for RK3572, R2Y_CSC + Y2Y coefs
+    case Y2Y_ON_R2Y: {
+        /**
+         * for RK3572, R2Y_CSC + Y2Y coefs
+         * we get: T * (M_y2y * I_vyu + V_yuv) => O_vyu, but the intput channle is not I_yuv,
+         * so we need to inversely swap the input channels from I_vyu to I_yuv, then:
+         * M_y2y' = M_y2y * T_inv
+         */
         memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
         csc_matrix_multiply(out_matrix, &tmp_mat, &inv_swap_mat);
     } break;
-    case 0:  break;
     default: DRM_ERROR("Invalid type of swap_channels: %d\n", mode->swap_channels); break;
+    }
+
+    if (mode->swap_channels > 0) {
+        DBG_LOG("coefs after swap:\n");
+        DBG_LOG("[%5d, %5d, %5d]\n", out_matrix->csc_coef00, out_matrix->csc_coef01, out_matrix->csc_coef02);
+        DBG_LOG("[%5d, %5d, %5d]\n", out_matrix->csc_coef10, out_matrix->csc_coef11, out_matrix->csc_coef12);
+        DBG_LOG("[%5d, %5d, %5d]\n", out_matrix->csc_coef20, out_matrix->csc_coef21, out_matrix->csc_coef22);
+        DBG_LOG("[%5d, %5d, %5d]\n", out_dc->csc_offset0, out_dc->csc_offset1, out_dc->csc_offset2);
     }
 }
 
@@ -1043,6 +1132,16 @@ int rockchip_calc_post_csc(struct post_csc *csc_cfg, struct post_csc_coef *csc_s
 	struct rk_pq_csc_ventor out_dc;
 	const struct rk_pq_csc_coef *csc_coef;
 	int bit_num = PQ_CSC_SIMPLE_MAT_PARAM_FIX_BIT_WIDTH;
+
+	DBG_LOG("get csc index\n");
+	DBG_LOG("pixel_depth=%d, coef_precision=%d\n",
+		  convert_mode->pixel_depth, convert_mode->coef_precision);
+	DBG_LOG("input: colorspace=%d, yuv=%d, full_range=%d\n",
+		  convert_mode->intput_color_encoding, convert_mode->is_input_yuv,
+		  convert_mode->is_input_full_range);
+	DBG_LOG("output: colorspace=%d, yuv=%d, full_range=%d\n",
+		  convert_mode->output_color_encoding, convert_mode->is_output_yuv,
+		  convert_mode->is_output_full_range);
 
 	csc_coef = csc_get_csc_coef(convert_mode);
 	if (!csc_coef) {
@@ -1057,6 +1156,11 @@ int rockchip_calc_post_csc(struct post_csc *csc_cfg, struct post_csc_coef *csc_s
 			  convert_mode->is_output_full_range);
 		return -EINVAL;
 	}
+
+	DBG_LOG("get csc standard coef below:\n");
+	DBG_LOG("[%5d, %5d, %5d]\n", csc_coef->csc_coef00, csc_coef->csc_coef01, csc_coef->csc_coef02);
+	DBG_LOG("[%5d, %5d, %5d]\n", csc_coef->csc_coef10, csc_coef->csc_coef11, csc_coef->csc_coef12);
+	DBG_LOG("[%5d, %5d, %5d]\n", csc_coef->csc_coef20, csc_coef->csc_coef21, csc_coef->csc_coef22);
 
 	if (csc_cfg)
 		ret = csc_calc_adjust_output_coef(convert_mode, csc_cfg,

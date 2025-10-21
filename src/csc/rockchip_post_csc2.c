@@ -10,6 +10,7 @@
  *  - 2025-09-04 vance.wu: new implementation for HWPQ kernel verification.
  */
 
+#include "rockchip_post_csc.h"
 #include "rockchip_post_csc2.h"
 #include "verify_com.h"
 #include <assert.h>
@@ -839,12 +840,13 @@ static void csc_swap_color_channel(const struct post_csc_convert_mode *mode, uni
     static const union csc_matrix_s32 rgb_input_swap_matrix = {0, 0, 1, 1, 0, 0, 0, 1, 0};  // BRG ?
     static const union csc_matrix_s32 yuv_output_swap_matrix = {0, 0, 1, 1, 0, 0, 0, 1, 0}; // VYU
     static const union csc_matrix_s32 swap_mat = {0, 0, 1, 1, 0, 0, 0, 1, 0};
-    static const union csc_matrix_s32 inv_swap_mat = {0, 1, 0, 0, 0, 1, 1, 0, 0}; // VYU
+    static const union csc_matrix_s32 inv_swap_mat = {0, 1, 0, 0, 0, 1, 1, 0, 0};
     union csc_matrix_s32 tmp_mat = {0};
     union csc_vector_s32 tmp_vec = {0};
 
     switch (mode->swap_channels) {
-    case 1: { // for RK3576, Y2R?
+    case NO_SWAP:         break; // no swap
+    case RK3576_DEF_SWAP: {      // for RK3576
         if (!mode->is_input_yuv) {
             memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
             csc_matrix_mul_s32(out_mat, &tmp_mat, &rgb_input_swap_matrix);
@@ -855,30 +857,52 @@ static void csc_swap_color_channel(const struct post_csc_convert_mode *mode, uni
             csc_matrix_mul_s32(out_mat, &yuv_output_swap_matrix, &tmp_mat);
             csc_matrix_vector_mul_s32(out_vec, &yuv_output_swap_matrix, &tmp_vec);
         }
-        // printf("NOTE: CSC coefs & offset has been swapped!\n");
     } break;
-    case 2: { // for RK3572, Y2R_CSC + R2R coefs
+    case R2R_ON_Y2R: {
+        /**
+         * for RK3572, Y2R_CSC + R2R coefs
+         * we get: M_r2r * (T_inv * I_rgb) + V_rgb => O_gbr, but the internal swap make I_rgb -> I_gbr,
+         * so we need to swap the input channels from I_gbr to I_rgb, then:
+         * M_r2r' = M_r2r * T
+         */
         memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
         csc_matrix_mul_s32(out_mat, &tmp_mat, &swap_mat);
     } break;
-    case 3: { // for RK3572, Y2R_CSC + Y2Y coefs
+    case R2R_ON_R2Y: {
+        /**
+         * for RK3572, R2Y_CSC + R2R coefs
+         * we get: T * (M_r2r * I_rgb + V_rgb) => O_brg, the internal swap make O_rgb -> O_brg,
+         * so we need to inversely swap the output channels before internal swap, then:
+         * M_r2r' = T_inv * M_r2r, V_rgb' = T_inv * V_rgb
+         */
         memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
         memcpy(&tmp_vec, out_vec, sizeof(union csc_vector_s32));
         csc_matrix_mul_s32(out_mat, &inv_swap_mat, &tmp_mat);
         csc_matrix_vector_mul_s32(out_vec, &inv_swap_mat, &tmp_vec);
     } break;
-    case 4: { // for RK3572, R2Y_CSC + R2R coefs
+    case Y2Y_ON_Y2R: {
+        /**
+         * for RK3572, Y2R_CSC + Y2Y coefs
+         * we get: M_y2y * (T_inv * I_vyu) + V_yuv => O_yuv,
+         * so we need to swap the output channels from O_yuv to O_vyu, then:
+         * M_y2y' = T * M_y2y, V_yuv' = T * V_yuv
+         */
         memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
         memcpy(&tmp_vec, out_vec, sizeof(union csc_vector_s32));
         csc_matrix_mul_s32(out_mat, &swap_mat, &tmp_mat);
         csc_matrix_vector_mul_s32(out_vec, &swap_mat, &tmp_vec);
     } break;
-    case 5: { // for RK3572, R2Y_CSC + Y2Y coefs
+    case Y2Y_ON_R2Y: {
+        /**
+         * for RK3572, R2Y_CSC + Y2Y coefs
+         * we get: T * (M_y2y * I_vyu + V_yuv) => O_vyu, but the intput channle is not I_yuv,
+         * so we need to inversely swap the input channels from I_vyu to I_yuv, then:
+         * M_y2y' = M_y2y * T_inv
+         */
         memcpy(&tmp_mat, out_mat, sizeof(union csc_matrix_s32));
         csc_matrix_mul_s32(out_mat, &tmp_mat, &inv_swap_mat);
     } break;
-    case 0:  break;
-    default: printf("Invalid type of swap_channels: %d\n", mode->swap_channels); break;
+    default: DRM_ERROR("Invalid type of swap_channels: %d\n", mode->swap_channels); break;
     }
 }
 

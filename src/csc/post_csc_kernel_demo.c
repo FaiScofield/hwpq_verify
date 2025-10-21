@@ -118,6 +118,9 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
             case 8: config->bcsh_cfg.g_offset = atoi(optarg); break;
             case 9: config->bcsh_cfg.b_offset = atoi(optarg); break;
             }
+            if (idx >= 0 && idx <= 9) {
+                config->bcsh_cfg.csc_enable = 1;
+            }
         } break;
         case 'M': parse_csc_mode_str(optarg, &config->convert_mode); break;
         case 'D': config->convert_mode.pixel_depth = atoi(optarg); break;
@@ -168,7 +171,7 @@ int main(int argc, char *const argv[])
     config.bcsh_cfg.r_offset = 256;
     config.bcsh_cfg.g_offset = 256;
     config.bcsh_cfg.b_offset = 256;
-    config.bcsh_cfg.csc_enable = 1;
+    config.bcsh_cfg.csc_enable = 0; // enbale in 'get_cmd_config'
 
     /* get cmd config & dump */
     struct post_csc_convert_mode *p_mode = &config.convert_mode;
