@@ -188,7 +188,7 @@ int common_verify_clrspc_offset(int clrspc, int bit_depth, int *offsetx3)
     if (!offsetx3) {
         return -1;
     }
-    if (bit_depth != 8 || bit_depth != 10 || bit_depth != 13) {
+    if (bit_depth != 8 && bit_depth != 10 && bit_depth != 13) {
         LOGE("%s: Unsupported bit_depth=%d! It should be 8/10/13.\n", __func__, bit_depth);
         return -1;
     }

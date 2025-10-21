@@ -4,6 +4,7 @@
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-05
  * @history:
+ *  2025-10-21 vance.wu: Add more 8bit pixel formats support for IO.
  *  2025-10-15 vance.wu: Fix ABS macro, remove ABS_U8/16/32 macros.
  *  2025-10-12 vance.wu: Add 10bit-packed-YUV444 formats support for IO.
  *  2025-09-08 vance.wu: Add common macros & functions for commonly usage.
@@ -151,11 +152,17 @@ int image_write(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt);
 int imgcvt_pack_10bit(uint16_t const *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt);
 // unpack an 10bit-packed image format
 int imgcvt_unpack_10bit(uint8_t const *p_src, uint16_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt);
-// convert image to 10bit lsb planar format from any input format
+// convert image to 10bit lsb planar format from any 8/10bit input format
 int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt,
     bool has_alpha);
-// convert image to any output format from 10bit lsb planar format
+// convert image to any 10bit output format from 10bit lsb planar format
 int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd,
+    int fmt, bool has_alpha);
+// convert image to 8bit lsb planar format from any 8bit input format
+int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt,
+    bool has_alpha);
+// convert image to any 8bit output format from 8bit lsb planar format
+int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd,
     int fmt, bool has_alpha);
 
 
