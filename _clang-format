@@ -5,7 +5,7 @@ Language:        Cpp
 # BasedOnStyle:  Microsoft
 AccessModifierOffset: -4
 AlignAfterOpenBracket: DontAlign
-AlignArrayOfStructures: Right 
+AlignArrayOfStructures: Left 
 AlignConsecutiveAssignments:
   Enabled:         false
   AcrossEmptyLines: false
@@ -64,13 +64,13 @@ BraceWrapping:
   AfterCaseLabel:  false
   AfterClass:      true
   AfterControlStatement: MultiLine
-  AfterEnum:       true
+  AfterEnum:       false
   AfterExternBlock: false
   AfterFunction:   true
   AfterNamespace:  false
   AfterObjCDeclaration: true
-  AfterStruct:     true
-  AfterUnion:      true
+  AfterStruct:     false
+  AfterUnion:      false
   BeforeCatch:     true
   BeforeElse:      true
   BeforeLambdaBody: false

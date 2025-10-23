@@ -113,15 +113,9 @@ int is_regular_file(const char *path)
     return S_ISREG(statbuf.st_mode);
 }
 
-const char *get_dirname(const char *path)
-{
-    return dirname((char *)path);
-}
+const char *get_dirname(const char *path) { return dirname((char *)path); }
 
-const char *get_basename(const char *path)
-{
-    return basename((char *)path);
-}
+const char *get_basename(const char *path) { return basename((char *)path); }
 #endif
 
 

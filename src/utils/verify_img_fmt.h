@@ -18,41 +18,42 @@ extern "C" {
 #endif
 
 /* image format definition */
-enum common_verify_image_format
-{
-    RGB888 = 0,     // I
-    RGBA8888 = 1,   // I
-    RGB_PLANAR = 2, // I
-    YUV444P = 3,    // I
-    YUV444SP = 4,   // I, NV24
-    YUV444I = 5,    // I
-    YUV422P = 6,    // X, NV16
-    YUV422SP = 7,   // X
-    YUV420P = 8,    // X, NV12
-    YUV420SP = 9,   // X
+enum common_verify_image_format {
+    /* 8bit unpacked formats */
+    RGB888 = 0,     // [23:0]=[B8:G8:R8]. DRM_FORMAT_BGR888
+    RGBA8888 = 1,   // [31:0]=[A8:B8:G8:R8]. DRM_FORMAT_ABGR8888
+    RGB_PLANAR = 2, // plane order: R-G-B
+    YUV444P = 3,    // YU24, plane order: Y-U-V. DRM_FORMAT_YUV444
+    YUV444SP = 4,   // NV24, plane order: Y-UV. DRM_FORMAT_NV24
+    YUV444I = 5,    // VU24, [23:0]=[V8:U8:Y8]. DRM_FORMAT_VUY888
+    YUV422P = 6,    // YU16, plane order: Y-U-V. DRM_FORMAT_YUV422
+    YUV422SP = 7,   // NV16, plane order: Y-UV. DRM_FORMAT_NV16
+    YUV420P = 8,    // YU12, plane order: Y-U-V. DRM_FORMAT_YUV420
+    YUV420SP = 9,   // NV12, plane order: Y-UV. DRM_FORMAT_NV12
 
-    RGB_101010LSB = RGB888 + 10,       // IO
-    RGB_PLANAR10LSB = RGB_PLANAR + 10, // IO
-    YUV444P_10LSB = YUV444P + 10,      // IO
-    YUV444SP_10LSB = YUV444SP + 10,    // IO
-    YUV444I_10LSB = YUV444I + 10,      // IO
-    YUV422P_10LSB = YUV422P + 10,      // X
-    YUV422SP_10LSB = YUV422SP + 10,    // X
-    YUV420P_10LSB = YUV420P + 10,      // X
-    YUV420SP_10LSB = YUV420SP + 10,    // X
+    /* 10bit lsb + 6bit padding formats */
+    RGB_101010LSB = RGB888 + 10,
+    /* NO RGBA_10101010LSB format */
+    RGB_PLANAR10LSB = RGB_PLANAR + 10,
+    YUV444P_10LSB = YUV444P + 10,
+    YUV444SP_10LSB = YUV444SP + 10,
+    YUV444I_10LSB = YUV444I + 10,
+    YUV422P_10LSB = YUV422P + 10,
+    YUV422SP_10LSB = YUV422SP + 10,
+    YUV420P_10LSB = YUV420P + 10,
+    YUV420SP_10LSB = YUV420SP + 10,
 
-    RGB_10PACKED = RGB888 + 20,           // IO
-    RGBA_1010102 = RGBA8888 + 20,         // IO, [A2:B10:G10:R10]
-    RGB_PLANAR10PACKED = RGB_PLANAR + 20, // IO
-    YUV444P_10PACKED = YUV444P + 20,      // IO
-    YUV444SP_10PACKED = YUV444SP + 20,    // IO
-    YUV444I_10PACKED = YUV444I + 20,      // IO
-    YUV422P_10PACKED = YUV422P + 20,      // X
-    YUV422SP_10PACKED = YUV422SP + 20,    // IO
-    YUV420P_10PACKED = YUV420P + 20,      // X
-    YUV420SP_10PACKED = YUV420SP + 20,    // IO
-
-    ABGR_2101010 = RGBA_1010102, // same to RGBA_1010102
+    /* 10bit packed formats */
+    RGB_10PACKED = RGB888 + 20,           // [29:0]=[B10:G10:R10]
+    RGBA_1010102 = RGBA8888 + 20,         // [31:0]=[A2:B10:G10:R10], DRM_FORMAT_ABGR2101010
+    RGB_PLANAR10PACKED = RGB_PLANAR + 20, //
+    YUV444P_10PACKED = YUV444P + 20,      //
+    YUV444SP_10PACKED = YUV444SP + 20,    // NV30, [19:0]=[V10:U10] for chroma plane. DRM_FORMAT_NV30
+    YUV444I_10PACKED = YUV444I + 20,      // [29:0]=[V10:U10:Y10], DRM_FORMAT_VUY101010
+    YUV422P_10PACKED = YUV422P + 20,      //
+    YUV422SP_10PACKED = YUV422SP + 20,    // NV20, [19:0]=[V10:U10] for chroma plane. DRM_FORMAT_NV20
+    YUV420P_10PACKED = YUV420P + 20,      //
+    YUV420SP_10PACKED = YUV420SP + 20,    // NV15, [19:0]=[V10:U10] for chroma plane. DRM_FORMAT_NV15
 };
 
 const char *common_verify_imgfmt_str(int fmt);
@@ -65,8 +66,7 @@ static inline bool common_verify_imgfmt_is_rgb(int fmt) { return fmt % 10 < 3; }
 int common_verify_imgfmt_get_def_planar(int fmt, int depth);
 
 /* colorspace definition */
-enum common_verify_colorspace
-{
+enum common_verify_colorspace {
     RGBLIMIT = 0x0,
     RGBFULL = 0x1,
     YUV601L = 0x2,

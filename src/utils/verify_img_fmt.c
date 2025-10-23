@@ -19,7 +19,7 @@ const char *common_verify_imgfmt_str(int fmt)
     case RGB_PLANAR:         return "rgb_planar";
     case YUV444P:            return "yu24";
     case YUV444SP:           return "nv24";
-    case YUV444I:            return "yuv444i";
+    case YUV444I:            return "vu24";
     case YUV422P:            return "yu16";
     case YUV422SP:           return "nv16";
     case YUV420P:            return "yu12";
