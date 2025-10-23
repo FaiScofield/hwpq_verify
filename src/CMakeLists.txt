@@ -25,6 +25,7 @@ message(STATUS "[SRC] set PREBUILT_LIBS: ${PREBUILT_LIBS}")
 ## add common utility libraries
 add_subdirectory(utils)
 add_subdirectory(kernel)
+add_subdirectory(tests)
 message(STATUS "[SRC] built VERIFY_LIBS: ${VERIFY_LIBS}")
 
 ## add module verify directories

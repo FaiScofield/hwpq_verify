@@ -427,10 +427,10 @@ if __name__ == '__main__':
         help="dump all csc coefs for all supported modes to a file when '-a' is set",
     )
     parser.add_argument(
-        "-m", "--mode", type=str, default="", help="a single csc mode string, like: '601f_to_rgbl/rgbf_to_2020f' ...)"
+        "-M", "--mode", type=str, default="", help="a single csc mode string, like: '601f_to_rgbl/rgbf_to_2020f' ...)"
     )
-    parser.add_argument("-p", "--precision", type=int, default=10, help="the fixed coef precision bits 0 or [8, 16]")
-    parser.add_argument("-d", "--depth", type=int, default=10, help="the pixel depth bits [8, 16]")
+    parser.add_argument("-P", "--precision", type=int, default=10, help="the fixed coef precision bits 0 or [8, 16]")
+    parser.add_argument("-D", "--depth", type=int, default=10, help="the pixel depth bits [8, 16]")
     parser.add_argument("-r", "--reg_type", type=int, default=0, help="dump register values, type range: [0, 2]")
     parser.print_usage()
     args, _ = parser.parse_known_args()

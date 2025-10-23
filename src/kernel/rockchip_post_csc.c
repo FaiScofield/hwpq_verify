@@ -48,9 +48,9 @@
 
 #define ENABLE_DEBUG_LOG		1
 #if ENABLE_DEBUG_LOG
-#define DBG_LOG(fmt, args...)	printf("[DEBUG] " fmt, ##args)
+#define DBG_LOG(fmt, ...)	printf("[DEBUG] " fmt, ##__VA_ARGS__)
 #else
-#define DBG_LOG(fmt, args...)
+#define DBG_LOG(fmt, ...)
 #endif
 
 enum rk_pq_csc_mode {
