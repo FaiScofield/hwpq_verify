@@ -3,3 +3,4 @@ __pycache__
 *.lnk
 output/
 project/build_*/
+rockchip/
