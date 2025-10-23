@@ -4,7 +4,7 @@
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-05
  * @history:
- *  2025-10-21 vance.wu: Add more 8bit pixel formats support for IO.
+ *  2025-10-23 vance.wu: Add more 8bit pixel formats support for IO.
  *  2025-10-15 vance.wu: Fix ABS macro, remove ABS_U8/16/32 macros.
  *  2025-10-12 vance.wu: Add 10bit-packed-YUV444 formats support for IO.
  *  2025-09-08 vance.wu: Add common macros & functions for commonly usage.
@@ -139,6 +139,10 @@ const char *get_basename(const char *path);
 /********** image io functions **********/
 #include "verify_img_fmt.h"
 
+// read image data from fp, then convert to U8/U10bit YUV444P or planar RGB
+int image_read_to_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt, int depth);
+// write 8/10bit image data to fp from U8/U10bit YUV444P or planar RGB
+int image_write_from_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt, int depth);
 // read image data from fp (then shift) to U10bit YUV444P or planar RGB
 int image_read_to_10bit_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt);
 // write 10bit image data to fp from U10bit YUV444P or planar RGB

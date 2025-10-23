@@ -4,7 +4,7 @@
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-12
  * @history:
- *  2025-10-21 vance.wu: Add more 8bit pixel formats support for IO.
+ *  2025-10-23 vance.wu: Add more 8bit pixel formats support for IO.
  *  2025-10-12 vance.wu: Add 10bit-packed-YUV444 formats support for IO.
  *  2025-09-08 vance.wu: Add common macros & functions for commonly usage.
  *  2025-09-15 vance.wu: Add pixel format pack/unpack functions.
@@ -126,13 +126,13 @@ const char *get_basename(const char *path)
 
 
 /********** image io functions **********/
-int image_read_to_10bit_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt)
+int image_read_to_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt, int depth)
 {
     if (!fp || !p_buf) {
         LOGE("invalid fp or output buffer!\n");
         return -1;
     }
-    if (frmidx < 0 || w <= 0 || h <= 0 /* || !common_verify_imgfmt_check(fmt) */) {
+    if (frmidx < 0 || w <= 0 || h <= 0) {
         LOGE("invalid argument! frmidx: %d, w: %d, h: %d, fmt: %d %s\n", frmidx, w, h, fmt, common_verify_imgfmt_str(fmt));
         return -1;
     }
@@ -152,17 +152,27 @@ int image_read_to_10bit_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, 
     }
 
     const int src_stride = common_verify_imgfmt_pitch_ratio(fmt) * w;
-    const int dst_stride = w * 2;
     const bool has_alpha = false;
     if (0 == ret) {
-        ret = imgcvt_to_planar_10bit_lsb(p_src, (uint16_t *)p_buf, w, h, src_stride, dst_stride, fmt, has_alpha);
+        if (depth == 8) {
+            const int dst_stride = w * 1;
+            ret = imgcvt_to_planar_8bit_lsb(p_src, (uint8_t *)p_buf, w, h, src_stride, dst_stride, fmt, has_alpha);
+        }
+        else if (depth == 10) {
+            const int dst_stride = w * 2;
+            ret = imgcvt_to_planar_10bit_lsb(p_src, (uint16_t *)p_buf, w, h, src_stride, dst_stride, fmt, has_alpha);
+        }
+        else {
+            LOGE("%s: invalid target depth=%d !\n", __func__, depth);
+            ret = -1;
+        }
     }
 
     free(p_src);
     return ret;
 }
 
-int image_write_from_10bit_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt)
+int image_write_from_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt, int depth)
 {
     if (!fp || !p_buf) {
         LOGE("invalid fp or output buffer!\n");
@@ -179,10 +189,22 @@ int image_write_from_10bit_plannar(FILE *fp, void *p_buf, int frmidx, int w, int
     const int frame_size = (w * h * bpp + 7) / 8;
     ushort *p_dst = (ushort *)calloc(frame_size, 1);
 
-    const int src_stride = w * 2;
-    const int dst_stride = common_verify_imgfmt_pitch_ratio(fmt) * w;
     const bool has_alpha = false;
-    ret = imgcvt_from_planar_10bit_lsb((uint16_t *)p_buf, (uint8_t *)p_dst, w, h, src_stride, dst_stride, fmt, has_alpha);
+    const int dst_stride = common_verify_imgfmt_pitch_ratio(fmt) * w;
+
+    if (depth == 8) {
+        const int src_stride = w;
+        ret = imgcvt_from_planar_8bit_lsb((uint8_t *)p_buf, (uint8_t *)p_dst, w, h, src_stride, dst_stride, fmt, has_alpha);
+    }
+    else if (depth == 10) {
+        const int src_stride = w * 2;
+        ret = imgcvt_from_planar_10bit_lsb((uint16_t *)p_buf, (uint8_t *)p_dst, w, h, src_stride, dst_stride, fmt, has_alpha);
+    }
+    else {
+        LOGE("%s: invalid target depth=%d !\n", __func__, depth);
+        ret = -1;
+    }
+
     if (0 == ret) {
         fseek(fp, frame_size * frmidx, SEEK_SET);
         size_t write_size = fwrite(p_dst, 1, frame_size, fp);
@@ -191,9 +213,23 @@ int image_write_from_10bit_plannar(FILE *fp, void *p_buf, int frmidx, int w, int
             ret = -1;
         }
     }
+    else {
+        LOGE("%s: imgcvt_from_planar failed! %d\n", __func__, ret);
+        ret = -1;
+    }
 
     free(p_dst);
     return ret;
+}
+
+int image_read_to_10bit_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt)
+{
+    return image_read_to_planar(fp, p_buf, frmidx, w, h, fmt, 10);
+}
+
+int image_write_from_10bit_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt)
+{
+    return image_write_from_plannar(fp, p_buf, frmidx, w, h, fmt, 10);
 }
 
 int image_read(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt)
@@ -860,7 +896,7 @@ int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h
     bool has_alpha)
 {
     assert(p_src != p_dst);
-    assert(dst_strd >= w * 2);
+    assert(dst_strd >= w * 1);
 
     // src format info
     int ret = 0;
@@ -990,7 +1026,42 @@ int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h
 int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt,
     bool has_alpha)
 {
-    //TODO
+    assert(p_src != p_dst);
+    assert(dst_strd >= w * 1);
+
+    // src format info
+    int ret = 0;
+    const int bpp = common_verify_imgfmt_bpp(fmt);
+    const int frame_size = (w * h * bpp + 7) / 8;
+    LOGD("src fmt: %d(%s), bpp: %d, frame_size: %d\n", fmt, common_verify_imgfmt_str(fmt), bpp, frame_size);
+
+    int chroma_hgt = (fmt == YUV420P || fmt == YUV420SP) ? h / 2 : h;
+
+    uint8_t *p_dst_yr = p_dst;
+    uint8_t *p_dst_ug = p_dst + dst_strd * h;
+    uint8_t *p_dst_vb = p_dst + dst_strd * h * 2;
+    uint8_t *p_dst_a = has_alpha ? (p_dst + dst_strd * h * 3) : NULL;
+
+    switch (fmt) {
+    /* 8bit planar lsb data to 8bit normal data */
+    case YUV444P:
+    case YUV422P:
+    case YUV420P: {
+        assert(src_strd >= w * 1);
+        if (src_strd == dst_strd) {
+            memcpy(p_dst, p_src, frame_size);
+        }
+        else {
+            const int buf_hgt = fmt == YUV420P ? h * 3 / 2 : (fmt == YUV422P ? h * 2 : h * 3);
+            const int copy_size = MIN(src_strd, dst_strd);
+            for (int y = 0; y < buf_hgt; y++) {
+                memcpy(p_dst + y * dst_strd, p_src + y * src_strd, copy_size);
+            }
+        }
+    } break;
+    default: LOGE("%s: unsupported image format %d for now!\n", __func__, fmt); return -1;
+    }
+    return 0;
 }
 
 void dump_regs_to_dat(const char *filename, uint const *regs, int nb_regs, unsigned int start_addr)

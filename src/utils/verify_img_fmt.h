@@ -4,11 +4,14 @@
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-05
  * @history:
+ *  2025-10-23 vance.wu: Add more auxiliary functions.
  *  2025-10-12 vance.wu: Add function 'common_verify_imgfmt_pitch_ratio' to calculate row pitch (unit: byte).
  */
 
 #ifndef _VERIFY_IMG_FMT_H_
 #define _VERIFY_IMG_FMT_H_
+
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,6 +60,9 @@ const char *common_verify_imgfmt_exten_str(int fmt);
 int common_verify_imgfmt_bpp(int fmt);
 int common_verify_imgfmt_check(int fmt);
 float common_verify_imgfmt_pitch_ratio(int fmt);
+static inline bool common_verify_imgfmt_is_yuv(int fmt) { return fmt % 10 >= 3; }
+static inline bool common_verify_imgfmt_is_rgb(int fmt) { return fmt % 10 < 3; }
+int common_verify_imgfmt_get_def_planar(int fmt, int depth);
 
 /* colorspace definition */
 enum common_verify_colorspace
@@ -73,6 +79,9 @@ enum common_verify_colorspace
 
 const char *common_verify_clrspc_str(int clrspc);
 int common_verify_clrspc_offset(int clrspc, int bit_depth, int *offsetx3);
+static inline bool common_verify_clrspc_is_full_range(int clrspc) { return clrspc & 0x1; }
+/* convert common_verify_colorspace to drm_color_encoding, <0 if error */
+int common_verify_clrspc_to_kernel_encoding(int clrspc);
 
 #ifdef __cplusplus
 }
