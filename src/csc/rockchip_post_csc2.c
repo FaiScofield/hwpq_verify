@@ -1108,3 +1108,17 @@ int parse_csc_mode_str(const char *mode_str, struct post_csc_convert_mode *mode)
     }
     return ret;
 }
+
+const char *csc_plat_name_str(int plat)
+{
+    switch (plat) {
+    case VOP_VERSION_RK3568: return "RK3568";
+    case VOP_VERSION_RK3588: return "RK3588";
+    case VOP_VERSION_RK3528: return "RK3528";
+    case VOP_VERSION_RK3562: return "RK3562";
+    case VOP_VERSION_RK3576: return "RK3576";
+    case VOP_VERSION_RK3572: return "RK3572";
+    case VOP_VERSION_RK3538: return "RK3538";
+    default: return "UnknownPlat4Now";
+    }
+}

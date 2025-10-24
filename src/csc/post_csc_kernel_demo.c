@@ -83,8 +83,7 @@ void print_usage(const char *prog_name)
     printf("      --r_ofs          [val] | BCSH.r_offset ,  range: [0, 511], default: 256\n");
     printf("      --g_ofs          [val] | BCSH.g_offset ,  range: [0, 511], default: 256\n");
     printf("      --b_ofs          [val] | BCSH.b_offset ,  range: [0, 511], default: 256\n");
-    printf("  -M  --csc_mode       [val] | csc mode, like 'rgbl_to_601f'...,  default: NULL. "
-           "Recommend to use this option instead of above arguments!\n");
+    printf("  -M  --csc_mode       [val] | csc mode, like 'rgbl_to_601f'...,  default: NULL\n");
     printf("  -D  --pixel_depth    [val] | pixel depth, range: {8,10}, default: 10bit\n");
     printf("  -P  --coef_precision [val] | coef precision, range: {8,10,13}, default: 10bit\n");
     printf("  -s  --swap_channels  [val] | swap channel type, range: [0, 5], default: 0\n");
@@ -192,7 +191,7 @@ int main(int argc, char *const argv[])
     printf("\t- output colorspace: %d, is_yuv: %d, is_full_range: %d\n", p_mode->output_color_encoding,
         p_mode->is_output_yuv, p_mode->is_output_full_range);
     printf("\t- pixel_depth/coef_precision: %d/%dbit\n", p_mode->pixel_depth, p_mode->coef_precision);
-    printf("\t- plat: 0x%08X, swap_channel type: %d\n", p_mode->plat, p_mode->swap_channels);
+    printf("\t- plat: 0x%08X (%s), swap_channel type: %d\n", p_mode->plat, csc_plat_name_str(p_mode->plat), p_mode->swap_channels);
     printf("\t- b/c/s/h: %d/%d/%d/%d\n", p_bcsh->brightness, p_bcsh->contrast, p_bcsh->saturation, p_bcsh->hue);
     printf("\t- r/g/b_gain: %d/%d/%d\n", p_bcsh->r_gain, p_bcsh->g_gain, p_bcsh->b_gain);
     printf("\t- r/g/b_offset: %d/%d/%d\n", p_bcsh->r_offset, p_bcsh->g_offset, p_bcsh->b_offset);

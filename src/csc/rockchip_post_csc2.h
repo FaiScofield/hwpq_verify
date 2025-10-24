@@ -37,6 +37,8 @@ int csc_get_mode_index(const struct post_csc_convert_mode *convert_mode);
 /* parse mode string like 'rgbl_to_601f' */
 int parse_csc_mode_str(const char *mode_str, struct post_csc_convert_mode *mode);
 
+const char *csc_plat_name_str(int plat);
+
 extern const struct post_csc_convert_mode g_supported_standard_convert_mode[CSC_MODE_MAX];
 extern const char *g_supported_csc_mode_str[CSC_MODE_MAX];
 
