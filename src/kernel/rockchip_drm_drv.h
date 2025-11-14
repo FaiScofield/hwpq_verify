@@ -42,7 +42,6 @@ struct post_acm {
 	u16 acm_enable;
 };
 
-
 struct post_csc {
 	u16 hue;        // range: [0, 511], default: 256
 	u16 saturation; // range: [0, 511], default: 256
@@ -56,7 +55,6 @@ struct post_csc {
 	u16 b_offset;   // range: [0, 511], default: 256
 	u16 csc_enable; // range: [0, 1], default: 1
 };
-
 
 #define ROCKCHIP_VOP_DCI_LUT_LENGTH 5632
 
@@ -74,11 +72,23 @@ struct dci_data {
 };
 
 
-#define SHARP_REG_LENGTH 692
+#define SHARP_REG_LENGTH_V1 173
+#define SHARP_REG_LENGTH_V2 14
+
+struct sharp_regs_v1 {
+	u32 regs[SHARP_REG_LENGTH_V1];
+};
+
+struct sharp_regs_v2 {
+	u32 regs[SHARP_REG_LENGTH_V2];
+};
 
 struct post_sharp {
 	u32 plat; /* Reserved to distinguish later platform */
-	u32 regs[SHARP_REG_LENGTH / 4];
+	union {
+		struct sharp_regs_v1 regs_v1;
+		struct sharp_regs_v2 regs_v2;
+	};
 };
 
 

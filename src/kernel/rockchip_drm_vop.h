@@ -34,6 +34,7 @@
 #define VOP_VERSION_RK3576_LITE		VOP_VERSION(2, 0xd)
 #define VOP_VERSION_RK3506		VOP_VERSION(2, 0xe)
 #define VOP_VERSION_RV1126B		VOP_VERSION(2, 0xf)
+#define VOP_VERSION_RK3572_LITE		VOP_VERSION(2, 0x10)
 #define VOP_VERSION_RK3288		VOP_VERSION(3, 0)
 #define VOP_VERSION_RK3288W		VOP_VERSION(3, 1)
 #define VOP_VERSION_RK3368		VOP_VERSION(3, 2)
@@ -58,8 +59,16 @@
 #define VOP_VERSION_RK3538	VOP2_VERSION(0x50, 0x30, 0x9328)
 
 
-struct post_csc_convert_mode
-{
+enum rk_pq_csc_swap_type {
+	RK_PQ_CSC_SWAP_NONE = 0,
+	RK_PQ_CSC_V1_SWAP,		/* for rk3576 csc */
+	RK_PQ_CSC_V2_VP_Y2R_R2R,
+	RK_PQ_CSC_V2_R2Y_R2R,
+	RK_PQ_CSC_V2_Y2R_Y2Y,
+	RK_PQ_CSC_V2_VP_R2Y_Y2Y,
+};
+
+struct post_csc_convert_mode {
 	enum drm_color_encoding intput_color_encoding;
 	enum drm_color_encoding output_color_encoding;
 	bool is_input_yuv;
@@ -67,14 +76,13 @@ struct post_csc_convert_mode
 	bool is_input_full_range;
 	bool is_output_full_range;
 	/* new after RK3572 */
-	int plat;           /* Reserved to distinguish later platform */
-	int swap_channels;  /* Swap channels, set to 1 for RK3576 */
-	int pixel_depth;    /* {8/10} */
-	int coef_precision; /* {8, 10, 13}, NOTE: coef_precision should be >= pixel_depth */
+	u8 swap_channels;	/* For now, only rg swap in DCI mode is required */
+	u32 plat;		/* To distinguish platform */
+	u8 pixel_depth;         /* {8, 10} */
+	u8 coef_precision;      /* {8, 10, 13}, NOTE: coef_precision should be >= pixel_depth */
 };
 
-struct post_csc_coef
-{
+struct post_csc_coef {
 	s32 csc_coef00;
 	s32 csc_coef01;
 	s32 csc_coef02;

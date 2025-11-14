@@ -94,6 +94,8 @@ enum rk_pq_csc_mode {
 	RK_PQ_CSC_YUV2020F_TO_RGBL,
 	RK_PQ_CSC_YUV2020F_TO_RGBF,
 	RK_PQ_CSC_YUV2020F_TO_YUV2020L,
+	RK_PQ_CSC_RGB2020F_TO_RGB2020L,
+	RK_PQ_CSC_RGB2020L_TO_RGB2020F,
 	RK_PQ_CSC_IDENTITY_MODE, /* for csc input and output is equal */
 };
 
@@ -111,7 +113,7 @@ enum color_space_type {
 	OPTM_CS_E_RGB_2020 = 11,
 };
 
-enum rk_qp_csc_version {
+enum rk_pq_csc_version {
 	RK_PQ_CSC_UNKNOWN = 0,
 	RK_PQ_CSC_V1,
 	RK_PQ_CSC_V2,
@@ -159,189 +161,189 @@ struct rk_csc_mode_coef {
 };
 
 static const struct rk_csc_colorspace_info g_csc_color_info[] = {
-	{OPTM_CS_E_RGB, OPTM_CS_E_RGB, false, true},                 /* RGBL_TO_RGBF */
-	{OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_601, false, false},         /* RGBL_TO_YUV601L */
-	{OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_601, false, true},          /* RGBL_TO_YUV601F */
-	{OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_709, false, false},         /* RGBL_TO_YUV709L */
-	{OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_709, false, true},          /* RGBL_TO_YUV709F */
-	{OPTM_CS_E_RGB_2020, OPTM_CS_E_XV_YCC_2020, false, false},   /* RGBL_TO_YUV2020L */
-	{OPTM_CS_E_RGB_2020, OPTM_CS_E_XV_YCC_2020, false, true},    /* RGBL_TO_YUV2020F */
-	{OPTM_CS_E_RGB, OPTM_CS_E_RGB, true, false},                 /* RGBF_TO_RGBL */
-	{OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_601, true, false},          /* RGBF_TO_YUV601L */
-	{OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_601, true, true},           /* RGBF_TO_YUV601F */
-	{OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_709, true, false},          /* RGBF_TO_YUV709L */
-	{OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_709, true, true},           /* RGBF_TO_YUV709F */
-	{OPTM_CS_E_RGB_2020, OPTM_CS_E_XV_YCC_2020, true, false},    /* RGBF_TO_YUV2020L */
-	{OPTM_CS_E_RGB_2020, OPTM_CS_E_XV_YCC_2020, true, true},     /* RGBF_TO_YUV2020F */
-	{OPTM_CS_E_XV_YCC_601, OPTM_CS_E_RGB, false, false},         /* YUV601L_TO_RGBL */
-	{OPTM_CS_E_XV_YCC_601, OPTM_CS_E_RGB, false, true},          /* YUV601L_TO_RGBF */
-	{OPTM_CS_E_XV_YCC_601, OPTM_CS_E_XV_YCC_601, false, true},   /* YUV601L_TO_YUV601F */
-	{OPTM_CS_E_XV_YCC_601, OPTM_CS_E_XV_YCC_709, false, false},  /* YUV601L_TO_YUV709L */
-	{OPTM_CS_E_XV_YCC_601, OPTM_CS_E_XV_YCC_709, false, true},   /* YUV601L_TO_YUV709F */
-	{OPTM_CS_E_XV_YCC_601, OPTM_CS_E_RGB, true, false},          /* YUV601F_TO_RGBL */
-	{OPTM_CS_E_XV_YCC_601, OPTM_CS_E_RGB, true, true},           /* YUV601F_TO_RGBF */
-	{OPTM_CS_E_XV_YCC_601, OPTM_CS_E_XV_YCC_601, true, false},   /* YUV601F_TO_YUV601L */
-	{OPTM_CS_E_XV_YCC_601, OPTM_CS_E_XV_YCC_709, true, false},   /* YUV601F_TO_YUV709L */
-	{OPTM_CS_E_XV_YCC_601, OPTM_CS_E_XV_YCC_709, true, true},    /* YUV601F_TO_YUV709F */
-	{OPTM_CS_E_XV_YCC_709, OPTM_CS_E_RGB, false, false},         /* YUV709L_TO_RGBL */
-	{OPTM_CS_E_XV_YCC_709, OPTM_CS_E_RGB, false, true},          /* YUV709L_TO_RGBF */
-	{OPTM_CS_E_XV_YCC_709, OPTM_CS_E_XV_YCC_601, false, false},  /* YUV709L_TO_YUV601L */
-	{OPTM_CS_E_XV_YCC_709, OPTM_CS_E_XV_YCC_601, false, true},   /* YUV709L_TO_YUV601F */
-	{OPTM_CS_E_XV_YCC_709, OPTM_CS_E_XV_YCC_709, false, true},   /* YUV709L_TO_YUV709F */
-	{OPTM_CS_E_XV_YCC_709, OPTM_CS_E_RGB, true, false},          /* YUV709F_TO_RGBL */
-	{OPTM_CS_E_XV_YCC_709, OPTM_CS_E_RGB, true, true},           /* YUV709F_TO_RGBF */
-	{OPTM_CS_E_XV_YCC_709, OPTM_CS_E_XV_YCC_601, true, false},   /* YUV709F_TO_YUV601L */
-	{OPTM_CS_E_XV_YCC_709, OPTM_CS_E_XV_YCC_601, true, true},    /* YUV709F_TO_YUV601F */
-	{OPTM_CS_E_XV_YCC_709, OPTM_CS_E_XV_YCC_709, true, false},   /* YUV709F_TO_YUV709L */
-	{OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, false, false},   /* YUV2020L_TO_RGBL */
-	{OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, false, true},    /* YUV2020L_TO_RGBF */
-	{OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_XV_YCC_2020, false, true}, /* YUV2020L_TO_YUV2020F */
-	{OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, true, false},    /* YUV2020F_TO_RGBL */
-	{OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, true, true},     /* YUV2020F_TO_RGBF */
-	{OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_XV_YCC_2020, true, false}, /* YUV2020F_TO_YUV2020L */
-	{OPTM_CS_E_RGB_2020, OPTM_CS_E_RGB_2020, true, false},       /* RGB2020F_TO_RGB2020L */
-	{OPTM_CS_E_RGB_2020, OPTM_CS_E_RGB_2020, false, true},       /* RGB2020L_TO_RGB2020F */
+	{ OPTM_CS_E_RGB, OPTM_CS_E_RGB, false, true },                 /* RGBL_TO_RGBF */
+	{ OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_601, false, false },         /* RGBL_TO_YUV601L */
+	{ OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_601, false, true },          /* RGBL_TO_YUV601F */
+	{ OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_709, false, false },         /* RGBL_TO_YUV709L */
+	{ OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_709, false, true },          /* RGBL_TO_YUV709F */
+	{ OPTM_CS_E_RGB_2020, OPTM_CS_E_XV_YCC_2020, false, false },   /* RGBL_TO_YUV2020L */
+	{ OPTM_CS_E_RGB_2020, OPTM_CS_E_XV_YCC_2020, false, true },    /* RGBL_TO_YUV2020F */
+	{ OPTM_CS_E_RGB, OPTM_CS_E_RGB, true, false },                 /* RGBF_TO_RGBL */
+	{ OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_601, true, false },          /* RGBF_TO_YUV601L */
+	{ OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_601, true, true },           /* RGBF_TO_YUV601F */
+	{ OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_709, true, false },          /* RGBF_TO_YUV709L */
+	{ OPTM_CS_E_RGB, OPTM_CS_E_XV_YCC_709, true, true },           /* RGBF_TO_YUV709F */
+	{ OPTM_CS_E_RGB_2020, OPTM_CS_E_XV_YCC_2020, true, false },    /* RGBF_TO_YUV2020L */
+	{ OPTM_CS_E_RGB_2020, OPTM_CS_E_XV_YCC_2020, true, true },     /* RGBF_TO_YUV2020F */
+	{ OPTM_CS_E_XV_YCC_601, OPTM_CS_E_RGB, false, false },         /* YUV601L_TO_RGBL */
+	{ OPTM_CS_E_XV_YCC_601, OPTM_CS_E_RGB, false, true },          /* YUV601L_TO_RGBF */
+	{ OPTM_CS_E_XV_YCC_601, OPTM_CS_E_XV_YCC_601, false, true },   /* YUV601L_TO_YUV601F */
+	{ OPTM_CS_E_XV_YCC_601, OPTM_CS_E_XV_YCC_709, false, false },  /* YUV601L_TO_YUV709L */
+	{ OPTM_CS_E_XV_YCC_601, OPTM_CS_E_XV_YCC_709, false, true },   /* YUV601L_TO_YUV709F */
+	{ OPTM_CS_E_XV_YCC_601, OPTM_CS_E_RGB, true, false },          /* YUV601F_TO_RGBL */
+	{ OPTM_CS_E_XV_YCC_601, OPTM_CS_E_RGB, true, true },           /* YUV601F_TO_RGBF */
+	{ OPTM_CS_E_XV_YCC_601, OPTM_CS_E_XV_YCC_601, true, false },   /* YUV601F_TO_YUV601L */
+	{ OPTM_CS_E_XV_YCC_601, OPTM_CS_E_XV_YCC_709, true, false },   /* YUV601F_TO_YUV709L */
+	{ OPTM_CS_E_XV_YCC_601, OPTM_CS_E_XV_YCC_709, true, true },    /* YUV601F_TO_YUV709F */
+	{ OPTM_CS_E_XV_YCC_709, OPTM_CS_E_RGB, false, false },         /* YUV709L_TO_RGBL */
+	{ OPTM_CS_E_XV_YCC_709, OPTM_CS_E_RGB, false, true },          /* YUV709L_TO_RGBF */
+	{ OPTM_CS_E_XV_YCC_709, OPTM_CS_E_XV_YCC_601, false, false },  /* YUV709L_TO_YUV601L */
+	{ OPTM_CS_E_XV_YCC_709, OPTM_CS_E_XV_YCC_601, false, true },   /* YUV709L_TO_YUV601F */
+	{ OPTM_CS_E_XV_YCC_709, OPTM_CS_E_XV_YCC_709, false, true },   /* YUV709L_TO_YUV709F */
+	{ OPTM_CS_E_XV_YCC_709, OPTM_CS_E_RGB, true, false },          /* YUV709F_TO_RGBL */
+	{ OPTM_CS_E_XV_YCC_709, OPTM_CS_E_RGB, true, true },           /* YUV709F_TO_RGBF */
+	{ OPTM_CS_E_XV_YCC_709, OPTM_CS_E_XV_YCC_601, true, false },   /* YUV709F_TO_YUV601L */
+	{ OPTM_CS_E_XV_YCC_709, OPTM_CS_E_XV_YCC_601, true, true },    /* YUV709F_TO_YUV601F */
+	{ OPTM_CS_E_XV_YCC_709, OPTM_CS_E_XV_YCC_709, true, false },   /* YUV709F_TO_YUV709L */
+	{ OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, false, false },   /* YUV2020L_TO_RGBL */
+	{ OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, false, true },    /* YUV2020L_TO_RGBF */
+	{ OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_XV_YCC_2020, false, true }, /* YUV2020L_TO_YUV2020F */
+	{ OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, true, false },    /* YUV2020F_TO_RGBL */
+	{ OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_RGB_2020, true, true },     /* YUV2020F_TO_RGBF */
+	{ OPTM_CS_E_XV_YCC_2020, OPTM_CS_E_XV_YCC_2020, true, false }, /* YUV2020F_TO_YUV2020L */
+	{ OPTM_CS_E_RGB_2020, OPTM_CS_E_RGB_2020, true, false },       /* RGB2020F_TO_RGB2020L */
+	{ OPTM_CS_E_RGB_2020, OPTM_CS_E_RGB_2020, false, true },       /* RGB2020L_TO_RGB2020F */
 };
 
 /* for 8bit pixel depth + 8bit coef precision case */
 static const struct rk_pq_csc_coef g_mode_csc_coefs_8bit_pix_8bit_precision[] = {
-	{298,   0,   0,   0,  298,    0,   0,    0, 298}, /* RGBL_TO_RGBF */
-	{ 77, 150,  29, -44,  -87,  131, 131, -110, -21}, /* RGBL_TO_YUV601L */
-	{ 89, 175,  34, -50,  -99,  149, 149, -125, -24}, /* RGBL_TO_YUV601F */
-	{ 54, 183,  19, -30, -101,  131, 131, -119, -12}, /* RGBL_TO_YUV709L */
-	{ 63, 213,  22, -34, -115,  149, 149, -135, -14}, /* RGBL_TO_YUV709F */
-	{ 67, 174,  15, -37,  -94,  131, 131, -120, -11}, /* RGBL_TO_YUV2020L */
-	{ 78, 202,  18, -42, -107,  149, 149, -137, -12}, /* RGBL_TO_YUV2020F */
-	{220,   0,   0,   0,  220,    0,   0,    0, 220}, /* RGBF_TO_RGBL */
-	{ 66, 129,  25, -38,  -74,  112, 112,  -94, -18}, /* RGBF_TO_YUV601L */
-	{ 77, 150,  29, -43,  -85,  128, 128, -107, -21}, /* RGBF_TO_YUV601F */
-	{ 47, 157,  16, -26,  -87,  113, 112, -102, -10}, /* RGBF_TO_YUV709L */
-	{ 54, 183,  19, -29,  -99,  128, 128, -116, -12}, /* RGBF_TO_YUV709F */
-	{ 58, 149,  13, -31,  -81,  112, 112, -103,  -9}, /* RGBF_TO_YUV2020L */
-	{ 67, 174,  15, -36,  -92,  128, 128, -118, -10}, /* RGBF_TO_YUV2020F */
-	{256,   0, 351, 256,  -86, -179, 256,  444,   0}, /* YUV601L_TO_RGBL */
-	{298,   0, 409, 298, -100, -208, 298,  516,   0}, /* YUV601L_TO_RGBF */
-	{298,   0,   0,   0,  291,    0,   0,    0, 291}, /* YUV601L_TO_YUV601F */
-	{256, -30, -53,   0,  261,   29,   0,   19, 262}, /* YUV601L_TO_YUV709L */
-	{298, -34, -62,   0,  297,   33,   0,   22, 299}, /* YUV601L_TO_YUV709F */
-	{220,   0, 308, 220,  -76, -157, 220,  390,   0}, /* YUV601F_TO_RGBL */
-	{256,   0, 359, 256,  -88, -183, 256,  454,   0}, /* YUV601F_TO_RGBF */
-	{220,   0,   0,   0,  225,    0,   0,    0, 225}, /* YUV601F_TO_YUV601L */
-	{220, -26, -47,   0,  229,   26,   0,   17, 231}, /* YUV601F_TO_YUV709L */
-	{256, -30, -54,   0,  261,   29,   0,   19, 262}, /* YUV601F_TO_YUV709F */
-	{256,   0, 394, 256,  -47, -117, 256,  464,   0}, /* YUV709L_TO_RGBL */
-	{298,   0, 459, 298,  -55, -136, 298,  541,   0}, /* YUV709L_TO_RGBF */
-	{256,  25,  49,   0,  253,  -28,   0,  -19, 252}, /* YUV709L_TO_YUV601L */
-	{298,  30,  57,   0,  288,  -32,   0,  -21, 287}, /* YUV709L_TO_YUV601F */
-	{298,   0,   0,   0,  291,    0,   0,    0, 291}, /* YUV709L_TO_YUV709F */
-	{220,   0, 346, 220,  -41, -103, 220,  408,   0}, /* YUV709F_TO_RGBL */
-	{256,   0, 403, 256,  -48, -120, 256,  475,   0}, /* YUV709F_TO_RGBF */
-	{220,  22,  43,   0,  223,  -25,   0,  -16, 221}, /* YUV709F_TO_YUV601L */
-	{256,  26,  50,   0,  253,  -28,   0,  -19, 252}, /* YUV709F_TO_YUV601F */
-	{220,   0,   0,   0,  225,    0,   0,    0, 225}, /* YUV709F_TO_YUV709L */
-	{256,   0, 369, 256,  -41, -143, 256,  471,   0}, /* YUV2020L_TO_RGBL */
-	{298,   0, 430, 298,  -48, -167, 298,  548,   0}, /* YUV2020L_TO_RGBF */
-	{298,   0,   0,   0,  291,    0,   0,    0, 291}, /* YUV2020L_TO_YUV2020F */
-	{220,   0, 324, 220,  -36, -126, 220,  414,   0}, /* YUV2020F_TO_RGBL */
-	{256,   0, 377, 256,  -42, -146, 256,  482,   0}, /* YUV2020F_TO_RGBF */
-	{220,   0,   0,   0,  225,    0,   0,    0, 225}, /* YUV2020F_TO_YUV2020L */
-	{256,   0,   0,   0,  256,    0,   0,    0, 256}, /* IDENTITY_MODE */
-	{220,   0,   0,   0,  220,    0,   0,    0, 220}, /* RGB2020F_TO_RGB2020L */
-	{298,   0,   0,   0,  298,    0,   0,    0, 298}, /* RGB2020L_TO_RGB2020F */
+	{ 298,   0,   0,   0,  298,    0,   0,    0, 298 }, /* RGBL_TO_RGBF */
+	{  77, 150,  29, -44,  -87,  131, 131, -110, -21 }, /* RGBL_TO_YUV601L */
+	{  89, 175,  34, -50,  -99,  149, 149, -125, -24 }, /* RGBL_TO_YUV601F */
+	{  54, 183,  19, -30, -101,  131, 131, -119, -12 }, /* RGBL_TO_YUV709L */
+	{  63, 213,  22, -34, -115,  149, 149, -135, -14 }, /* RGBL_TO_YUV709F */
+	{  67, 174,  15, -37,  -94,  131, 131, -120, -11 }, /* RGBL_TO_YUV2020L */
+	{  78, 202,  18, -42, -107,  149, 149, -137, -12 }, /* RGBL_TO_YUV2020F */
+	{ 220,   0,   0,   0,  220,    0,   0,    0, 220 }, /* RGBF_TO_RGBL */
+	{  66, 129,  25, -38,  -74,  112, 112,  -94, -18 }, /* RGBF_TO_YUV601L */
+	{  77, 150,  29, -43,  -85,  128, 128, -107, -21 }, /* RGBF_TO_YUV601F */
+	{  47, 157,  16, -26,  -87,  113, 112, -102, -10 }, /* RGBF_TO_YUV709L */
+	{  54, 183,  19, -29,  -99,  128, 128, -116, -12 }, /* RGBF_TO_YUV709F */
+	{  58, 149,  13, -31,  -81,  112, 112, -103,  -9 }, /* RGBF_TO_YUV2020L */
+	{  67, 174,  15, -36,  -92,  128, 128, -118, -10 }, /* RGBF_TO_YUV2020F */
+	{ 256,   0, 351, 256,  -86, -179, 256,  444,   0 }, /* YUV601L_TO_RGBL */
+	{ 298,   0, 409, 298, -100, -208, 298,  516,   0 }, /* YUV601L_TO_RGBF */
+	{ 298,   0,   0,   0,  291,    0,   0,    0, 291 }, /* YUV601L_TO_YUV601F */
+	{ 256, -30, -53,   0,  261,   29,   0,   19, 262 }, /* YUV601L_TO_YUV709L */
+	{ 298, -34, -62,   0,  297,   33,   0,   22, 299 }, /* YUV601L_TO_YUV709F */
+	{ 220,   0, 308, 220,  -76, -157, 220,  390,   0 }, /* YUV601F_TO_RGBL */
+	{ 256,   0, 359, 256,  -88, -183, 256,  454,   0 }, /* YUV601F_TO_RGBF */
+	{ 220,   0,   0,   0,  225,    0,   0,    0, 225 }, /* YUV601F_TO_YUV601L */
+	{ 220, -26, -47,   0,  229,   26,   0,   17, 231 }, /* YUV601F_TO_YUV709L */
+	{ 256, -30, -54,   0,  261,   29,   0,   19, 262 }, /* YUV601F_TO_YUV709F */
+	{ 256,   0, 394, 256,  -47, -117, 256,  464,   0 }, /* YUV709L_TO_RGBL */
+	{ 298,   0, 459, 298,  -55, -136, 298,  541,   0 }, /* YUV709L_TO_RGBF */
+	{ 256,  25,  49,   0,  253,  -28,   0,  -19, 252 }, /* YUV709L_TO_YUV601L */
+	{ 298,  30,  57,   0,  288,  -32,   0,  -21, 287 }, /* YUV709L_TO_YUV601F */
+	{ 298,   0,   0,   0,  291,    0,   0,    0, 291 }, /* YUV709L_TO_YUV709F */
+	{ 220,   0, 346, 220,  -41, -103, 220,  408,   0 }, /* YUV709F_TO_RGBL */
+	{ 256,   0, 403, 256,  -48, -120, 256,  475,   0 }, /* YUV709F_TO_RGBF */
+	{ 220,  22,  43,   0,  223,  -25,   0,  -16, 221 }, /* YUV709F_TO_YUV601L */
+	{ 256,  26,  50,   0,  253,  -28,   0,  -19, 252 }, /* YUV709F_TO_YUV601F */
+	{ 220,   0,   0,   0,  225,    0,   0,    0, 225 }, /* YUV709F_TO_YUV709L */
+	{ 256,   0, 369, 256,  -41, -143, 256,  471,   0 }, /* YUV2020L_TO_RGBL */
+	{ 298,   0, 430, 298,  -48, -167, 298,  548,   0 }, /* YUV2020L_TO_RGBF */
+	{ 298,   0,   0,   0,  291,    0,   0,    0, 291 }, /* YUV2020L_TO_YUV2020F */
+	{ 220,   0, 324, 220,  -36, -126, 220,  414,   0 }, /* YUV2020F_TO_RGBL */
+	{ 256,   0, 377, 256,  -42, -146, 256,  482,   0 }, /* YUV2020F_TO_RGBF */
+	{ 220,   0,   0,   0,  225,    0,   0,    0, 225 }, /* YUV2020F_TO_YUV2020L */
+	{ 220,   0,   0,   0,  220,    0,   0,    0, 220 }, /* RGB2020F_TO_RGB2020L */
+	{ 298,   0,   0,   0,  298,    0,   0,    0, 298 }, /* RGB2020L_TO_RGB2020F */
+	{ 256,   0,   0,   0,  256,    0,   0,    0, 256 }, /* IDENTITY_MODE */
 };
 
 /* for 10bit pixel depth + 10bit coef precision case */
 static const struct rk_pq_csc_coef g_mode_csc_coefs_10bit_pix_10bit_precision[] = {
-	{1196, 0, 0, 0, 1196, 0, 0, 0, 1196},             /* RGBL_TO_RGBF */
-	{306, 601, 117, -177, -347, 524, 524, -439, -85}, /* RGBL_TO_YUV601L */
-	{358, 702, 136, -202, -396, 598, 598, -501, -97}, /* RGBL_TO_YUV601F */
-	{218, 732, 74, -120, -404, 524, 524, -476, -48},  /* RGBL_TO_YUV709L */
-	{254, 855, 86, -137, -461, 598, 598, -543, -55},  /**RGBL_TO_YUV709F */
-	{269, 694, 61, -146, -377, 524, 524, -482, -42},  /**RGBL_TO_YUV2020L */
-	{314, 811, 71, -167, -431, 598, 598, -550, -48},  /* RGBL_TO_YUV2020F */
-	{877, 0, 0, 0, 877, 0, 0, 0, 877},                /* RGBF_TO_RGBL */
-	{262, 515, 100, -151, -297, 448, 448, -376, -73}, /**RGBF_TO_YUV601L */
-	{306, 601, 117, -173, -339, 512, 512, -429, -83}, /* RGBF_TO_YUV601F */
-	{186, 627, 63, -103, -346, 448, 448, -407, -41},  /**RGBF_TO_YUV709L */
-	{218, 732, 74, -117, -395, 512, 512, -465, -47},  /* RGBF_TO_YUV709F */
-	{230, 595, 52, -125, -323, 448, 448, -412, -36},  /* RGBF_TO_YUV2020L */
-	{269, 694, 61, -143, -369, 512, 512, -471, -41},  /* RGBF_TO_YUV2020F */
-	{1024, 0, 1404, 1024, -344, -715, 1024, 1774, 0}, /**YUV601L_TO_RGBL */
-	{1196, 0, 1639, 1196, -402, -835, 1196, 2072, 0}, /* YUV601L_TO_RGBF */
-	{1196, 0, 0, 0, 1169, 0, 0, 0, 1169},             /* YUV601L_TO_YUV601F */
-	{1024, -118, -213, 0, 1043, 117, 0, 77, 1050},    /* YUV601L_TO_YUV709L */
-	{1196, -138, -249, 0, 1191, 134, 0, 88, 1199},    /* YUV601L_TO_YUV709F */
-	{877, 0, 1229, 877, -302, -626, 877, 1554, 0},    /* YUV601F_TO_RGBL */
-	{1024, 0, 1436, 1024, -352, -731, 1024, 1815, 0}, /* YUV601F_TO_RGBF */
-	{877, 0, 0, 0, 897, 0, 0, 0, 897},                /* YUV601F_TO_YUV601L */
-	{877, -106, -191, 0, 914, 103, 0, 67, 920},       /**YUV601F_TO_YUV709L */
-	{1024, -121, -218, 0, 1043, 117, 0, 77, 1050},    /* YUV601F_TO_YUV709F */
-	{1024, 0, 1577, 1024, -188, -469, 1024, 1858, 0}, /* YUV709L_TO_RGBL */
-	{1196, 0, 1841, 1196, -219, -547, 1196, 2169, 0}, /* YUV709L_TO_RGBF */
-	{1024, 104, 201, 0, 1014, -113, 0, -74, 1007},    /**YUV709L_TO_YUV601L */
-	{1196, 119, 229, 0, 1157, -129, 0, -85, 1150},    /* YUV709L_TO_YUV601F */
-	{1196, 0, 0, 0, 1169, 0, 0, 0, 1169},             /* YUV709L_TO_YUV709F */
-	{877, 0, 1381, 877, -164, -410, 877, 1627, 0},    /* YUV709F_TO_RGBL */
-	{1024, 0, 1613, 1024, -192, -479, 1024, 1900, 0}, /* YUV709F_TO_RGBF */
-	{877, 91, 176, 0, 888, -99, 0, -65, 882},         /**YUV709F_TO_YUV601L */
-	{1024, 104, 201, 0, 1014, -113, 0, -74, 1007},    /* YUV709F_TO_YUV601F */
-	{877, 0, 0, 0, 897, 0, 0, 0, 897},                /* YUV709F_TO_YUV709L */
-	{1024, 0, 1476, 1024, -165, -572, 1024, 1884, 0}, /* YUV2020L_TO_RGBL */
-	{1196, 0, 1724, 1196, -192, -668, 1196, 2200, 0}, /* YUV2020L_TO_RGBF */
-	{1196, 0, 0, 0, 1169, 0, 0, 0, 1169},             /* YUV2020L_TO_YUV2020F */
-	{877, 0, 1293, 877, -144, -501, 877, 1650, 0},    /* YUV2020F_TO_RGBL */
-	{1024, 0, 1510, 1024, -169, -585, 1024, 1927, 0}, /* YUV2020F_TO_RGBF */
-	{877, 0, 0, 0, 897, 0, 0, 0, 897},                /* YUV2020F_TO_YUV2020L */
-	{1024, 0, 0, 0, 1024, 0, 0, 0, 1024},             /* IDENTITY_MODE */
-	{877, 0, 0, 0, 877, 0, 0, 0, 877},                /* RGB2020F_TO_RGB2020L */
-	{1196, 0, 0, 0, 1196, 0, 0, 0, 1196},             /* RGB2020L_TO_RGB2020F */
+	{ 1196,    0,    0,    0, 1196,    0,    0,    0, 1196 }, /* RGBL_TO_RGBF */
+	{  306,  601,  117, -177, -347,  524,  524, -439,  -85 }, /* RGBL_TO_YUV601L */
+	{  358,  702,  136, -202, -396,  598,  598, -501,  -97 }, /* RGBL_TO_YUV601F */
+	{  218,  732,   74, -120, -404,  524,  524, -476,  -48 }, /* RGBL_TO_YUV709L */
+	{  254,  855,   86, -137, -461,  598,  598, -543,  -55 }, /* RGBL_TO_YUV709F */
+	{  269,  694,   61, -146, -377,  524,  524, -482,  -42 }, /* RGBL_TO_YUV2020L */
+	{  314,  811,   71, -167, -431,  598,  598, -550,  -48 }, /* RGBL_TO_YUV2020F */
+	{  877,    0,    0,    0,  877,    0,    0,    0,  877 }, /* RGBF_TO_RGBL */
+	{  262,  515,  100, -151, -297,  448,  448, -376,  -73 }, /* RGBF_TO_YUV601L */
+	{  306,  601,  117, -173, -339,  512,  512, -429,  -83 }, /* RGBF_TO_YUV601F */
+	{  186,  627,   63, -103, -346,  448,  448, -407,  -41 }, /* RGBF_TO_YUV709L */
+	{  218,  732,   74, -117, -395,  512,  512, -465,  -47 }, /* RGBF_TO_YUV709F */
+	{  230,  595,   52, -125, -323,  448,  448, -412,  -36 }, /* RGBF_TO_YUV2020L */
+	{  269,  694,   61, -143, -369,  512,  512, -471,  -41 }, /* RGBF_TO_YUV2020F */
+	{ 1024,    0, 1404, 1024, -344, -715, 1024, 1774,    0 }, /* YUV601L_TO_RGBL */
+	{ 1196,    0, 1639, 1196, -402, -835, 1196, 2072,    0 }, /* YUV601L_TO_RGBF */
+	{ 1196,    0,    0,    0, 1169,    0,    0,    0, 1169 }, /* YUV601L_TO_YUV601F */
+	{ 1024, -118, -213,    0, 1043,  117,    0,   77, 1050 }, /* YUV601L_TO_YUV709L */
+	{ 1196, -138, -249,    0, 1191,  134,    0,   88, 1199 }, /* YUV601L_TO_YUV709F */
+	{  877,    0, 1229,  877, -302, -626,  877, 1554,    0 }, /* YUV601F_TO_RGBL */
+	{ 1024,    0, 1436, 1024, -352, -731, 1024, 1815,    0 }, /* YUV601F_TO_RGBF */
+	{  877,    0,    0,    0,  897,    0,    0,    0,  897 }, /* YUV601F_TO_YUV601L */
+	{  877, -106, -191,    0,  914,  103,    0,   67,  920 }, /* YUV601F_TO_YUV709L */
+	{ 1024, -121, -218,    0, 1043,  117,    0,   77, 1050 }, /* YUV601F_TO_YUV709F */
+	{ 1024,    0, 1577, 1024, -188, -469, 1024, 1858,    0 }, /* YUV709L_TO_RGBL */
+	{ 1196,    0, 1841, 1196, -219, -547, 1196, 2169,    0 }, /* YUV709L_TO_RGBF */
+	{ 1024,  104,  201,    0, 1014, -113,    0,  -74, 1007 }, /* YUV709L_TO_YUV601L */
+	{ 1196,  119,  229,    0, 1157, -129,    0,  -85, 1150 }, /* YUV709L_TO_YUV601F */
+	{ 1196,    0,    0,    0, 1169,    0,    0,    0, 1169 }, /* YUV709L_TO_YUV709F */
+	{  877,    0, 1381,  877, -164, -410,  877, 1627,    0 }, /* YUV709F_TO_RGBL */
+	{ 1024,    0, 1613, 1024, -192, -479, 1024, 1900,    0 }, /* YUV709F_TO_RGBF */
+	{  877,   91,  176,    0,  888,  -99,    0,  -65,  882 }, /* YUV709F_TO_YUV601L */
+	{ 1024,  104,  201,    0, 1014, -113,    0,  -74, 1007 }, /* YUV709F_TO_YUV601F */
+	{  877,    0,    0,    0,  897,    0,    0,    0,  897 }, /* YUV709F_TO_YUV709L */
+	{ 1024,    0, 1476, 1024, -165, -572, 1024, 1884,    0 }, /* YUV2020L_TO_RGBL */
+	{ 1196,    0, 1724, 1196, -192, -668, 1196, 2200,    0 }, /* YUV2020L_TO_RGBF */
+	{ 1196,    0,    0,    0, 1169,    0,    0,    0, 1169 }, /* YUV2020L_TO_YUV2020F */
+	{  877,    0, 1293,  877, -144, -501,  877, 1650,    0 }, /* YUV2020F_TO_RGBL */
+	{ 1024,    0, 1510, 1024, -169, -585, 1024, 1927,    0 }, /* YUV2020F_TO_RGBF */
+	{  877,    0,    0,    0,  897,    0,    0,    0,  897 }, /* YUV2020F_TO_YUV2020L */
+	{  877,    0,    0,    0,  877,    0,    0,    0,  877 }, /* RGB2020F_TO_RGB2020L */
+	{ 1196,    0,    0,    0, 1196,    0,    0,    0, 1196 }, /* RGB2020L_TO_RGB2020F */
+	{ 1024,    0,    0,    0, 1024,    0,    0,    0, 1024 }, /* IDENTITY_MODE */
 };
 
 /* for 10bit pixel depth + 13bit coef precision case */
 static const struct rk_pq_csc_coef g_mode_csc_coefs_10bit_pix_13bit_precision[] = {
-	{9567,     0,     0,     0,  9567,     0,    0,     0, 9567}, /* RGBL_TO_RGBF */
-	{2449,  4809,   934, -1414, -2776,  4190, 4189, -3508, -681}, /* RGBL_TO_YUV601L */
-	{2860,  5616,  1091, -1614, -3169,  4783, 4783, -4005, -778}, /* RGBL_TO_YUV601F */
-	{1742,  5859,   591,  -960, -3230,  4190, 4189, -3805, -384}, /* RGBL_TO_YUV709L */
-	{2034,  6842,   691, -1096, -3687,  4783, 4783, -4345, -438}, /* RGBL_TO_YUV709F */
-	{2152,  5554,   486, -1170, -3020,  4190, 4190, -3853, -337}, /* RGBL_TO_YUV2020L */
-	{2513,  6486,   568, -1336, -3447,  4783, 4783, -4398, -385}, /* RGBL_TO_YUV2020F */
-	{7015,     0,     0,     0,  7015,     0,    0,     0, 7015}, /* RGBF_TO_RGBL */
-	{2097,  4118,   800, -1211, -2377,  3588, 3587, -3004, -583}, /* RGBF_TO_YUV601L */
-	{2449,  4809,   934, -1382, -2714,  4096, 4096, -3430, -666}, /* RGBF_TO_YUV601F */
-	{1491,  5017,   507,  -822, -2765,  3587, 3588, -3259, -329}, /* RGBF_TO_YUV709L */
-	{1742,  5859,   591,  -939, -3157,  4096, 4096, -3720, -376}, /* RGBF_TO_YUV709F */
-	{1843,  4756,   416, -1002, -2586,  3588, 3588, -3299, -289}, /* RGBF_TO_YUV2020L */
-	{2152,  5554,   486, -1144, -2952,  4096, 4096, -3767, -329}, /* RGBF_TO_YUV2020F */
-	{8192,     0, 11229,  8192, -2756, -5720, 8192, 14192,    0}, /* YUV601L_TO_RGBL */
-	{9567,     0, 13113,  9567, -3219, -6679, 9567, 16574,    0}, /* YUV601L_TO_RGBF */
-	{9567,     0,     0,     0,  9353,     0,    0,     0, 9353}, /* YUV601L_TO_YUV601F */
-	{8192,  -947, -1703,     0,  8345,   939,    0,   615, 8399}, /* YUV601L_TO_YUV709L */
-	{9567, -1105, -1989,     0,  9527,  1072,    0,   702, 9590}, /* YUV601L_TO_YUV709F */
-	{7015,     0,  9835,  7015, -2414, -5010, 7015, 12430,    0}, /* YUV601F_TO_RGBL */
-	{8192,     0, 11485,  8192, -2819, -5850, 8192, 14516,    0}, /* YUV601F_TO_RGBF */
-	{7015,     0,     0,     0,  7175,     0,    0,     0, 7175}, /* YUV601F_TO_YUV601L */
-	{7015,  -829, -1492,     0,  7309,   822,    0,   538, 7357}, /* YUV601F_TO_YUV709L */
-	{8192,  -968, -1742,     0,  8345,   939,    0,   615, 8399}, /* YUV601F_TO_YUV709F */
-	{8192,     0, 12613,  8192, -1500, -3749, 8192, 14862,    0}, /* YUV709L_TO_RGBL */
-	{9567,     0, 14729,  9567, -1752, -4378, 9567, 17356,    0}, /* YUV709L_TO_RGBF */
-	{8192,   814,  1570,     0,  8109,  -906,    0,  -594, 8056}, /* YUV709L_TO_YUV601L */
-	{9567,   950,  1834,     0,  9258, -1035,    0,  -678, 9198}, /* YUV709L_TO_YUV601F */
-	{9567,     0,     0,     0,  9353,     0,    0,     0, 9353}, /* YUV709L_TO_YUV709F */
-	{7015,     0, 11047,  7015, -1314, -3284, 7015, 13017,    0}, /* YUV709F_TO_RGBL */
-	{8192,     0, 12901,  8192, -1535, -3835, 8192, 15201,    0}, /* YUV709F_TO_RGBF */
-	{7015,   713,  1375,     0,  7102,  -794,    0,  -520, 7056}, /* YUV709F_TO_YUV601L */
-	{8192,   832,  1606,     0,  8109,  -906,    0,  -594, 8056}, /* YUV709F_TO_YUV601F */
-	{7015,     0,     0,     0,  7175,     0,    0,     0, 7175}, /* YUV709F_TO_YUV709L */
-	{8192,     0, 11810,  8192, -1318, -4576, 8192, 15068,    0}, /* YUV2020L_TO_RGBL */
-	{9567,     0, 13792,  9567, -1539, -5344, 9567, 17597,    0}, /* YUV2020L_TO_RGBF */
-	{9567,     0,     0,     0,  9353,     0,    0,     0, 9353}, /* YUV2020L_TO_YUV2020F */
-	{7015,     0, 10344,  7015, -1154, -4008, 7015, 13198,    0}, /* YUV2020F_TO_RGBL */
-	{8192,     0, 12080,  8192, -1348, -4681, 8192, 15412,    0}, /* YUV2020F_TO_RGBF */
-	{7015,     0,     0,     0,  7175,     0,    0,     0, 7175}, /* YUV2020F_TO_YUV2020L */
-	{8192,     0,     0,     0,  8192,     0,    0,     0, 8192}, /* IDENTITY_MODE */
-	{7015,     0,     0,     0,  7015,     0,    0,     0, 7015}, /* RGB2020F_TO_RGB2020L */
-	{9567,     0,     0,     0,  9567,     0,    0,     0, 9567}, /* RGB2020L_TO_RGB2020F */
+	{ 9567,     0,     0,     0,  9567,     0,    0,     0, 9567 }, /* RGBL_TO_RGBF */
+	{ 2449,  4809,   934, -1414, -2776,  4190, 4189, -3508, -681 }, /* RGBL_TO_YUV601L */
+	{ 2860,  5616,  1091, -1614, -3169,  4783, 4783, -4005, -778 }, /* RGBL_TO_YUV601F */
+	{ 1742,  5859,   591,  -960, -3230,  4190, 4189, -3805, -384 }, /* RGBL_TO_YUV709L */
+	{ 2034,  6842,   691, -1096, -3687,  4783, 4783, -4345, -438 }, /* RGBL_TO_YUV709F */
+	{ 2152,  5554,   486, -1170, -3020,  4190, 4190, -3853, -337 }, /* RGBL_TO_YUV2020L */
+	{ 2513,  6486,   568, -1336, -3447,  4783, 4783, -4398, -385 }, /* RGBL_TO_YUV2020F */
+	{ 7015,     0,     0,     0,  7015,     0,    0,     0, 7015 }, /* RGBF_TO_RGBL */
+	{ 2097,  4118,   800, -1211, -2377,  3588, 3587, -3004, -583 }, /* RGBF_TO_YUV601L */
+	{ 2449,  4809,   934, -1382, -2714,  4096, 4096, -3430, -666 }, /* RGBF_TO_YUV601F */
+	{ 1491,  5017,   507,  -822, -2765,  3587, 3588, -3259, -329 }, /* RGBF_TO_YUV709L */
+	{ 1742,  5859,   591,  -939, -3157,  4096, 4096, -3720, -376 }, /* RGBF_TO_YUV709F */
+	{ 1843,  4756,   416, -1002, -2586,  3588, 3588, -3299, -289 }, /* RGBF_TO_YUV2020L */
+	{ 2152,  5554,   486, -1144, -2952,  4096, 4096, -3767, -329 }, /* RGBF_TO_YUV2020F */
+	{ 8192,     0, 11229,  8192, -2756, -5720, 8192, 14192,    0 }, /* YUV601L_TO_RGBL */
+	{ 9567,     0, 13113,  9567, -3219, -6679, 9567, 16574,    0 }, /* YUV601L_TO_RGBF */
+	{ 9567,     0,     0,     0,  9353,     0,    0,     0, 9353 }, /* YUV601L_TO_YUV601F */
+	{ 8192,  -947, -1703,     0,  8345,   939,    0,   615, 8399 }, /* YUV601L_TO_YUV709L */
+	{ 9567, -1105, -1989,     0,  9527,  1072,    0,   702, 9590 }, /* YUV601L_TO_YUV709F */
+	{ 7015,     0,  9835,  7015, -2414, -5010, 7015, 12430,    0 }, /* YUV601F_TO_RGBL */
+	{ 8192,     0, 11485,  8192, -2819, -5850, 8192, 14516,    0 }, /* YUV601F_TO_RGBF */
+	{ 7015,     0,     0,     0,  7175,     0,    0,     0, 7175 }, /* YUV601F_TO_YUV601L */
+	{ 7015,  -829, -1492,     0,  7309,   822,    0,   538, 7357 }, /* YUV601F_TO_YUV709L */
+	{ 8192,  -968, -1742,     0,  8345,   939,    0,   615, 8399 }, /* YUV601F_TO_YUV709F */
+	{ 8192,     0, 12613,  8192, -1500, -3749, 8192, 14862,    0 }, /* YUV709L_TO_RGBL */
+	{ 9567,     0, 14729,  9567, -1752, -4378, 9567, 17356,    0 }, /* YUV709L_TO_RGBF */
+	{ 8192,   814,  1570,     0,  8109,  -906,    0,  -594, 8056 }, /* YUV709L_TO_YUV601L */
+	{ 9567,   950,  1834,     0,  9258, -1035,    0,  -678, 9198 }, /* YUV709L_TO_YUV601F */
+	{ 9567,     0,     0,     0,  9353,     0,    0,     0, 9353 }, /* YUV709L_TO_YUV709F */
+	{ 7015,     0, 11047,  7015, -1314, -3284, 7015, 13017,    0 }, /* YUV709F_TO_RGBL */
+	{ 8192,     0, 12901,  8192, -1535, -3835, 8192, 15201,    0 }, /* YUV709F_TO_RGBF */
+	{ 7015,   713,  1375,     0,  7102,  -794,    0,  -520, 7056 }, /* YUV709F_TO_YUV601L */
+	{ 8192,   832,  1606,     0,  8109,  -906,    0,  -594, 8056 }, /* YUV709F_TO_YUV601F */
+	{ 7015,     0,     0,     0,  7175,     0,    0,     0, 7175 }, /* YUV709F_TO_YUV709L */
+	{ 8192,     0, 11810,  8192, -1318, -4576, 8192, 15068,    0 }, /* YUV2020L_TO_RGBL */
+	{ 9567,     0, 13792,  9567, -1539, -5344, 9567, 17597,    0 }, /* YUV2020L_TO_RGBF */
+	{ 9567,     0,     0,     0,  9353,     0,    0,     0, 9353 }, /* YUV2020L_TO_YUV2020F */
+	{ 7015,     0, 10344,  7015, -1154, -4008, 7015, 13198,    0 }, /* YUV2020F_TO_RGBL */
+	{ 8192,     0, 12080,  8192, -1348, -4681, 8192, 15412,    0 }, /* YUV2020F_TO_RGBF */
+	{ 7015,     0,     0,     0,  7175,     0,    0,     0, 7175 }, /* YUV2020F_TO_YUV2020L */
+	{ 7015,     0,     0,     0,  7015,     0,    0,     0, 7015 }, /* RGB2020F_TO_RGB2020L */
+	{ 9567,     0,     0,     0,  9567,     0,    0,     0, 9567 }, /* RGB2020L_TO_RGB2020F */
+	{ 8192,     0,     0,     0,  8192,     0,    0,     0, 8192 }, /* IDENTITY_MODE */
 };
 
 static const struct rk_csc_mode_coef g_csc_mode_coefs[] = {
@@ -474,12 +476,14 @@ static const struct rk_pq_csc_coef inv_swap_mat = {
 static void csc_get_range_offset(const struct post_csc_convert_mode *convert_mode,
 				 struct rk_pq_csc_dc_coef *csc_dc_coef);
 
-static enum rk_qp_csc_version get_csc_version(u32 plat) {
+static enum rk_pq_csc_version get_csc_version(u32 plat)
+{
 	switch (plat) {
 	case VOP_VERSION_RK3528:
 	case VOP_VERSION_RK3576:
 		return RK_PQ_CSC_V1;
 	case VOP_VERSION_RK3572:
+	case VOP_VERSION_RK3538:
 		return RK_PQ_CSC_V2;
 	default:
 		return RK_PQ_CSC_UNKNOWN;
@@ -1054,74 +1058,70 @@ static void rockchip_swap_color_channel(const struct post_csc_convert_mode *mode
         DBG_LOG("[%5d, %5d, %5d]\n", out_dc->csc_offset0, out_dc->csc_offset1, out_dc->csc_offset2);
     }
 
-    switch (mode->swap_channels) {
-    case NO_SWAP:         break; // no swap
-    case RK3576_DEF_SWAP: {      // for RK3576
-        if (!mode->is_input_yuv) {
-            memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
-            csc_matrix_multiply(out_matrix, &tmp_mat, &rgb_input_swap_matrix);
-        }
-        if (mode->is_output_yuv) {
-            memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
-            memcpy(&tmp_vec, out_dc, sizeof(struct rk_pq_csc_ventor));
-            csc_matrix_multiply(out_matrix, &yuv_output_swap_matrix, &tmp_mat);
-            csc_matrix_ventor_multiply(out_dc, &yuv_output_swap_matrix, &tmp_vec);
-        }
-    } break;
-    case R2R_ON_Y2R: {
+	switch (mode->swap_channels) {
+	case RK_PQ_CSC_SWAP_NONE:
+		return;
+	case RK_PQ_CSC_V1_SWAP:
+		if (!mode->is_input_yuv) {
+			memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
+			csc_matrix_multiply(out_matrix, &tmp_mat, &rgb_input_swap_matrix);
+		}
+
+		if (mode->is_output_yuv) {
+			memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
+			memcpy(&tmp_vec, out_dc, sizeof(struct rk_pq_csc_ventor));
+			csc_matrix_multiply(out_matrix, &yuv_output_swap_matrix, &tmp_mat);
+			csc_matrix_ventor_multiply(out_dc, &yuv_output_swap_matrix, &tmp_vec);
+		}
+		return;
+	case RK_PQ_CSC_V2_VP_Y2R_R2R:
         /**
          * for RK3572, Y2R_CSC + R2R coefs
          * we get: M_r2r * (T_inv * I_rgb) + V_rgb => O_gbr, but the internal swap make I_rgb -> I_gbr,
          * so we need to swap the input channels from I_gbr to I_rgb, then:
          * M_r2r' = M_r2r * T
          */
-        memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
-        csc_matrix_multiply(out_matrix, &tmp_mat, &swap_mat);
-    } break;
-    case R2R_ON_R2Y: {
+		memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
+		csc_matrix_multiply(out_matrix, &tmp_mat, &swap_mat);
+		return;
+	case RK_PQ_CSC_V2_R2Y_R2R:
         /**
          * for RK3572, R2Y_CSC + R2R coefs
          * we get: T * (M_r2r * I_rgb + V_rgb) => O_brg, the internal swap make O_rgb -> O_brg,
          * so we need to inversely swap the output channels before internal swap, then:
          * M_r2r' = T_inv * M_r2r, V_rgb' = T_inv * V_rgb
          */
-        memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
-        memcpy(&tmp_vec, out_dc, sizeof(struct rk_pq_csc_ventor));
-        csc_matrix_multiply(out_matrix, &inv_swap_mat, &tmp_mat);
-        csc_matrix_ventor_multiply(out_dc, &inv_swap_mat, &tmp_vec);
-    } break;
-    case Y2Y_ON_Y2R: {
+		memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
+		memcpy(&tmp_vec, out_dc, sizeof(struct rk_pq_csc_ventor));
+		csc_matrix_multiply(out_matrix, &inv_swap_mat, &tmp_mat);
+		csc_matrix_ventor_multiply(out_dc, &inv_swap_mat, &tmp_vec);
+		return;
+	case RK_PQ_CSC_V2_Y2R_Y2Y:
         /**
          * for RK3572, Y2R_CSC + Y2Y coefs
          * we get: M_y2y * (T_inv * I_vyu) + V_yuv => O_yuv,
          * so we need to swap the output channels from O_yuv to O_vyu, then:
          * M_y2y' = T * M_y2y, V_yuv' = T * V_yuv
          */
-        memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
-        memcpy(&tmp_vec, out_dc, sizeof(struct rk_pq_csc_ventor));
-        csc_matrix_multiply(out_matrix, &swap_mat, &tmp_mat);
-        csc_matrix_ventor_multiply(out_dc, &swap_mat, &tmp_vec);
-    } break;
-    case Y2Y_ON_R2Y: {
+		memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
+		memcpy(&tmp_vec, out_dc, sizeof(struct rk_pq_csc_ventor));
+		csc_matrix_multiply(out_matrix, &swap_mat, &tmp_mat);
+		csc_matrix_ventor_multiply(out_dc, &swap_mat, &tmp_vec);
+		return;
+	case RK_PQ_CSC_V2_VP_R2Y_Y2Y:
         /**
          * for RK3572, R2Y_CSC + Y2Y coefs
          * we get: T * (M_y2y * I_vyu + V_yuv) => O_vyu, but the intput channle is not I_yuv,
          * so we need to inversely swap the input channels from I_vyu to I_yuv, then:
          * M_y2y' = M_y2y * T_inv
          */
-        memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
-        csc_matrix_multiply(out_matrix, &tmp_mat, &inv_swap_mat);
-    } break;
-    default: DRM_ERROR("Invalid type of swap_channels: %d\n", mode->swap_channels); break;
-    }
-
-    if (mode->swap_channels > 0) {
-        DBG_LOG("coefs after swap:\n");
-        DBG_LOG("[%5d, %5d, %5d]\n", out_matrix->csc_coef00, out_matrix->csc_coef01, out_matrix->csc_coef02);
-        DBG_LOG("[%5d, %5d, %5d]\n", out_matrix->csc_coef10, out_matrix->csc_coef11, out_matrix->csc_coef12);
-        DBG_LOG("[%5d, %5d, %5d]\n", out_matrix->csc_coef20, out_matrix->csc_coef21, out_matrix->csc_coef22);
-        DBG_LOG("[%5d, %5d, %5d]\n", out_dc->csc_offset0, out_dc->csc_offset1, out_dc->csc_offset2);
-    }
+		memcpy(&tmp_mat, out_matrix, sizeof(struct rk_pq_csc_coef));
+		csc_matrix_multiply(out_matrix, &tmp_mat, &inv_swap_mat);
+		return;
+	default:
+		DRM_ERROR("Invalid type of swap_channels: %d\n", mode->swap_channels);
+		return;
+	}
 }
 
 int rockchip_calc_post_csc(struct post_csc *csc_cfg, struct post_csc_coef *csc_simple_coef,
