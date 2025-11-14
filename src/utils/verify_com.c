@@ -4,6 +4,7 @@
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-12
  * @history:
+ *  2025-11-14 vance.wu: Add YUV422/420 8/10bit pixel formats support for IO.
  *  2025-10-23 vance.wu: Add more 8bit pixel formats support for IO.
  *  2025-10-12 vance.wu: Add 10bit-packed-YUV444 formats support for IO.
  *  2025-09-08 vance.wu: Add common macros & functions for commonly usage.
@@ -723,6 +724,22 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
             }
         }
     } break;
+    case YUV422SP_10PACKED: {
+        assert(w % 4 == 0); // must align with 4 pixels
+        assert(src_strd >= w * 5 / 4);
+        for (int y = 0; y < h; y++) {
+            // 4 pixel per iteration, unpack 5xU8 data to 4xU10 data
+            uchar *p_src_y = (uchar *)p_src;
+            uchar *p_src_c = (uchar *)p_src + src_strd * h;
+            for (int x = 0, j = 0; x <= w - 4; x += 4, j += 5) {
+                const int dst_ofs = y * dst_strd / 2 + x;
+                const int src_ofs_y = y * src_strd + j;
+                const int src_ofs_c = src_ofs_y;
+                unpack_data_10bit(p_src_y + src_ofs_y, p_dst_yr + dst_ofs);
+                unpack_data_10bit(p_src_c + src_ofs_c, p_dst_ug + dst_ofs);
+            }
+        }
+    } break;
     default: LOGE("%s: unsupported image format %d for now!\n", __func__, fmt); return -1;
     }
 
@@ -782,6 +799,19 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
         for (int y = 0; y < h; y++) {
             ushort *p_dst_row_y = (ushort *)((uint8_t *)p_dst + y * dst_strd);
             ushort *p_dst_row_c = (ushort *)((uint8_t *)p_dst + h * dst_strd + y * dst_strd * 2);
+            for (int x = 0, j = 0; x < w; x++, j += 2) {
+                const int src_ofs = y * src_strd / 2 + x;
+                p_dst_row_y[x + 0] = p_src_yr[src_ofs];
+                p_dst_row_c[j + 0] = p_src_ug[src_ofs];
+                p_dst_row_c[j + 1] = p_src_vb[src_ofs];
+            }
+        }
+    } break;
+    case YUV422SP_10LSB: {
+        assert(dst_strd >= w * 2);
+        for (int y = 0; y < h; y++) {
+            ushort *p_dst_row_y = (ushort *)((uint8_t *)p_dst + y * dst_strd);
+            ushort *p_dst_row_c = (ushort *)((uint8_t *)p_dst + h * dst_strd + y * dst_strd);
             for (int x = 0, j = 0; x < w; x++, j += 2) {
                 const int src_ofs = y * src_strd / 2 + x;
                 p_dst_row_y[x + 0] = p_src_yr[src_ofs];
@@ -881,6 +911,27 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
             }
         }
     } break;
+    case YUV422SP_10PACKED: {
+        assert(w % 4 == 0); // must align with 4 pixels
+        assert(dst_strd >= w * 5 / 4);
+        ushort unpack_data[4] = {0};
+        for (int y = 0; y < h; y++) {
+            // 4 pixel per iteration, pack 4xU10 data to 5xU8 data
+            uchar *p_dst_y = (uchar *)p_dst;
+            uchar *p_dst_c = (uchar *)p_dst + dst_strd * h;
+            for (int x = 0, j = 0; x <= w - 4; x += 4, j += 5) {
+                const int src_ofs = y * src_strd / 2 + x;
+                const int dst_ofs_y = y * dst_strd + j;
+                const int dst_ofs_c = y * dst_strd * 2 + j * 2;
+                pack_data_10bit(p_src_yr + src_ofs, p_dst_y + dst_ofs_y);
+                unpack_data[0] = p_src_ug[src_ofs + 0] & 0x3ff;
+                unpack_data[1] = p_src_vb[src_ofs + 0] & 0x3ff;
+                unpack_data[2] = p_src_ug[src_ofs + 1] & 0x3ff;
+                unpack_data[3] = p_src_vb[src_ofs + 1] & 0x3ff;
+                pack_data_10bit(unpack_data, p_dst_c + dst_ofs_y);
+            }
+        }
+    } break;
     default: LOGE("%s: unsupported image format %d for now!\n", __func__, fmt); return -1;
     }
     return 0;
@@ -904,6 +955,7 @@ int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h
     uint8_t *p_dst_ug = p_dst + dst_strd * h;
     uint8_t *p_dst_vb = p_dst + dst_strd * h * 2;
     uint8_t *p_dst_a = has_alpha ? (p_dst + dst_strd * h * 3) : NULL;
+    // LOGT("%s: dst addr yr=%p, ug=%p, vb=%p, a=%p\n", __func__, p_dst_yr, p_dst_ug, p_dst_vb, p_dst_a);
 
     switch (fmt) {
     /* 8bit normal data to 8bit planar lsb data */
@@ -966,29 +1018,7 @@ int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h
             }
         }
     } break;
-    case YUV422SP: {
-        assert(src_strd >= w * 1);
-        const uchar *p_src_y = p_src;
-        const uchar *p_src_c = p_src + src_strd * h;
-        if (src_strd == dst_strd) {
-            memcpy(p_dst_yr, p_src_y, src_strd * h);
-        }
-        else {
-            const int copy_size = MIN(src_strd, dst_strd);
-            for (int y = 0; y < h; y++) {
-                memcpy(p_dst_yr + y * dst_strd, p_src_y + y * src_strd, copy_size);
-            }
-        }
-        p_dst_vb = p_dst_ug + dst_strd * h / 2; // update dst_v;
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w / 2; x++) {
-                const int src_ofs_c = y * src_strd + x * 2;
-                const int dst_ofs_c = y * dst_strd + x;
-                p_dst_ug[dst_ofs_c] = p_src_c[src_ofs_c + 0];
-                p_dst_vb[dst_ofs_c] = p_src_c[src_ofs_c + 1];
-            }
-        }
-    } break;
+    case YUV422SP:
     case YUV420SP: {
         assert(src_strd >= w * 1);
         const uchar *p_src_y = p_src;
@@ -1002,11 +1032,11 @@ int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h
                 memcpy(p_dst_yr + y * dst_strd, p_src_y + y * src_strd, copy_size);
             }
         }
-        p_dst_vb = p_dst_ug + dst_strd * h / 4; // update dst_v;
-        for (int y = 0; y < h / 2; y++) {
+        p_dst_vb = p_dst_ug + dst_strd * h / (fmt == YUV422SP ? 2 : 4); // update dst_v;
+        for (int y = 0; y < chroma_hgt; y++) {
             for (int x = 0; x < w / 2; x++) {
                 const int src_ofs_c = y * src_strd + x * 2;
-                const int dst_ofs_c = y * dst_strd + x;
+                const int dst_ofs_c = y * dst_strd / 2 + x;
                 p_dst_ug[dst_ofs_c] = p_src_c[src_ofs_c + 0];
                 p_dst_vb[dst_ofs_c] = p_src_c[src_ofs_c + 1];
             }
@@ -1027,21 +1057,21 @@ int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int
     int ret = 0;
     const int bpp = common_verify_imgfmt_bpp(fmt);
     const int frame_size = (w * h * bpp + 7) / 8;
-    LOGD("src fmt: %d(%s), bpp: %d, frame_size: %d\n", fmt, common_verify_imgfmt_str(fmt), bpp, frame_size);
+    LOGD("dst fmt: %d(%s), bpp: %d, frame_size: %d\n", fmt, common_verify_imgfmt_str(fmt), bpp, frame_size);
 
     int chroma_hgt = (fmt == YUV420P || fmt == YUV420SP) ? h / 2 : h;
 
-    uint8_t *p_dst_yr = p_dst;
-    uint8_t *p_dst_ug = p_dst + dst_strd * h;
-    uint8_t *p_dst_vb = p_dst + dst_strd * h * 2;
-    uint8_t *p_dst_a = has_alpha ? (p_dst + dst_strd * h * 3) : NULL;
+    const uint8_t *p_src_yr = p_src;
+    const uint8_t *p_src_ug = p_src + src_strd * h;
+    const uint8_t *p_src_vb = p_src + src_strd * h * 2;
+    const uint8_t *p_src_a = has_alpha ? (p_src + src_strd * h * 3) : NULL;
 
     switch (fmt) {
     /* 8bit planar lsb data to 8bit normal data */
     case YUV444P:
     case YUV422P:
     case YUV420P: {
-        assert(src_strd >= w * 1);
+        assert(dst_strd >= w * 1);
         if (src_strd == dst_strd) {
             memcpy(p_dst, p_src, frame_size);
         }
@@ -1050,6 +1080,45 @@ int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int
             const int copy_size = MIN(src_strd, dst_strd);
             for (int y = 0; y < buf_hgt; y++) {
                 memcpy(p_dst + y * dst_strd, p_src + y * src_strd, copy_size);
+            }
+        }
+    } break;
+    case YUV444SP: {
+        assert(dst_strd >= w * 1);
+        uchar *p_dst_y = p_dst;
+        uchar *p_dst_c = p_dst + dst_strd * h;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                const int dst_ofs_y = y * dst_strd + x;
+                const int dst_ofs_c = y * dst_strd + x * 2;
+                const int src_ofs = y * src_strd + x;
+                p_dst_y[dst_ofs_y] = p_src_yr[src_ofs];
+                p_dst_c[dst_ofs_c + 0] = p_src_ug[src_ofs];
+                p_dst_c[dst_ofs_c + 1] = p_src_vb[src_ofs];
+            }
+        }
+    } break;
+    case YUV422SP:
+    case YUV420SP: {
+        assert(dst_strd >= w * 1);
+        uchar *p_dst_y = p_dst;
+        uchar *p_dst_c = p_dst + dst_strd * h;
+        if (src_strd == dst_strd) {
+            memcpy(p_dst_y, p_src_yr, src_strd * h);
+        }
+        else {
+            const int copy_size = MIN(src_strd, dst_strd);
+            for (int y = 0; y < h; y++) {
+                memcpy(p_dst_y + y * dst_strd, p_src_yr + y * src_strd, copy_size);
+            }
+        }
+        p_src_vb = p_src_ug + src_strd * h / (fmt == YUV422SP ? 2 : 4); // update src_v;
+        for (int y = 0; y < chroma_hgt; y++) {
+            for (int x = 0; x < w / 2; x++) {
+                const int dst_ofs_c = y * dst_strd + x * 2;
+                const int src_ofs_c = y * src_strd / 2 + x;
+                p_dst_c[dst_ofs_c + 0] = p_src_ug[src_ofs_c];
+                p_dst_c[dst_ofs_c + 1] = p_src_vb[src_ofs_c];
             }
         }
     } break;

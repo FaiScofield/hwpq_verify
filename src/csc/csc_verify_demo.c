@@ -4,6 +4,7 @@
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-05
  * @history:
+ *  - 2025-11-14 vance.wu: add CSC_Y2Y support for 8bit YUV420/422 formats.
  *  - 2025-10-15 vance.wu: add BSCH options of cmd line arguments.
  *  - 2025-09-10 vance.wu: print crc32 value for input/output data.
  */
@@ -299,6 +300,140 @@ void run_csc_with_coef(const void *p_src, void *p_dst, int img_w, int img_h, int
                 int csc_chl2 = a6 + a7 + a8;
                 if (mode->plat == VOP_VERSION_RK3576) {
                     /* (M * Channel >> nb_shift) + Offset. low precision! */
+                    dst_color[0] = csc_simple_round(csc_chl0, bit_num_0) + offset0;
+                    dst_color[1] = csc_simple_round(csc_chl1, bit_num_0) + offset1;
+                    dst_color[2] = csc_simple_round(csc_chl2, bit_num_0) + offset2;
+                }
+                else {
+                    /* (M * Channel + Offset) >> nb_shift. use this after RK3576! */
+                    dst_color[0] = csc_simple_round(csc_chl0 + offset0, bit_num_0);
+                    dst_color[1] = csc_simple_round(csc_chl1 + offset1, bit_num_0);
+                    dst_color[2] = csc_simple_round(csc_chl2 + offset2, bit_num_0);
+                }
+                dst_color[0] = CLIP(dst_color[0], csc_min_vl_1, csc_max_vl_1);
+                dst_color[1] = CLIP(dst_color[1], csc_min_vl_2, csc_max_vl_2);
+                dst_color[2] = CLIP(dst_color[2], csc_min_vl_2, csc_max_vl_2);
+                *p_dst_y++ = dst_color[0];
+                *p_dst_u++ = dst_color[1];
+                *p_dst_v++ = dst_color[2];
+            }
+        }
+    }
+    else if (planar_fmt == RGB_PLANAR || planar_fmt == YUV444P) {
+        // 8bit YUV444P or RGB planar
+        uchar *p_src_y = (uchar *)p_src;
+        uchar *p_src_u = (uchar *)p_src + img_w * img_h;
+        uchar *p_src_v = (uchar *)p_src + img_w * img_h * 2;
+        uchar *p_dst_y = (uchar *)p_dst;
+        uchar *p_dst_u = (uchar *)p_dst + img_w * img_h;
+        uchar *p_dst_v = (uchar *)p_dst + img_w * img_h * 2;
+        for (int i = 0; i < img_h; i++) {
+            for (int j = 0; j < img_w; j++) {
+                src_color[0] = *p_src_y++;
+                src_color[1] = *p_src_u++;
+                src_color[2] = *p_src_v++;
+
+                int a0 = csc_coefs->csc_coef00 * src_color[0];
+                int a1 = csc_coefs->csc_coef01 * src_color[1];
+                int a2 = csc_coefs->csc_coef02 * src_color[2];
+                int a3 = csc_coefs->csc_coef10 * src_color[0];
+                int a4 = csc_coefs->csc_coef11 * src_color[1];
+                int a5 = csc_coefs->csc_coef12 * src_color[2];
+                int a6 = csc_coefs->csc_coef20 * src_color[0];
+                int a7 = csc_coefs->csc_coef21 * src_color[1];
+                int a8 = csc_coefs->csc_coef22 * src_color[2];
+                int csc_chl0 = a0 + a1 + a2;
+                int csc_chl1 = a3 + a4 + a5;
+                int csc_chl2 = a6 + a7 + a8;
+                if (mode->plat == VOP_VERSION_RK3576) {
+                    /* (M * Channel >> nb_shift) + Offset. low precision! */
+                    dst_color[0] = csc_simple_round(csc_chl0, bit_num_0) + offset0;
+                    dst_color[1] = csc_simple_round(csc_chl1, bit_num_0) + offset1;
+                    dst_color[2] = csc_simple_round(csc_chl2, bit_num_0) + offset2;
+                }
+                else {
+                    /* (M * Channel + Offset) >> nb_shift. use this after RK3576! */
+                    dst_color[0] = csc_simple_round(csc_chl0 + offset0, bit_num_0);
+                    dst_color[1] = csc_simple_round(csc_chl1 + offset1, bit_num_0);
+                    dst_color[2] = csc_simple_round(csc_chl2 + offset2, bit_num_0);
+                }
+                dst_color[0] = CLIP(dst_color[0], csc_min_vl_1, csc_max_vl_1);
+                dst_color[1] = CLIP(dst_color[1], csc_min_vl_2, csc_max_vl_2);
+                dst_color[2] = CLIP(dst_color[2], csc_min_vl_2, csc_max_vl_2);
+                *p_dst_y++ = dst_color[0];
+                *p_dst_u++ = dst_color[1];
+                *p_dst_v++ = dst_color[2];
+            }
+        }
+    }
+    else if (mode->is_input_yuv && mode->is_input_yuv && planar_fmt == YUV422P) {
+        // Y2Y for 8bit YUV422P
+        uchar *p_src_y = (uchar *)p_src;
+        uchar *p_src_u = (uchar *)p_src + img_w * img_h;
+        uchar *p_src_v = (uchar *)p_src + img_w * img_h * 3 / 2;
+        uchar *p_dst_y = (uchar *)p_dst;
+        uchar *p_dst_u = (uchar *)p_dst + img_w * img_h;
+        uchar *p_dst_v = (uchar *)p_dst + img_w * img_h * 3 / 2;
+
+        int src_luma[2] = {0};
+        for (int i = 0; i < img_h; i++) {
+            for (int j = 0; j < img_w / 2; j++) {
+                const int idx_y = i * img_w + j * 2;
+                const int idx_c = i * img_w / 2 + j;
+                src_luma[0] = p_src_y[idx_y + 0];
+                src_luma[1] = p_src_y[idx_y + 1];
+                src_color[0] = (src_luma[0] + src_luma[1] + 1) >> 1;
+                src_color[1] = p_src_u[idx_c];
+                src_color[2] = p_src_v[idx_c];
+
+                int dy0 = csc_coefs->csc_coef00 * src_luma[0] + csc_coefs->csc_coef01 * src_color[1] +
+                          csc_coefs->csc_coef02 * src_color[2];
+                int dy1 = csc_coefs->csc_coef00 * src_luma[1] + csc_coefs->csc_coef01 * src_color[1] +
+                          csc_coefs->csc_coef02 * src_color[2];
+                int du = csc_coefs->csc_coef10 * src_color[0] + csc_coefs->csc_coef11 * src_color[1] +
+                         csc_coefs->csc_coef12 * src_color[2];
+                int dv = csc_coefs->csc_coef20 * src_color[0] + csc_coefs->csc_coef21 * src_color[1] +
+                         csc_coefs->csc_coef22 * src_color[2];
+                if (mode->plat == VOP_VERSION_RK3576) {
+                    /* (M * Channel >> nb_shift) + Offset. low precision! */
+                    dy0 = csc_simple_round(dy0, bit_num_0) + offset0;
+                    dy1 = csc_simple_round(dy1, bit_num_0) + offset0;
+                    du = csc_simple_round(du, bit_num_0) + offset1;
+                    dv = csc_simple_round(dv, bit_num_0) + offset2;
+                }
+                else {
+                    /* (M * Channel + Offset) >> nb_shift. use this after RK3576! */
+                    dy0 = csc_simple_round(dy0 + offset0, bit_num_0);
+                    dy1 = csc_simple_round(dy1 + offset0, bit_num_0);
+                    du = csc_simple_round(du + offset1, bit_num_0);
+                    dv = csc_simple_round(dv + offset2, bit_num_0);
+                }
+                p_dst_y[idx_y + 0] = CLIP(dy0, csc_min_vl_1, csc_max_vl_1);
+                p_dst_y[idx_y + 1] = CLIP(dy1, csc_min_vl_1, csc_max_vl_1);
+                p_dst_u[idx_c] = CLIP(du, csc_min_vl_2, csc_max_vl_2);
+                p_dst_v[idx_c] = CLIP(dv, csc_min_vl_2, csc_max_vl_2);
+            }
+        }
+        for (int i = 0; i < img_h; i++) {
+            for (int j = 0; j < img_w; j++) {
+                src_color[0] = *p_src_y++;
+                src_color[1] = *p_src_u++;
+                src_color[2] = *p_src_v++;
+
+                int a0 = csc_coefs->csc_coef00 * src_color[0];
+                int a1 = csc_coefs->csc_coef01 * src_color[1];
+                int a2 = csc_coefs->csc_coef02 * src_color[2];
+                int a3 = csc_coefs->csc_coef10 * src_color[0];
+                int a4 = csc_coefs->csc_coef11 * src_color[1];
+                int a5 = csc_coefs->csc_coef12 * src_color[2];
+                int a6 = csc_coefs->csc_coef20 * src_color[0];
+                int a7 = csc_coefs->csc_coef21 * src_color[1];
+                int a8 = csc_coefs->csc_coef22 * src_color[2];
+                int csc_chl0 = a0 + a1 + a2;
+                int csc_chl1 = a3 + a4 + a5;
+                int csc_chl2 = a6 + a7 + a8;
+                if (mode->plat == VOP_VERSION_RK3576) {
+                    /* (M * Channel >> nb_shift) + Offset. low precision! */
                     csc_chl0 = csc_simple_round(csc_chl0, bit_num_0);
                     csc_chl1 = csc_simple_round(csc_chl1, bit_num_0);
                     csc_chl2 = csc_simple_round(csc_chl2, bit_num_0);
@@ -322,14 +457,67 @@ void run_csc_with_coef(const void *p_src, void *p_dst, int img_w, int img_h, int
             }
         }
     }
-    else if (planar_fmt == RGB_PLANAR || planar_fmt == YUV444P) {
-        // 8bit YUV444P or RGB planar
+    else if (mode->is_input_yuv && mode->is_input_yuv && planar_fmt == YUV420P) {
+        // Y2Y for 8bit YUV420P
         uchar *p_src_y = (uchar *)p_src;
         uchar *p_src_u = (uchar *)p_src + img_w * img_h;
-        uchar *p_src_v = (uchar *)p_src + img_w * img_h * 2;
+        uchar *p_src_v = (uchar *)p_src + img_w * img_h * 5 / 4;
         uchar *p_dst_y = (uchar *)p_dst;
         uchar *p_dst_u = (uchar *)p_dst + img_w * img_h;
-        uchar *p_dst_v = (uchar *)p_dst + img_w * img_h * 2;
+        uchar *p_dst_v = (uchar *)p_dst + img_w * img_h * 5 / 4;
+
+        int src_luma[4] = {0};
+        for (int i = 0; i < img_h / 2; i++) {
+            for (int j = 0; j < img_w / 2; j++) {
+                const int idx_y0 = i * 2 * img_w + j * 2;
+                const int idx_y1 = idx_y0 + img_w;
+                const int idx_uv = i * img_w / 2 + j;
+                src_luma[0] = p_src_y[idx_y0 + 0];
+                src_luma[1] = p_src_y[idx_y0 + 1];
+                src_luma[2] = p_src_y[idx_y1 + 0];
+                src_luma[3] = p_src_y[idx_y1 + 1];
+                src_color[0] = (src_luma[0] + src_luma[1] + src_luma[2] + src_luma[3] + 2) >> 2;
+                src_color[1] = p_src_u[idx_uv];
+                src_color[2] = p_src_v[idx_uv];
+
+                int dy0 = csc_coefs->csc_coef00 * src_luma[0] + csc_coefs->csc_coef01 * src_color[1] +
+                          csc_coefs->csc_coef02 * src_color[2];
+                int dy1 = csc_coefs->csc_coef00 * src_luma[1] + csc_coefs->csc_coef01 * src_color[1] +
+                          csc_coefs->csc_coef02 * src_color[2];
+                int dy2 = csc_coefs->csc_coef00 * src_luma[2] + csc_coefs->csc_coef01 * src_color[1] +
+                          csc_coefs->csc_coef02 * src_color[2];
+                int dy3 = csc_coefs->csc_coef00 * src_luma[3] + csc_coefs->csc_coef01 * src_color[1] +
+                          csc_coefs->csc_coef02 * src_color[2];
+                int du = csc_coefs->csc_coef10 * src_color[0] + csc_coefs->csc_coef11 * src_color[1] +
+                         csc_coefs->csc_coef12 * src_color[2];
+                int dv = csc_coefs->csc_coef20 * src_color[0] + csc_coefs->csc_coef21 * src_color[1] +
+                         csc_coefs->csc_coef22 * src_color[2];
+                if (mode->plat == VOP_VERSION_RK3576) {
+                    /* (M * Channel >> nb_shift) + Offset. low precision! */
+                    dy0 = csc_simple_round(dy0, bit_num_0) + offset0;
+                    dy1 = csc_simple_round(dy1, bit_num_0) + offset0;
+                    dy2 = csc_simple_round(dy2, bit_num_0) + offset0;
+                    dy3 = csc_simple_round(dy3, bit_num_0) + offset0;
+                    du = csc_simple_round(du, bit_num_0) + offset1;
+                    dv = csc_simple_round(dv, bit_num_0) + offset2;
+                }
+                else {
+                    /* (M * Channel + Offset) >> nb_shift. use this after RK3576! */
+                    dy0 = csc_simple_round(dy0 + offset0, bit_num_0);
+                    dy1 = csc_simple_round(dy1 + offset0, bit_num_0);
+                    dy2 = csc_simple_round(dy2 + offset0, bit_num_0);
+                    dy3 = csc_simple_round(dy3 + offset0, bit_num_0);
+                    du = csc_simple_round(du + offset1, bit_num_0);
+                    dv = csc_simple_round(dv + offset2, bit_num_0);
+                }
+                p_dst_y[idx_y0 + 0] = CLIP(dy0, csc_min_vl_1, csc_max_vl_1);
+                p_dst_y[idx_y0 + 1] = CLIP(dy1, csc_min_vl_1, csc_max_vl_1);
+                p_dst_y[idx_y1 + 0] = CLIP(dy2, csc_min_vl_1, csc_max_vl_1);
+                p_dst_y[idx_y1 + 1] = CLIP(dy3, csc_min_vl_1, csc_max_vl_1);
+                p_dst_u[idx_uv] = CLIP(du, csc_min_vl_2, csc_max_vl_2);
+                p_dst_v[idx_uv] = CLIP(dv, csc_min_vl_2, csc_max_vl_2);
+            }
+        }
         for (int i = 0; i < img_h; i++) {
             for (int j = 0; j < img_w; j++) {
                 src_color[0] = *p_src_y++;
@@ -587,8 +775,10 @@ int main(int argc, char *const argv[])
             strerror(errno));
     }
 
-    const int mid_fmt = common_verify_imgfmt_get_def_planar(cmd_config.src_fmt, depth);
     int crc_val = -1;
+    const int mid_fmt = common_verify_imgfmt_get_def_planar(cmd_config.src_fmt, depth);
+    LOGI("mid_fmt: %d (%s)\n", mid_fmt, common_verify_imgfmt_str(mid_fmt));
+
     for (int k = 0; k < cmd_config.nb_frame; k++) {
         ret = image_read_to_planar(fp_src, p_src, k, cmd_config.src_wid, cmd_config.src_hgt, cmd_config.src_fmt, depth);
         if (ret) {

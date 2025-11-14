@@ -49,6 +49,7 @@ int main(int argc, char *const argv[])
     const int mid_fmt = common_verify_imgfmt_get_def_planar(config.src_fmt, depth);
     const int mid_fmt_bpp = common_verify_imgfmt_bpp(mid_fmt);
     const int mid_fmt_size = (config.src_wid * config.src_hgt * mid_fmt_bpp + 7) / 8;
+    LOGI("mid_fmt: %d(%s), bpp: %d, frame_size: %d\n", mid_fmt, common_verify_imgfmt_str(mid_fmt), mid_fmt_bpp, mid_fmt_size);
 
     for (int k = 0; k < config.nb_frame; k++) {
         ret = image_read_to_planar(fp_src, p_src, k, config.src_wid, config.src_hgt, config.src_fmt, depth);
