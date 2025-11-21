@@ -64,6 +64,12 @@ static char g_logbuf[2048];
 #define LOGE(fmt, ...) printf("E [" LOG_TAG "] " fmt, ##__VA_ARGS__)
 #endif // #ifdef ANDROID
 
+#define LOGT_f(fmt, ...) LOGT("%s: " fmt, __func__, ##__VA_ARGS__)
+#define LOGD_f(fmt, ...) LOGD("%s: " fmt, __func__, ##__VA_ARGS__)
+#define LOGI_f(fmt, ...) LOGI("%s: " fmt, __func__, ##__VA_ARGS__)
+#define LOGW_f(fmt, ...) LOGW("%s: " fmt, __func__, ##__VA_ARGS__)
+#define LOGE_f(fmt, ...) LOGE("%s: " fmt, __func__, ##__VA_ARGS__)
+
 /********** common macros **********/
 /* alignment */
 #define ALIGN_2(x)         (((x) + 1) & (~1))
