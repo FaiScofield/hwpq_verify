@@ -8,16 +8,26 @@ LastEditTime: 2025-10-24
 """
 
 import os
+import sys
 import json
 import cv2
+import argparse
 import traceback
 import numpy as np
-# from utils import *
 
-PI = 3.1415926
+# from typing import Optional
 
-def clamp(value, min_value, max_value):
-    return min(max(value, min_value), max_value)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+import utils as utl
+
+
+def round_rshift(value, shift: int):
+    if shift > 0:
+        half = 1 << (shift - 1)
+        ret = (np.abs(value) + half) >> shift
+        return np.copysign(ret, value).astype(ret.dtype)
+    return value << -shift
+
 
 def sample1d_linear(arr: np.ndarray, idx: float):
     # arr: (N, C) or (N,) ; idx: float
@@ -41,8 +51,8 @@ def sample2d_linear(arr: np.ndarray, x: float, y: float):
     H, W = arr.shape
 
     # clamp coords
-    x = clamp(x, 0.0, W - 1.0)
-    y = clamp(y, 0.0, H - 1.0)
+    x = utl.clamp(x, 0.0, W - 1.0)
+    y = utl.clamp(y, 0.0, H - 1.0)
     x0 = int(np.floor(x))
     x1 = min(x0 + 1, W - 1)
     y0 = int(np.floor(y))
@@ -73,7 +83,7 @@ def linear_resize_array_1d(arr: np.ndarray, new_length: int):
 
 
 def linear_resize_array_2d(mat: np.ndarray, new_rows: int, new_cols: int):
-    if not mat or len(mat) == 0 or len(mat[0]) == 0:
+    if mat.size == 0 or mat.shape[0] == 0 or mat.shape[1] == 0:
         raise ValueError("Invalid 2D array input!")
 
     old_rows, old_cols = mat.shape
@@ -81,39 +91,52 @@ def linear_resize_array_2d(mat: np.ndarray, new_rows: int, new_cols: int):
         return mat.copy()
 
     new_mat = cv2.resize(mat, (new_cols, new_rows), interpolation=cv2.INTER_LINEAR_EXACT)
-    return new_mat
+    return new_mat.astype(mat.dtype)
 
 
 class AcmImpl:
     def __init__(self, len_y: int = 9, len_s: int = 13, len_h: int = 65, len_h2: int = 0):
         self.b_lut_ready = False
-        self.gain_y = 256
-        self.gain_s = 256
-        self.gain_h = 256
+        self.gain_y = 256  # [0, (256), 1023], 8bit fixed
+        self.gain_s = 256  # [0, (256), 1023], 8bit fixed
+        self.gain_h = 256  # [0, (256), 1023], 8bit fixed
         self.set_len(len_y, len_s, len_h, len_h2)
 
     def set_len(self, len_y: int, len_s: int, len_h: int, len_h2: int = 0):
-        self.len_y = clamp(len_y, 2, 256)
-        self.len_s = clamp(len_s, 2, 181)
-        self.len_h = clamp(len_h, 2, 361)
-        self.len_h2 = self.len_h if len_h2 <= 0 else clamp(len_h2, 2, self.len_h)
-        self.step_y = 255.0 / (self.len_y - 1)
-        self.step_s = 180.0 / (self.len_s - 1)
-        self.step_h = 360.0 / (self.len_h - 1)
-        self.step_h2 = 360.0 / (self.len_h2 - 1)
+        self.len_y = utl.clamp(len_y, 2, 255 + 1)
+        self.len_s = utl.clamp(len_s, 2, 181 + 1)
+        self.len_h = utl.clamp(len_h, 2, 360 + 1)
+        self.len_h2 = self.len_h if len_h2 <= 0 else utl.clamp(len_h2, 2, self.len_h)
+        self.step_y = 255.0 / (self.len_y - 1)  # step in range [0, 255]
+        self.step_s = 181.0 / (self.len_s - 1)  # step in range [0, 181]
+        self.step_h = 360.0 / (self.len_h - 1)  # step in range [0, 360]
+        self.step_h2 = 360.0 / (self.len_h2 - 1)  # step in range [0, 360]
+        print(f"[ACM] set lut len: y={self.len_y}, s={self.len_s}, h={self.len_h}, h2={self.len_h2}")
+        print(
+            f"[ACM] update lut step: y={self.step_y:.4f}, s={self.step_s:.4f}, h={self.step_h:.4f}, h2={self.step_h2:.4f}"
+        )
         self.update_lut()
 
     def set_step(self, step_y: float, step_s: float, step_h: float, step_h2: float = 0.0):
-        len_y = round(255.0 / max(step_y, 1))
-        len_s = round(180.0 / max(step_s, 1))
-        len_h = round(360.0 / max(step_h, 1))
-        len_h2 = len_h if step_h2 <= 0.0 else round(360.0 / max(1, max(step_h2, step_h)))
-        self.set_len(len_y, len_s, len_h, len_h2)
+        self.step_y = utl.clamp(step_y, 1.0, 255.0)
+        self.step_s = utl.clamp(step_s, 1.0, 181.0)
+        self.step_h = utl.clamp(step_h, 1.0, 360.0)
+        self.step_h2 = self.step_h if step_h2 <= 0.0 else min(360.0, max(step_h2, step_h))
+        self.len_y = round(255.0 / step_y) + 1
+        self.len_s = round(181.0 / step_s) + 1
+        self.len_h = round(360.0 / step_h) + 1
+        self.len_h2 = round(360.0 / step_h2) + 1
+        print(
+            f"[ACM] set lut step: y={self.step_y:.4f}, s={self.step_s:.4f}, h={self.step_h:.4f}, h2={self.step_h2:.4f}"
+        )
+        print(f"[ACM] update lut len: y={self.len_y}, s={self.len_s}, h={self.len_h}, h2={self.len_h2}")
+        self.update_lut()
 
     def set_gain(self, gain_y: int, gain_s: int, gain_h: int):
         self.gain_y = gain_y
         self.gain_s = gain_s
         self.gain_h = gain_h
+        print(f"[ACM] set lut gain: y={self.gain_y}, s={self.gain_s}, h={self.gain_h}")
 
     def update_lut(self):
         if self.b_lut_ready:
@@ -123,7 +146,7 @@ class AcmImpl:
                 lut_delta_hbyh = linear_resize_array_1d(self.lut_delta_hbyh, self.len_h)
                 print(f"[ACM] update delta LUT size: {len(self.lut_delta_ybyh)} => {self.len_h}")
 
-            if lut_gain_ybyy.shape[0] != self.len_h2:
+            if self.lut_gain_ybyy.shape[0] != self.len_h2:
                 lut_gain_ybyy = linear_resize_array_2d(self.lut_gain_ybyy, self.len_h2, self.len_y)
                 lut_gain_sbyy = linear_resize_array_2d(self.lut_gain_sbyy, self.len_h2, self.len_y)
                 lut_gain_hbyy = linear_resize_array_2d(self.lut_gain_hbyy, self.len_h2, self.len_y)
@@ -137,7 +160,7 @@ class AcmImpl:
                     f"[ACM] update gain_s LUT size: {lut_gain_ybyy.shape[0]}x{lut_gain_ybyy.shape[1]} => {self.len_h2}x{self.len_s}"
                 )
             else:
-                if lut_gain_ybyy.shape[1] != self.len_y:
+                if self.lut_gain_ybyy.shape[1] != self.len_y:
                     lut_gain_ybyy = np.zeros((self.len_h2, self.len_y), dtype=np.float32)
                     lut_gain_sbyy = np.zeros((self.len_h2, self.len_y), dtype=np.float32)
                     lut_gain_hbyy = np.zeros((self.len_h2, self.len_y), dtype=np.float32)
@@ -148,7 +171,7 @@ class AcmImpl:
                     print(
                         f"[ACM] update gain_y LUT size: {lut_gain_ybyy.shape[0]}x{lut_gain_ybyy.shape[1]} => {self.len_h2}x{self.len_y}"
                     )
-                if lut_gain_ybys.shape[1] != self.len_s:
+                if self.lut_gain_ybys.shape[1] != self.len_s:
                     lut_gain_ybys = np.zeros((self.len_h2, self.len_s), dtype=np.float32)
                     lut_gain_sbys = np.zeros((self.len_h2, self.len_s), dtype=np.float32)
                     lut_gain_hbys = np.zeros((self.len_h2, self.len_s), dtype=np.float32)
@@ -184,47 +207,155 @@ class AcmImpl:
     def do_acm_u8(self, yuv444p_in: np.ndarray):
         """input: yuv444 planar in np.uint8, output: yuv444 planar in np.uint8"""
         print("[ACM] doing ACM LUT for u8 image...")
+
         H, W, _ = yuv444p_in.shape
-        # input is (H, W, 3) in planar order stored as channels-last
+        ## input is (H, W, 3) in planar order stored as channels-last
         y = yuv444p_in[:, :, 0].astype(np.int32)
         cb = yuv444p_in[:, :, 1].astype(np.int32) - 128
         cr = yuv444p_in[:, :, 2].astype(np.int32) - 128
         s = (np.sqrt(cb * cb + cr * cr) + 0.5).astype(np.int32)  # TODO: use cordic
         h_rad = np.arctan2(cr, cb)  # [-pi, pi]
-        h_deg = (np.rad2deg(h_rad) + 180 + 0.5).astype(np.int32)  # [0, 2*pi]
+        h_deg = (np.rad2deg(h_rad) + 180 + 0.5).astype(np.int32)  # [0, 360]
 
-        for i in range(H):
-            for j in range(W):
-                idx_y = float(y[i, j] / self.step_y)
-                idx_s = float(s[i, j] / self.step_s)
-                idx_h = float(h_deg[i, j] / self.step_h)
-                idx_h2 = float(h_deg[i, j] / self.step_h2)
+        local_lut_delta_ybyh = round_rshift(self.lut_delta_ybyh.astype(np.int32) * self.gain_y, 8)
+        local_lut_delta_sbyh = round_rshift(self.lut_delta_sbyh.astype(np.int32) * self.gain_s, 8)
+        local_lut_delta_hbyh = round_rshift(self.lut_delta_hbyh.astype(np.int32) * self.gain_h, 8)
+        local_lut_delta_ybyh = np.clip(local_lut_delta_ybyh, -255, 255)
+        local_lut_delta_sbyh = np.clip(local_lut_delta_sbyh, -255, 255)
+        local_lut_delta_hbyh = np.clip(local_lut_delta_hbyh, -64, 64)
 
-                delta_y = int(sample1d_linear(self.lut_delta_ybyh, idx_h))
-                delta_s = int(sample1d_linear(self.lut_delta_sbyh, idx_h))
-                delta_h = int(sample1d_linear(self.lut_delta_hbyh, idx_h))
-                gain_yy = int(sample2d_linear(self.lut_gain_ybyy, idx_y, idx_h2))
-                gain_ys = int(sample2d_linear(self.lut_gain_sbyy, idx_y, idx_h2))
-                gain_yh = int(sample2d_linear(self.lut_gain_hbyy, idx_y, idx_h2))
-                gain_sy = int(sample2d_linear(self.lut_gain_ybys, idx_s, idx_h2))
-                gain_ss = int(sample2d_linear(self.lut_gain_sbys, idx_s, idx_h2))
-                gain_sh = int(sample2d_linear(self.lut_gain_hbys, idx_s, idx_h2))
+        ## get index
+        idx_y = y.astype(np.float32) / self.step_y
+        idx_s = s.astype(np.float32) / self.step_s
+        idx_h = h_deg.astype(np.float32) / self.step_h
+        idx_h2 = h_deg.astype(np.float32) / self.step_h2
 
-                delta_y = delta_y * (gain_yy * gain_sy) * self.gain_y
-                delta_s = delta_s * (gain_ys * gain_ss) * self.gain_s
-                delta_h = delta_h * (gain_yh * gain_sh) * self.gain_h
-                delta_y = int(delta_y + np.sign(delta_y) * (1 << 21)) >> 22
-                delta_s = int(delta_s + np.sign(delta_s) * (1 << 21)) >> 22
-                delta_h = int(delta_h + np.sign(delta_h) * (1 << 21)) >> 22
+        ## lut,
+        # NOTE: cv2.remap 不支持 int32 类型做双线性插值，不支持 INTER_LINEAR_EXACT
+        idx_zeros = np.zeros_like(idx_h)
+        delta_y = cv2.remap(
+            local_lut_delta_ybyh.astype(np.float32),
+            idx_h,
+            idx_zeros,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )  # [-255, 255]
+        delta_s = cv2.remap(
+            local_lut_delta_sbyh.astype(np.float32),
+            idx_h,
+            idx_zeros,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )  # [-255, 255]
+        delta_h = cv2.remap(
+            local_lut_delta_hbyh.astype(np.float32),
+            idx_h,
+            idx_zeros,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )  # [-64, 64]
+        gain_yy = cv2.remap(
+            self.lut_gain_ybyy.astype(np.float32),
+            idx_y,
+            idx_h2,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )  # [-127, 127]
+        gain_ys = cv2.remap(
+            self.lut_gain_sbyy.astype(np.float32),
+            idx_y,
+            idx_h2,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )  # [-127, 127]
+        gain_yh = cv2.remap(
+            self.lut_gain_hbyy.astype(np.float32),
+            idx_y,
+            idx_h2,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )  # [-127, 127]
+        gain_sy = cv2.remap(
+            self.lut_gain_ybys.astype(np.float32),
+            idx_s,
+            idx_h2,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )  # [-127, 127]
+        gain_ss = cv2.remap(
+            self.lut_gain_sbys.astype(np.float32),
+            idx_s,
+            idx_h2,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )  # [-127, 127]
+        gain_sh = cv2.remap(
+            self.lut_gain_hbys.astype(np.float32),
+            idx_s,
+            idx_h2,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )  # [-127, 127]
 
-                # YSH -> YUV (full-range)
-                y[i, j] += delta_y
-                s[i, j] += delta_s
-                new_rad = h_rad[i, j] + np.deg2rad(delta_h)
-                new_cb = s[i, j] * np.cos(new_rad)
-                new_cr = s[i, j] * np.sin(new_rad)
-                cb[i, j] = int(new_cb + 0.5 * np.sign(new_cb))
-                cr[i, j] = int(new_cr + 0.5 * np.sign(new_cr))
+        delta_y = (delta_y + np.sign(delta_y) * 0.5).astype(np.int32)
+        delta_s = (delta_s + np.sign(delta_s) * 0.5).astype(np.int32)
+        delta_h = (delta_h + np.sign(delta_h) * 0.5).astype(np.int32)
+        gain_yy = (gain_yy + np.sign(gain_yy) * 0.5).astype(np.int32)
+        gain_ys = (gain_ys + np.sign(gain_ys) * 0.5).astype(np.int32)
+        gain_yh = (gain_yh + np.sign(gain_yh) * 0.5).astype(np.int32)
+        gain_sy = (gain_sy + np.sign(gain_sy) * 0.5).astype(np.int32)
+        gain_ss = (gain_ss + np.sign(gain_ss) * 0.5).astype(np.int32)
+        gain_sh = (gain_sh + np.sign(gain_sh) * 0.5).astype(np.int32)
+        delta_y = delta_y * (gain_yy * gain_sy)
+        delta_s = delta_s * (gain_ys * gain_ss)
+        delta_h = delta_h * (gain_yh * gain_sh)
+        delta_y = round_rshift(delta_y, 14 + 2)
+        delta_s = round_rshift(delta_s, 14 + 2)
+        delta_h = round_rshift(delta_h, 14 + 2)
+
+        # YSH -> YUV (full-range)
+        y += delta_y
+        s += delta_s
+        # y = np.clip(y + delta_y, 0, 255)
+        # s = np.clip(s + delta_s, 0, 181)
+        new_rad = h_rad + np.deg2rad(delta_h)
+        new_cb = s * np.cos(new_rad)
+        new_cr = s * np.sin(new_rad)
+        cb = (new_cb + 0.5 * np.sign(new_cb)).astype(np.int32)
+        cr = (new_cr + 0.5 * np.sign(new_cr)).astype(np.int32)
+
+        # for i in range(H):
+        #     for j in range(W):
+        #         idx_y = float(y[i, j] / self.step_y)
+        #         idx_s = float(s[i, j] / self.step_s)
+        #         idx_h = float(h_deg[i, j] / self.step_h)
+        #         idx_h2 = float(h_deg[i, j] / self.step_h2)
+
+        #         delta_y = sample1d_linear(local_lut_delta_ybyh, idx_h)  # [-255, 255]
+        #         delta_s = sample1d_linear(local_lut_delta_sbyh, idx_h)  # [-255, 255]
+        #         delta_h = sample1d_linear(local_lut_delta_hbyh, idx_h)  # [-64, 64]
+        #         gain_yy = sample2d_linear(self.lut_gain_ybyy, idx_y, idx_h2)  # [-127, 127]
+        #         gain_ys = sample2d_linear(self.lut_gain_sbyy, idx_y, idx_h2)  # [-127, 127]
+        #         gain_yh = sample2d_linear(self.lut_gain_hbyy, idx_y, idx_h2)  # [-127, 127]
+        #         gain_sy = sample2d_linear(self.lut_gain_ybys, idx_s, idx_h2)  # [-127, 127]
+        #         gain_ss = sample2d_linear(self.lut_gain_sbys, idx_s, idx_h2)  # [-127, 127]
+        #         gain_sh = sample2d_linear(self.lut_gain_hbys, idx_s, idx_h2)  # [-127, 127]
+
+        #         delta_y = delta_y * (gain_yy * gain_sy)
+        #         delta_s = delta_s * (gain_ys * gain_ss)
+        #         delta_h = delta_h * (gain_yh * gain_sh)
+        #         delta_y = round_rshift(delta_y, 14)
+        #         delta_s = round_rshift(delta_s, 14)
+        #         delta_h = round_rshift(delta_h, 14)
+
+        #         # YSH -> YUV (full-range)
+        #         y[i, j] = utl.clamp(y[i, j] + delta_y, 0, 255)
+        #         s[i, j] = utl.clamp(s[i, j] + delta_s, 0, 181)
+        #         new_rad = h_rad[i, j] + np.deg2rad(delta_h)
+        #         new_cb = s[i, j] * np.cos(new_rad)
+        #         new_cr = s[i, j] * np.sin(new_rad)
+        #         cb[i, j] = int(new_cb + 0.5 * np.sign(new_cb))
+        #         cr[i, j] = int(new_cr + 0.5 * np.sign(new_cr))
 
         # create output as (H, W, 3) channels-last
         yuv444p_out = np.zeros((H, W, 3), dtype=np.uint8)
@@ -324,7 +455,7 @@ class AcmImpl:
             self.len_h = len_h
             self.len_h2 = len_h2
             self.step_y = 255.0 / (self.len_y - 1)
-            self.step_s = 180.0 / (self.len_s - 1)
+            self.step_s = 181.0 / (self.len_s - 1)
             self.step_h = 360.0 / (self.len_h - 1)
             self.step_h2 = 360.0 / (self.len_h2 - 1)
 
@@ -338,28 +469,104 @@ class AcmImpl:
         self.lut_gain_ybys = lut_gain_ybys
         self.lut_gain_sbys = lut_gain_sbys
         self.lut_gain_hbys = lut_gain_hbys
+
+        self.b_lut_ready = True
         print("[ACM] load config done.")
         return True
 
+    def dump_json(self, filename: str = ""):
+        ## write to json config
+        data = {
+            "version": "acm_impl_var_lut",
+            "acmEnable": 1,
+            ## keep list data in one line by using NoIndent & CompactArrayEncoder
+            "acmTableDeltaYbyH": utl.NoIndent(self.lut_delta_ybyh.flatten().tolist()),
+            "acmTableDeltaHbyH": utl.NoIndent(self.lut_delta_hbyh.flatten().tolist()),
+            "acmTableDeltaSbyH": utl.NoIndent(self.lut_delta_sbyh.flatten().tolist()),
+            "acmTableGainYbyY": utl.NoIndent(self.lut_gain_ybyy.flatten().tolist()),
+            "acmTableGainHbyY": utl.NoIndent(self.lut_gain_hbyy.flatten().tolist()),
+            "acmTableGainSbyY": utl.NoIndent(self.lut_gain_sbyy.flatten().tolist()),
+            "acmTableGainYbyS": utl.NoIndent(self.lut_gain_ybys.flatten().tolist()),
+            "acmTableGainHbyS": utl.NoIndent(self.lut_gain_sbys.flatten().tolist()),
+            "acmTableGainSbyS": utl.NoIndent(self.lut_gain_hbys.flatten().tolist()),
+            "lumGain": self.gain_y,
+            "hueGain": self.gain_h,
+            "satGain": self.gain_s,
+            "lutLengthY": self.len_y,
+            "lutLengthS": self.len_s,
+            "lutLengthH": self.len_h,
+            "lutLengthH2": self.len_h2,
+            "lutStepY": self.step_y,
+            "lutStepS": self.step_s,
+            "lutStepH": self.step_h,
+            "lutStepH2": self.step_h2,
+        }
+
+        nest_data = {"pq_tuning_param": {"acm": data}}
+        json_data = json.dumps(nest_data, indent=4, ensure_ascii=False, cls=utl.CompactArrayEncoder)
+
+        if filename == "":
+            print(f"[ACM] Config parameters shown below:")
+            print(json_data)
+        else:
+            with open(filename, "w") as f:
+                f.write(json_data)
+                print(f"[ACM] Config parameters saved to file '{filename}'")
+                return True
+
 
 if __name__ == '__main__':
-    # test
-    H = 1080
-    W = 1920
-    infile = "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/input_1920x1080_yuv444p_601F.yuv"
+    ## arg parser
+    parser = argparse.ArgumentParser(exit_on_error=False)
+    parser.add_argument("-i", "--input", default="", type=str, help="输入图像文件, yuv444p格式")
+    parser.add_argument("-o", "--output", default="", type=str, help="输出图像文件")
+    parser.add_argument("-c", "--config", default="", type=str, help=".json配置文件")
+    parser.add_argument("-w", "--width", default=1920, type=int, help="图像宽度，默认: 1920")
+    parser.add_argument("-g", "--height", default=1080, type=int, help="图像高度，默认: 1080")
+    parser.add_argument("-s", "--step", type=float, nargs='+', help="LUT step 数组, 4个元素")
+    parser.add_argument("-l", "--len", type=int, nargs='+', help="LUT len 数组, 4个元素")
+    parser.add_argument("-G", "--gain", type=int, nargs='+', help="LUT gain 数组, 4个元素")
+    args, _ = parser.parse_known_args()
+
+    H = args.height
+    W = args.width
+    infile = (
+        "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/input_1920x1080_yuv444p_601F.yuv"
+        if args.input == ""
+        else args.input
+    )
+    outfile = (
+        "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/out_acm_1920x1080_yuv444p_601F.yuv"
+        if args.output == ""
+        else args.output
+    )
+    cfgfile = "G:/Codes/fpga/fpga_verify/data/vdpp_vop_config_3572.json" if args.config == "" else args.config
+
+    ## test
     data = np.fromfile(infile, np.uint8)
     img = np.zeros((H, W, 3), dtype=np.uint8)
-    img[:, :, 0] = data[0:H*W*1].reshape(H, W)
-    img[:, :, 1] = data[H*W*1:H*W*2].reshape(H, W)
-    img[:, :, 2] = data[H*W*2:H*W*3].reshape(H, W)
+    img[:, :, 0] = data[0 : H * W * 1].reshape(H, W)
+    img[:, :, 1] = data[H * W * 1 : H * W * 2].reshape(H, W)
+    img[:, :, 2] = data[H * W * 2 : H * W * 3].reshape(H, W)
 
     acm = AcmImpl()
-    acm.load_json("G:/Codes/fpga/fpga_verify/data/vdpp_vop_config_3572.json", False)
+
+    ret = acm.load_json(cfgfile, False)
+    if not ret:
+        print("[ACM] load config failed.")
+        exit(ret)
+
+    if args.step:
+        acm.set_step(args.step[0], args.step[1], args.step[2], args.step[3])
+    elif args.len:
+        acm.set_len(args.len[0], args.len[1], args.len[2], args.len[3])
+    if args.gain:
+        acm.set_gain(args.gain[0], args.gain[1], args.gain[2])
 
     out = acm.do_acm_u8(img)
 
-    # write planar Y then Cb then Cr (same layout as input file)
-    # HWC to CHW
-    outfile = "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/out_acm_1920x1080_yuv444p_601F.yuv"
-    out.transpose(2,0,1).tofile(outfile)
+    ## write planar Y then Cb then Cr (same layout as input file)
+    out.transpose(2, 0, 1).tofile(outfile)  # HWC to CHW
     print(f"[ACM] done. write output file to {outfile}")
+
+    acm.dump_json()
