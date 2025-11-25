@@ -16,7 +16,7 @@ participant usr as User # @{ "type" : "entity" }
 participant exe as xxx_verify.exe
 participant fpga as FPGA
 participant py as crc_verify.py
-    
+
 opt 随机配置生成
   usr->>+exe: 生成随机配置(func=gen_rand_config)
   exe-->>-usr: 随机配置文件(.json/.bin/.blob)
