@@ -4,7 +4,7 @@ FilePath    : acm_impl.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-10-24
 Description :
-LastEditTime: 2025-10-24
+LastEditTime: 2025-11-25
 """
 
 import os
@@ -14,6 +14,7 @@ import cv2
 import argparse
 import traceback
 import numpy as np
+import matplotlib.pyplot as plt
 
 # from typing import Optional
 
@@ -79,6 +80,11 @@ def linear_resize_array_1d(arr: np.ndarray, new_length: int):
     x_old = np.linspace(0, 1, len(arr))
     x_new = np.linspace(0, 1, new_length)
     new_arr = np.interp(x_new, x_old, arr)
+
+    # dir = "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/test_var_lut/"
+    # (arr + 64).astype(np.uint8).tofile(f"{dir}/old_lut_before_scaling_x{len(arr)}.yuv")
+    # (new_arr + 64).astype(np.uint8).tofile(f"{dir}/new_lut_after_scaling_x{new_length}.yuv")
+
     return new_arr
 
 
@@ -90,7 +96,18 @@ def linear_resize_array_2d(mat: np.ndarray, new_rows: int, new_cols: int):
     if old_rows == new_rows and old_cols == new_cols:
         return mat.copy()
 
-    new_mat = cv2.resize(mat, (new_cols, new_rows), interpolation=cv2.INTER_LINEAR_EXACT)
+    # dir = "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/test_var_lut/"
+    # plt.imsave(f"{dir}/old_mat_before_scaling_{old_rows}x{old_cols}.png", mat, cmap='gray')
+
+    if new_cols * new_rows > old_rows * old_cols:
+        # scale up, use bilinear interpolation
+        new_mat = cv2.resize(mat.astype(np.float32), (new_cols, new_rows), interpolation=cv2.INTER_LINEAR)
+    else:
+        # scale down, use AREA interpolation (ONLY support uint8, uint16, float32)
+        new_mat = cv2.resize(mat.astype(np.float32), (new_cols, new_rows), interpolation=cv2.INTER_AREA)
+
+    # plt.imsave(f"{dir}/new_mat_after_scaling_{new_rows}x{new_cols}.png", new_mat.astype(mat.dtype), cmap='gray')
+
     return new_mat.astype(mat.dtype)
 
 
@@ -139,26 +156,28 @@ class AcmImpl:
         print(f"[ACM] set lut gain: y={self.gain_y}, s={self.gain_s}, h={self.gain_h}")
 
     def update_lut(self):
+        dir = "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/test_var_lut/"
         if self.b_lut_ready:
             if len(self.lut_delta_ybyh) != self.len_h:
-                lut_delta_ybyh = linear_resize_array_1d(self.lut_delta_ybyh, self.len_h)
-                lut_delta_sbyh = linear_resize_array_1d(self.lut_delta_sbyh, self.len_h)
-                lut_delta_hbyh = linear_resize_array_1d(self.lut_delta_hbyh, self.len_h)
                 print(f"[ACM] update delta LUT size: {len(self.lut_delta_ybyh)} => {self.len_h}")
+                self.lut_delta_ybyh = linear_resize_array_1d(self.lut_delta_ybyh, self.len_h)
+                self.lut_delta_sbyh = linear_resize_array_1d(self.lut_delta_sbyh, self.len_h)
+                self.lut_delta_hbyh = linear_resize_array_1d(self.lut_delta_hbyh, self.len_h)
 
             if self.lut_gain_ybyy.shape[0] != self.len_h2:
-                lut_gain_ybyy = linear_resize_array_2d(self.lut_gain_ybyy, self.len_h2, self.len_y)
-                lut_gain_sbyy = linear_resize_array_2d(self.lut_gain_sbyy, self.len_h2, self.len_y)
-                lut_gain_hbyy = linear_resize_array_2d(self.lut_gain_hbyy, self.len_h2, self.len_y)
-                lut_gain_ybys = linear_resize_array_2d(self.lut_gain_ybys, self.len_h2, self.len_s)
-                lut_gain_sbys = linear_resize_array_2d(self.lut_gain_sbys, self.len_h2, self.len_s)
-                lut_gain_hbys = linear_resize_array_2d(self.lut_gain_hbys, self.len_h2, self.len_s)
                 print(
-                    f"[ACM] update gain_y LUT size: {lut_gain_ybyy.shape[0]}x{lut_gain_ybyy.shape[1]} => {self.len_h2}x{self.len_y}"
+                    f"[ACM] update gain_y LUT size: {self.lut_gain_ybyy.shape[0]}x{self.lut_gain_ybyy.shape[1]} => {self.len_h2}x{self.len_y}"
                 )
                 print(
-                    f"[ACM] update gain_s LUT size: {lut_gain_ybyy.shape[0]}x{lut_gain_ybyy.shape[1]} => {self.len_h2}x{self.len_s}"
+                    f"[ACM] update gain_s LUT size: {self.lut_gain_ybys.shape[0]}x{self.lut_gain_ybys.shape[1]} => {self.len_h2}x{self.len_s}"
                 )
+
+                self.lut_gain_ybyy = linear_resize_array_2d(self.lut_gain_ybyy, self.len_h2, self.len_y)
+                self.lut_gain_sbyy = linear_resize_array_2d(self.lut_gain_sbyy, self.len_h2, self.len_y)
+                self.lut_gain_hbyy = linear_resize_array_2d(self.lut_gain_hbyy, self.len_h2, self.len_y)
+                self.lut_gain_ybys = linear_resize_array_2d(self.lut_gain_ybys, self.len_h2, self.len_s)
+                self.lut_gain_sbys = linear_resize_array_2d(self.lut_gain_sbys, self.len_h2, self.len_s)
+                self.lut_gain_hbys = linear_resize_array_2d(self.lut_gain_hbys, self.len_h2, self.len_s)
             else:
                 if self.lut_gain_ybyy.shape[1] != self.len_y:
                     lut_gain_ybyy = np.zeros((self.len_h2, self.len_y), dtype=np.float32)
@@ -171,6 +190,10 @@ class AcmImpl:
                     print(
                         f"[ACM] update gain_y LUT size: {lut_gain_ybyy.shape[0]}x{lut_gain_ybyy.shape[1]} => {self.len_h2}x{self.len_y}"
                     )
+                    self.lut_gain_ybyy = lut_gain_ybyy
+                    self.lut_gain_sbyy = lut_gain_sbyy
+                    self.lut_gain_hbyy = lut_gain_hbyy
+
                 if self.lut_gain_ybys.shape[1] != self.len_s:
                     lut_gain_ybys = np.zeros((self.len_h2, self.len_s), dtype=np.float32)
                     lut_gain_sbys = np.zeros((self.len_h2, self.len_s), dtype=np.float32)
@@ -182,26 +205,20 @@ class AcmImpl:
                     print(
                         f"[ACM] update gain_s LUT size: {lut_gain_ybyy.shape[0]}x{lut_gain_ybyy.shape[1]} => {self.len_h2}x{self.len_s}"
                     )
+                    self.lut_gain_ybys = lut_gain_ybys
+                    self.lut_gain_sbys = lut_gain_sbys
+                    self.lut_gain_hbys = lut_gain_hbys
         else:
-            lut_delta_ybyh = np.zeros(self.len_h, dtype=np.int16)
-            lut_delta_sbyh = np.zeros(self.len_h, dtype=np.int16)
-            lut_delta_hbyh = np.zeros(self.len_h, dtype=np.int16)
-            lut_gain_ybyy = np.zeros((self.len_h2, self.len_y), dtype=np.int8)
-            lut_gain_sbyy = np.zeros((self.len_h2, self.len_y), dtype=np.int8)
-            lut_gain_hbyy = np.zeros((self.len_h2, self.len_y), dtype=np.int8)
-            lut_gain_ybys = np.zeros((self.len_h2, self.len_s), dtype=np.int8)
-            lut_gain_sbys = np.zeros((self.len_h2, self.len_s), dtype=np.int8)
-            lut_gain_hbys = np.zeros((self.len_h2, self.len_s), dtype=np.int8)
+            self.lut_delta_ybyh = np.zeros(self.len_h, dtype=np.int16)
+            self.lut_delta_sbyh = np.zeros(self.len_h, dtype=np.int16)
+            self.lut_delta_hbyh = np.zeros(self.len_h, dtype=np.int16)
+            self.lut_gain_ybyy = np.zeros((self.len_h2, self.len_y), dtype=np.int8)
+            self.lut_gain_sbyy = np.zeros((self.len_h2, self.len_y), dtype=np.int8)
+            self.lut_gain_hbyy = np.zeros((self.len_h2, self.len_y), dtype=np.int8)
+            self.lut_gain_ybys = np.zeros((self.len_h2, self.len_s), dtype=np.int8)
+            self.lut_gain_sbys = np.zeros((self.len_h2, self.len_s), dtype=np.int8)
+            self.lut_gain_hbys = np.zeros((self.len_h2, self.len_s), dtype=np.int8)
 
-        self.lut_delta_ybyh = lut_delta_ybyh
-        self.lut_delta_sbyh = lut_delta_sbyh
-        self.lut_delta_hbyh = lut_delta_hbyh
-        self.lut_gain_ybyy = lut_gain_ybyy
-        self.lut_gain_sbyy = lut_gain_sbyy
-        self.lut_gain_hbyy = lut_gain_hbyy
-        self.lut_gain_ybys = lut_gain_ybys
-        self.lut_gain_sbys = lut_gain_sbys
-        self.lut_gain_hbys = lut_gain_hbys
         self.b_lut_ready = True
 
     def do_acm_u8(self, yuv444p_in: np.ndarray):
@@ -514,6 +531,63 @@ class AcmImpl:
                 print(f"[ACM] Config parameters saved to file '{filename}'")
                 return True
 
+    def dump_lut(self, dir: str):
+        ## plot delta LUT & save to file
+        x = np.arange(self.len_h)
+
+        plt.figure(figsize=(8, 6))  # 可选：设置图像大小（英寸）
+        plt.plot(x, self.lut_delta_ybyh, label="delta_ybyh", color="red", linewidth=1.5)
+        plt.plot(x, self.lut_delta_sbyh, label="delta_sbyh", color="blue", linewidth=1.5)
+        plt.plot(x, self.lut_delta_hbyh, label="delta_hbyh", color="green", linewidth=1.5)
+        plt.legend()
+        plt.title("ACM Delta LUT YSH by H")
+        plt.xlabel("Hue")
+        plt.ylabel("Delta Y/S/H")
+        plt.grid(True, linestyle=":", alpha=0.7)
+        plt.savefig(f"{dir}/lut_delta_yshbyh_x{self.len_h}.png", dpi=600, bbox_inches="tight")
+        # plt.show()
+
+        plt.imsave(f"{dir}/lut_gain_ybyy_{self.len_h2}x{self.len_y}.png", self.lut_gain_ybyy, cmap='gray')
+        plt.imsave(f"{dir}/lut_gain_sbyy_{self.len_h2}x{self.len_y}.png", self.lut_gain_sbyy, cmap='gray')
+        plt.imsave(f"{dir}/lut_gain_hbyy_{self.len_h2}x{self.len_y}.png", self.lut_gain_hbyy, cmap='gray')
+        plt.imsave(f"{dir}/lut_gain_ybys_{self.len_h2}x{self.len_s}.png", self.lut_gain_ybys, cmap='gray')
+        plt.imsave(f"{dir}/lut_gain_sbys_{self.len_h2}x{self.len_s}.png", self.lut_gain_sbys, cmap='gray')
+        plt.imsave(f"{dir}/lut_gain_hbys_{self.len_h2}x{self.len_s}.png", self.lut_gain_hbys, cmap='gray')
+
+        plt.close()
+        print(f"[ACM] dump LUT images to {dir}.")
+
+    def gen_test_config(self):
+        if not self.b_lut_ready:
+            return False
+
+        np.random.seed(114514)
+        tmp_lut_gain_ybyy = np.random.normal(0.0, 64.0, size=(self.len_h2, self.len_y)) * 16
+        tmp_lut_gain_sbyy = np.random.normal(0.0, 64.0, size=(self.len_h2, self.len_y)) * 16
+        tmp_lut_gain_hbyy = np.random.normal(0.0, 64.0, size=(self.len_h2, self.len_y)) * 16
+        tmp_lut_gain_ybys = np.random.normal(0.0, 64.0, size=(self.len_h2, self.len_s)) * 16
+        tmp_lut_gain_sbys = np.random.normal(0.0, 64.0, size=(self.len_h2, self.len_s)) * 16
+        tmp_lut_gain_hbys = np.random.normal(0.0, 64.0, size=(self.len_h2, self.len_s)) * 16
+        tmp_lut_gain_ybyy = cv2.GaussianBlur(tmp_lut_gain_ybyy, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
+        tmp_lut_gain_sbyy = cv2.GaussianBlur(tmp_lut_gain_sbyy, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
+        tmp_lut_gain_hbyy = cv2.GaussianBlur(tmp_lut_gain_hbyy, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
+        tmp_lut_gain_ybys = cv2.GaussianBlur(tmp_lut_gain_ybys, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
+        tmp_lut_gain_sbys = cv2.GaussianBlur(tmp_lut_gain_sbys, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
+        tmp_lut_gain_hbys = cv2.GaussianBlur(tmp_lut_gain_hbys, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
+        self.lut_gain_ybyy = np.clip(tmp_lut_gain_ybyy, -128, 127).astype(np.int8)
+        self.lut_gain_sbyy = np.clip(tmp_lut_gain_sbyy, -128, 127).astype(np.int8)
+        self.lut_gain_hbyy = np.clip(tmp_lut_gain_hbyy, -128, 127).astype(np.int8)
+        self.lut_gain_ybys = np.clip(tmp_lut_gain_ybys, -128, 127).astype(np.int8)
+        self.lut_gain_sbys = np.clip(tmp_lut_gain_sbys, -128, 127).astype(np.int8)
+        self.lut_gain_hbys = np.clip(tmp_lut_gain_hbys, -128, 127).astype(np.int8)
+
+        for h in range(self.len_h):
+            self.lut_delta_ybyh[h] = np.round(np.cos(h / self.len_h * 2 * np.pi) * 64)  # [-64, 64]
+            self.lut_delta_sbyh[h] = np.round(np.sin(h / self.len_h * 2 * np.pi) * 64)  # [-64, 64]
+            self.lut_delta_hbyh[h] = np.round(
+                np.arctan((h - self.len_h / 2) * 2 / self.len_h) / np.pi * 90
+            )  # [-22, 22] deg
+
 
 if __name__ == '__main__':
     ## arg parser
@@ -528,6 +602,7 @@ if __name__ == '__main__':
     parser.add_argument("-G", "--gain", type=int, nargs='+', help="LUT gain 数组, 4个元素")
     args, _ = parser.parse_known_args()
 
+    DEF_OUT_DIR = "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/test_var_lut"
     H = args.height
     W = args.width
     infile = (
@@ -535,11 +610,7 @@ if __name__ == '__main__':
         if args.input == ""
         else args.input
     )
-    outfile = (
-        "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/out_acm_1920x1080_yuv444p_601F.yuv"
-        if args.output == ""
-        else args.output
-    )
+    outfile = f"{DEF_OUT_DIR}/out_acm_1920x1080_yuv444p_601F.yuv" if args.output == "" else args.output
     cfgfile = "G:/Codes/fpga/fpga_verify/data/vdpp_vop_config_3572.json" if args.config == "" else args.config
 
     ## test
@@ -551,10 +622,15 @@ if __name__ == '__main__':
 
     acm = AcmImpl()
 
-    ret = acm.load_json(cfgfile, False)
-    if not ret:
-        print("[ACM] load config failed.")
-        exit(ret)
+    if args.config != "":
+        ret = acm.load_json(cfgfile, False)
+        if not ret:
+            print("[ACM] load config failed.")
+            exit(ret)
+    else:
+        acm.gen_test_config()
+        # acm.set_len(9, 13, 65, 17)
+        acm.set_gain(320, 320, 320)
 
     if args.step:
         acm.set_step(args.step[0], args.step[1], args.step[2], args.step[3])
@@ -569,4 +645,5 @@ if __name__ == '__main__':
     out.transpose(2, 0, 1).tofile(outfile)  # HWC to CHW
     print(f"[ACM] done. write output file to {outfile}")
 
-    acm.dump_json()
+    acm.dump_json(f"{DEF_OUT_DIR}/acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}_{acm.len_h2}.json")
+    acm.dump_lut(DEF_OUT_DIR)
