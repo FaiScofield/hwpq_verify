@@ -137,7 +137,9 @@ def cordic_cbcr2hs(cb, cr, depth: int, iter_num: int = 13, increase_bits_for_s: 
     ## the depth of x & y should be > iter_num, otherwise, the remain (depth - iter_num) iterations will be useless!
     increase_bits_for_s = utl.clamp(increase_bits_for_s, 0, 8)
     if increase_bits_for_s + 8 <= iter_num:
-        print(f"Warning: increase_bits_for_s({increase_bits_for_s}) + depth(8) <= iter_num({iter_num}), some iterations will be useless!")
+        print(
+            f"Warning: increase_bits_for_s({increase_bits_for_s}) + depth(8) <= iter_num({iter_num}), some iterations will be useless!"
+        )
     fix_bits = increase_bits_for_s + 10
 
     ## swap to the first coordinate quadrant
@@ -208,11 +210,13 @@ def cordic_hs2cbcr(h, s, depth: int, iter_num: int = 13, increase_bits_for_s: in
     increase_bits_for_s = utl.clamp(increase_bits_for_s, 0, 8)
     fix_bits = increase_bits_for_s + 10
     if increase_bits_for_s + 8 <= iter_num:
-        print(f"Warning: increase_bits_for_s({increase_bits_for_s}) + depth(8) <= iter_num({iter_num}), some iterations will be useless!")
+        print(
+            f"Warning: increase_bits_for_s({increase_bits_for_s}) + depth(8) <= iter_num({iter_num}), some iterations will be useless!"
+        )
 
     ## change H to the first/fourth quadrant
-    H_flag = ((h >= 90) & (h <= 90)) * 2 - 1
-    H_cordicPiFlag = np.int32(h > 90) - np.int32(h < 90)
+    H_flag = ((h >= -90) & (h <= 90)) * 2 - 1  # 1: q1/q4; -1: q2/q3
+    H_cordicPiFlag = np.int32(h > 90) - np.int32(h < -90)  # 0: q1/q4; 1: q2; -1: q3
     h0 = H_cordicPiFlag * 180 + H_flag * h
 
     x = s << increase_bits_for_s
@@ -231,13 +235,13 @@ def cordic_hs2cbcr(h, s, depth: int, iter_num: int = 13, increase_bits_for_s: in
 
     # out_0 = int32(floor((k * floor((double(x) + 32*fix)/(64*fix)) + 512) / 1024))
     # out_1 = int32(floor((k * floor((double(y) + 32*fix)/(64*fix)) + 512) / 1024))
-    u = (CORDIC_DEG180_FIX8 * x + (1 << fix_bits - 1)) >> fix_bits
-    v = (CORDIC_DEG180_FIX8 * y + (1 << fix_bits - 1)) >> fix_bits
+    cb = (CORDIC_COEF_K_FIX10 * x + (1 << fix_bits - 1)) >> fix_bits
+    cr = (CORDIC_COEF_K_FIX10 * y + (1 << fix_bits - 1)) >> fix_bits
 
     ## get the sign of U by the H value
-    u = u * H_flag
+    cb = cb * H_flag
 
-    return u, v
+    return cb, cr
 
 
 class AcmImpl:
@@ -794,10 +798,10 @@ if __name__ == '__main__':
         cb, cr = u - 128, v - 128
         res = cordic_cbcr2hs(cb, cr, 8, iter_num, increase_bits)
         h = res[0]
-        s = res[1] #if increase_bits == 0 else res[1] + (1 << (increase_bits - 1)) >> increase_bits
+        s = res[1]  # if increase_bits == 0 else res[1] + (1 << (increase_bits - 1)) >> increase_bits
 
-        hp = np.degrees(np.arctan2(cr, cb))
-        sp = np.sqrt(cb**2 + cr**2)
+        hp = np.degrees(np.arctan2(cr, cb))  # [-180, +180]
+        sp = np.sqrt(cb**2 + cr**2)  # [0, 181]
         hp = (hp + 0.5 * np.sign(hp)).astype(np.int32)
         sp = (sp + 0.5).astype(np.int32)
 
@@ -808,8 +812,12 @@ if __name__ == '__main__':
             print(f"input  u={u}, v={v} => cb={cb}, cr={cr}")
             print(f"output h={h}, s={s} / hp={hp}, sp={sp}")
         else:
-            dh.astype(np.int8).tofile(f"diff_h_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-            ds.astype(np.int8).tofile(f"diff_s_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+            # (h/180*127).astype(np.int8).tofile(f"out_h_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+            # s.astype(np.uint8).tofile(f"out_s_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+            # (hp/180*127).astype(np.int8).tofile(f"out_hp_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+            # sp.astype(np.uint8).tofile(f"out_sp_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+            # dh.astype(np.int8).tofile(f"diff_h_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+            # ds.astype(np.int8).tofile(f"diff_s_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
             print(f"Max absolute error: dh={np.max(np.abs(dh))}, ds={np.max(np.abs(ds))}")
         print(
             f"sum error for 8bit uv->hs: eh={abs(dh).sum()}, es={abs(ds).sum()} (iter={iter_num}, inc_bits={increase_bits})"
@@ -842,8 +850,12 @@ if __name__ == '__main__':
             print(f"input  h={h}, s={s}")
             print(f"output u={u}, v={v} / up={up}, vp={vp}")
         else:
-            du.astype(np.int8).tofile(f"diff_u_361x182_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-            dv.astype(np.int8).tofile(f"diff_v_361x182_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+            # u.astype(np.uint8).tofile(f"out_u_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+            # v.astype(np.uint8).tofile(f"out_v_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+            # up.astype(np.uint8).tofile(f"out_up_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+            # vp.astype(np.uint8).tofile(f"out_vp_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+            # du.astype(np.int8).tofile(f"diff_u_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+            # dv.astype(np.int8).tofile(f"diff_v_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
             print(f"Max absolute error: du={np.max(np.abs(du))}, dv={np.max(np.abs(dv))}")
         print(
             f"sum error for 8bit hs->uv: eu={abs(du).sum()}, ev={abs(dv).sum()} (iter={iter_num}, inc_bits={increase_bits})"
