@@ -7,18 +7,16 @@ Description :
 LastEditTime: 2025-11-25
 """
 
-from ast import Not
 import os
 import sys
 import json
 import cv2
 import argparse
 import traceback
-from matplotlib.pylab import f
 import numpy as np
 import matplotlib.pyplot as plt
 
-# from typing import Optional
+import cordic
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 import utils as utl
@@ -111,137 +109,6 @@ def linear_resize_array_2d(mat: np.ndarray, new_rows: int, new_cols: int):
     # plt.imsave(f"{dir}/new_mat_after_scaling_{new_rows}x{new_cols}.png", new_mat.astype(mat.dtype), cmap='gray')
 
     return new_mat.astype(mat.dtype)
-
-
-CORDIC_FIX_BITS = 0
-## u14 max, 8bit fixed: angle [45, 26.565, 14.036, ..., 0.006994, 0.003497] * 256
-CORDIC_ATAN_LUT_FIX8 = [11520, 6801, 3593, 1824, 916, 458, 229, 115, 57, 29, 14, 7, 4, 2, 1]
-CORDIC_COEF_K_FIX10 = 622  # 10bit fixed: 0.607252935 * 1024, (from K4 to K15 are all the same)
-CORDIC_MAX_ITER_NUM = 15
-CORDIC_DEG180_FIX8 = 180 << 8
-
-
-def cordic_cbcr2hs(cb, cr, depth: int, iter_num: int = 13, increase_bits_for_s: int = 0):
-    """
-    depth: 8 or 10
-    input cb range: [-128, 127] in S8 / [-512, 511] in S10
-    input cr range: [-128, 127] in S8 / [-512, 511] in S10
-    output h range: [-180, 180] in S8 / [-360, 360] in S10, add more 8bit fixed
-    output s range: [  0,  181] in U8 / [   0, 724] in U10, add more 'increase_bits_for_s' fixed
-    """
-    assert depth >= 8
-
-    ## at leat 7 times iterations make sure the error of the output angle is less than 1 degree
-    iter_num = utl.clamp(iter_num, 7, 15)
-
-    ## the depth of x & y should be > iter_num, otherwise, the remain (depth - iter_num) iterations will be useless!
-    increase_bits_for_s = utl.clamp(increase_bits_for_s, 0, 8)
-    if increase_bits_for_s + 8 <= iter_num:
-        print(
-            f"Warning: increase_bits_for_s({increase_bits_for_s}) + depth(8) <= iter_num({iter_num}), some iterations will be useless!"
-        )
-    fix_bits = increase_bits_for_s + 10
-
-    ## swap to the first coordinate quadrant
-    x = abs(cb) << increase_bits_for_s  # s20
-    y = abs(cr) << increase_bits_for_s  # s20
-    z = 0  # [0, 90] << 8
-
-    mx = 0
-    my = 0
-    mz = 0
-
-    ## cordic iteration
-    for i in range(iter_num):
-        d = (y < 0) * 2 - 1  # +y => -1 -y => +1
-        xp = x - d * (y >> i)
-        yp = y + d * (x >> i)
-        zp = z - d * CORDIC_ATAN_LUT_FIX8[i]
-        x = xp
-        y = yp
-        z = zp
-
-        # mx = max(mx, abs(x))
-        # my = max(my, abs(y))
-        # mz = max(mz, abs(z))
-
-    s = (CORDIC_COEF_K_FIX10 * x + (1 << fix_bits - 1)) >> fix_bits  # x=s/K, K=0.607252935
-    if type(cb) == np.ndarray:
-        h = np.where(s == 0, np.zeros_like(cb), np.maximum(z, 0))
-    else:
-        h = 0 if s == 0 else np.maximum(z, 0)  # z might be a little negative after cordic iteration
-
-    '''
-      return H value to four quadrants by input sign of UV
-        | quadrant | x_y_in       | h_out   | s_out |
-        | -------- | ------------ | ------- | ----- |
-        |    1     | x0=+x, y0=+y | +z      | Kx    |
-        |    2     | x0=-x, y0=+y | -(z-pi) | Kx    |
-        |    3     | x0=-x, y0=-y | +(z-pi) | Kx    |
-        |    4     | x0=+x, y0=-y | -z      | Kx    |
-    '''
-    cb_mask = cb >= 0
-    cr_mask = cr >= 0
-    cb_mask_pi = cb < 0  # +cb => 0, -cb => 1
-    cb_mask_H = 2 * cb_mask - 1  # +cb => 1, -cb => -1
-    cr_mask_H = 2 * cr_mask - 1  # +cr => 1, -cr => -1
-    h = (CORDIC_DEG180_FIX8 * cb_mask_pi + h * cb_mask_H) * cr_mask_H
-
-    # ofs = np.sign(h)
-    h = (h + 128 + np.sign(h)) >> 8  # 8bit fixed
-
-    return h, s, mx, my, mz
-
-
-def cordic_hs2cbcr(h, s, depth: int, iter_num: int = 13, increase_bits_for_s: int = 3):
-    """
-    depth: 8 or 10
-    input   h range: [- 90,  90] in S8 / [-360, 360] in S10
-    input   s range: [  0,  181] in U8 / [   0, 724] in U10
-    output cb range: [-128, 127] in S8 / [-512, 511] in S10
-    output cr range: [-128, 127] in S8 / [-512, 511] in S10
-    """
-    assert depth >= 8
-
-    ## at leat 7 times iterations make sure the error of the output angle is less than 1 degree
-    iter_num = utl.clamp(iter_num, 7, 15)
-
-    ## the depth of x & y should be > iter_num, otherwise, the remain (depth - iter_num) iterations will be useless!
-    increase_bits_for_s = utl.clamp(increase_bits_for_s, 0, 8)
-    fix_bits = increase_bits_for_s + 10
-    if increase_bits_for_s + 8 <= iter_num:
-        print(
-            f"Warning: increase_bits_for_s({increase_bits_for_s}) + depth(8) <= iter_num({iter_num}), some iterations will be useless!"
-        )
-
-    ## change H to the first/fourth quadrant
-    H_flag = ((h >= -90) & (h <= 90)) * 2 - 1  # 1: q1/q4; -1: q2/q3
-    H_cordicPiFlag = np.int32(h > 90) - np.int32(h < -90)  # 0: q1/q4; 1: q2; -1: q3
-    h0 = H_cordicPiFlag * 180 + H_flag * h
-
-    x = s << increase_bits_for_s
-    y = 0
-    z = h0 << 8
-
-    ## cordic iteration
-    for i in range(iter_num):
-        d = (z > 0) * 2 - 1
-        xp = x - d * (y >> i)
-        yp = y + d * (x >> i)
-        zp = z - d * CORDIC_ATAN_LUT_FIX8[i]
-        x = xp
-        y = yp
-        z = zp
-
-    # out_0 = int32(floor((k * floor((double(x) + 32*fix)/(64*fix)) + 512) / 1024))
-    # out_1 = int32(floor((k * floor((double(y) + 32*fix)/(64*fix)) + 512) / 1024))
-    cb = (CORDIC_COEF_K_FIX10 * x + (1 << fix_bits - 1)) >> fix_bits
-    cr = (CORDIC_COEF_K_FIX10 * y + (1 << fix_bits - 1)) >> fix_bits
-
-    ## get the sign of U by the H value
-    cb = cb * H_flag
-
-    return cb, cr
 
 
 class AcmImpl:
@@ -786,79 +653,3 @@ if __name__ == '__main__':
 
     # acm.dump_json(f"{DEF_OUT_DIR}/acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}_{acm.len_h2}.json")
     # acm.dump_lut(DEF_OUT_DIR)
-
-    def test_cordic_cbcr2hs_u8(iter_num, increase_bits, uv):
-        if (uv is not None) and len(uv) >= 2:
-            u, v = uv[0], uv[1]
-        else:
-            u, v = np.indices((256, 256))
-        dh = np.zeros_like(u)
-        ds = np.zeros_like(u)
-
-        cb, cr = u - 128, v - 128
-        res = cordic_cbcr2hs(cb, cr, 8, iter_num, increase_bits)
-        h = res[0]
-        s = res[1]  # if increase_bits == 0 else res[1] + (1 << (increase_bits - 1)) >> increase_bits
-
-        hp = np.degrees(np.arctan2(cr, cb))  # [-180, +180]
-        sp = np.sqrt(cb**2 + cr**2)  # [0, 181]
-        hp = (hp + 0.5 * np.sign(hp)).astype(np.int32)
-        sp = (sp + 0.5).astype(np.int32)
-
-        dh = hp - h
-        ds = sp - s
-
-        if type(u) != np.ndarray:
-            print(f"input  u={u}, v={v} => cb={cb}, cr={cr}")
-            print(f"output h={h}, s={s} / hp={hp}, sp={sp}")
-        else:
-            # (h/180*127).astype(np.int8).tofile(f"out_h_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-            # s.astype(np.uint8).tofile(f"out_s_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-            # (hp/180*127).astype(np.int8).tofile(f"out_hp_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-            # sp.astype(np.uint8).tofile(f"out_sp_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-            # dh.astype(np.int8).tofile(f"diff_h_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-            # ds.astype(np.int8).tofile(f"diff_s_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-            print(f"Max absolute error: dh={np.max(np.abs(dh))}, ds={np.max(np.abs(ds))}")
-        print(
-            f"sum error for 8bit uv->hs: eh={abs(dh).sum()}, es={abs(ds).sum()} (iter={iter_num}, inc_bits={increase_bits})"
-        )
-
-    test_cordic_cbcr2hs_u8(args.iter_num, args.increase_bits, args.uv if args.uv else None)
-
-    def test_cordic_hs2cbcr_u8(iter_num, increase_bits, hs):
-        if (hs is not None) and len(hs) >= 2:
-            h, s = hs[0], hs[1]
-        else:
-            h = np.full((361, 182), np.arange(-180, 181).reshape(-1, 1))
-            _, s = np.indices((361, 182))
-        du = np.zeros_like(h)
-        dv = np.zeros_like(h)
-
-        res = cordic_hs2cbcr(h, s, 8, iter_num, increase_bits)
-        u = np.clip(res[0] + 128, 0, 255)
-        v = np.clip(res[1] + 128, 0, 255)
-
-        up = np.clip(s * np.cos(np.radians(h)) + 128, 0, 255)
-        vp = np.clip(s * np.sin(np.radians(h)) + 128, 0, 255)
-        up = (up + 0.5).astype(np.int32)
-        vp = (vp + 0.5).astype(np.int32)
-
-        du = up - u
-        dv = vp - v
-
-        if type(h) != np.ndarray:
-            print(f"input  h={h}, s={s}")
-            print(f"output u={u}, v={v} / up={up}, vp={vp}")
-        else:
-            # u.astype(np.uint8).tofile(f"out_u_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-            # v.astype(np.uint8).tofile(f"out_v_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-            # up.astype(np.uint8).tofile(f"out_up_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-            # vp.astype(np.uint8).tofile(f"out_vp_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-            # du.astype(np.int8).tofile(f"diff_u_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-            # dv.astype(np.int8).tofile(f"diff_v_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-            print(f"Max absolute error: du={np.max(np.abs(du))}, dv={np.max(np.abs(dv))}")
-        print(
-            f"sum error for 8bit hs->uv: eu={abs(du).sum()}, ev={abs(dv).sum()} (iter={iter_num}, inc_bits={increase_bits})"
-        )
-
-    test_cordic_hs2cbcr_u8(args.iter_num, args.increase_bits, args.hs if args.hs else None)
