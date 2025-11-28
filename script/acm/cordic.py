@@ -15,10 +15,12 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 import utils as utl
 
-CORDIC_FIX_BITS = 0
+CORDIC_S_FIX_BITS = 3
+CORDIC_XY_FIX_BITS = 6
 ## u14 max, 8bit fixed: angle [45, 26.565, 14.036, ..., 0.006994, 0.003497] * 256
 CORDIC_ATAN_LUT_FIX8 = [11520, 6801, 3593, 1824, 916, 458, 229, 115, 57, 29, 14, 7, 4, 2, 1]
 CORDIC_COEF_K_FIX10 = 622  # 10bit fixed: 0.607252935 * 1024, (from K4 to K15 are all the same)
+CORDIC_MIN_ITER_NUM = 7
 CORDIC_MAX_ITER_NUM = 15
 CORDIC_DEG180_FIX8 = 180 << 8
 
@@ -34,7 +36,7 @@ def cordic_cbcr2hs(cb, cr, depth_uv: int, iter_num: int = 13, increase_bits_for_
     assert depth_uv >= 8
 
     ## at leat 7 times iterations make sure the error of the output angle is less than 1 degree
-    iter_num = utl.clamp(iter_num, 7, 15)
+    iter_num = utl.clamp(iter_num, CORDIC_MIN_ITER_NUM, CORDIC_MAX_ITER_NUM)
 
     ## the depth of x & y should be > iter_num, otherwise, the remain (depth - iter_num) iterations will be useless!
     increase_bits_for_h = 8
@@ -46,8 +48,8 @@ def cordic_cbcr2hs(cb, cr, depth_uv: int, iter_num: int = 13, increase_bits_for_
         )
 
     ## swap to the first coordinate quadrant
-    x = abs(cb) << increase_bits_for_s  # s20
-    y = abs(cr) << increase_bits_for_s  # s20
+    x = abs(cb) << CORDIC_XY_FIX_BITS#increase_bits_for_s  # s20
+    y = abs(cr) << CORDIC_XY_FIX_BITS#increase_bits_for_s  # s20
     z = 0  # [0, 90] << 8
 
     # mx = 0
@@ -68,7 +70,8 @@ def cordic_cbcr2hs(cb, cr, depth_uv: int, iter_num: int = 13, increase_bits_for_
         # my = max(my, abs(y))
         # mz = max(mz, abs(z))
 
-    s = (CORDIC_COEF_K_FIX10 * x + (1 << 9)) >> 10  # x=s/K, K=0.607252935
+    # s = (CORDIC_COEF_K_FIX10 * x + (1 << 9)) >> 10  # x=s/K, K=0.607252935
+    s = CORDIC_COEF_K_FIX10 * x  # x=s/K, K=0.607252935
     if type(cb) == np.ndarray:
         h = np.where(s == 0, np.zeros_like(cb), np.maximum(z, 0))
     else:
@@ -91,19 +94,25 @@ def cordic_cbcr2hs(cb, cr, depth_uv: int, iter_num: int = 13, increase_bits_for_
     h = (CORDIC_DEG180_FIX8 * cb_mask_pi + h * cb_mask_H) * cr_mask_H
 
     if not keep_fix_out:
-        h = (h + (1 << increase_bits_for_h - 1) + np.sign(h)) >> increase_bits_for_h
-        s = (s + (1 << increase_bits_for_s - 1)) >> increase_bits_for_s
+        h = np.int32(h)
+        h = (h + (1 << increase_bits_for_h - 1) + (h >> 31)) >> increase_bits_for_h
         depth_h = 8
+        s_shift = increase_bits_for_s + 10
+        s = (s + (1 << s_shift - 1)) >> s_shift
         depth_s = depth_uv
     else:
         depth_h = 8 + increase_bits_for_h
         depth_s = depth_uv + increase_bits_for_s
 
+        s_shift = 10 + CORDIC_XY_FIX_BITS - increase_bits_for_s
+        s = (s + (1 << s_shift - 1)) >> s_shift
+
     return h, s, depth_h, depth_s
 
 
 def cordic_hs2cbcr(
-    h, s, depth_h: int, depth_s: int, out_depth_s: int, iter_num: int = 13, increase_bits_for_s: int = 3):
+    h, s, depth_h: int, depth_s: int, out_depth_s: int, iter_num: int = 13, increase_bits_for_s: int = 5
+):
     """
     depth_h: 8(+8)
     depth_s: [8,16] or [10,18]
@@ -115,7 +124,7 @@ def cordic_hs2cbcr(
     assert depth_s >= 8
 
     ## at leat 7 times iterations make sure the error of the output angle is less than 1 degree
-    iter_num = utl.clamp(iter_num, 7, 15)
+    iter_num = utl.clamp(iter_num, CORDIC_MIN_ITER_NUM, CORDIC_MAX_ITER_NUM)
 
     ## the depth of x & y should be > iter_num, otherwise, the remain (depth - iter_num) iterations will be useless!
     increase_bits_for_h = 8
@@ -165,17 +174,21 @@ def test_cordic_cbcr2hs(depth: int, iter_num: int, increase_bits: int, uv):
         uv_half = 128
         uv_range = 256
 
+    ## at leat 7 times iterations make sure the error of the output angle is less than 1 degree
+    iter_num = utl.clamp(iter_num, CORDIC_MIN_ITER_NUM, CORDIC_MAX_ITER_NUM)
+
     if (uv is not None) and len(uv) >= 2:
         u, v = uv[0], uv[1]
     else:
         u, v = np.indices((uv_range, uv_range))
-    dh = np.zeros_like(u)
-    ds = np.zeros_like(u)
-
     cb, cr = u - uv_half, v - uv_half
+
+    increase_bits = utl.clamp(increase_bits, 0, 8)
     res = cordic_cbcr2hs(cb, cr, depth, iter_num, increase_bits, False)
-    h = res[0]
-    s = res[1]  # if increase_bits == 0 else res[1] + (1 << (increase_bits - 1)) >> increase_bits
+    h = res[0]  # [-180, +180]
+    s = res[1]  # [0, 181] << increase_bits
+    # s = np.int32(res[1])
+    # s = (s + 4 + (s >> 31)) >> 3
 
     hp = np.degrees(np.arctan2(cr, cb))  # [-180, +180]
     sp = np.sqrt(cb**2 + cr**2)  # [0, 181]
@@ -186,18 +199,18 @@ def test_cordic_cbcr2hs(depth: int, iter_num: int, increase_bits: int, uv):
     ds = sp - s
 
     if type(u) != np.ndarray:
-        print(f"input  u={u}, v={v} => cb={cb}, cr={cr}")
-        print(f"output h={h}, s={s} / hp={hp}, sp={sp}")
+        print(f"input  uv=({u}, {v}) => cb/cr=({cb}, {cr})")
+        print(f"output hs=({h}, {s}) / hp/sp=({hp}, {sp})")
     else:
-        # (h/180*127).astype(np.int8).tofile(f"out_h_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-        # s.astype(np.uint8).tofile(f"out_s_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-        # (hp/180*127).astype(np.int8).tofile(f"out_hp_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-        # sp.astype(np.uint8).tofile(f"out_sp_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-        # dh.astype(np.int8).tofile(f"diff_h_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-        # ds.astype(np.int8).tofile(f"diff_s_256x256_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        h.astype(np.int16).tofile(f"out_h_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        s.astype(np.int16).tofile(f"out_s_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        hp.astype(np.int16).tofile(f"out_hp_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        sp.astype(np.int16).tofile(f"out_sp_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        # dh.astype(np.int8).tofile(f"diff_h_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        # ds.astype(np.int8).tofile(f"diff_s_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
         print(f"Max absolute error: dh={np.max(np.abs(dh))}, ds={np.max(np.abs(ds))}")
     print(
-        f"sum error for {depth}bit uv->hs: eh={abs(dh).sum()}, es={abs(ds).sum()} (iter={iter_num}, inc_bits={increase_bits})"
+        f"sum error for {depth}bit uv->hs: eh={np.abs(dh).sum()}, es={np.abs(ds).sum()} (iter={iter_num}, inc_bits={increase_bits})"
     )
 
 
@@ -218,6 +231,7 @@ def test_cordic_hs2cbcr(depth: int, iter_num: int, increase_bits: int, hs):
         h = np.full((361, s_range), np.arange(-180, 181).reshape(-1, 1))
         _, s = np.indices((361, s_range))
 
+    increase_bits = utl.clamp(increase_bits, 0, 8)
     res = cordic_hs2cbcr(h, s, 8, depth, depth, iter_num, increase_bits)
     u = np.clip(res[0] + uv_half, 0, uv_range - 1)
     v = np.clip(res[1] + uv_half, 0, uv_range - 1)
@@ -231,15 +245,14 @@ def test_cordic_hs2cbcr(depth: int, iter_num: int, increase_bits: int, hs):
     dv = vp - v
 
     if type(h) != np.ndarray:
-        print(f"input  h={h}, s={s}")
-        print(f"output u={u}, v={v} / up={up}, vp={vp}")
+        print(f"test {depth}bit hs({h}, {s}) -> uv({u}, {v}), target vaule: ({up}, {vp})")
     else:
-        # u.astype(np.uint8).tofile(f"out_u_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-        # v.astype(np.uint8).tofile(f"out_v_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-        # up.astype(np.uint8).tofile(f"out_up_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-        # vp.astype(np.uint8).tofile(f"out_vp_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-        # du.astype(np.int8).tofile(f"diff_u_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-        # dv.astype(np.int8).tofile(f"diff_v_182x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        u.astype(np.uint16).tofile(f"out_u_{s_range}x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        v.astype(np.uint16).tofile(f"out_v_{s_range}x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        up.astype(np.uint16).tofile(f"out_up_{s_range}x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        vp.astype(np.uint16).tofile(f"out_vp_{s_range}x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        # du.astype(np.int8).tofile(f"diff_u_{s_range}x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        # dv.astype(np.int8).tofile(f"diff_v_{s_range}x361_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
         print(f"Max absolute error: du={np.max(np.abs(du))}, dv={np.max(np.abs(dv))}")
     print(
         f"sum error for {depth}bit hs->uv: eu={abs(du).sum()}, ev={abs(dv).sum()} (iter={iter_num}, inc_bits={increase_bits})"
@@ -261,8 +274,9 @@ def test_cordic_uv2hs2uv(depth: int, iter_num: int, increase_bits: int, uv):
         u, v = uv[0], uv[1]
     else:
         u, v = np.indices((uv_range, uv_range))
-
     cb, cr = u - uv_half, v - uv_half
+
+    increase_bits = utl.clamp(increase_bits, 0, 8)
     res = cordic_cbcr2hs(cb, cr, depth, iter_num, increase_bits, True)
     h = res[0]
     s = res[1]
@@ -271,41 +285,45 @@ def test_cordic_uv2hs2uv(depth: int, iter_num: int, increase_bits: int, uv):
     assert depth_h == 8 + 8
     assert depth_s == depth + increase_bits
 
-    res2 = cordic_hs2cbcr(h, s, depth_h, depth_s, depth, iter_num, 0)
-    up = np.clip(res2[0] + uv_half, 0, uv_range - 1)
-    vp = np.clip(res2[1] + uv_half, 0, uv_range - 1)
+    res2 = cordic_hs2cbcr(h, s, depth_h, depth_s, depth, iter_num, max(CORDIC_XY_FIX_BITS - increase_bits, 0))
+    uo = np.clip(res2[0] + uv_half, 0, uv_range - 1)
+    vo = np.clip(res2[1] + uv_half, 0, uv_range - 1)
 
-    du = up - u
-    dv = vp - v
+    du = uo - u
+    dv = vo - v
     if type(h) != np.ndarray:
-        print(f"cordic_uv2hs2uv: u={u}, v={v} => up={up}, vp={vp} (iter={iter_num}, inc_bits={increase_bits})")
+        print(f"cordic_uv2hs2uv: uv=({u}, {v}) => ({uo}, {vo}) (iter={iter_num}, inc_bits={increase_bits})")
     else:
-        u.astype(np.uint8).tofile(f"in_u_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-        v.astype(np.uint8).tofile(f"in_v_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-        up.astype(np.uint8).tofile(f"out_up_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-        vp.astype(np.uint8).tofile(f"out_vp_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-        du.astype(np.int8).tofile(f"diff_u_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
-        dv.astype(np.int8).tofile(f"diff_v_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        u.astype(np.uint16).tofile(f"in_u2u_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        v.astype(np.uint16).tofile(f"in_v2v_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        uo.astype(np.uint16).tofile(f"out_u2u_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        vo.astype(np.uint16).tofile(f"out_v2v_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        du.astype(np.int16).tofile(f"diff_u2u_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
+        dv.astype(np.int16).tofile(f"diff_v2v_{uv_range}x{uv_range}_iter{iter_num}_incbits{increase_bits}_yuv400.yuv")
         print(f"Max absolute error: du={np.max(np.abs(du))}, dv={np.max(np.abs(dv))}")
     print(
-        f"sum error for {depth}bit uv->hs->uv: eu={abs(du).sum()}, ev={abs(dv).sum()} (iter={iter_num}, inc_bits={increase_bits})"
+        f"sum error for {depth}bit uv->hs->uv: eu={np.abs(du).sum()}, ev={np.abs(dv).sum()} (iter={iter_num}, inc_bits={increase_bits})"
     )
 
 
 if __name__ == '__main__':
     ## arg parser
     parser = argparse.ArgumentParser(exit_on_error=False)
-    parser.add_argument("-m", "--mode", default="", type=str, help="uv2hs, hs2uv, uv2uv")
+    parser.add_argument("-m", "--mode", default="", type=str, help="0-uv2hs, 1-hs2uv, 2-uv2uv")
     parser.add_argument("-d", "--depth", default=8, type=int, help="图像深度, 8/10, 默认: 8")
     parser.add_argument("-n", "--iter_num", default=13, type=int, help="Cordic迭代次数, 默认: 13")
     parser.add_argument("-b", "--increase_bits", default=3, type=int, help="Cordic S定点提示精度, 默认: 3")
     parser.add_argument("-p", "--pixel", type=int, nargs='+', help="传入一组UV/HS数值测试Cordic结果")
     args, _ = parser.parse_known_args()
 
-
-    if args.mode == "uv2hs":
+    if args.mode in ["0", "uv2hs"]:
+        print("Do test_cordic_cbcr2hs...")
         test_cordic_cbcr2hs(args.depth, args.iter_num, args.increase_bits, args.pixel if args.pixel else None)
-    elif args.mode == "hs2uv":
+    elif args.mode in ["1", "hs2uv"]:
+        print("Do test_cordic_hs2cbcr...")
         test_cordic_hs2cbcr(args.depth, args.iter_num, args.increase_bits, args.pixel if args.pixel else None)
-    else:
+    elif args.mode in ["2", "uv2uv", "uv2hs2uv"]:
+        print("Do test_cordic_uv2hs2uv...")
         test_cordic_uv2hs2uv(args.depth, args.iter_num, args.increase_bits, args.pixel if args.pixel else None)
+    else:
+        print(f"Error: unknown mode {args.mode}! Only support 0-uv2hs, 1-hs2uv, 2-uv2uv")
