@@ -56,6 +56,7 @@ def optimize_matrix_full(matF: np.ndarray, depth: int = 8, fix_bits: int = 8):
     M0 = float_to_fixed_matrix(matF, fix_bits)
     print(f"初始矩阵M0:\n{M0}")
 
+    print(f"计算初始矩阵RMSE...")
     initial_rmse = compute_rmse_for_matrix(matF, M0, depth, fix_bits)
     print(f"初始矩阵RMSE: {initial_rmse}")
 
@@ -65,10 +66,10 @@ def optimize_matrix_full(matF: np.ndarray, depth: int = 8, fix_bits: int = 8):
     # 对每个矩阵元素进行小范围搜索
     print("开始局部优化搜索...")
 
-    # 为了效率, 我们只对每个元素在[orig-search_radius, orig+search_radius]范围内搜索
+    # 迭代 todo: 用 Mx3矩阵 x M, 加快计算。 引入最小二乘？ 可以根据R2Y/Y2R矩阵特性来限制要微调的位置？
     for i in range(3):
         for j in range(3):
-            print("正在计算像素 [{i}, {j}]...")
+            print(f"正在计算像素 [{i}, {j}]...")
             for delta in [-1, +1]:
                 TM = M0.copy()
                 TM[i, j] = M0[i, j] + delta
@@ -78,9 +79,9 @@ def optimize_matrix_full(matF: np.ndarray, depth: int = 8, fix_bits: int = 8):
                 current_rmse = compute_rmse_for_matrix(matF, TM, depth, fix_bits)
 
                 if current_rmse < best_rmse:
+                    print(f"找到更优矩阵: 元素({i},{j})由{best_M[i, j]}调整为{TM[i, j]}, RMSE: {current_rmse}")
                     best_rmse = current_rmse
                     best_M = TM.copy()
-                    print(f"找到更优矩阵: 元素({i},{j})由{best_M[i, j]}调整为{TM[i, j]}, RMSE: {current_rmse}")
 
     return best_M, best_rmse, initial_rmse
 
