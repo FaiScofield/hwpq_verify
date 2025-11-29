@@ -4,11 +4,13 @@ FilePath    : csc_coef_tuning.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-11-28
 Description :
-LastEditTime: 2025-11-28
+LastEditTime: 2025-11-29
 """
 
 import sys
+import argparse
 import numpy as np
+import get_csc_coefs as csc
 
 
 def float_to_fixed_matrix(matF: np.ndarray, fix_bits: int = 8):
@@ -42,7 +44,7 @@ def compute_rmse_for_matrix(matF: np.ndarray, matI: np.ndarray, depth: int = 8, 
 
                 # 每100万像素打印一次进度
                 if n_pixels % 1000000 == 0:
-                    print(f"已处理 {n_pixels // 1000000} 百万个像素, {n_pixels*100/src_range**3:.6f}%")
+                    print(f"已处理 {n_pixels // 1000000} 百万个像素, 进度: {n_pixels*100/src_range**3:.6f}%")
 
     rmse = np.sqrt(total_error / n_pixels)
     return rmse
@@ -54,7 +56,7 @@ def optimize_matrix_full(matF: np.ndarray, depth: int = 8, fix_bits: int = 8):
     通过小范围遍历优化
     """
     M0 = float_to_fixed_matrix(matF, fix_bits)
-    print(f"初始矩阵M0:\n{M0}")
+    print(f"初始矩阵M0 ({fix_bits}bit定点):\n{M0}")
 
     print(f"计算初始矩阵RMSE...")
     initial_rmse = compute_rmse_for_matrix(matF, M0, depth, fix_bits)
@@ -155,25 +157,30 @@ def optimize_matrix_random(matF: np.ndarray, depth: int = 8, fix_bits: int = 8):
     return best_M, best_rmse, sampled_rmse
 
 
-def main(depth: int, fix_bits: int):
-    src_range = 1 << depth
+def test_csc_coef_tuning(depth: int, fix_bits: int, mode_str: str):
 
-    # 示例：ITU-R BT.601标准的RGB转YUV浮点矩阵
-    # 这是常见的RGB转YUV转换矩阵
-    R2Y_L2L_BT601 = np.array(
-        [[0.299, 0.587, 0.114], [-0.172588, -0.338827, 0.511416], [0.511416, -0.428247, -0.083169]]
-    )
-
-    print("使用系数: ITU-R BT.601 R2Y_L2L:")
-    print(R2Y_L2L_BT601)
+    if mode_str in csc.g_supported_standard_convert_modes:
+        csc_config = csc.CscCoefConfig()
+        csc_config.pixel_depth = depth
+        csc_config.coef_precision = 0
+        csc_config.tune_fix_coefs = False
+        csc_config.platform = "RK3572"  # RK3576/RK3572/RK3538
+        csc_config.csc_mode = csc.g_supported_standard_convert_modes[mode_str]
+        matF, _ = csc.get_csc_coefs(csc_config, None)
+        print(f"使用系数: {mode_str}:")
+    else:
+        # ITU-R BT.601 R2Y_L2L
+        matF = np.array([[0.299, 0.587, 0.114], [-0.172588, -0.338827, 0.511416], [0.511416, -0.428247, -0.083169]])
+        print("使用系数: ITU-R BT.601 R2Y_L2L:")
+    print(matF)
 
     # 方法1: 直接round(F*256)
-    M0 = float_to_fixed_matrix(R2Y_L2L_BT601, fix_bits)
+    M0 = float_to_fixed_matrix(matF, fix_bits)
     # print(f"\n初始定点化矩阵 (定点精度{fix_bits}bit): ")
     # print(M0)
 
-    # best_M, best_rmse, initial_rmse = optimize_matrix_random(R2Y_L2L_BT601, depth, fix_bits)
-    best_M, best_rmse, initial_rmse = optimize_matrix_full(R2Y_L2L_BT601, depth, fix_bits)
+    best_M, best_rmse, initial_rmse = optimize_matrix_random(matF, depth, fix_bits)
+    # best_M, best_rmse, initial_rmse = optimize_matrix_full(matF, depth, fix_bits)
 
     if np.all(best_M == M0):
         print("\n无需改进。")
@@ -185,7 +192,13 @@ def main(depth: int, fix_bits: int):
 
 
 if __name__ == "__main__":
-    depth = int(sys.argv[1]) if len(sys.argv) >= 2 else 8
-    fix_bits = int(sys.argv[2]) if len(sys.argv) >= 3 else 8
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-m", "--mode", type=str, default="", help="a single csc mode string, like: '601f_to_rgbl/rgbf_to_2020f' ...)"
+    )
+    parser.add_argument("-p", "--precision", type=int, default=8, help="the fixed coef precision bits 0 or [8, 16]")
+    parser.add_argument("-d", "--depth", type=int, default=8, help="the pixel depth bits [8, 16]")
+    parser.print_usage()
+    args, _ = parser.parse_known_args()
 
-    main(depth, fix_bits)
+    test_csc_coef_tuning(args.depth, args.precision, args.mode)
