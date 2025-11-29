@@ -286,7 +286,33 @@ if __name__ == "__main__":
         config_handler = CscConfig(platform=args.platform)
         reg_handler = CscRegister(platform=args.platform)
         nb_reg_per_frame = len(reg_handler.regs)
-        # if reg_handler.index == CscModuleIndex.POST0_ACM_Y2R:
+
+        # if args.exe != "":
+        #     root_dir = "E:/RK/Data/fpga_sim_csc/"
+
+        #     inputs = os.listdir(f"{root_dir}/input/")
+        #     inputs = [file for file in inputs if file.endswith("_nv24.yuv")]
+        #     inputs.sort()
+        #     # inputs = ["input_1920x1080_nv24_601F_5frames.yuv"]
+        #     configs = os.listdir(f"{root_dir}/config_13bit_rand_bcsh/")
+        #     configs = [file for file in configs if file.endswith(".json")]
+        #     configs.sort()
+        #     # configs = [i for i in range(1300, 1340)]
+
+        #     for k in range(len(inputs)):
+        #         input_file = f"{root_dir}/" + inputs[k]
+        #         crc_file = f"{root_dir}/output/crc_13bit_random_config_num_1000_cmodel.txt"
+        #         for i in range(len(configs)):
+        #             config_file = f"{root_dir}/config_13bit_rand_bcsh/" + configs[i]
+        #             cmd_str = f'"{args.exe}" -o "E:\\RK\\Data\\fpga_sim_csc\\output\\csc_out_1920x1080_rgb10l_planar_tmp.rgb" \
+        #                 -c {config_file} -i {input_file} -C {crc_file} -f 4 -F 12'
+        #                 # -m {configs[i]} -i {input_file} -C {crc_file} -f 4 -F 12'
+        #             ret = run_cmd(cmd_str, True, logger)
+        #     print("done.")
+        # else:
+        #     print(f"sim_ex file not set!")
+        # exit(0)
+
     elif "acm" == name:
         config_handler = AcmConfig(platform=args.platform)
         reg_handler = AcmRegister(platform=args.platform)
@@ -300,33 +326,33 @@ if __name__ == "__main__":
         reg_handler = CgcRegister(platform=args.platform)
         nb_reg_per_frame = len(reg_handler.regs)
 
-        if args.exe != "":
-            root_dir = "E:/RK/Data/fpga_sim_cgc/"
+        # if args.exe != "":
+        #     root_dir = "E:/RK/Data/fpga_sim_cgc/"
 
-            inputs = os.listdir(f"{root_dir}/input/")
-            inputs = [file for file in inputs if file.endswith("_nv24.yuv")]
-            inputs.sort()
-            # inputs = inputs[:50]
-            # configs = os.listdir(f"{root_dir}/json_list_oetf/")
-            configs = os.listdir(f"{root_dir}/json_list_modified/")
-            # configs = os.listdir(f"{root_dir}/json_list_gamma/")
-            configs = [file for file in configs if file.endswith(".json")]
-            configs.sort()
+        #     inputs = os.listdir(f"{root_dir}/input/")
+        #     inputs = [file for file in inputs if file.endswith("_nv24.yuv")]
+        #     inputs.sort()
+        #     # inputs = inputs[:50]
+        #     # configs = os.listdir(f"{root_dir}/json_list_oetf/")
+        #     configs = os.listdir(f"{root_dir}/json_list_modified/")
+        #     # configs = os.listdir(f"{root_dir}/json_list_gamma/")
+        #     configs = [file for file in configs if file.endswith(".json")]
+        #     configs.sort()
 
-            for k in range(len(inputs)):
-                # input_file = f"{root_dir}/gamegirl_1920x1080_swap0_bin1_ABGR8888.bin"
-                input_file = f"{root_dir}/input/" + inputs[k]
-                crc_file = f"{root_dir}/output/crc_result_cmodel_for_{inputs[k][:-4]}_json_list_modified.txt"
-                for i in range(len(configs)):
-                    config_file = f"{root_dir}/json_list_modified/" + configs[i]
-                    cmd_str = f'"{args.exe}" -o="E:\\RK\\Data\\fpga_sim_cgc\\output\\cgc_out_1920x1080_rgb10l_planar_tmp.rgb" \
-                        -c2={config_file} -i={input_file} -C={crc_file} \
-                        -hgt=1080 -wid=1920 -srd=1920 -osrd=3840 -f=1 -ifmt=0 -ofmt=4 -ics=1 -mod=11 -m=1'
-                    ret = run_cmd(cmd_str, True, logger)
-            print("done.")
-        else:
-            print(f"sim_ex file not set!")
-        exit(0)
+        #     for k in range(len(inputs)):
+        #         # input_file = f"{root_dir}/gamegirl_1920x1080_swap0_bin1_ABGR8888.bin"
+        #         input_file = f"{root_dir}/input/" + inputs[k]
+        #         crc_file = f"{root_dir}/output/crc_result_cmodel_for_{inputs[k][:-4]}_json_list_modified.txt"
+        #         for i in range(len(configs)):
+        #             config_file = f"{root_dir}/json_list_modified/" + configs[i]
+        #             cmd_str = f'"{args.exe}" -o="E:\\RK\\Data\\fpga_sim_cgc\\output\\cgc_out_1920x1080_rgb10l_planar_tmp.rgb" \
+        #                 -c2={config_file} -i={input_file} -C={crc_file} \
+        #                 -hgt=1080 -wid=1920 -srd=1920 -osrd=3840 -f=1 -ifmt=0 -ofmt=4 -ics=1 -mod=11 -m=1'
+        #             ret = run_cmd(cmd_str, True, logger)
+        #     print("done.")
+        # else:
+        #     print(f"sim_ex file not set!")
+        # exit(0)
 
     if config_handler is not None:
         run_common_module(config_handler, reg_handler, args, nb_reg_per_frame=nb_reg_per_frame, module_args=module_args)
