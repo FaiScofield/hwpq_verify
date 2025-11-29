@@ -19,7 +19,7 @@ from enum import Enum
 sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from config_def.module_config_core import *
 from utils import NoIndent, CompactArrayEncoder
-import tool.get_csc_coefs as csc_core
+import csc.get_csc_coefs as csc_core
 
 
 class CscColorSpace(Enum):

@@ -18,7 +18,7 @@ sys.path.append(os.path.normpath(os.path.dirname(__file__) + "/../"))
 from reg_def.module_reg_core import ModuleRegisterCore, Reg
 from config_def.module_config_csc import CscConfig
 from utils import enum_with_index
-import tool.get_csc_coefs as csc_core
+import csc.get_csc_coefs as csc_core
 
 
 @enum_with_index
