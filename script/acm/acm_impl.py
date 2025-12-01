@@ -4,7 +4,7 @@ FilePath    : acm_impl.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-10-24
 Description :
-LastEditTime: 2025-11-25
+LastEditTime: 2025-12-01
 """
 
 import os
@@ -221,7 +221,7 @@ class AcmImpl:
 
         self.b_lut_ready = True
 
-    def do_acm_u8(self, yuv444p_in: np.ndarray):
+    def do_acm_u8(self, yuv444p_in: np.ndarray, use_cordic: bool = False):
         """input: yuv444 planar in np.uint8, output: yuv444 planar in np.uint8"""
         print("[ACM] doing ACM LUT for u8 image...")
 
@@ -230,9 +230,13 @@ class AcmImpl:
         y = yuv444p_in[:, :, 0].astype(np.int32)
         cb = yuv444p_in[:, :, 1].astype(np.int32) - 128
         cr = yuv444p_in[:, :, 2].astype(np.int32) - 128
-        s = (np.sqrt(cb * cb + cr * cr) + 0.5).astype(np.int32)  # TODO: use cordic
-        h_rad = np.arctan2(cr, cb)  # [-pi, pi]
-        h_deg = (np.rad2deg(h_rad) + 180 + 0.5).astype(np.int32)  # [0, 360]
+        if use_cordic:
+            h, s, _, _ = cordic.cordic_cbcr2hs(cb, cr, 8, 13, 8, False)
+            h_deg = h + 180
+        else:
+            s = (np.sqrt(cb * cb + cr * cr) + 0.5).astype(np.int32)
+            h_rad = np.arctan2(cr, cb)  # [-pi, pi]
+            h_deg = (np.rad2deg(h_rad) + 180 + 0.5).astype(np.int32)  # [0, 360]
 
         local_lut_delta_ybyh = round_rshift(self.lut_delta_ybyh.astype(np.int32) * self.gain_y, 8)
         local_lut_delta_sbyh = round_rshift(self.lut_delta_sbyh.astype(np.int32) * self.gain_s, 8)
@@ -335,44 +339,17 @@ class AcmImpl:
         s += delta_s
         # y = np.clip(y + delta_y, 0, 255)
         # s = np.clip(s + delta_s, 0, 181)
-        new_rad = h_rad + np.deg2rad(delta_h)
-        new_cb = s * np.cos(new_rad)
-        new_cr = s * np.sin(new_rad)
-        cb = (new_cb + 0.5 * np.sign(new_cb)).astype(np.int32)
-        cr = (new_cr + 0.5 * np.sign(new_cr)).astype(np.int32)
-
-        # for i in range(H):
-        #     for j in range(W):
-        #         idx_y = float(y[i, j] / self.step_y)
-        #         idx_s = float(s[i, j] / self.step_s)
-        #         idx_h = float(h_deg[i, j] / self.step_h)
-        #         idx_h2 = float(h_deg[i, j] / self.step_h2)
-
-        #         delta_y = sample1d_linear(local_lut_delta_ybyh, idx_h)  # [-255, 255]
-        #         delta_s = sample1d_linear(local_lut_delta_sbyh, idx_h)  # [-255, 255]
-        #         delta_h = sample1d_linear(local_lut_delta_hbyh, idx_h)  # [-64, 64]
-        #         gain_yy = sample2d_linear(self.lut_gain_ybyy, idx_y, idx_h2)  # [-127, 127]
-        #         gain_ys = sample2d_linear(self.lut_gain_sbyy, idx_y, idx_h2)  # [-127, 127]
-        #         gain_yh = sample2d_linear(self.lut_gain_hbyy, idx_y, idx_h2)  # [-127, 127]
-        #         gain_sy = sample2d_linear(self.lut_gain_ybys, idx_s, idx_h2)  # [-127, 127]
-        #         gain_ss = sample2d_linear(self.lut_gain_sbys, idx_s, idx_h2)  # [-127, 127]
-        #         gain_sh = sample2d_linear(self.lut_gain_hbys, idx_s, idx_h2)  # [-127, 127]
-
-        #         delta_y = delta_y * (gain_yy * gain_sy)
-        #         delta_s = delta_s * (gain_ys * gain_ss)
-        #         delta_h = delta_h * (gain_yh * gain_sh)
-        #         delta_y = round_rshift(delta_y, 14)
-        #         delta_s = round_rshift(delta_s, 14)
-        #         delta_h = round_rshift(delta_h, 14)
-
-        #         # YSH -> YUV (full-range)
-        #         y[i, j] = utl.clamp(y[i, j] + delta_y, 0, 255)
-        #         s[i, j] = utl.clamp(s[i, j] + delta_s, 0, 181)
-        #         new_rad = h_rad[i, j] + np.deg2rad(delta_h)
-        #         new_cb = s[i, j] * np.cos(new_rad)
-        #         new_cr = s[i, j] * np.sin(new_rad)
-        #         cb[i, j] = int(new_cb + 0.5 * np.sign(new_cb))
-        #         cr[i, j] = int(new_cr + 0.5 * np.sign(new_cr))
+        if use_cordic:
+            h_deg = h + delta_h
+            h_deg = np.where(h_deg < 0, h_deg + 360, h_deg)
+            h_deg = np.where(h_deg > 360, h_deg - 360, h_deg)
+            cb, cr = cordic.cordic_hs2cbcr(h_deg, s, 8, 8, 8, 13, 8)
+        else:
+            new_rad = h_rad + np.deg2rad(delta_h)
+            new_cb = s * np.cos(new_rad)
+            new_cr = s * np.sin(new_rad)
+            cb = (new_cb + 0.5 * np.sign(new_cb)).astype(np.int32)
+            cr = (new_cr + 0.5 * np.sign(new_cr)).astype(np.int32)
 
         # create output as (H, W, 3) channels-last
         yuv444p_out = np.zeros((H, W, 3), dtype=np.uint8)
@@ -608,48 +585,48 @@ if __name__ == '__main__':
     parser.add_argument("-hs", "--hs", type=int, nargs='+', help="传入H/S数值测试Cordic结果")
     args, _ = parser.parse_known_args()
 
-    # DEF_OUT_DIR = "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/test_var_lut"
-    # H = args.height
-    # W = args.width
-    # infile = (
-    #     "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/input_1920x1080_yuv444p_601F.yuv"
-    #     if args.input == ""
-    #     else args.input
-    # )
-    # outfile = f"{DEF_OUT_DIR}/out_acm_1920x1080_yuv444p_601F.yuv" if args.output == "" else args.output
-    # cfgfile = "G:/Codes/fpga/fpga_verify/data/vdpp_vop_config_3572.json" if args.config == "" else args.config
+    DEF_OUT_DIR = "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/test_var_lut"
+    H = args.height
+    W = args.width
+    infile = (
+        "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/input_1920x1080_yuv444p_601F.yuv"
+        if args.input == ""
+        else args.input
+    )
+    outfile = f"{DEF_OUT_DIR}/out_acm_1920x1080_yuv444p_601F.yuv" if args.output == "" else args.output
+    cfgfile = "G:/Codes/fpga/fpga_verify/data/vdpp_vop_config_3572.json" if args.config == "" else args.config
 
-    # ## test
-    # data = np.fromfile(infile, np.uint8)
-    # img = np.zeros((H, W, 3), dtype=np.uint8)
-    # img[:, :, 0] = data[0 : H * W * 1].reshape(H, W)
-    # img[:, :, 1] = data[H * W * 1 : H * W * 2].reshape(H, W)
-    # img[:, :, 2] = data[H * W * 2 : H * W * 3].reshape(H, W)
+    ## test
+    data = np.fromfile(infile, np.uint8)
+    img = np.zeros((H, W, 3), dtype=np.uint8)
+    img[:, :, 0] = data[0 : H * W * 1].reshape(H, W)
+    img[:, :, 1] = data[H * W * 1 : H * W * 2].reshape(H, W)
+    img[:, :, 2] = data[H * W * 2 : H * W * 3].reshape(H, W)
 
-    # acm = AcmImpl()
+    acm = AcmImpl()
 
-    # if args.config != "":
-    #     ret = acm.load_json(cfgfile, False)
-    #     if not ret:
-    #         print("[ACM] load config failed.")
-    #         exit(ret)
-    # else:
-    #     acm.gen_test_config()
-    #     # acm.set_len(9, 13, 65, 17)
-    #     acm.set_gain(320, 320, 320)
+    if args.config != "":
+        ret = acm.load_json(cfgfile, False)
+        if not ret:
+            print("[ACM] load config failed.")
+            exit(ret)
+    else:
+        acm.gen_test_config()
+        # acm.set_len(9, 13, 65, 17)
+        acm.set_gain(320, 320, 320)
 
-    # if args.step:
-    #     acm.set_step(args.step[0], args.step[1], args.step[2], args.step[3])
-    # elif args.len:
-    #     acm.set_len(args.len[0], args.len[1], args.len[2], args.len[3])
-    # if args.gain:
-    #     acm.set_gain(args.gain[0], args.gain[1], args.gain[2])
+    if args.step:
+        acm.set_step(args.step[0], args.step[1], args.step[2], args.step[3])
+    elif args.len:
+        acm.set_len(args.len[0], args.len[1], args.len[2], args.len[3])
+    if args.gain:
+        acm.set_gain(args.gain[0], args.gain[1], args.gain[2])
 
-    # out = acm.do_acm_u8(img)
+    out = acm.do_acm_u8(img)
 
-    # ## write planar Y then Cb then Cr (same layout as input file)
-    # out.transpose(2, 0, 1).tofile(outfile)  # HWC to CHW
-    # print(f"[ACM] done. write output file to {outfile}")
+    ## write planar Y then Cb then Cr (same layout as input file)
+    out.transpose(2, 0, 1).tofile(outfile)  # HWC to CHW
+    print(f"[ACM] done. write output file to {outfile}")
 
-    # acm.dump_json(f"{DEF_OUT_DIR}/acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}_{acm.len_h2}.json")
-    # acm.dump_lut(DEF_OUT_DIR)
+    acm.dump_json(f"{DEF_OUT_DIR}/acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}_{acm.len_h2}.json")
+    acm.dump_lut(DEF_OUT_DIR)
