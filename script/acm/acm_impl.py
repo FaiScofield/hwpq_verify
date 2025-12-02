@@ -4,7 +4,7 @@ FilePath    : acm_impl.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-10-24
 Description :
-LastEditTime: 2025-12-01
+LastEditTime: 2025-12-02
 """
 
 import os
@@ -378,7 +378,7 @@ class AcmImpl:
                 len_y = data["lutLengthY"] if "lutLengthY" in data else 9
                 len_s = data["lutLengthS"] if "lutLengthS" in data else 13
                 len_h = data["lutLengthH"] if "lutLengthH" in data else 65
-                len_h2 = data["lutLengthH2"] if "lutLengthH2" in data else 17
+                len_h2 = data["lutLengthHD"] if "lutLengthHD" in data else 17
                 lut_delta_ybyh = np.array(data["acmTableDeltaYbyH"], dtype=np.int16)
                 lut_delta_sbyh = np.array(data["acmTableDeltaSbyH"], dtype=np.int16)
                 lut_delta_hbyh = np.array(data["acmTableDeltaHbyH"], dtype=np.int16)
@@ -391,6 +391,30 @@ class AcmImpl:
                 self.gain_y = data["lumGain"] if "lumGain" in data else 256
                 self.gain_s = data["satGain"] if "satGain" in data else 256
                 self.gain_h = data["hueGain"] if "hueGain" in data else 256
+
+                ## check if need to transpose the LUT size
+                if "lutGainSizeByY_HxW" in data:
+                    HxW = data["lutGainSizeByY_HxW"].split("x")
+                    if HxW[0] == len_y or HxW[1] == len_h2:
+                        print(f"[ACM] read gain_y LUT size ({HxW[0]}x{HxW[1]}), need to transpose to {len_h2}x{len_y}!")
+                        lut_gain_ybyy = lut_gain_ybyy.reshape(len_y, len_h2).T
+                        lut_gain_sbyy = lut_gain_sbyy.reshape(len_y, len_h2).T
+                        lut_gain_hbyy = lut_gain_hbyy.reshape(len_y, len_h2).T
+                    elif HxW[0] != len_h2 or HxW[1] != len_y:
+                        print(
+                            f"[ACM] gain_y LUT size ({HxW[0]}x{HxW[1]}) not fit to len_h2 x len_y ({len_h2}x{len_y})!"
+                        )
+                if "lutGainSizeByS_HxW" in data:
+                    HxW = data["lutGainSizeByS_HxW"].split("x")
+                    if HxW[0] == len_s or HxW[1] == len_h2:
+                        print(f"[ACM] read gain_s LUT size ({HxW[0]}x{HxW[1]}), need to transpose to {len_h2}x{len_s}!")
+                        lut_gain_ybys = lut_gain_ybys.reshape(len_s, len_h2).T
+                        lut_gain_sbys = lut_gain_sbys.reshape(len_s, len_h2).T
+                        lut_gain_hbys = lut_gain_hbys.reshape(len_s, len_h2).T
+                    elif HxW[0] != len_h2 or HxW[1] != len_y:
+                        print(
+                            f"[ACM] gain_s LUT size ({HxW[0]}x{HxW[1]}) not fit to len_h2 x len_y ({len_h2}x{len_s})!"
+                        )
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
             print(f"[ACM] load config '{filename}' failed in '{os.path.basename(tb.filename)}'-{tb.lineno}: {e}")
@@ -489,11 +513,13 @@ class AcmImpl:
             "lutLengthY": self.len_y,
             "lutLengthS": self.len_s,
             "lutLengthH": self.len_h,
-            "lutLengthH2": self.len_h2,
+            "lutLengthHD": self.len_h2,
             "lutStepY": self.step_y,
             "lutStepS": self.step_s,
             "lutStepH": self.step_h,
             "lutStepH2": self.step_h2,
+            "lutGainSizeByY_HxW": f"{self.len_h2}x{self.len_y}",
+            "lutGainSizeByS_HxW": f"{self.len_h2}x{self.len_s}",
         }
 
         nest_data = {"pq_tuning_param": {"acm": data}}
