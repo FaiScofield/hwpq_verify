@@ -255,7 +255,13 @@
                             0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
         "lumGain":	256,
         "hueGain":	256,
-        "satGain":	256
+        "satGain":	256,
+        "lutLengthY": 9,
+        "lutLengthS": 13,
+        "lutLengthH": 65,
+        "lutLengthHD": 17,
+        "lutGainSizeByY_HxW": "9x17",
+        "lutGainSizeByS_HxW": "13x17"
     },
     "ZME_MAIN": {
       "mode": [ "*_to_*" ],
