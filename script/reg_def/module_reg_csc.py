@@ -4,7 +4,7 @@ FilePath    : module_reg_csc.py
 Description :
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-17
-LastEditTime: 2025-09-03
+LastEditTime: 2025-12-05
 """
 
 import os
@@ -26,45 +26,25 @@ class CscModuleIndex(Enum):
     """enum = (name, offset, coef_precision)"""
 
     ## start with (xxx; coef00)
-    POST0_ACM_R2Y = ("POST0_ACM_R2Y", 0x00000C70, 10)  # (bypass, en; coef00)
-    POST0_ACM_Y2R = ("POST0_ACM_Y2R", 0x00000CD0, 10)  # (bypass, en; coef00)
-    POST1_BCSH_Y2R = ("POST1_BCSH_Y2R", 0x00000DD0, 10)  # (xxx; coef00)
+    POST_ACM = ("POST_ACM", 0x0, 10)  # (bypass, en; coef00)
     ## start with (coef00; coef01)
-    CLUSTER0_WIN0_CSC = ("CLUSTER0_WIN0_CSC", 0x00001180, 13)  # 13bit coefs
-    CLUSTER0_WIN1_CSC = ("CLUSTER0_WIN1_CSC", 0x000011A0, 10)
-    CLUSTER1_WIN0_CSC = ("CLUSTER1_WIN0_CSC", 0x00001380, 10)
-    CLUSTER1_WIN1_CSC = ("CLUSTER1_WIN1_CSC", 0x000013A0, 10)
-    ESMART0_CSC = ("ESMART0_CSC", 0x00001900, 13)  # 13bit coefs
-    ESMART1_CSC = ("ESMART1_CSC", 0x00001B00, 10)
-    MSMART0_CSC = ("MSMART0_CSC", 0x00001C30, 10)
-    MSMART1_CSC = ("MSMART1_CSC", 0x00001E30, 10)
-    HWC0_CSC = ("HWC0_CSC", 0x00003830, 10)
-    HWC1_CSC = ("HWC1_CSC", 0x00003930, 10)
+    CLUSTER_CSC_13BIT = ("CLUSTER_CSC_13BIT", 0x0, 13)  # 13bit coefs
+    CLUSTER_CSC_10BIT = ("CLUSTER_CSC_10BIT", 0x0, 10)  # 10bit coefs
 
 
-g_post_csc = [CscModuleIndex.POST0_ACM_R2Y, CscModuleIndex.POST0_ACM_Y2R, CscModuleIndex.POST1_BCSH_Y2R]
+g_post_csc = [CscModuleIndex.POST_ACM]
 
 
 class CscRegister(ModuleRegisterCore):
-    def __init__(
-        self, name: str = "CSC", platform: str = "RK3572", index: CscModuleIndex = CscModuleIndex.POST0_ACM_Y2R
-    ):
+    def __init__(self, name: str = "CSC", platform: str = "RK3572", index: CscModuleIndex = CscModuleIndex.POST_ACM):
         super().__init__(name, platform)
 
         self.index = index
         self.config = CscConfig(name)
         self.reg_dicts = {  # CscModuleIndex : list[Reg]
-            CscModuleIndex.POST0_ACM_R2Y: [],
-            CscModuleIndex.POST0_ACM_Y2R: [],
-            CscModuleIndex.POST1_BCSH_Y2R: [],
-            CscModuleIndex.CLUSTER0_WIN0_CSC: [],
-            CscModuleIndex.CLUSTER0_WIN1_CSC: [],
-            CscModuleIndex.CLUSTER1_WIN0_CSC: [],
-            CscModuleIndex.CLUSTER1_WIN1_CSC: [],
-            CscModuleIndex.ESMART0_CSC: [],
-            CscModuleIndex.ESMART1_CSC: [],
-            CscModuleIndex.MSMART0_CSC: [],
-            CscModuleIndex.MSMART1_CSC: [],
+            CscModuleIndex.POST_ACM: [],
+            CscModuleIndex.CLUSTER_CSC_13BIT: [],
+            CscModuleIndex.CLUSTER_CSC_10BIT: [],
         }
         self.base_addr = 0x0
         self.update(platform=platform, index=index)
@@ -80,39 +60,19 @@ class CscRegister(ModuleRegisterCore):
             except:
                 self.logger.error(f"failed to change index to {index}!")
 
-        if self.platform.lower() == "rk3572":
+        if self.platform.lower() in ["rk3572", "rk3538", "rk3576"]:
             self.base_addr = 0xF9000000
-            self.reg_dicts[CscModuleIndex.POST0_ACM_R2Y] = [
-                Reg(0x00, 0x0, "POST_ACM_R2Y_CTRL"),
-                Reg(0x04, 0x0, "POST_ACM_R2Y_COE0102"),
-                Reg(0x08, 0x0, "POST_ACM_R2Y_COE1011"),
-                Reg(0x0C, 0x0, "POST_ACM_R2Y_COE1220"),
-                Reg(0x10, 0x0, "POST_ACM_R2Y_COE2122"),
-                Reg(0x14, 0x0, "POST_ACM_R2Y_OFFSET0"),
-                Reg(0x18, 0x0, "POST_ACM_R2Y_OFFSET1"),
-                Reg(0x1C, 0x0, "POST_ACM_R2Y_OFFSET2"),
-            ]
-            self.reg_dicts[CscModuleIndex.POST0_ACM_Y2R] = [
+            self.reg_dicts[CscModuleIndex.POST_ACM] = [
                 Reg(0x00, 0x0, "POST_ACM_CTRL"),
-                Reg(0x04, 0x0, "POST_ACM_Y2R_COE0102"),
-                Reg(0x08, 0x0, "POST_ACM_Y2R_COE1011"),
-                Reg(0x0C, 0x0, "POST_ACM_Y2R_COE1220"),
-                Reg(0x10, 0x0, "POST_ACM_Y2R_COE2122"),
-                Reg(0x14, 0x0, "POST_ACM_Y2R_OFFSET0"),
-                Reg(0x18, 0x0, "POST_ACM_Y2R_OFFSET1"),
-                Reg(0x1C, 0x0, "POST_ACM_Y2R_OFFSET2"),
+                Reg(0x04, 0x0, "POST_ACM_COE0102"),
+                Reg(0x08, 0x0, "POST_ACM_COE1011"),
+                Reg(0x0C, 0x0, "POST_ACM_COE1220"),
+                Reg(0x10, 0x0, "POST_ACM_COE2122"),
+                Reg(0x14, 0x0, "POST_ACM_OFFSET0"),
+                Reg(0x18, 0x0, "POST_ACM_OFFSET1"),
+                Reg(0x1C, 0x0, "POST_ACM_OFFSET2"),
             ]
-            self.reg_dicts[CscModuleIndex.POST1_BCSH_Y2R] = [
-                Reg(0x00, 0x0, "POST_BCSH_R2Y_COE00"),
-                Reg(0x04, 0x0, "POST_BCSH_R2Y_COE02_01"),
-                Reg(0x08, 0x0, "POST_BCSH_R2Y_COE11_10"),
-                Reg(0x0C, 0x0, "POST_BCSH_R2Y_COE20_12"),
-                Reg(0x10, 0x0, "POST_BCSH_R2Y_COE22_21"),
-                Reg(0x14, 0x0, "POST_BCSH_R2Y_OFFSET0"),
-                Reg(0x18, 0x0, "POST_BCSH_R2Y_OFFSET1"),
-                Reg(0x1C, 0x0, "POST_BCSH_R2Y_OFFSET2"),
-            ]
-            self.reg_dicts[CscModuleIndex.CLUSTER0_WIN0_CSC] = [
+            self.reg_dicts[CscModuleIndex.CLUSTER_CSC_13BIT] = [
                 Reg(0x00, 0x0, "CSC_COE01_00"),
                 Reg(0x04, 0x0, "CSC_COE10_02"),
                 Reg(0x08, 0x0, "CSC_COE12_11"),
@@ -122,13 +82,8 @@ class CscRegister(ModuleRegisterCore):
                 Reg(0x18, 0x0, "CSC_OFFSET1"),
                 Reg(0x1C, 0x0, "CSC_OFFSET2"),
             ]
-            self.reg_dicts[CscModuleIndex.CLUSTER0_WIN1_CSC] = self.reg_dicts[CscModuleIndex.CLUSTER0_WIN0_CSC].copy()
-            self.reg_dicts[CscModuleIndex.CLUSTER1_WIN0_CSC] = self.reg_dicts[CscModuleIndex.CLUSTER0_WIN0_CSC].copy()
-            self.reg_dicts[CscModuleIndex.CLUSTER1_WIN1_CSC] = self.reg_dicts[CscModuleIndex.CLUSTER0_WIN0_CSC].copy()
-            self.reg_dicts[CscModuleIndex.ESMART0_CSC] = self.reg_dicts[CscModuleIndex.CLUSTER0_WIN0_CSC].copy()
-            self.reg_dicts[CscModuleIndex.ESMART1_CSC] = self.reg_dicts[CscModuleIndex.CLUSTER0_WIN0_CSC].copy()
-            self.reg_dicts[CscModuleIndex.MSMART0_CSC] = self.reg_dicts[CscModuleIndex.CLUSTER0_WIN0_CSC].copy()
-            self.reg_dicts[CscModuleIndex.MSMART1_CSC] = self.reg_dicts[CscModuleIndex.CLUSTER0_WIN0_CSC].copy()
+            self.reg_dicts[CscModuleIndex.CLUSTER_CSC_10BIT] = self.reg_dicts[CscModuleIndex.CLUSTER_CSC_13BIT].copy()
+
             if self.index in self.reg_dicts:
                 self.regs = self.reg_dicts[self.index]
                 self.nb_regs = len(self.regs)
@@ -277,11 +232,7 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3538...")
     parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
     parser.add_argument(
-        "-m",
-        "--module",
-        type=str,
-        default="POST0_ACM_Y2R",
-        help=f"设置硬件所处模块: {CscModuleIndex.__members__.keys()}",
+        "-m", "--module", type=str, default="POST_ACM", help=f"设置硬件所处模块: {CscModuleIndex.__members__.keys()}"
     )
     parser.print_usage()
     args = parser.parse_args()
