@@ -64,11 +64,11 @@ static char g_logbuf[2048];
 #define LOGE(fmt, ...) printf("E [" LOG_TAG "] " fmt, ##__VA_ARGS__)
 #endif // #ifdef ANDROID
 
-#define LOGT_f(fmt, ...) LOGT("%s: " fmt, __func__, ##__VA_ARGS__)
-#define LOGD_f(fmt, ...) LOGD("%s: " fmt, __func__, ##__VA_ARGS__)
-#define LOGI_f(fmt, ...) LOGI("%s: " fmt, __func__, ##__VA_ARGS__)
-#define LOGW_f(fmt, ...) LOGW("%s: " fmt, __func__, ##__VA_ARGS__)
-#define LOGE_f(fmt, ...) LOGE("%s: " fmt, __func__, ##__VA_ARGS__)
+#define LOGT_f(fmt, ...)   LOGT("%s: " fmt, __func__, ##__VA_ARGS__)
+#define LOGD_f(fmt, ...)   LOGD("%s: " fmt, __func__, ##__VA_ARGS__)
+#define LOGI_f(fmt, ...)   LOGI("%s: " fmt, __func__, ##__VA_ARGS__)
+#define LOGW_f(fmt, ...)   LOGW("%s: " fmt, __func__, ##__VA_ARGS__)
+#define LOGE_f(fmt, ...)   LOGE("%s: " fmt, __func__, ##__VA_ARGS__)
 
 /********** common macros **********/
 /* alignment */
@@ -116,6 +116,9 @@ static char g_logbuf[2048];
 #define ROUND_F32(x)       ROUND_F(x)
 #define ROUND_F64(x)       ROUND_D(x)
 
+#define DIV_255_FAST(x)    (((x) + 1 + (((x) + 1) >> 8)) >> 8)
+
+
 /**
  * Bit Twiddling Hacks
  * @see https://graphics.stanford.edu/~seander/bithacks.html
@@ -130,6 +133,7 @@ static char g_logbuf[2048];
 #define IF_DIFF_SIGN(x, y) (((x) ^ (y)) < 0)        // true if x and y have opposite signs
 
 #define IS_POWER_OF_2(x)   (((x) & -(x)) == (x)).
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -172,8 +176,8 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
 int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt,
     bool has_alpha);
 // convert image to any 8bit output format from 8bit lsb planar format
-int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd,
-    int fmt, bool has_alpha);
+int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt,
+    bool has_alpha);
 
 
 // dump regisers data to a file or stdout, with 4 registers in each row

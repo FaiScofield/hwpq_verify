@@ -4,7 +4,7 @@
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-12
  * @history:
- *  2025-12-01 vance.wu: Add YUV422/420 8/10bit pixel formats support for IO.
+ *  2025-12-01 vance.wu: Add/fix more 8/10bit pixel formats support for IO.
  *  2025-10-23 vance.wu: Add more 8bit pixel formats support for IO.
  *  2025-10-12 vance.wu: Add 10bit-packed-YUV444 formats support for IO.
  *  2025-09-08 vance.wu: Add common macros & functions for commonly usage.
@@ -478,7 +478,6 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
     assert(dst_strd >= w * 2);
 
     // src format info
-    int ret = 0;
     const int bpp = common_verify_imgfmt_bpp(src_fmt);
     const int frame_size = (w * h * bpp + 7) / 8;
     LOGD_f("src fmt: %d(%s), bpp: %d, frame_size: %d\n", src_fmt, common_verify_imgfmt_str(src_fmt), bpp, frame_size);
@@ -542,7 +541,7 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 const int src_ofs_y = y * src_strd + x;
-                const int src_ofs_c = y * src_strd + x * 2;
+                const int src_ofs_c = y * src_strd * 2 + x * 2;
                 const int dst_ofs = y * dst_strd / 2 + x;
                 p_dst_yr[dst_ofs] = p_src_y[src_ofs_y + 0] << 2;
                 p_dst_ug[dst_ofs] = p_src_c[src_ofs_c + 0] << 2;
@@ -818,11 +817,13 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
     assert(src_strd >= w * 2);
 
     // dst format info
-    int ret = 0;
     const int bpp = common_verify_imgfmt_bpp(dst_fmt);
     const int frame_size = (w * h * bpp + 7) / 8;
     LOGD_f("dst fmt: %d(%s), bpp: %d, frame_size: %d\n", dst_fmt, common_verify_imgfmt_str(dst_fmt), bpp, frame_size);
     LOGD_f("src_strd: %d, dst_strd: %d\n", src_strd, dst_strd);
+
+    int chroma_hgt = (dst_fmt % 10 >= YUV420P) ? h / 2 : h;
+    int chroma_wid = (dst_fmt % 10 >= YUV422P) ? w / 2 : w;
 
     const ushort *p_src_yr = (ushort *)p_src;
     const ushort *p_src_ug = (ushort *)((uint8_t *)p_src + src_strd * h);
@@ -973,6 +974,29 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
                 const int src_ofs = y * src_strd / 2 + x;
                 const int dst_ofs = y * dst_strd + j;
                 pack_data_10bit(p_src_yr + src_ofs, p_dst_yr + dst_ofs);
+                pack_data_10bit(p_src_ug + src_ofs, p_dst_ug + dst_ofs);
+                pack_data_10bit(p_src_vb + src_ofs, p_dst_vb + dst_ofs);
+            }
+        }
+    } break;
+    case YUV422P_10PACKED:
+    case YUV420P_10PACKED: {
+        assert(w % 4 == 0); // must align with 4 pixels
+        assert(dst_strd >= w * 5 / 4);
+        for (int y = 0; y < h; y++) {
+            uchar *p_dst_yr = (uchar *)p_dst;
+            for (int x = 0, j = 0; x <= w - 4; x += 4, j += 5) {
+                const int src_ofs = y * src_strd / 2 + x;
+                const int dst_ofs = y * dst_strd + j;
+                pack_data_10bit(p_src_yr + src_ofs, p_dst_yr + dst_ofs);
+            }
+        }
+        for (int y = 0; y < chroma_hgt; y++) {
+            uchar *p_dst_ug = (uchar *)p_dst + dst_strd * h;
+            uchar *p_dst_vb = (uchar *)p_dst + (YUV422P_10PACKED == dst_fmt ? dst_strd * h * 3 / 2 : dst_strd * h * 5 / 4);
+            for (int x = 0, j = 0; x <= chroma_wid - 4; x += 4, j += 5) {
+                const int src_ofs = y * src_strd / 4 + x;
+                const int dst_ofs = y * dst_strd / 2 + j;
                 pack_data_10bit(p_src_ug + src_ofs, p_dst_ug + dst_ofs);
                 pack_data_10bit(p_src_vb + src_ofs, p_dst_vb + dst_ofs);
             }
