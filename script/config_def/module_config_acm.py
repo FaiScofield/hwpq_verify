@@ -4,7 +4,7 @@ FilePath    : module_config_acm.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-23
 Description :
-LastEditTime: 2025-08-07
+LastEditTime: 2025-12-11
 """
 
 import os
@@ -28,15 +28,20 @@ class AcmConfig(ModuleConfigCore):
         self.acmTableDeltaYbyH = np.zeros(65, dtype=np.int16)  # [-255, 255]
         self.acmTableDeltaHbyH = np.zeros(65, dtype=np.int8)  # [- 64,  64]
         self.acmTableDeltaSbyH = np.zeros(65, dtype=np.int16)  # [-255, 255]
-        self.acmTableGainYbyY = np.zeros(17 * 9, dtype=np.int8)  # [-127, 127]
+        self.acmTableGainYbyY = np.zeros(17 * 9, dtype=np.int8)  # [-127, 127], WxH
         self.acmTableGainHbyY = np.zeros(17 * 9, dtype=np.int8)  # [-127, 127]
         self.acmTableGainSbyY = np.zeros(17 * 9, dtype=np.int8)  # [-127, 127]
-        self.acmTableGainYbyS = np.zeros(17 * 13, dtype=np.int8)  # [-127, 127]
+        self.acmTableGainYbyS = np.zeros(17 * 13, dtype=np.int8)  # [-127, 127], WxH
         self.acmTableGainHbyS = np.zeros(17 * 13, dtype=np.int8)  # [-127, 127]
         self.acmTableGainSbyS = np.zeros(17 * 13, dtype=np.int8)  # [-127, 127]
         self.lumGain = 256  # [0, (256), 1023]
         self.hueGain = 256  # [0, (256), 1023]
         self.satGain = 256  # [0, (256), 1023]
+        self.lutLengthY = 9
+        self.lutLengthS = 13
+        self.lutLengthH = 65
+        self.lutLengthHD = 17
+        self.lut2dAxis4HD = 1  # 　0: 9/13x17; 1: 17x9/13 (WxH)
 
     ## =============== overwrite methods  ===============
     def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
@@ -57,6 +62,11 @@ class AcmConfig(ModuleConfigCore):
             "lumGain": self.lumGain,
             "hueGain": self.hueGain,
             "satGain": self.satGain,
+            "lutLengthY": self.lutLengthY,
+            "lutLengthS": self.lutLengthS,
+            "lutLengthH": self.lutLengthH,
+            "lutLengthHD": self.lutLengthHD,
+            "lut2dAxis4HD": self.lut2dAxis4HD,
         }
         if filename == "":
             self.logger.info(f"Config parameters shown below:")
@@ -101,6 +111,11 @@ class AcmConfig(ModuleConfigCore):
                 self.lumGain = data["lumGain"]
                 self.hueGain = data["hueGain"]
                 self.satGain = data["satGain"]
+                self.lutLengthY = data["lutLengthY"] if "lutLengthY" in data else 9
+                self.lutLengthS = data["lutLengthS"] if "lutLengthS" in data else 13
+                self.lutLengthH = data["lutLengthH"] if "lutLengthH" in data else len(self.acmTableDeltaYbyH)
+                self.lutLengthHD = data["lutLengthHD"] if "lutLengthHD" in data else 17
+                self.lut2dAxis4HD = data["lut2dAxis4HD"] if "lut2dAxis4HD" in data else 1
                 self.version = data["version"] if "version" in data else "unknown"
                 self.randSeed = data["randSeed"] if "randSeed" in data else -1
                 return True
@@ -137,6 +152,11 @@ class AcmConfig(ModuleConfigCore):
         self.acmTableGainYbyS = np.random.randint(-128, 127, size=17 * 13, dtype=np.int8)
         self.acmTableGainHbyS = np.random.randint(-128, 127, size=17 * 13, dtype=np.int8)
         self.acmTableGainSbyS = np.random.randint(-128, 127, size=17 * 13, dtype=np.int8)
+        self.lutLengthY = 9
+        self.lutLengthS = 13
+        self.lutLengthH = 65
+        self.lutLengthHD = 17
+        self.lut2dAxis4HD = 1
         self.logger.info(f"generated a random config with seed={seed}")
         return True
 

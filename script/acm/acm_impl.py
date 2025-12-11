@@ -519,9 +519,8 @@ class AcmImpl:
             "lutStepY": self.step_y,
             "lutStepS": self.step_s,
             "lutStepH": self.step_h,
-            "lutStepH2": self.step_h2,
-            "lutGainSizeByY_HxW": f"{self.len_h2}x{self.len_y}",
-            "lutGainSizeByS_HxW": f"{self.len_h2}x{self.len_s}",
+            "lutStepHD": self.step_h2,
+            "lut2dAxis4HD": 0 if self.lut_gain_ybyy.shape[0] == self.len_h2 else 1,
         }
 
         nest_data = {"pq_tuning_param": {"acm": data}}
