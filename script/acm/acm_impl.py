@@ -4,7 +4,7 @@ FilePath    : acm_impl.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-10-24
 Description :
-LastEditTime: 2025-12-02
+LastEditTime: 2025-12-11
 """
 
 import os
@@ -394,7 +394,7 @@ class AcmImpl:
 
                 ## check if need to transpose the LUT size
                 if "lutGainSizeByY_HxW" in data:
-                    HxW = data["lutGainSizeByY_HxW"].split("x")
+                    HxW = int(data["lutGainSizeByY_HxW"].split("x"))
                     if HxW[0] == len_y or HxW[1] == len_h2:
                         print(f"[ACM] read gain_y LUT size ({HxW[0]}x{HxW[1]}), need to transpose to {len_h2}x{len_y}!")
                         lut_gain_ybyy = lut_gain_ybyy.reshape(len_y, len_h2).T
@@ -405,7 +405,7 @@ class AcmImpl:
                             f"[ACM] gain_y LUT size ({HxW[0]}x{HxW[1]}) not fit to len_h2 x len_y ({len_h2}x{len_y})!"
                         )
                 if "lutGainSizeByS_HxW" in data:
-                    HxW = data["lutGainSizeByS_HxW"].split("x")
+                    HxW = int(data["lutGainSizeByS_HxW"].split("x"))
                     if HxW[0] == len_s or HxW[1] == len_h2:
                         print(f"[ACM] read gain_s LUT size ({HxW[0]}x{HxW[1]}), need to transpose to {len_h2}x{len_s}!")
                         lut_gain_ybys = lut_gain_ybys.reshape(len_s, len_h2).T
@@ -560,11 +560,11 @@ class AcmImpl:
         plt.close()
         print(f"[ACM] dump LUT images to {dir}.")
 
-    def gen_test_config(self):
+    def gen_test_config(self, b_strict: bool = True, random_seed: int = 114514):
         if not self.b_lut_ready:
             return False
 
-        np.random.seed(114514)
+        np.random.seed(random_seed)
         tmp_lut_gain_ybyy = np.random.normal(0.0, 64.0, size=(self.len_h2, self.len_y)) * 16
         tmp_lut_gain_sbyy = np.random.normal(0.0, 64.0, size=(self.len_h2, self.len_y)) * 16
         tmp_lut_gain_hbyy = np.random.normal(0.0, 64.0, size=(self.len_h2, self.len_y)) * 16
@@ -584,14 +584,35 @@ class AcmImpl:
         self.lut_gain_sbys = np.clip(tmp_lut_gain_sbys, -128, 127).astype(np.int8)
         self.lut_gain_hbys = np.clip(tmp_lut_gain_hbys, -128, 127).astype(np.int8)
 
-        for h in range(self.len_h):
-            self.lut_delta_ybyh[h] = np.round(np.cos(h / self.len_h * 2 * np.pi) * 64)  # [-64, 64]
-            self.lut_delta_sbyh[h] = np.round(np.sin(h / self.len_h * 2 * np.pi) * 64)  # [-64, 64]
-            self.lut_delta_hbyh[h] = np.round(
-                np.arctan((h - self.len_h / 2) * 2 / self.len_h) / np.pi * 90
-            )  # [-22, 22] deg
-            # self.lut_delta_ybyh[h] = np.round(np.cos(h / self.len_h * 2 * np.pi) * 128)  # [-255, 255]
-            # self.lut_delta_sbyh[h] = np.round(np.sin(h / self.len_h * 2 * np.pi) * 180)  # [-180, 180]
+        max_h = self.len_h - 1
+        x = np.arange(self.len_h)
+
+        ## generate S/H LUTs strictly for the bug of VOP_ACM, which means:
+        ## 1. LUT[0] = LUT[64], make sure the first and last value are the same (h=-180/+180)
+        ## 2. LUT[0] = 0, make sure the first delta values are zero (h=-180)
+        if b_strict:
+            self.lut_delta_ybyh = np.round(np.sin(x / max_h * 2 * np.pi) * 255)  # [-255, 255]
+            self.lut_delta_hbyh = np.round(np.sin(x / max_h * 2 * np.pi) * 64)  # [-64, 64]
+            self.lut_delta_sbyh = np.round(np.sin(x / max_h * 2 * np.pi) * -255)  # [-255, 255]
+            assert self.lut_delta_hbyh[0] == self.lut_delta_hbyh[-1]
+            assert self.lut_delta_sbyh[0] == self.lut_delta_sbyh[-1]
+            assert self.lut_delta_hbyh[0] == 0 and self.lut_delta_sbyh[0] == 0
+        else:
+            self.lut_delta_ybyh = np.round(np.arctan((x - self.len_h // 2) * np.pi / max_h) * 255)  # [-255, 255]
+            self.lut_delta_hbyh = np.round(np.arctan((x - self.len_h // 2) * np.pi / max_h) * 64)  # [-64, 64]
+            self.lut_delta_sbyh = np.round(np.arctan((x - self.len_h // 2) * np.pi / max_h) * -255)  # [-255, 255]
+            if self.lut_delta_hbyh[0] != self.lut_delta_hbyh[-1]:
+                print(f"WARNING! The first/last element not equal! {self.lut_delta_hbyh[0]}/{self.lut_delta_hbyh[-1]}")
+            if self.lut_delta_sbyh[0] != self.lut_delta_sbyh[-1]:
+                print(f"WARNING! The first/last element not equal! {self.lut_delta_sbyh[0]}/{self.lut_delta_sbyh[-1]}")
+            print(f"y0={self.lut_delta_ybyh[0]}, y32={self.lut_delta_ybyh[32]}, y64={self.lut_delta_ybyh[-1]}")
+            print(f"s0={self.lut_delta_sbyh[0]}, s32={self.lut_delta_sbyh[32]}, s64={self.lut_delta_sbyh[-1]}")
+            print(f"h0={self.lut_delta_hbyh[0]}, h32={self.lut_delta_hbyh[32]}, h64={self.lut_delta_hbyh[-1]}")
+
+        self.lut_delta_ybyh = self.lut_delta_ybyh.astype(np.int32)
+        self.lut_delta_hbyh = self.lut_delta_hbyh.astype(np.int32)
+        self.lut_delta_sbyh = self.lut_delta_sbyh.astype(np.int32)
+        print(f"[ACM] generated a test config, b_strict={b_strict}, random_seed={random_seed}.")
 
 
 if __name__ == '__main__':
@@ -637,9 +658,9 @@ if __name__ == '__main__':
             print("[ACM] load config failed.")
             exit(ret)
     else:
-        acm.gen_test_config()
-        # acm.set_len(9, 13, 65, 17)
-        acm.set_gain(320, 320, 320)
+        acm.set_len(9, 13, 65, 17)
+        acm.gen_test_config(False)
+        # acm.set_gain(320, 320, 320)
 
     if args.step:
         acm.set_step(args.step[0], args.step[1], args.step[2], args.step[3])
@@ -655,4 +676,4 @@ if __name__ == '__main__':
     print(f"[ACM] done. write output file to {outfile}")
 
     acm.dump_json(f"{DEF_OUT_DIR}/acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}_{acm.len_h2}.json")
-    acm.dump_lut(DEF_OUT_DIR)
+    # acm.dump_lut(DEF_OUT_DIR)
