@@ -394,7 +394,8 @@ class AcmImpl:
 
                 ## check if need to transpose the LUT size
                 if "lutGainSizeByY_HxW" in data:
-                    HxW = int(data["lutGainSizeByY_HxW"].split("x"))
+                    HxW = data["lutGainSizeByY_HxW"].split("x")
+                    HxW = [int(x) for x in HxW]
                     if HxW[0] == len_y or HxW[1] == len_h2:
                         print(f"[ACM] read gain_y LUT size ({HxW[0]}x{HxW[1]}), need to transpose to {len_h2}x{len_y}!")
                         lut_gain_ybyy = lut_gain_ybyy.reshape(len_y, len_h2).T
@@ -405,13 +406,14 @@ class AcmImpl:
                             f"[ACM] gain_y LUT size ({HxW[0]}x{HxW[1]}) not fit to len_h2 x len_y ({len_h2}x{len_y})!"
                         )
                 if "lutGainSizeByS_HxW" in data:
-                    HxW = int(data["lutGainSizeByS_HxW"].split("x"))
+                    HxW = data["lutGainSizeByS_HxW"].split("x")
+                    HxW = [int(x) for x in HxW]
                     if HxW[0] == len_s or HxW[1] == len_h2:
                         print(f"[ACM] read gain_s LUT size ({HxW[0]}x{HxW[1]}), need to transpose to {len_h2}x{len_s}!")
                         lut_gain_ybys = lut_gain_ybys.reshape(len_s, len_h2).T
                         lut_gain_sbys = lut_gain_sbys.reshape(len_s, len_h2).T
                         lut_gain_hbys = lut_gain_hbys.reshape(len_s, len_h2).T
-                    elif HxW[0] != len_h2 or HxW[1] != len_y:
+                    elif HxW[0] != len_h2 or HxW[1] != len_s:
                         print(
                             f"[ACM] gain_s LUT size ({HxW[0]}x{HxW[1]}) not fit to len_h2 x len_y ({len_h2}x{len_s})!"
                         )
@@ -676,4 +678,4 @@ if __name__ == '__main__':
     print(f"[ACM] done. write output file to {outfile}")
 
     acm.dump_json(f"{DEF_OUT_DIR}/acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}_{acm.len_h2}.json")
-    # acm.dump_lut(DEF_OUT_DIR)
+    acm.dump_lut(DEF_OUT_DIR)
