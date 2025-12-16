@@ -309,8 +309,7 @@
         "lutLengthS": 13,
         "lutLengthH": 65,
         "lutLengthHD": 17,
-        "lutGainSizeByY_HxW": "17x9",
-        "lutGainSizeByS_HxW": "17x13"
+        "lut2dAxis4HD": 1
     },
     "ZME_MAIN": {
       "mode": [ "*_to_*" ],

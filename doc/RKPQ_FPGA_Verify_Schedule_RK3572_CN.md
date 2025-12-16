@@ -29,4 +29,18 @@
 
 ### 【验证中】CSC 批仿
 
+## VDPP
+
+1. 新模块功能测试
+   - VEP通路的 金字塔Pyramid，  pass
+   - VEP通路的 黑边检测BBD，  pass  （由于输入可能是LimitedRange, BBD的检测阈值（统一按Fullrange设定）要转到LimitedRange再传给寄存器，在驱动内完成。）
+   - DCI_HIST通路的黑边检测BBD，
+     - 由于DCI平均/间隔取数， 检测结果跟实际结果存在一个倍率关系，这个倍率等于采样间隔。 目前是在驱动层面将结果回乘，这样和实际结果最多有3个像素的误差。
+     - 由于DCI 通路存在CSC一定会将输入转为 YUV Fullrange， 所以BBD的检测阈值跟VEP通路不一样，不需要做F2L。
+
+2. 直方图结果核验
+   - 测了 rgb888, Y8, Y10(packed)  格式的输出并和cmodel对比，pass
+   - 测了1080P VEP通路 pass
+   - 测了4K  DCI_HIST通路 pass
+
 ## RGA (CfaDither)
