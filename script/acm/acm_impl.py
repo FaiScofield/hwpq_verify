@@ -118,6 +118,7 @@ class AcmImpl:
         self.gain_s = 256  # [0, (256), 1023], 8bit fixed
         self.gain_h = 256  # [0, (256), 1023], 8bit fixed
         self.set_len(len_y, len_s, len_h, len_h2)
+        self.rand_seed = -1
 
     def set_len(self, len_y: int, len_s: int, len_h: int, len_h2: int = 0):
         self.len_y = utl.clamp(len_y, 2, 255 + 1)
@@ -156,7 +157,6 @@ class AcmImpl:
         print(f"[ACM] set lut gain: y={self.gain_y}, s={self.gain_s}, h={self.gain_h}")
 
     def update_lut(self):
-        dir = "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/test_var_lut/"
         if self.b_lut_ready:
             if len(self.lut_delta_ybyh) != self.len_h:
                 print(f"[ACM] update delta LUT size: {len(self.lut_delta_ybyh)} => {self.len_h}")
@@ -327,12 +327,12 @@ class AcmImpl:
         gain_sy = (gain_sy + np.sign(gain_sy) * 0.5).astype(np.int32)
         gain_ss = (gain_ss + np.sign(gain_ss) * 0.5).astype(np.int32)
         gain_sh = (gain_sh + np.sign(gain_sh) * 0.5).astype(np.int32)
-        delta_y = delta_y * (gain_yy * gain_sy)
-        delta_s = delta_s * (gain_ys * gain_ss)
-        delta_h = delta_h * (gain_yh * gain_sh)
-        delta_y = round_rshift(delta_y, 14 + 2)
-        delta_s = round_rshift(delta_s, 14 + 2)
-        delta_h = round_rshift(delta_h, 14 + 2)
+        delta_y = delta_y * (gain_yy * gain_sy)  # S9*S8*S8 => S23
+        delta_s = delta_s * (gain_ys * gain_ss)  # S7*S8*S8 => S21
+        delta_h = delta_h * (gain_yh * gain_sh)  # S9*S8*S8 => S23
+        delta_y = round_rshift(delta_y, 14)
+        delta_s = round_rshift(delta_s, 14)
+        delta_h = round_rshift(delta_h, 14)
 
         # YSH -> YUV (full-range)
         y += delta_y
@@ -497,7 +497,7 @@ class AcmImpl:
     def dump_json(self, filename: str = ""):
         ## write to json config
         data = {
-            "version": "acm_impl_var_lut",
+            "version": f"acm_impl_var_lut_rand_seed_{self.rand_seed}" if self.rand_seed > 0 else "acm_impl_var_lut",
             "acmEnable": 1,
             ## keep list data in one line by using NoIndent & CompactArrayEncoder
             "acmTableDeltaYbyH": utl.NoIndent(self.lut_delta_ybyh.flatten().tolist()),
@@ -585,38 +585,52 @@ class AcmImpl:
         self.lut_gain_sbys = np.clip(tmp_lut_gain_sbys, -128, 127).astype(np.int8)
         self.lut_gain_hbys = np.clip(tmp_lut_gain_hbys, -128, 127).astype(np.int8)
 
-        max_h = self.len_h - 1
-        x = np.arange(self.len_h)
+        tmp_lut_delta_ybyh = np.random.uniform(-1, 1, 65).reshape(1, 65) * 300
+        tmp_lut_delta_hbyh = np.random.uniform(-1, 1, 65).reshape(1, 65) * 100
+        tmp_lut_delta_sbyh = np.random.uniform(-1, 1, 65).reshape(1, 65) * 300
+        tmp_lut_delta_ybyh = cv2.GaussianBlur(tmp_lut_delta_ybyh, ksize=(5, 1), sigmaX=1.0)
+        tmp_lut_delta_hbyh = cv2.GaussianBlur(tmp_lut_delta_hbyh, ksize=(5, 1), sigmaX=1.0)
+        tmp_lut_delta_sbyh = cv2.GaussianBlur(tmp_lut_delta_sbyh, ksize=(5, 1), sigmaX=1.0)
+        self.lut_delta_ybyh = np.clip(tmp_lut_delta_ybyh.flatten(), -256, 255).astype(np.int16)
+        self.lut_delta_hbyh = np.clip(tmp_lut_delta_hbyh.flatten(), -64, 64).astype(np.int16)
+        self.lut_delta_sbyh = np.clip(tmp_lut_delta_sbyh.flatten(), -256, 255).astype(np.int16)
 
         ## generate S/H LUTs strictly for the bug of VOP_ACM, which means:
         ## 1. LUT[0] = LUT[64], make sure the first and last value are the same (h=-180/+180)
         ## 2. LUT[0] = 0, make sure the first delta values are zero (h=-180)
         if b_strict:
-            self.lut_delta_ybyh = np.round(np.sin(x / max_h * 2 * np.pi) * 255)  # [-255, 255]
-            self.lut_delta_hbyh = np.round(np.sin(x / max_h * 2 * np.pi) * 64)  # [-64, 64]
-            self.lut_delta_sbyh = np.round(np.sin(x / max_h * 2 * np.pi) * -255)  # [-255, 255]
-            assert self.lut_delta_hbyh[0] == self.lut_delta_hbyh[-1]
-            assert self.lut_delta_sbyh[0] == self.lut_delta_sbyh[-1]
-            assert self.lut_delta_hbyh[0] == 0 and self.lut_delta_sbyh[0] == 0
-        else:
-            self.lut_delta_ybyh = np.round(np.arctan((x - self.len_h // 2) * np.pi / max_h) * 255)  # [-255, 255]
-            self.lut_delta_hbyh = np.round(np.arctan((x - self.len_h // 2) * np.pi / max_h) * 64)  # [-64, 64]
-            self.lut_delta_sbyh = np.round(np.arctan((x - self.len_h // 2) * np.pi / max_h) * -255)  # [-255, 255]
-            if self.lut_delta_hbyh[0] != self.lut_delta_hbyh[-1]:
-                print(f"WARNING! The first/last element not equal! {self.lut_delta_hbyh[0]}/{self.lut_delta_hbyh[-1]}")
-            if self.lut_delta_sbyh[0] != self.lut_delta_sbyh[-1]:
-                print(f"WARNING! The first/last element not equal! {self.lut_delta_sbyh[0]}/{self.lut_delta_sbyh[-1]}")
-            print(f"y0={self.lut_delta_ybyh[0]}, y32={self.lut_delta_ybyh[32]}, y64={self.lut_delta_ybyh[-1]}")
-            print(f"s0={self.lut_delta_sbyh[0]}, s32={self.lut_delta_sbyh[32]}, s64={self.lut_delta_sbyh[-1]}")
-            print(f"h0={self.lut_delta_hbyh[0]}, h32={self.lut_delta_hbyh[32]}, h64={self.lut_delta_hbyh[-1]}")
+            self.lut_delta_ybyh[-1] = self.lut_delta_ybyh[0]
+            self.lut_delta_hbyh[-1] = self.lut_delta_hbyh[0] = 0
+            self.lut_delta_sbyh[-1] = self.lut_delta_sbyh[0] = 0
 
-        self.lut_delta_ybyh = self.lut_delta_ybyh.astype(np.int32)
-        self.lut_delta_hbyh = self.lut_delta_hbyh.astype(np.int32)
-        self.lut_delta_sbyh = self.lut_delta_sbyh.astype(np.int32)
+        # max_h = self.len_h - 1
+        # x = np.arange(self.len_h)
+        # if b_strict:
+        #     self.lut_delta_ybyh = np.round(np.sin(x / max_h * 2 * np.pi) * 255)  # [-255, 255]
+        #     self.lut_delta_hbyh = np.round(np.sin(x / max_h * 2 * np.pi) * 64)  # [-64, 64]
+        #     self.lut_delta_sbyh = np.round(np.sin(x / max_h * 2 * np.pi) * -255)  # [-255, 255]
+        #     assert self.lut_delta_hbyh[0] == self.lut_delta_hbyh[-1]
+        #     assert self.lut_delta_sbyh[0] == self.lut_delta_sbyh[-1]
+        #     assert self.lut_delta_hbyh[0] == 0 and self.lut_delta_sbyh[0] == 0
+        # else:
+        #     self.lut_delta_ybyh = np.round(np.arctan((x - self.len_h // 2) * np.pi / max_h) * 255)  # [-255, 255]
+        #     self.lut_delta_hbyh = np.round(np.arctan((x - self.len_h // 2) * np.pi / max_h) * 64)  # [-64, 64]
+        #     self.lut_delta_sbyh = np.round(np.arctan((x - self.len_h // 2) * np.pi / max_h) * -255)  # [-255, 255]
+        #     if self.lut_delta_hbyh[0] != self.lut_delta_hbyh[-1]:
+        #         print(f"WARNING! The first/last element not equal! {self.lut_delta_hbyh[0]}/{self.lut_delta_hbyh[-1]}")
+        #     if self.lut_delta_sbyh[0] != self.lut_delta_sbyh[-1]:
+        #         print(f"WARNING! The first/last element not equal! {self.lut_delta_sbyh[0]}/{self.lut_delta_sbyh[-1]}")
+        #     print(f"y0={self.lut_delta_ybyh[0]}, y32={self.lut_delta_ybyh[32]}, y64={self.lut_delta_ybyh[-1]}")
+        #     print(f"s0={self.lut_delta_sbyh[0]}, s32={self.lut_delta_sbyh[32]}, s64={self.lut_delta_sbyh[-1]}")
+        #     print(f"h0={self.lut_delta_hbyh[0]}, h32={self.lut_delta_hbyh[32]}, h64={self.lut_delta_hbyh[-1]}")
+        # self.lut_delta_ybyh = self.lut_delta_ybyh.astype(np.int16)
+        # self.lut_delta_hbyh = self.lut_delta_hbyh.astype(np.int16)
+        # self.lut_delta_sbyh = self.lut_delta_sbyh.astype(np.int16)
+        self.rand_seed = random_seed
         print(f"[ACM] generated a test config, b_strict={b_strict}, random_seed={random_seed}.")
 
 
-if __name__ == '__main__':
+def main():
     ## arg parser
     parser = argparse.ArgumentParser(exit_on_error=False)
     parser.add_argument("-i", "--input", default="", type=str, help="输入图像文件, yuv444p格式")
@@ -678,3 +692,16 @@ if __name__ == '__main__':
 
     acm.dump_json(f"{DEF_OUT_DIR}/acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}_{acm.len_h2}.json")
     acm.dump_lut(DEF_OUT_DIR)
+
+
+if __name__ == '__main__':
+    main()
+
+    # b_strict = True
+    # seed = 114517
+    # acm = AcmImpl(9, 13, 65, 17)
+    # acm.gen_test_config(b_strict, seed)
+    # if b_strict:
+    #     acm.dump_json(f"acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}_hd{acm.len_h2}_strict_rand{seed}.json")
+    # else:
+    #     acm.dump_json(f"acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}_hd{acm.len_h2}_rand{seed}.json")

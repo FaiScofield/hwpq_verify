@@ -41,7 +41,7 @@ class AcmConfig(ModuleConfigCore):
         self.lutLengthS = 13
         self.lutLengthH = 65
         self.lutLengthHD = 17
-        self.lut2dAxis4HD = 1  # 　0: 9/13x17; 1: 17x9/13 (WxH)
+        self.lut2dAxis4HD = 1  # 0: 9/13x17; 1: 17x9/13 (WxH)
 
     ## =============== overwrite methods  ===============
     def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:

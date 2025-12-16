@@ -29,7 +29,7 @@ def get_yuv_psnr(yuv_chw1: np.ndarray, yuv_chw2: np.ndarray, depth: int = 8) -> 
     return psnrs
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser(description='Calculate the PSNR between two YUV planar images.')
     parser.add_argument("-r", "--ref_file", type=str, help='The reference YUV planar image file path.')
     parser.add_argument("-t", "--tar_file", type=str, help='The target YUV planar image file path.')
@@ -51,3 +51,7 @@ if __name__ == '__main__':
     psnrs = get_yuv_psnr(yuv1, yuv2, args.depth)
     wpsnr = (psnrs[0] * 4 + psnrs[1] + psnrs[2]) / 6
     print(f'PSNR: Y/U/V={psnrs.flatten().tolist()} dB. weighted(4/1/1) PSNR: {wpsnr: .2f}')
+
+
+if __name__ == '__main__':
+    main()
