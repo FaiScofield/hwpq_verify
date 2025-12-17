@@ -75,7 +75,7 @@ struct post_csc_convert_mode {
 	bool is_output_yuv;
 	bool is_input_full_range;
 	bool is_output_full_range;
-	/* new after RK3572 */
+	/* new after RK3572 & RK3538 */
 	u8 swap_channels;	/* For now, only rg swap in DCI mode is required */
 	u32 plat;		/* To distinguish platform */
 	u8 pixel_depth;         /* {8, 10} */

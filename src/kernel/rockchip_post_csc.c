@@ -352,7 +352,7 @@ static const struct rk_csc_mode_coef g_csc_mode_coefs[] = {
 	{10, 13, g_mode_csc_coefs_10bit_pix_13bit_precision},
 };
 
-/* 10bit Hue Sin Look Up Table -> range[-30, 30] */
+/** 10bit Hue Sin Look Up Table -> range[-30, 30]. @note: the angle is reversed! */
 static const s32 g_hue_sin_table[PQ_CSC_HUE_TABLE_NUM] = {
 	512, 508, 505, 501, 497, 494, 490, 486,
 	483, 479, 475, 472, 468, 464, 460, 457,
@@ -729,7 +729,7 @@ static struct rk_pq_csc_coef create_hue_matrix(s32 hue)
 	s32 cos_hue;
 
 	hue_idx = CLIP(hue / PQ_CSC_HUE_TABLE_DIV_COEF, 0, PQ_CSC_HUE_TABLE_NUM - 1);
-	sin_hue = g_hue_sin_table[hue_idx]; // note: the angle is reversed!
+	sin_hue = g_hue_sin_table[hue_idx]; /** @note: the LUT angles are reversed!!! */
 	cos_hue = g_hue_cos_table[hue_idx];
 
 	m.csc_coef00 = 1024;
@@ -738,10 +738,10 @@ static struct rk_pq_csc_coef create_hue_matrix(s32 hue)
 
 	m.csc_coef10 = 0;
 	m.csc_coef11 = cos_hue;
-	m.csc_coef12 = sin_hue;
+	m.csc_coef12 = sin_hue; // -sin(hue), the LUT angles are reversed!
 
 	m.csc_coef20 = 0;
-	m.csc_coef21 = -sin_hue;
+	m.csc_coef21 = -sin_hue; // sin(hue), the LUT angles are reversed!
 	m.csc_coef22 = cos_hue;
 
 	return m;
@@ -818,13 +818,13 @@ static int csc_calc_adjust_output_coef(struct post_csc_convert_mode *convert_mod
 
 	/*
 	 * M0 = hue_matrix * saturation_matrix,
-	 * M1 = gain_matrix * constrast_matrix,
+	 * M1 = gain_matrix * contrast_matrix,
 	 */
 
 	if (convert_mode->is_input_yuv && convert_mode->is_output_yuv) {
 		/*
-		 * yuv2yuv: output = T * M0 * N_r2y * M1 * N_y2r,
-		 * so output = T * hue_matrix * saturation_matrix *
+		 * yuv2yuv: output = T_y2y * M0 * N_r2y * M1 * N_y2r,
+		 * so output = T_y2y * hue_matrix * saturation_matrix *
 		 * N_r2y * gain_matrix * contrast_matrix * N_y2r
 		 */
 		r2y_matrix = &r2y_for_y2y;
@@ -858,8 +858,8 @@ static int csc_calc_adjust_output_coef(struct post_csc_convert_mode *convert_mod
 		dc_out_ventor.csc_offset2 = PQ_CSC_DC_IN_OUT_DEFAULT;
 	} else if (convert_mode->is_input_yuv && !convert_mode->is_output_yuv) {
 		/*
-		 * yuv2rgb: output = M1 * T * M0,
-		 * so output = gain_matrix * contrast_matrix * T *
+		 * yuv2rgb: output = M1 * T_y2r * M0,
+		 * so output = gain_matrix * contrast_matrix * T_y2r *
 		 * hue_matrix * saturation_matrix
 		 */
 		csc_matrix_multiply(&temp0, csc_coef, &hue_matrix);
@@ -881,8 +881,8 @@ static int csc_calc_adjust_output_coef(struct post_csc_convert_mode *convert_mod
 		dc_out_ventor.csc_offset2 = brightness + dc_out_offset + b_offset;
 	} else if (!convert_mode->is_input_yuv && convert_mode->is_output_yuv) {
 		/*
-		 * rgb2yuv: output = M0 * T * M1,
-		 * so output = hue_matrix * saturation_matrix * T *
+		 * rgb2yuv: output = M0 * T_r2y * M1,
+		 * so output = hue_matrix * saturation_matrix * T_r2y *
 		 * gain_matrix * contrast_matrix
 		 */
 		csc_matrix_multiply(&temp0, csc_coef, &gain_matrix);
@@ -904,8 +904,8 @@ static int csc_calc_adjust_output_coef(struct post_csc_convert_mode *convert_mod
 		dc_out_ventor.csc_offset2 = PQ_CSC_DC_IN_OUT_DEFAULT;
 	} else {
 		/*
-		 * rgb2rgb: output = T * M1 * N_y2r * M0 * N_r2y,
-		 * so output = T * gain_matrix * contrast_matrix *
+		 * rgb2rgb: output = T_r2r * M1 * N_y2r * M0 * N_r2y,
+		 * so output = T_r2r * gain_matrix * contrast_matrix *
 		 * N_y2r * hue_matrix * saturation_matrix * N_r2y
 		 */
 		r2y_matrix = &r2y_for_r2r;

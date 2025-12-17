@@ -377,7 +377,7 @@ static void csc_adjust_convert_matrix(const struct post_csc_convert_mode *mode, 
     const float r_gain = bcsh_cfg->r_gain / 256.f;                           // [0, 511] -> [0, 2)
     const float g_gain = bcsh_cfg->g_gain / 256.f;                           // [0, 511] -> [0, 2)
     const float b_gain = bcsh_cfg->b_gain / 256.f;                           // [0, 511] -> [0, 2)
-    const float hue_rad = (bcsh_cfg->hue - 256) * 30 / 256.f * M_PI / 180.f; // [0, 511] -> [-pi/6, pi/6]
+    const float hue_rad = (bcsh_cfg->hue - 256) * 30 / 256.f * M_PI / 180.f; // [0, 511] -> [-pi/6, pi/6]/[-30, 30]degree
     const float cos_hue = cos(hue_rad);
     const float sin_hue = sin(hue_rad);
     int r_offset = (int)bcsh_cfg->r_offset - 256;
