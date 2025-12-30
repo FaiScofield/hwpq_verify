@@ -6,6 +6,14 @@ TODO: 调用框图
 
 ## CSC模块验证
 
+CSC 在 RTL 中设置的位宽如下:
+
+| module | input | csc_coef(3x3 matrix) | csc_offset(3x1 vector) | output |
+| --- | --- | --- | --- | --- |
+| esmart0/cluster0_win0 | 10 | 16 | 10+16=26 | 10 |
+| write back | 8 | 13 | 8+13=21 | 8 |
+| Other | 10 | 13 | 10+13=23 | 10 |
+
 ### post csc
 
 - RK3572 CSC 系数寄存器计算公式:

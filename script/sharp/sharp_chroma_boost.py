@@ -87,7 +87,7 @@ def rgb_yuv_transform(img, flag="rgb2yuv"):
         raise ValueError('flag must be "rgb2yuv" or "yuv2rgb"')
 
     # Clip and convert back
-    out = np.clip(out, 0, 255).astype(np.uint8)
+    out = np.clip(out + 0.5, 0, 255).astype(np.uint8)
     return out
 
 def usm_sharpen(y_channel, strength=1.0, radius=3, threshold=10):
@@ -110,7 +110,7 @@ def usm_sharpen(y_channel, strength=1.0, radius=3, threshold=10):
     sharpened = y_channel.astype(np.float32) + strength * diff * mask
 
     # 钳位到合法范围并返回
-    return np.clip(sharpened, 0, 255).astype(np.uint8)
+    return np.clip(sharpened + 0.5, 0, 255).astype(np.uint8)
 
 def chroma_boost_preserve_saturation(y_in, cb_in, cr_in, y_out, saturation_scale=1.0):
     """
@@ -140,8 +140,8 @@ def chroma_boost_preserve_saturation(y_in, cb_in, cr_in, y_out, saturation_scale
     cr_out = cr_unit * target_saturation
 
     # 钳位到YUV色度的合法范围（假设是8bit，Cb/Cr范围通常是16-240）
-    cb_out = np.clip(cb_in, 0, 255)
-    cr_out = np.clip(cr_in, 0, 255)
+    cb_out = np.clip(cb_in + 0.5, 0, 255)
+    cr_out = np.clip(cr_in + 0.5, 0, 255)
 
     return cb_out.astype(np.uint8), cr_out.astype(np.uint8)
 
@@ -199,12 +199,12 @@ def process_single_image(image_path, output_dir, usm_strength=1.5, usm_radius=2.
         # 生成输出文件名
         input_path = Path(image_path)
         output_filename = f"{input_path.stem}_chroma_boost2{input_path.suffix}"
-        output_path = Path(output_dir) / output_filename
+        output_path = str(Path(output_dir) / output_filename)
 
         # 保存图片（转换回BGR格式用于保存）
-        result_bgr = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(str(output_path), result_bgr)
-        print(f"处理完成: {input_path.name} -> {output_filename}")
+        result_bgr = cv2.cvtColor(result_rgb, cv2.COLOR_RGB2BGR)
+        ok = cv2.imwrite(output_path, result_bgr)
+        print(f"处理完成: {input_path.name} -> {output_filename}, ok={ok}")
 
     except Exception as e:
         print(f"处理图片 {image_path} 时出错: {str(e)}")
@@ -219,13 +219,13 @@ def process_all_images(input_folder, output_folder, usm_strength=1.5, usm_radius
 
     # 遍历输入文件夹中的所有文件
     for filename in os.listdir(input_folder):
-        filename = "00-fundation_(3)1.bmp"
+        # filename = "00-fundation_(3)1.bmp"
         file_path = os.path.join(input_folder, filename)
 
         # 检查是否为支持的图片格式
         if os.path.isfile(file_path) and Path(filename).suffix.lower() in supported_formats:
             process_single_image(
-                file_path,
+                os.path.normpath(file_path),
                 output_folder,
                 usm_strength=usm_strength,
                 usm_radius=usm_radius,
@@ -235,8 +235,8 @@ def process_all_images(input_folder, output_folder, usm_strength=1.5, usm_radius
 # 使用示例
 if __name__ == "__main__":
     # 配置参数
-    input_directory = "Y:\CVTEPQ素材\第一轮评审素材"  # 输入图片文件夹路径
-    output_directory = "Y:\chroma_boost"  # 输出图片文件夹路径
+    input_directory = "V:/CVTEPQ素材/第一轮评审素材"  # 输入图片文件夹路径
+    output_directory = "G:/Project/pq/exp/chroma_boost"  # 输出图片文件夹路径
 
     # USM锐化参数调整（可根据需要调整）
     usm_params = {
