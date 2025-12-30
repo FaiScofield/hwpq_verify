@@ -4,6 +4,7 @@
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-05
  * @history:
+ *  - 2025-12-30 vance.wu: fix BCSH etc. options of cmd line arguments.
  *  - 2025-11-14 vance.wu: add CSC_Y2Y support for 8bit YUV420/422 formats.
  *  - 2025-10-15 vance.wu: add BSCH options of cmd line arguments.
  *  - 2025-09-10 vance.wu: print crc32 value for input/output data.
@@ -56,22 +57,22 @@ void print_usage_addition()
 int get_cmd_config_addition(int argc, char *const argv[], struct cmd_config_addition_csc *config)
 {
     static const struct option g_cmd_args_options_csc[] = {
-        {        (char *)"bright",  ARG_OPT,    0,   0},
-        {      (char *)"contrast",  ARG_OPT,    0,   0},
-        {    (char *)"saturation",  ARG_OPT,    0,   0},
-        {           (char *)"hue",  ARG_OPT,    0,   0},
-        {        (char *)"r_gain",  ARG_OPT,    0,   0},
-        {        (char *)"g_gain",  ARG_OPT,    0,   0},
-        {        (char *)"b_gain",  ARG_OPT,    0,   0},
-        {         (char *)"r_ofs",  ARG_OPT,    0,   0},
-        {         (char *)"g_ofs",  ARG_OPT,    0,   0},
-        {         (char *)"b_ofs",  ARG_OPT,    0,   0},
-        {      (char *)"csc_mode",  ARG_REQ, NULL, 'M'},
-        {   (char *)"pixel_depth",  ARG_REQ, NULL, 'D'},
-        {(char *)"coef_precision",  ARG_REQ, NULL, 'P'},
-        { (char *)"reg_dump_type",  ARG_OPT,    0, 'd'},
-        {(char *)"use_old_method", ARG_NONE,    0, 'O'},
-        {                       0,        0,    0,   0}  // end of option list
+        {(char *)"bright",         ARG_REQ,  0, 0  }, // 0
+        {(char *)"contrast",       ARG_REQ,  0, 0  }, // 1
+        {(char *)"saturation",     ARG_REQ,  0, 0  }, // 2
+        {(char *)"hue",            ARG_REQ,  0, 0  }, // 3
+        {(char *)"r_gain",         ARG_REQ,  0, 0  }, // 4
+        {(char *)"g_gain",         ARG_REQ,  0, 0  },
+        {(char *)"b_gain",         ARG_REQ,  0, 0  },
+        {(char *)"r_offset",       ARG_REQ,  0, 0  }, // 7
+        {(char *)"g_offset",       ARG_REQ,  0, 0  },
+        {(char *)"b_offset",       ARG_REQ,  0, 0  },
+        {(char *)"csc_mode",       ARG_REQ,  0, 'M'},
+        {(char *)"pixel_depth",    ARG_REQ,  0, 'D'},
+        {(char *)"coef_precision", ARG_REQ,  0, 'P'},
+        {(char *)"reg_dump_type",  ARG_REQ,  0, 'd'},
+        {(char *)"use_old_method", ARG_NONE, 0, 'O'},
+        {0,                        0,        0, 0  }  // end of option list
     };
 
     config->convert_mode.plat = VOP_VERSION_RK3572;
@@ -109,6 +110,7 @@ int get_cmd_config_addition(int argc, char *const argv[], struct cmd_config_addi
             case 8: config->bcsh_cfg.g_offset = atoi(optarg); break;
             case 9: config->bcsh_cfg.b_offset = atoi(optarg); break;
             }
+            LOGI(" - get %dth option: %s = %s\n", idx, g_cmd_args_options_csc[idx].name, optarg);
         } break;
         case 'M': strncpy(config->mode_str, optarg, 32); break;
         case 'D': config->convert_mode.pixel_depth = atoi(optarg); break;
@@ -631,7 +633,7 @@ int main(int argc, char *const argv[])
         return ret;
     }
 
-    get_cmd_config_addition(argc, argv, &cmd_config2);
+    ret = get_cmd_config_addition(argc, argv, &cmd_config2);
     common_verify_arg_dump_config(&cmd_config);
 
     struct post_csc_convert_mode *p_mode = &cmd_config2.convert_mode;
