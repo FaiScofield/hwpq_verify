@@ -4,7 +4,7 @@
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-12
  * @history:
- *  2025-12-01 vance.wu: Add/fix more 8/10bit pixel formats support for IO.
+ *  2025-01-01 vance.wu: Add/fix more 8/10bit pixel formats support for IO.
  *  2025-10-23 vance.wu: Add more 8bit pixel formats support for IO.
  *  2025-10-12 vance.wu: Add 10bit-packed-YUV444 formats support for IO.
  *  2025-09-08 vance.wu: Add common macros & functions for commonly usage.
@@ -1137,7 +1137,7 @@ int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 const int src_ofs_y = y * src_strd + x;
-                const int src_ofs_c = y * src_strd + x * 2;
+                const int src_ofs_c = y * src_strd * 2 + x * 2;
                 const int dst_ofs = y * dst_strd + x;
                 p_dst_yr[dst_ofs] = p_src_y[src_ofs_y + 0];
                 p_dst_ug[dst_ofs] = p_src_c[src_ofs_c + 0];
