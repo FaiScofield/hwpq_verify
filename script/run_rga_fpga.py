@@ -1,6 +1,6 @@
 """
 Copyright   : Copyright (c) by Rockchip. All right reserved.
-FilePath    : check_cmodel_cfa_dither.py
+FilePath    : run_rga_fpga.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-07-11
 Description :
