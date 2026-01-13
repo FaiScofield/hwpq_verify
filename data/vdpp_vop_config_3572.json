@@ -309,7 +309,7 @@
         "lutLengthS": 13,
         "lutLengthH": 65,
         "lutLengthHD": 17,
-        "lut2dAxis4HD": 1
+        "lut2dAxis4HD": 0
     },
     "ZME_MAIN": {
       "mode": [ "*_to_*" ],

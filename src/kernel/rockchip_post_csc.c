@@ -817,8 +817,8 @@ static int csc_calc_adjust_output_coef(struct post_csc_convert_mode *convert_mod
 	DBG_LOG("before adjust vec: [%d, %d, %d]\n", tmp_dc.csc_out_dc0, tmp_dc.csc_out_dc1, tmp_dc.csc_out_dc2);
 
 	/*
-	 * M0 = hue_matrix * saturation_matrix,
-	 * M1 = gain_matrix * contrast_matrix,
+	 * M0 = hue_matrix * saturation_matrix, apply to YUV data
+	 * M1 = gain_matrix * contrast_matrix, apply to RGB data
 	 */
 
 	if (convert_mode->is_input_yuv && convert_mode->is_output_yuv) {
