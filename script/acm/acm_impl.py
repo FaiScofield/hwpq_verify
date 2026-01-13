@@ -4,7 +4,7 @@ FilePath    : acm_impl.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-10-24
 Description :
-LastEditTime: 2025-12-11
+LastEditTime: 2026-01-13
 """
 
 import os
@@ -30,44 +30,49 @@ def round_rshift(value, shift: int):
     return value << -shift
 
 
-def sample1d_linear(arr: np.ndarray, idx: float):
-    # arr: (N, C) or (N,)  idx: float
-    n = arr.shape[0]
-    if n == 0:
-        raise ValueError("Empty 1D table")
-    # clamp index to edge
-    if idx <= 0:
-        return arr[0]
-    if idx >= n - 1:
-        return arr[-1]
+def gaussian_down_sample(arr: np.ndarray, out_size, kernel: np.ndarray = None):
+    # use default 5x5 kernel if not set
+    if kernel is None:
+        kernel = np.array([1, 4, 6, 4, 1], dtype=np.float32)
+        kernel = np.outer(kernel, kernel)
+        kernel = kernel / kernel.sum()
 
-    i0 = int(np.floor(idx))
-    i1 = min(i0 + 1, n - 1)
-    w1 = idx - i0
-    val = arr[i0] * (1.0 - w1) + arr[i1] * w1
-    return int(val + 0.5 * np.sign(val))  # rount to nearest integer
-
-
-def sample2d_linear(arr: np.ndarray, x: float, y: float):
     H, W = arr.shape
+    out_rows, out_cols = out_size
+    kh, kw = kernel.shape
 
-    # clamp coords
-    x = utl.clamp(x, 0.0, W - 1.0)
-    y = utl.clamp(y, 0.0, H - 1.0)
-    x0 = int(np.floor(x))
-    x1 = min(x0 + 1, W - 1)
-    y0 = int(np.floor(y))
-    y1 = min(y0 + 1, H - 1)
-    wx = x - x0
-    wy = y - y0
-    v00 = float(arr[y0, x0])
-    v10 = float(arr[y0, x1])
-    v01 = float(arr[y1, x0])
-    v11 = float(arr[y1, x1])
-    top = v00 * (1.0 - wx) + v10 * wx
-    bot = v01 * (1.0 - wx) + v11 * wx
-    val = top * (1.0 - wy) + bot * wy
-    return int(val + 0.5 * np.sign(val))  # rount to nearest integer
+    # scale factor
+    scale_h = H / out_rows
+    scale_w = W / out_cols
+
+    dst = np.zeros((out_rows, out_cols), dtype=np.float32)
+
+    # do downsample
+    for y in range(out_rows):
+        center_y = (y + 0.5) * scale_h - 0.5
+        start_y = int(np.floor(center_y - kh // 2))
+
+        for x in range(out_cols):
+            center_x = (x + 0.5) * scale_w - 0.5
+            start_x = int(np.floor(center_x - kw // 2))
+
+            # apply filter
+            conv_sum = 0.0
+            kernel_sum = 0.0
+
+            for ky in range(kh):
+                src_y = (start_y + ky + H) % H  # H方向循环取数
+                for kx in range(kw):
+                    src_x = np.clip(start_x + kx, 0, W - 1)  # W方向复制边界值
+                    conv_sum += arr[src_y, src_x] * kernel[ky, kx]
+                    kernel_sum += kernel[ky, kx]
+
+            if kernel_sum > 0:
+                dst[y, x] = conv_sum / kernel_sum
+            else:
+                dst[y, x] = 0
+
+    return dst
 
 
 def linear_resize_array_1d(arr: np.ndarray, new_length: int):
@@ -88,7 +93,7 @@ def linear_resize_array_1d(arr: np.ndarray, new_length: int):
     return new_arr
 
 
-def linear_resize_array_2d(mat: np.ndarray, new_rows: int, new_cols: int):
+def linear_resize_array_2d(mat: np.ndarray, new_rows: int, new_cols: int, kernel: np.ndarray = None):
     if mat.size == 0 or mat.shape[0] == 0 or mat.shape[1] == 0:
         raise ValueError("Invalid 2D array input!")
 
@@ -103,9 +108,13 @@ def linear_resize_array_2d(mat: np.ndarray, new_rows: int, new_cols: int):
         # scale up, use bilinear interpolation
         new_mat = cv2.resize(mat.astype(np.float32), (new_cols, new_rows), interpolation=cv2.INTER_LINEAR)
     else:
-        # scale down, use AREA interpolation (ONLY support uint8, uint16, float32)
-        new_mat = cv2.resize(mat.astype(np.float32), (new_cols, new_rows), interpolation=cv2.INTER_AREA)
-
+        # scale down
+        if kernel is not None:
+            # use custom filter kernel
+            new_mat = gaussian_down_sample(mat.astype(np.float32), (new_rows, new_cols), kernel)
+        else:
+            # use AREA interpolation (ONLY support uint8, uint16, float32)
+            new_mat = cv2.resize(mat.astype(np.float32), (new_cols, new_rows), interpolation=cv2.INTER_AREA)
     # plt.imsave(f"{dir}/new_mat_after_scaling_{new_rows}x{new_cols}.png", new_mat.astype(mat.dtype), cmap='gray')
 
     return new_mat.astype(mat.dtype)
@@ -120,7 +129,7 @@ class AcmImpl:
         self.set_len(len_y, len_s, len_h, len_h2)
         self.rand_seed = -1
 
-    def set_len(self, len_y: int, len_s: int, len_h: int, len_h2: int = 0):
+    def set_len(self, len_y: int, len_s: int, len_h: int, len_h2: int = 0, kernel: np.ndarray = None):
         self.len_y = utl.clamp(len_y, 2, 255 + 1)
         self.len_s = utl.clamp(len_s, 2, 181 + 1)
         self.len_h = utl.clamp(len_h, 2, 360 + 1)
@@ -133,9 +142,9 @@ class AcmImpl:
         print(
             f"[ACM] update lut step: y={self.step_y:.4f}, s={self.step_s:.4f}, h={self.step_h:.4f}, h2={self.step_h2:.4f}"
         )
-        self.update_lut()
+        self.update_lut(kernel)
 
-    def set_step(self, step_y: float, step_s: float, step_h: float, step_h2: float = 0.0):
+    def set_step(self, step_y: float, step_s: float, step_h: float, step_h2: float = 0.0, kernel: np.ndarray = None):
         self.step_y = utl.clamp(step_y, 1.0, 255.0)
         self.step_s = utl.clamp(step_s, 1.0, 181.0)
         self.step_h = utl.clamp(step_h, 1.0, 360.0)
@@ -148,7 +157,7 @@ class AcmImpl:
             f"[ACM] set lut step: y={self.step_y:.4f}, s={self.step_s:.4f}, h={self.step_h:.4f}, h2={self.step_h2:.4f}"
         )
         print(f"[ACM] update lut len: y={self.len_y}, s={self.len_s}, h={self.len_h}, h2={self.len_h2}")
-        self.update_lut()
+        self.update_lut(kernel)
 
     def set_gain(self, gain_y: int, gain_s: int, gain_h: int):
         self.gain_y = gain_y
@@ -156,7 +165,7 @@ class AcmImpl:
         self.gain_h = gain_h
         print(f"[ACM] set lut gain: y={self.gain_y}, s={self.gain_s}, h={self.gain_h}")
 
-    def update_lut(self):
+    def update_lut(self, kernel: np.ndarray = None):
         if self.b_lut_ready:
             if len(self.lut_delta_ybyh) != self.len_h:
                 print(f"[ACM] update delta LUT size: {len(self.lut_delta_ybyh)} => {self.len_h}")
@@ -171,13 +180,12 @@ class AcmImpl:
                 print(
                     f"[ACM] update gain_s LUT size: {self.lut_gain_ybys.shape[0]}x{self.lut_gain_ybys.shape[1]} => {self.len_h2}x{self.len_s}"
                 )
-
-                self.lut_gain_ybyy = linear_resize_array_2d(self.lut_gain_ybyy, self.len_h2, self.len_y)
-                self.lut_gain_sbyy = linear_resize_array_2d(self.lut_gain_sbyy, self.len_h2, self.len_y)
-                self.lut_gain_hbyy = linear_resize_array_2d(self.lut_gain_hbyy, self.len_h2, self.len_y)
-                self.lut_gain_ybys = linear_resize_array_2d(self.lut_gain_ybys, self.len_h2, self.len_s)
-                self.lut_gain_sbys = linear_resize_array_2d(self.lut_gain_sbys, self.len_h2, self.len_s)
-                self.lut_gain_hbys = linear_resize_array_2d(self.lut_gain_hbys, self.len_h2, self.len_s)
+                self.lut_gain_ybyy = linear_resize_array_2d(self.lut_gain_ybyy, self.len_h2, self.len_y, kernel)
+                self.lut_gain_sbyy = linear_resize_array_2d(self.lut_gain_sbyy, self.len_h2, self.len_y, kernel)
+                self.lut_gain_hbyy = linear_resize_array_2d(self.lut_gain_hbyy, self.len_h2, self.len_y, kernel)
+                self.lut_gain_ybys = linear_resize_array_2d(self.lut_gain_ybys, self.len_h2, self.len_s, kernel)
+                self.lut_gain_sbys = linear_resize_array_2d(self.lut_gain_sbys, self.len_h2, self.len_s, kernel)
+                self.lut_gain_hbys = linear_resize_array_2d(self.lut_gain_hbys, self.len_h2, self.len_s, kernel)
             else:
                 if self.lut_gain_ybyy.shape[1] != self.len_y:
                     lut_gain_ybyy = np.zeros((self.len_h2, self.len_y), dtype=np.float32)
@@ -359,7 +367,7 @@ class AcmImpl:
         print("[ACM] do ACM LUT for u8 image done.")
         return yuv444p_out
 
-    def load_json(self, filename: str, b_resample: bool = False):
+    def load_json(self, filename: str, b_resample: bool = False, kernel: np.ndarray = None):
         ## check config file validity
         if not os.path.exists(filename):
             print(f"[ACM] config file '{filename}' doesn't exist!")
@@ -368,17 +376,31 @@ class AcmImpl:
             print(f"[ACM] config file '{filename}' is not a json file!")
             return False
 
+        len_y = 9
+        len_s = 13
+        len_h = 65
+        len_h2 = 17
+        lut2dAxis4HD = 0
+        lut_delta_ybyh = np.zeros(self.len_h, dtype=np.int16)
+        lut_delta_sbyh = np.zeros(self.len_h, dtype=np.int16)
+        lut_delta_hbyh = np.zeros(self.len_h, dtype=np.int16)
+        lut_gain_ybyy = np.zeros((self.len_h2, self.len_y), dtype=np.int8)
+        lut_gain_sbyy = np.zeros((self.len_h2, self.len_y), dtype=np.int8)
+        lut_gain_hbyy = np.zeros((self.len_h2, self.len_y), dtype=np.int8)
+        lut_gain_ybys = np.zeros((self.len_h2, self.len_s), dtype=np.int8)
+        lut_gain_sbys = np.zeros((self.len_h2, self.len_s), dtype=np.int8)
+        lut_gain_hbys = np.zeros((self.len_h2, self.len_s), dtype=np.int8)
+
         ## read json config
         try:
             with open(filename, "r") as f:
                 data = json.load(f)
                 if "pq_tuning_param" in data:
-                    print("[ACM] loading config from pq_tuning_param.acm ...")
-                    data = data["pq_tuning_param"]["acm"]
-                len_y = data["lutLengthY"] if "lutLengthY" in data else 9
-                len_s = data["lutLengthS"] if "lutLengthS" in data else 13
-                len_h = data["lutLengthH"] if "lutLengthH" in data else 65
-                len_h2 = data["lutLengthHD"] if "lutLengthHD" in data else 17
+                    print("[ACM] loading config from pq_tuning_param ...")
+                    data = data["pq_tuning_param"]
+                if "acm" in data:
+                    data = data["acm"]
+
                 lut_delta_ybyh = np.array(data["acmTableDeltaYbyH"], dtype=np.int16)
                 lut_delta_sbyh = np.array(data["acmTableDeltaSbyH"], dtype=np.int16)
                 lut_delta_hbyh = np.array(data["acmTableDeltaHbyH"], dtype=np.int16)
@@ -388,35 +410,38 @@ class AcmImpl:
                 lut_gain_ybys = np.array(data["acmTableGainYbyS"], dtype=np.int8)
                 lut_gain_sbys = np.array(data["acmTableGainSbyS"], dtype=np.int8)
                 lut_gain_hbys = np.array(data["acmTableGainHbyS"], dtype=np.int8)
+
+                lut2dAxis4HD = data["lut2dAxis4HD"] if "lut2dAxis4HD" in data else 0
                 self.gain_y = data["lumGain"] if "lumGain" in data else 256
                 self.gain_s = data["satGain"] if "satGain" in data else 256
                 self.gain_h = data["hueGain"] if "hueGain" in data else 256
 
+                ## guess lut length
+                len_h = data["lutLengthH"] if "lutLengthH" in data else len(lut_delta_ybyh)
+                if len(lut_gain_ybyy) == 65 * 9 and len(lut_gain_ybys) == 65 * 13:
+                    len_y = 9
+                    len_s = 13
+                    len_h2 = 65
+                elif len(lut_gain_ybyy) == 17 * 9 and len(lut_gain_ybys) == 17 * 13:
+                    len_y = 9
+                    len_s = 13
+                    len_h2 = 17
+                elif all(["lutLengthY", "lutLengthS", "lutLengthHD"]) in data:
+                    len_y = data["lutLengthY"]
+                    len_s = data["lutLengthS"]
+                    len_h2 = data["lutLengthHD"]
+                else:
+                    print("WARNING: unknow len_y/s/h2 !!! use default value.")
+
                 ## check if need to transpose the LUT size
-                if "lutGainSizeByY_HxW" in data:
-                    HxW = data["lutGainSizeByY_HxW"].split("x")
-                    HxW = [int(x) for x in HxW]
-                    if HxW[0] == len_y or HxW[1] == len_h2:
-                        print(f"[ACM] read gain_y LUT size ({HxW[0]}x{HxW[1]}), need to transpose to {len_h2}x{len_y}!")
-                        lut_gain_ybyy = lut_gain_ybyy.reshape(len_y, len_h2).T
-                        lut_gain_sbyy = lut_gain_sbyy.reshape(len_y, len_h2).T
-                        lut_gain_hbyy = lut_gain_hbyy.reshape(len_y, len_h2).T
-                    elif HxW[0] != len_h2 or HxW[1] != len_y:
-                        print(
-                            f"[ACM] gain_y LUT size ({HxW[0]}x{HxW[1]}) not fit to len_h2 x len_y ({len_h2}x{len_y})!"
-                        )
-                if "lutGainSizeByS_HxW" in data:
-                    HxW = data["lutGainSizeByS_HxW"].split("x")
-                    HxW = [int(x) for x in HxW]
-                    if HxW[0] == len_s or HxW[1] == len_h2:
-                        print(f"[ACM] read gain_s LUT size ({HxW[0]}x{HxW[1]}), need to transpose to {len_h2}x{len_s}!")
-                        lut_gain_ybys = lut_gain_ybys.reshape(len_s, len_h2).T
-                        lut_gain_sbys = lut_gain_sbys.reshape(len_s, len_h2).T
-                        lut_gain_hbys = lut_gain_hbys.reshape(len_s, len_h2).T
-                    elif HxW[0] != len_h2 or HxW[1] != len_s:
-                        print(
-                            f"[ACM] gain_s LUT size ({HxW[0]}x{HxW[1]}) not fit to len_h2 x len_y ({len_h2}x{len_s})!"
-                        )
+                if lut2dAxis4HD:
+                    lut_gain_ybyy = lut_gain_ybyy.reshape(len_y, len_h2).T
+                    lut_gain_sbyy = lut_gain_sbyy.reshape(len_y, len_h2).T
+                    lut_gain_hbyy = lut_gain_hbyy.reshape(len_y, len_h2).T
+                    lut_gain_ybys = lut_gain_ybys.reshape(len_s, len_h2).T
+                    lut_gain_sbys = lut_gain_sbys.reshape(len_s, len_h2).T
+                    lut_gain_hbys = lut_gain_hbys.reshape(len_s, len_h2).T
+
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]  # get last erro stack
             print(f"[ACM] load config '{filename}' failed in '{os.path.basename(tb.filename)}'-{tb.lineno}: {e}")
@@ -459,16 +484,16 @@ class AcmImpl:
                 print(
                     f"[ACM] update gain_y LUT size: {lut_gain_ybyy.shape[0]}x{lut_gain_ybyy.shape[1]} => {self.len_h2}x{self.len_y}"
                 )
-                lut_gain_ybyy = linear_resize_array_2d(lut_gain_ybyy, self.len_h2, self.len_y)
-                lut_gain_sbyy = linear_resize_array_2d(lut_gain_sbyy, self.len_h2, self.len_y)
-                lut_gain_hbyy = linear_resize_array_2d(lut_gain_hbyy, self.len_h2, self.len_y)
+                lut_gain_ybyy = linear_resize_array_2d(lut_gain_ybyy, self.len_h2, self.len_y, kernel)
+                lut_gain_sbyy = linear_resize_array_2d(lut_gain_sbyy, self.len_h2, self.len_y, kernel)
+                lut_gain_hbyy = linear_resize_array_2d(lut_gain_hbyy, self.len_h2, self.len_y, kernel)
             if len_h2 != self.len_h2 or lut_gain_ybys.shape[1] != self.len_s:
                 print(
                     f"[ACM] update gain_s LUT size: {lut_gain_ybyy.shape[0]}x{lut_gain_ybyy.shape[1]} => {self.len_h2}x{self.len_s}"
                 )
-                lut_gain_ybys = linear_resize_array_2d(lut_gain_ybys, self.len_h2, self.len_s)
-                lut_gain_sbys = linear_resize_array_2d(lut_gain_sbys, self.len_h2, self.len_s)
-                lut_gain_hbys = linear_resize_array_2d(lut_gain_hbys, self.len_h2, self.len_s)
+                lut_gain_ybys = linear_resize_array_2d(lut_gain_ybys, self.len_h2, self.len_s, kernel)
+                lut_gain_sbys = linear_resize_array_2d(lut_gain_sbys, self.len_h2, self.len_s, kernel)
+                lut_gain_hbys = linear_resize_array_2d(lut_gain_hbys, self.len_h2, self.len_s, kernel)
         else:
             self.len_y = len_y
             self.len_s = len_s
@@ -695,13 +720,28 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # main()
 
-    # b_strict = True
-    # seed = 114517
-    # acm = AcmImpl(9, 13, 65, 17)
-    # acm.gen_test_config(b_strict, seed)
-    # if b_strict:
-    #     acm.dump_json(f"acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}_hd{acm.len_h2}_strict_rand{seed}.json")
+    b_strict = True
+    seed = 114517
+    acm = AcmImpl(9, 13, 65, 65)
+    acm.gen_test_config(b_strict, seed)
+
+    kernel = np.array([1, 4, 6, 4, 1])
+    kernel = np.outer(kernel, kernel)
+    kernel = kernel / kernel.sum()
+    print("kernel: ", kernel)
+
+    acm.set_len(9, 13, 65, 17, kernel)
+    if b_strict:
+        acm.dump_json(
+            f"acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}_hd{acm.len_h2}_strict_rand{seed}_kernel.json"
+        )
+    else:
+        acm.dump_json(f"acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}_hd{acm.len_h2}_rand{seed}.json")
+
+    # if acm.load_json("g:/Project/pq/acm_cfgs.json"):
+    #     acm.set_len(9, 13, 65, 17)
+    #     acm.dump_json("g:/Project/pq/acm_cfg_down.json")
     # else:
-    #     acm.dump_json(f"acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}_hd{acm.len_h2}_rand{seed}.json")
+    #     print("load json failed!")
