@@ -4,7 +4,7 @@ FilePath    : run_vdpp_fpga.py
 Author      : vance.wu@rock-chips.com
 Date        : 2026-01-05
 Description :
-LastEditTime: 2025-01-08
+LastEditTime: 2025-01-22
 """
 
 import os
@@ -16,7 +16,7 @@ b_test_hwpq = True
 b_test_zme = True
 
 dev_data_path = "/data/vdpp/"
-dev_output_folder = f"{dev_data_path}/rk3576_0108"
+dev_output_folder = f"{dev_data_path}/rk3538_0123_v1.4.0"
 host_root_dir = "//172.16.4.246/vop/hwpq_verify_data/vdpp_robin_fpga_verify_pyr/output/"
 
 def main(args):
@@ -31,6 +31,7 @@ def main(args):
     utl.run_cmd("adb shell setprop vdpp_debug 0x3F")
     utl.run_cmd("adb shell setprop vdpp2_debug 0x3F")
     utl.run_cmd("adb shell setprop vdpp3_debug 0x3F")
+    utl.run_cmd("adb shell \"echo 0x104 > /sys/module/rk_vcodec/parameters/mpp_dev_debug\"")
 
     ## run command
     if b_test_vdpp:
@@ -140,8 +141,32 @@ def main(args):
     if b_test_zme:
         sub_dir = f"{dev_output_folder}/zme_test/out_vep_1080p_zme"
         utl.run_cmd(f"adb shell mkdir -p {sub_dir}")
-        utl.run_cmd(f"adb shell hwpq_test -i {dev_data_path}/input/input_1920x1080_601l_nv12.yuv -w 1920 -g 1080 -f 2 -r 0 -o {sub_dir}/out_1920x1080_nv24_601l.yuv -F 0 -m 2 -d {sub_dir} --en_pyr=0 --en_bbd=0 --en_es=0 --en_dmsr=0 --en_shp=0 --en_hist=0")
-        utl.run_cmd(f"adb shell hwpq_test -i {dev_data_path}/input/input_1920x1080_601l_nv12.yuv -w 1920 -g 1080 -f 2 -r 0 -o {sub_dir}/out_960x540_nv24_601l.yuv -W 960 -G 540 -F 0 -m 2 -d {sub_dir} --en_pyr=0 --en_bbd=0 --en_es=0 --en_dmsr=0 --en_shp=0 --en_hist=0")
+
+        com_arg = f"-i {dev_data_path}/input/input_1920x1080_601l_nv12.yuv -w 1920 -g 1080 -f 2 -r 0 -m 2 --en_pyr=0 --en_bbd=0 --en_es=0 --en_dmsr=0 --en_shp=0 --en_hist=0"
+        # x1 == 1.0
+        utl.run_cmd(f"adb shell hwpq_test {com_arg} -o {sub_dir}/out_1920x1080_nv24_601l.yuv -F 0")
+        # x0.85 > 0.833
+        utl.run_cmd(f"adb shell hwpq_test {com_arg} -o {sub_dir}/out_1632x912_nv12_601l.yuv -F 2 -W 1632 -G 912")
+        # x0.75 >= 0.7
+        utl.run_cmd(f"adb shell hwpq_test {com_arg} -o {sub_dir}/out_1440x816_nv12_601l.yuv -F 2 -W 1440 -G 816")
+        # x0.5  >= 0.5
+        utl.run_cmd(f"adb shell hwpq_test {com_arg} -o {sub_dir}/out_960x540_nv24_601l.yuv -F 0 -W 960 -G 540")
+        # x0.4  >= 0.33
+        utl.run_cmd(f"adb shell hwpq_test {com_arg} -o {sub_dir}/out_768x432_nv12_601l.yuv -F 2 -W 768 -G 432")
+        # x0.25 >= 0.25
+        utl.run_cmd(f"adb shell hwpq_test {com_arg} -o {sub_dir}/out_480x272_nv12_601l.yuv -F 2 -W 480 -G 272")
+
+        com_arg = f"-i {dev_data_path}/input/input_480x272_601l_nv12.yuv -w 480 -g 272 -f 2 -r 0 -m 2 --en_pyr=0 --en_bbd=0 --en_es=0 --en_dmsr=0 --en_shp=0 --en_hist=0"
+        # x1.2  >  1
+        utl.run_cmd(f"adb shell hwpq_test {com_arg} -o {sub_dir}/out_576x328_nv12_601l.yuv -F 2 -W 576 -G 328")
+        # x1.5  >= 1.5
+        utl.run_cmd(f"adb shell hwpq_test {com_arg} -o {sub_dir}/out_720x408_nv12_601l.yuv -F 2 -W 720 -G 408")
+        # x2    >= 2.0
+        utl.run_cmd(f"adb shell hwpq_test {com_arg} -o {sub_dir}/out_960x544_nv12_601l.yuv -F 2 -W 960 -G 544")
+        # x3    >= 2.667
+        utl.run_cmd(f"adb shell hwpq_test {com_arg} -o {sub_dir}/out_1440x816_nv12_601l.yuv -F 2 -W 1440 -G 816")
+        # x4    else
+        utl.run_cmd(f"adb shell hwpq_test {com_arg} -o {sub_dir}/out_1920x1080_nv12_601l.yuv -F 2 -W 1920 -G 1080")
 
     ## pull data
     utl.run_cmd(f"adb pull {dev_output_folder} {host_root_dir}")
