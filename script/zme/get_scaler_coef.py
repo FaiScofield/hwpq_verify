@@ -60,12 +60,15 @@ def bicubic_weight(x, a=-0.5):
         对应的权重系数
     """
     x = np.abs(x)
-    if x <= 1:
-        return (a + 2) * x**3 - (a + 3) * x**2 + 1
-    elif x <= 2:
-        return a * x**3 - 5 * a * x**2 + 8 * a * x - 4 * a
-    else:
-        return 0.0
+
+    res = np.zeros_like(x)
+    res_le1 = (a + 2) * x**3 - (a + 3) * x**2 + 1
+    res_le2 = a * x**3 - 5 * a * x**2 + 8 * a * x - 4 * a
+
+    res[x <= 1] = res_le1[x <= 1]
+    res[(x > 1) & (x <= 2)] = res_le2[(x > 1) & (x <= 2)]
+
+    return res
 
 
 def compute_bicubic_weights(dx, dy, a=-0.5):
@@ -76,20 +79,24 @@ def compute_bicubic_weights(dx, dy, a=-0.5):
         dy: 垂直方向的小数偏移量
         a: 锐化参数
     返回:
-        4x4 权重矩阵
+        4x4 权重矩阵（如果 dx 是列表，则返回多个权重矩阵）
     """
 
     # 周围 4x4 邻域的相对坐标
     x_idx = np.arange(-1, 3)
     y_idx = np.arange(-1, 3)
-    if len(dx) > 1:
+
+    if dy == 0:
         w = np.zeros((len(dx), 4))
         for i in range(len(dx)):
-            w[i] = np.array([bicubic_weight(x - dx[i], a) for x in x_idx])
+            wx = np.array([bicubic_weight(x - dx[i], a) for x in x_idx])
+            w[i, :] = wx
     else:
-        wx = np.array([bicubic_weight(x - dx, a) for x in x_idx])
         wy = np.array([bicubic_weight(y - dy, a) for y in y_idx])
-        w = np.outer(wy, wx)  # 外积得到二维权重
+        w = np.zeros((len(dx), 4, 4))
+        for i in range(len(dx)):
+            wx = np.array([bicubic_weight(x - dx[i], a) for x in x_idx])
+            w[i, :, :] = np.outer(wy, wx)
 
     return w
 
@@ -186,20 +193,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="计算图像插值系数 (Bicubic/Lanczos)")
     parser.add_argument("-m", "--method", type=str, choices=['bicubic', 'lanczos'], default='bicubic',
                         help="插值方法: bicubic 或 lanczos")
-    parser.add_argument("-x", "--dx", type=float, default=0.3,
-                        help="水平方向小数偏移量 (默认: 0.3)")
-    parser.add_argument("-y", "--dy", type=float, default=0.7,
-                        help="垂直方向小数偏移量 (默认: 0.7)")
+    parser.add_argument("-x", "--dx", type=float, nargs='+',
+                        help="水平方向小数偏移量 (支持向量)")
+    parser.add_argument("-y", "--dy", type=float, default=0,
+                        help="垂直方向小数偏移量 (标量，默认: 0)")
     parser.add_argument("-X", "--dx_num", type=int, default=0,
                         help="水平方向小数偏移总量 (默认: 0)")
     parser.add_argument("-a", type=float, default=None,
                         help="插值参数: 对于bicubic是锐化参数(默认-0.5)，对于lanczos是窗口半径(默认3)")
-    parser.add_argument("--demo", action="store_true",
-                        help="运行演示模式，展示各种权重计算")
     parser.add_argument("-p", "--precision", type=int, default=0,
                         help="定点化精度位数，如设为9则将所有系数乘以2^9=512后四舍五入 (默认: 0, 不进行定点化)")
     parser.add_argument("-w", "--weight", type=float,
                         help="设置权重，反向求取dx")
+    parser.add_argument("--norm", action="store_true", help="系数归一化")
+    parser.add_argument("--demo", action="store_true",
+                        help="运行演示模式，展示各种权重计算")
 
     args = parser.parse_args()
 
@@ -217,25 +225,39 @@ if __name__ == "__main__":
 
             if args.dx_num > 0:
                 dx = np.linspace(0, 1, args.dx_num)
-                print("dx:", dx)
-                dy = [0] * args.dx_num
+                print(f"dx: {dx}, len: {len(dx)}")
             else:
-                dx = [args.dx]
-                dy = args.dy
+                dx = args.dx
+            dy = args.dy
             weights = compute_bicubic_weights(dx, dy, args.a)
-            print(f"Bicubic weights (dx={args.dx}, dy={args.dy}, a={args.a}):")
+            print(f"Bicubic weights (dx={dx}, dy={dy}, a={args.a}):")
         else:  # lanczos
             if args.a is None:
                 args.a = 3  # 默认lanczos参数
             weights = compute_lanczos_weights(args.dx, args.dy, int(args.a))
             print(f"Lanczos weights (dx={args.dx}, dy={args.dy}, a={int(args.a)}):")
 
+        # 归一化
+        if args.norm:
+            if weights.ndim > 2:
+                # 对多维权重逐层归一化
+                for i in range(weights.shape[0]):
+                    weights[i] /= np.sum(weights[i])
+            elif args.dy == 0:
+                # 对单维权重归一化 - 每行单独归一化
+                row_sums = np.sum(weights, axis=1, keepdims=True)
+                # 避免除以零的情况
+                row_sums[row_sums == 0] = 1
+                weights /= row_sums
+            else:
+                weights /= np.sum(weights)
+
         # 如果指定了精度，则进行定点化处理
         if args.precision > 0:
             scale_factor = 2 ** args.precision - 1
-            weights = np.round(weights * scale_factor).astype(int)
+            weights = (weights * scale_factor + 0.5 * np.sign(weights)).astype(int)
             print(f"Fixed-point coefficients (Q.{args.precision}):")
         else:
             # 浮点系数，保留4位小数，禁用科学计数法
-            np.set_printoptions(precision=4, suppress=True)
+            np.set_printoptions(precision=6, suppress=True)
         print(weights)
