@@ -432,6 +432,7 @@ if __name__ == '__main__':
     parser.add_argument("-P", "--precision", type=int, default=10, help="the fixed coef precision bits 0 or [8, 16]")
     parser.add_argument("-D", "--depth", type=int, default=10, help="the pixel depth bits [8, 16]")
     parser.add_argument("-r", "--reg_type", type=int, default=0, help="dump register values, type range: [0, 2]")
+    parser.add_argument("-C", "--color", type=float, nargs=3, help="do color conversion with out coefs")
     parser.print_usage()
     args, _ = parser.parse_known_args()
 
@@ -526,5 +527,12 @@ if __name__ == '__main__':
                 regs[7] = offset[2].astype(np.uint32)
                 print("\t- reg[0:4]: 0x%08X 0x%08X 0x%08X 0x%08X" % (regs[0], regs[1], regs[2], regs[3]))
                 print("\t- reg[4:8]: 0x%08X 0x%08X 0x%08X 0x%08X" % (regs[4], regs[5], regs[6], regs[7]))
+
+        if args.color is not None:
+            out_color = mat @ args.color + offset
+            if precision > 0:
+                out_color = (out_color.astype(np.int32) +  (1 << (precision - 1))) >> precision
+                out_color = np.clip(out_color, 0, 2**depth - 1)
+            print(f"do conversion: {args.color} -> {out_color}")
         else:
             print(f"invalid csc mode: {mode_str.upper()}!")
