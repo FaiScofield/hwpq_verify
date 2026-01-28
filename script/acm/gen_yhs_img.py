@@ -8,11 +8,8 @@ g_r2y_mat_bt709 = np.array(
     [[0.2126, 0.7152, 0.0722], [-0.114572, -0.385428, 0.5], [0.5, -0.454153, -0.045847]], dtype=np.float32
 )
 
-g_y2r_mat_bt709 = np.array([
-    [1.0,  0.0,      1.5748],
-    [1.0, -0.187324,  -0.468124],
-    [1.0,  1.8556,   0.0   ]
-], dtype=np.float32)
+g_y2r_mat_bt709 = np.array([[1.0, 0.0, 1.5748], [1.0, -0.187324, -0.468124], [1.0, 1.8556, 0.0]], dtype=np.float32)
+
 
 def ycbcr2rgb(y, cb, cr):
     """
@@ -68,22 +65,34 @@ def hsv2rgb(h, s, v):
     b = np.zeros_like(h)
 
     cond = (h >= 0) & (h < 60)
-    r[cond] = c[cond]; g[cond] = x[cond]; b[cond] = 0
+    r[cond] = c[cond]
+    g[cond] = x[cond]
+    b[cond] = 0
 
     cond = (h >= 60) & (h < 120)
-    r[cond] = x[cond]; g[cond] = c[cond]; b[cond] = 0
+    r[cond] = x[cond]
+    g[cond] = c[cond]
+    b[cond] = 0
 
     cond = (h >= 120) & (h < 180)
-    r[cond] = 0; g[cond] = c[cond]; b[cond] = x[cond]
+    r[cond] = 0
+    g[cond] = c[cond]
+    b[cond] = x[cond]
 
     cond = (h >= 180) & (h < 240)
-    r[cond] = 0; g[cond] = x[cond]; b[cond] = c[cond]
+    r[cond] = 0
+    g[cond] = x[cond]
+    b[cond] = c[cond]
 
     cond = (h >= 240) & (h < 300)
-    r[cond] = x[cond]; g[cond] = 0; b[cond] = c[cond]
+    r[cond] = x[cond]
+    g[cond] = 0
+    b[cond] = c[cond]
 
     cond = (h >= 300) & (h < 360)
-    r[cond] = c[cond]; g[cond] = 0; b[cond] = x[cond]
+    r[cond] = c[cond]
+    g[cond] = 0
+    b[cond] = x[cond]
 
     r = ((r + m) * 255).astype(np.uint8)
     g = ((g + m) * 255).astype(np.uint8)
@@ -164,32 +173,37 @@ def gen_img_ycbcr2rgb_coor(y=128, scale=2.0, out_path=None):
     # 坐标轴中心点在图像中心
     x0 = int(img.width / 2)  # 图像中心x坐标
     y0 = int(img.height / 2)  # 图像中心y坐标
-    draw_axis(draw, img.width, img.height, margin, x0, y0,
-              (-128, 127), (-128, 127), "Cb", "Cr", font)
+    draw_axis(draw, img.width, img.height, margin, x0, y0, (-128, 127), (-128, 127), "Cb", "Cr", font)
 
     padded_img.save(out_path)
     print(f"Saved: {out_path}")
 
 
-def gen_img_ybyh_coor(s=1.0, scale=2.0, out_path=None):
+def gen_img_ybyh_coor(y=128, s=1.0, range=64, scale=2.0, out_path=None):
     """
     横坐标 H∈[-180,179]，纵坐标 dy∈[-255,255]，固定饱和度 s
     实际 y = 128 + dy
     """
     if out_path is None:
-        out_path = "ybyh_coor.png"
-    base = 256
-    h_grid, dy_grid = np.meshgrid(np.linspace(-180, 179, base),
-                                  np.linspace(-255, 255, base))
-    y_val = 128 + dy_grid
-    # 将 y 限制在 [0, 255] 范围内，并归一化到 [0, 1]
-    y_val = np.clip(y_val, 0, 255)
-    v = y_val / 255.0
-    r, g, b = hsv2rgb(h_grid, s, v)
-    rgb = np.stack([r, g, b], axis=-1)
+        out_path = f"ybyh_coor_y{y}_s{s}_range{range}.png"
+    h_grid, dy_grid = np.meshgrid(np.arange(-180, 179), np.arange(range, -range-1, -1), indexing='xy')
 
+    # dy_grid *= 0
+
+    y = np.clip(y + dy_grid, 0, 255) # 360x512
+    s = np.ones_like(h_grid) * s * 181
+
+    h_rad = np.radians(h_grid)
+    cb = s * np.cos(h_rad)
+    cr = s * np.sin(h_rad)
+    r, g, b = ycbcr2rgb(y, cb, cr)
+
+    rgb = np.stack([r, g, b], axis=-1)
     img = Image.fromarray(rgb, mode="RGB")
-    img = img.resize((int(scale * base), int(scale * base)), Image.NEAREST)
+
+    new_hgt = int(scale * img.height)
+    new_wid = 3 * new_hgt
+    img = img.resize((new_wid, new_hgt), Image.BICUBIC)
 
     # 添加边距的图像
     margin = 64
@@ -201,10 +215,9 @@ def gen_img_ybyh_coor(s=1.0, scale=2.0, out_path=None):
         font = ImageFont.truetype("arial.ttf", 12)
     except:
         font = None
-    x0 = int(margin + scale * (180 / 360 * base))  # H 轴原点，加上左边距
-    y0 = int(margin + scale * (255 / 510 * base))  # dy 轴原点 (dy=0 时 y=128 的位置)，加上上边距
-    draw_axis(draw, padded_img.width, padded_img.height, x0, y0,
-              (-180, 179), (-255, 255), "H", "dy", font)
+    x0 = int(img.width / 2)  # 图像中心x坐标
+    y0 = int(img.height / 2)  # 图像中心y坐标
+    draw_axis(draw, img.width, img.height, margin, x0, y0, (-180, 179), (-range, range), "H", "dy", font)
 
     padded_img.save(out_path)
     print(f"Saved: {out_path}")
@@ -218,8 +231,7 @@ def gen_img_sbyh_coor(y=128, scale=2.0, out_path=None):
     if out_path is None:
         out_path = "sbyh_coor.png"
     base = 256
-    h_grid, ds_grid = np.meshgrid(np.linspace(-180, 179, base),
-                                  np.linspace(-1, 1, base))
+    h_grid, ds_grid = np.meshgrid(np.linspace(-180, 179, base), np.linspace(-1, 1, base))
     s_val = 0.5 + ds_grid
     # 将 s 限制在 [0, 1] 范围内
     s_val = np.clip(s_val, 0, 1)
@@ -243,8 +255,7 @@ def gen_img_sbyh_coor(y=128, scale=2.0, out_path=None):
         font = None
     x0 = int(margin + scale * (180 / 360 * base))  # H 轴原点，加上左边距
     y0 = int(margin + scale * base / 2)  # ds 轴原点 (ds=0 时的位置)，加上上边距
-    draw_axis(draw, padded_img.width, padded_img.height, x0, y0,
-              (-180, 179), (-1, 1), "H", "ds", font)
+    draw_axis(draw, padded_img.width, padded_img.height, x0, y0, (-180, 179), (-1, 1), "H", "ds", font)
 
     padded_img.save(out_path)
     print(f"Saved: {out_path}")
@@ -259,8 +270,7 @@ def gen_img_hbyh_coor(y=128, s=0.5, scale=2.0, out_path=None):
         out_path = "hbyh_coor.png"
     base = 256
     h_base = np.linspace(-180, 179, base)
-    dh_grid, h_grid = np.meshgrid(np.linspace(-180, 180, base),
-                                  h_base)
+    dh_grid, h_grid = np.meshgrid(np.linspace(-180, 180, base), h_base)
     # 计算实际的 H 值为 h + dh
     actual_h = (h_grid + dh_grid) % 360
     # 将 y 归一化到 0~1
@@ -283,22 +293,26 @@ def gen_img_hbyh_coor(y=128, s=0.5, scale=2.0, out_path=None):
         font = None
     x0 = int(margin + scale * (180 / 360 * base))  # H 轴原点，加上左边距
     y0 = int(margin + scale * (180 / 360 * base))  # dh 轴原点 (dh=0 时的位置)，加上上边距
-    draw_axis(draw, padded_img.width, padded_img.height, x0, y0,
-              (-180, 179), (-180, 180), "H", "dh", font)
+    draw_axis(draw, padded_img.width, padded_img.height, x0, y0, (-180, 179), (-180, 180), "H", "dh", font)
 
     padded_img.save(out_path)
     print(f"Saved: {out_path}")
+
 
 if __name__ == "__main__":
     ## arg parser
     parser = argparse.ArgumentParser(exit_on_error=False)
     # parser.add_argument("-i", "--input", default="", type=str, help="输入图像文件, yuv444p格式")
     # parser.add_argument("-o", "--output", default="", type=str, help="输出图像文件")
-    parser.add_argument("-y", "--yval", type=int, default=128, help="y value")
-    parser.add_argument("-s", "--sval", type=int, default=128, help="y value")
+    parser.add_argument("-y", "--yval", type=int, help="y value")
+    parser.add_argument("-s", "--sval", type=float, default=1.0, help="s value")
+    parser.add_argument("-r", "--range", type=int, default=64, help="range value")
     args, _ = parser.parse_known_args()
 
     gen_img_ycbcr2rgb_coor(args.yval)
-    # gen_img_ybyh_coor()
+
+    if args.sval is not None:
+        gen_img_ybyh_coor(args.yval, args.sval, args.range)
+
     # gen_img_sbyh_coor()
     # gen_img_hbyh_coor()
