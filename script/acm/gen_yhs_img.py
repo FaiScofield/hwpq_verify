@@ -134,20 +134,21 @@ def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, 
 
 
 # ---------- 四个生成函数 ----------
-def gen_img_yhs2rgb_coor(y=128, scale=2.0, out_path=None):
+def gen_img_ycbcr2rgb_coor(y=128, scale=2.0, out_path=None):
     """
     横坐标 Cb∈[-128,127]，纵坐标 Cr∈[-128,127]，固定亮度 y
     """
     if out_path is None:
-        out_path = f"yhs2rgb_coor_y{y}.png"
+        out_path = f"ycbcr2rgb_coor_y{y}.png"
     base = 256
-    cb_grid, cr_grid = np.meshgrid(np.arange(-128, 128), np.arange(-128, 128))
+    # 修复坐标轴方向问题：图像中 y 轴向下为正，但我们需要 y 轴（Cr）向上为正
+    cb_grid, cr_grid = np.meshgrid(np.arange(-128, 128), np.arange(127, -129, -1), indexing='xy')
     y = np.ones_like(cb_grid) * y
     r, g, b = ycbcr2rgb(y, cb_grid, cr_grid)
     rgb = np.stack([r, g, b], axis=-1)  # (256,256,3)
 
     img = Image.fromarray(rgb, mode="RGB")
-    img = img.resize((int(scale * base), int(scale * base)), Image.NEAREST)
+    img = img.resize((int(scale * base), int(scale * base)), Image.BICUBIC)
 
     # 添加边距的图像
     margin = 64
@@ -297,7 +298,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--sval", type=int, default=128, help="y value")
     args, _ = parser.parse_known_args()
 
-    gen_img_yhs2rgb_coor(args.yval)
+    gen_img_ycbcr2rgb_coor(args.yval)
     # gen_img_ybyh_coor()
     # gen_img_sbyh_coor()
     # gen_img_hbyh_coor()
