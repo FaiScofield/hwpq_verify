@@ -101,13 +101,22 @@ def hsv2rgb(h, s, v):
 
 
 # ---------- 画图通用工具 ----------
-def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, font=None):
-    """
-    在 PIL ImageDraw 上画坐标轴与刻度
-    x0,y0: 原点像素坐标
-    x_range: (xmin, xmax) 数据范围
-    y_range: (ymin, ymax) 数据范围
-    """
+def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, font=None, x_center=None, y_center=None):
+    # 辅助函数：判断数值是否为整数
+    def is_integer(value):
+        if isinstance(value, int):
+            return True
+        if isinstance(value, float):
+            return value.is_integer()
+        return False
+
+    # 辅助函数：格式化数字显示
+    def format_number(value):
+        if is_integer(value):
+            return f"{int(value)}"
+        else:
+            return f"{value:.1f}"
+
     # 轴颜色
     axis_color = (0, 0, 0)
     # 刻度颜色
@@ -121,29 +130,130 @@ def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, 
     img_draw.line([(x0 + margin, H + margin + hm), (x0 + margin, margin - hm)], fill=axis_color, width=2)
 
     # 刻度
-    nx, ny = 9, 9
-    for i in range(nx):
-        x_data = x_range[0] + i * (x_range[1] - x_range[0]) / (nx - 1)
-        x_pix = int(i * (W - 1) / (nx - 1))
-        img_draw.line([(x_pix + margin, y0 + margin - 3), (x_pix + margin, y0 + margin + 3)], fill=tick_color, width=1)
-        if font:
-            img_draw.text((x_pix + margin - 5, y0 + margin + 5), f"{int(x_data)}", fill=tick_color, font=font)
+    if len(x_range) == 2:
+        nx = 9
+        for i in range(nx):
+            x_data = x_range[0] + i * (x_range[1] - x_range[0]) / (nx - 1)
+            x_pix = int(i * (W - 1) / (nx - 1))
+            img_draw.line([(x_pix + margin, y0 + margin - 3), (x_pix + margin, y0 + margin + 3)], fill=tick_color, width=1)
+            if font:
+                img_draw.text((x_pix + margin + 5, y0 + margin + 5), format_number(x_data), fill=tick_color, font=font)
+    elif len(x_range) > 2:
+        # 按 x_range 绘制刻度，x轴正负半轴的间隔应该分开计算
+        # 使用 x_center 对齐到 x 轴的零点位置
+        x_center = x_center if x_center is not None else 0  # 默认 x_center 为 0
 
-    for j in range(ny):
-        y_data = y_range[0] + j * (y_range[1] - y_range[0]) / (ny - 1)
-        y_pix = int((H - 1) - j * (H - 1) / (ny - 1))
-        img_draw.line([(x0 + margin - 3, y_pix + margin), (x0 + margin + 3, y_pix + margin)], fill=tick_color, width=1)
-        if font:
-            img_draw.text((x0 + margin + 5, y_pix + margin - 5), f"{int(y_data)}", fill=tick_color, font=font)
+        # 将刻度分为小于 x_center 和大于等于 x_center 两部分
+        left_ticks = [val for val in x_range if val < x_center]
+        right_ticks = [val for val in x_range if val >= x_center]
+
+        # 计算正半轴和负半轴在像素空间的范围
+        # 从原点(x0)到图像左侧和右侧的距离
+        left_width = x0  # 原点到图像左侧的像素数
+        right_width = W - x0  # 原点到图像右侧的像素数
+
+        # 分别计算左右半轴的映射比例
+        if right_ticks:
+            max_right = max(right_ticks)
+            if max_right > x_center:
+                right_scale = right_width / (max_right - x_center)  # 每单位数据值对应的像素数
+            else:
+                right_scale = 0
+        if left_ticks:
+            min_left = min(left_ticks)
+            if min_left < x_center:
+                left_scale = left_width / (x_center - min_left)  # 每单位数据值对应的像素数
+            else:
+                left_scale = 0
+
+        # 绘制右半轴刻度 (x >= x_center)
+        for x_data in right_ticks:
+            if x_data == x_center:
+                # 对于x=x_center点，只绘制刻度线，不绘制文本标签（避免重复）
+                x_offset = 0
+            else:
+                x_offset = int((x_data - x_center) * right_scale)
+            x_pix = x0 + x_offset  # 正值向右（像素值增大）
+            img_draw.line([(x_pix + margin, y0 + margin - 3), (x_pix + margin, y0 + margin + 3)], fill=tick_color, width=1)
+            if font and x_data != x_center:  # 不为x_center时才绘制标签
+                img_draw.text((x_pix + margin + 5, y0 + margin + 5), format_number(x_data), fill=tick_color, font=font)
+
+        # 绘制左半轴刻度 (x < x_center)
+        for x_data in left_ticks:
+            x_offset = int((x_center - x_data) * left_scale)
+            x_pix = x0 - x_offset  # 负值向左（像素值减小）
+            img_draw.line([(x_pix + margin, y0 + margin - 3), (x_pix + margin, y0 + margin + 3)], fill=tick_color, width=1)
+            if font:
+                img_draw.text((x_pix + margin + 5, y0 + margin + 5), format_number(x_data), fill=tick_color, font=font)
+    else:
+        raise ValueError("x_range must be a tuple of two elements")
+
+    if len(y_range) == 2:
+        ny = 9
+        for j in range(ny):
+            y_data = y_range[0] + j * (y_range[1] - y_range[0]) / (ny - 1)
+            y_pix = int((H - 1) - j * (H - 1) / (ny - 1))
+            img_draw.line([(x0 + margin - 3, y_pix + margin), (x0 + margin + 3, y_pix + margin)], fill=tick_color, width=1)
+            if font and y_data != 0:
+                img_draw.text((x0 + margin + 5, y_pix + margin - 5), format_number(y_data), fill=tick_color, font=font)
+    elif len(y_range) > 2:
+        # 按 y_range 绘制刻度，y轴正负半轴的间隔应该分开计算
+        # 使用 y_center 对齐到 y 轴的零点位置
+        y_center = y_center if y_center is not None else 0  # 默认 y_center 为 0
+
+        # 将刻度分为小于 y_center 和大于等于 y_center 两部分
+        lower_ticks = [val for val in y_range if val < y_center]
+        upper_ticks = [val for val in y_range if val >= y_center]
+
+        # 计算正半轴和负半轴在像素空间的范围
+        # 从原点(y0)到图像顶部和底部的距离
+        upper_height = y0  # 原点到图像顶部的像素数
+        lower_height = H - y0  # 原点到图像底部的像素数
+
+        # 分别计算上下半轴的映射比例
+        if upper_ticks:
+            max_upper = max(upper_ticks)
+            if max_upper > y_center:
+                upper_scale = upper_height / (max_upper - y_center)  # 每单位数据值对应的像素数
+            else:
+                upper_scale = 0
+        if lower_ticks:
+            min_lower = min(lower_ticks)
+            if min_lower < y_center:
+                lower_scale = lower_height / (y_center - min_lower)  # 每单位数据值对应的像素数
+            else:
+                lower_scale = 0
+
+        # 绘制上半轴刻度 (y >= y_center)
+        for y_data in upper_ticks:
+            if y_data == y_center:
+                # 对于y=y_center点，只绘制刻度线，不绘制文本标签（避免与x轴0点重复）
+                y_offset = 0
+            else:
+                y_offset = int((y_data - y_center) * upper_scale)
+            y_pix = y0 - y_offset  # 正值向上（像素值减小）
+            img_draw.line([(x0 + margin - 3, y_pix + margin), (x0 + margin + 3, y_pix + margin)], fill=tick_color, width=1)
+            if font and y_data != y_center:  # 不为y_center时才绘制标签
+                img_draw.text((x0 + margin + 5, y_pix + margin - 5), format_number(y_data), fill=tick_color, font=font)
+
+        # 绘制下半轴刻度 (y < y_center)
+        for y_data in lower_ticks:
+            y_offset = int((y_center - y_data) * lower_scale)
+            y_pix = y0 + y_offset  # 负值向下（像素值增大）
+            img_draw.line([(x0 + margin - 3, y_pix + margin), (x0 + margin + 3, y_pix + margin)], fill=tick_color, width=1)
+            if font:
+                img_draw.text((x0 + margin + 5, y_pix + margin - 5), format_number(y_data), fill=tick_color, font=font)
+    else:
+        raise ValueError("y_range must be a tuple of two elements")
 
     # 标签
     if font:
         img_draw.text((W + margin + hm, y0 - 15 + margin), xlabel, fill=axis_color, font=font)
-        img_draw.text((x0 + margin - 20, margin - hm), ylabel, fill=axis_color, font=font)
+        img_draw.text((x0 + margin + 5, margin - hm - 5), ylabel, fill=axis_color, font=font)
 
 
 # ---------- 四个生成函数 ----------
-def gen_img_ycbcr2rgb_coor(y=128, scale=2.0, out_path=None):
+def gen_img_ycbcr2rgb_coor(y=128, s=1.0, scale=2.0, out_path=None):
     """
     横坐标 Cb∈[-128,127]，纵坐标 Cr∈[-128,127]，固定亮度 y
     """
@@ -179,13 +289,13 @@ def gen_img_ycbcr2rgb_coor(y=128, scale=2.0, out_path=None):
     print(f"Saved: {out_path}")
 
 
-def gen_img_ybyh_coor(y=128, s=1.0, range=64, scale=2.0, out_path=None):
+def gen_img_dybyh_coor(y=128, s=1.0, range=64, scale=2.0, out_path=None):
     """
     横坐标 H∈[-180,179]，纵坐标 dy∈[-255,255]，固定饱和度 s
     实际 y = 128 + dy
     """
     if out_path is None:
-        out_path = f"ybyh_coor_y{y}_s{s}_range{range}.png"
+        out_path = f"dybyh_coor_y{y}_s{s}_range{range}.png"
     h_grid, dy_grid = np.meshgrid(np.arange(-180, 180), np.arange(range, -range-1, -1), indexing='xy')
 
     # dy_grid *= 0
@@ -217,7 +327,7 @@ def gen_img_ybyh_coor(y=128, s=1.0, range=64, scale=2.0, out_path=None):
         font = None
     x0 = int(img.width / 2)  # 图像中心x坐标
     y0 = int(img.height / 2)  # 图像中心y坐标
-    draw_axis(draw, img.width, img.height, margin, x0, y0, (-180, 180), (-range, range), "H", "dy", font)
+    draw_axis(draw, img.width, img.height, margin, x0, y0, (-180, 180), (-range, range), "H", "Δy", font)
 
     padded_img.save(out_path)
     print(f"Saved: {out_path}")
@@ -299,26 +409,57 @@ def gen_img_hbyh_coor(y=128, s=0.5, scale=2.0, out_path=None):
     print(f"Saved: {out_path}")
 
 
-def gen_img_rgainbyh_coor(y=128, s=0.5, range=1.0, scale=2.0, out_path=None):
-    if out_path is None:
-        out_path = f"rgainbyh_coor_y{y}_s{s}_range{range}.png"
+def gen_img_rgbgainbyh_coor(y=128, s=0.5, scale=2.0, out_path=None, rgain=None, ggain=None, bgain=None):
+    # 仅允许 rgain/ggain/bgain 中至多一个有效；若三者均为 None，则直接返回
+    if rgain is None and ggain is None and bgain is None:
+        return
+    # 若同时指定了多个增益，也直接返回
+    if sum(x is not None for x in (rgain, ggain, bgain)) > 1:
+        return
 
-    drgain = np.arange(range, -1.0, -(range+1)/128)
-    h_grid, _ = np.meshgrid(np.arange(-180, 180), drgain, indexing='xy')
+    range_yaxis = 1.0
+    if rgain is not None:
+        out_path = f"rgbgainbyh_coor_y{y}_s{s}_rgain{rgain}.png" if out_path is None else out_path
+        range_yaxis = rgain
+        ylabel = "rgain"
+    elif ggain is not None:
+        out_path = f"rgbgainbyh_coor_y{y}_s{s}_ggain{ggain}.png" if out_path is None else out_path
+        range_yaxis = ggain
+        ylabel = "ggain"
+    elif bgain is not None:
+        out_path = f"rgbgainbyh_coor_y{y}_s{s}_bgain{bgain}.png" if out_path is None else out_path
+        range_yaxis = bgain
+        ylabel = "bgain"
+    else:
+        raise ValueError("one of r/g/bgain must be specified!")
+
+    color_gain = None
+    if range_yaxis == 0:
+        range_yaxis = 1.0
+        color_gain = 1.0
+        ylabel += "(OFF)"
+    else:
+        ylabel += f"({range_yaxis})"
+
+    gain_range = np.arange(range_yaxis, -1.0, -(range_yaxis+1)/128)
+    h_grid, _ = np.meshgrid(np.arange(-180, 180), gain_range, indexing='xy')
 
     y = np.ones_like(h_grid) * y
     s = np.ones_like(h_grid) * s * 181
-
     h_rad = np.radians(h_grid)
     cb = s * np.cos(h_rad)
     cr = s * np.sin(h_rad)
     r, g, b = ycbcr2rgb(y, cb, cr)
 
-
-    rgain = np.maximum(drgain + 1.0, 0)
-    rgain = np.repeat(rgain[:, None], r.shape[1], axis=1)
-
-    r = np.clip(r * rgain, 0, 255).astype(np.uint8)
+    if color_gain is None:
+        color_gain = np.maximum(gain_range + 1.0, 0)
+        color_gain = np.repeat(color_gain[:, None], r.shape[1], axis=1)
+    if rgain:
+        r = np.clip(r * color_gain, 0, 255).astype(np.uint8)
+    elif ggain:
+        g = np.clip(g * color_gain, 0, 255).astype(np.uint8)
+    elif bgain:
+        b = np.clip(b * color_gain, 0, 255).astype(np.uint8)
 
     rgb = np.stack([r, g, b], axis=-1)
     img = Image.fromarray(rgb, mode="RGB")
@@ -338,8 +479,12 @@ def gen_img_rgainbyh_coor(y=128, s=0.5, range=1.0, scale=2.0, out_path=None):
     except:
         font = None
     x0 = int(img.width / 2)  # 图像中心x坐标
-    y0 = int(img.height - img.height / (range + 1))  # 图像中心y坐标
-    draw_axis(draw, img.width, img.height, margin, x0, y0, (-180, 180), (0, range+1), "H", "dy", font)
+    y0 = int(img.height - img.height / (range_yaxis + 1))  # 图像中心y坐标
+
+    x_rane = np.arange(-180, 180+45, 45)
+    y_rane = np.arange(0, range_yaxis+1+0.5, 0.5)
+    y_cent = 1.0
+    draw_axis(draw, img.width, img.height, margin, x0, y0, x_rane, y_rane, "H", ylabel, font, y_center=y_cent)
 
     padded_img.save(out_path)
     print(f"Saved: {out_path}")
@@ -351,17 +496,24 @@ if __name__ == "__main__":
     # parser.add_argument("-i", "--input", default="", type=str, help="输入图像文件, yuv444p格式")
     # parser.add_argument("-o", "--output", default="", type=str, help="输出图像文件")
     parser.add_argument("-y", "--yval", type=int, default=128, help="y value")
-    parser.add_argument("-s", "--sval", type=float, default=1.0, help="s value")
-    parser.add_argument("-R", "--range", type=int, default=64, help="range value")
-    parser.add_argument("-r", "--rgain", type=float, default=1.0, help="red gain range")
+    parser.add_argument("-s", "--sval", type=float, default=0.5, help="s value")
+    parser.add_argument("-R", "--range", type=int, help="range value")
+    parser.add_argument("-r", "--rgain", type=float, help="red gain range")
+    parser.add_argument("-g", "--ggain", type=float, help="green gain range")
+    parser.add_argument("-b", "--bgain", type=float, help="blue gain range")
     args, _ = parser.parse_known_args()
 
-    gen_img_ycbcr2rgb_coor(args.yval)
+    gen_img_ycbcr2rgb_coor(y=args.yval, s=args.sval)
 
-    gen_img_ybyh_coor(128, 1.0, args.range)
+    if args.range is not None and args.range >= 0:
+        gen_img_dybyh_coor(y=128, s=args.sval, range=args.range)
 
-    if args.rgain > 0:
-        gen_img_rgainbyh_coor(128, 0.5, args.rgain)
+    if args.rgain is not None and args.rgain >= 0:
+        gen_img_rgbgainbyh_coor(y=128, s=0.5, rgain=args.rgain)
+    if args.ggain is not None and args.ggain >= 0:
+        gen_img_rgbgainbyh_coor(y=128, s=0.5, ggain=args.ggain)
+    if args.bgain is not None and args.bgain >= 0:
+        gen_img_rgbgainbyh_coor(y=128, s=0.5, bgain=args.bgain)
 
     # gen_img_sbyh_coor()
     # gen_img_hbyh_coor()
