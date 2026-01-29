@@ -319,9 +319,8 @@ def gen_img_dybyh_coor(y=128, s=1.0, range=64, out_path=None):
     rgb = np.stack([r, g, b], axis=-1)
     img = Image.fromarray(rgb, mode="RGB")
 
-    scale = 128 / range
-    new_hgt = int(scale * img.height)
-    new_wid = 3 * new_hgt
+    new_hgt = 256 # ~ 256
+    new_wid = 2 * img.width # ~ 720
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
 
     # 添加边距的图像
@@ -367,9 +366,8 @@ def gen_img_dsbyh_coor(y=128, s=0.5, range=0.5, out_path=None):
     rgb = np.stack([r, g, b], axis=-1)
     img = Image.fromarray(rgb, mode="RGB")
 
-    scale = 2
-    new_hgt = int(scale * img.height)
-    new_wid = 3 * new_hgt
+    new_hgt = 256 # ~ 256
+    new_wid = 2 * img.width # ~ 720
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
 
     # 添加边距的图像
@@ -416,9 +414,8 @@ def gen_img_dhbyh_coor(y=128, s=0.5, range=180, out_path=None):
     rgb = np.stack([r, g, b], axis=-1)
     img = Image.fromarray(rgb, mode="RGB")
 
-    scale = 180 / range
-    new_hgt = int(scale * img.height)
-    new_wid = 3 * new_hgt
+    new_hgt = 256 # ~ 256
+    new_wid = 2 * img.width # ~ 720
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
 
     # 添加边距的图像
@@ -487,9 +484,8 @@ def gen_img_rgbgainbyh_coor(y=128, s=0.5, rgain=None, ggain=None, bgain=None, ou
     rgb = np.stack([r, g, b], axis=-1)
     img = Image.fromarray(rgb, mode="RGB")
 
-    scale = 300 / img.height # set new height to ~300
-    new_hgt = int(scale * img.height)
-    new_wid = int(2 * img.width)
+    new_hgt = 256 # ~ 256
+    new_wid = 2 * img.width # ~ 720
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
 
     # 添加边距的图像
@@ -560,8 +556,8 @@ def gen_img_rgbgain2w_coor(rgain=None, ggain=None, bgain=None, out_path=None):
     rgb = np.stack([r, g, b], axis=-1)
     img = Image.fromarray(rgb, mode="RGB")
 
-    new_hgt = 300 # ~300
-    new_wid = int(2 * img.width) # ~ 512
+    new_hgt = 300 # ~ 300
+    new_wid = 2 * img.width # ~ 512
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
 
     # 添加边距的图像
