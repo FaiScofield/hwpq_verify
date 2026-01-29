@@ -105,10 +105,8 @@ def hsv2rgb(h, s, v):
 def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, font=None, x_center=None, y_center=None, title=None):
     # 辅助函数：判断数值是否为整数
     def is_integer(value):
-        if isinstance(value, int):
+        if int(value) - value == 0:
             return True
-        if isinstance(value, float):
-            return value.is_integer()
         return False
 
     # 辅助函数：格式化数字显示
@@ -196,7 +194,7 @@ def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, 
             y_pix = int((H - 1) - j * (H - 1) / (ny - 1))
             img_draw.line([(x0 + margin - 3, y_pix + margin), (x0 + margin + 3, y_pix + margin)], fill=tick_color, width=1)
             if font and y_data != 0:
-                img_draw.text((x0 + margin + 5, y_pix + margin - 5), format_number(y_data), fill=tick_color, font=font)
+                img_draw.text((x0 + margin - 25, y_pix + margin - 5), format_number(y_data), fill=tick_color, font=font)
     elif len(y_range) > 2:
         # 按 y_range 绘制刻度，y轴正负半轴的间隔应该分开计算
         # 使用 y_center 对齐到 y 轴的零点位置
@@ -235,7 +233,7 @@ def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, 
             y_pix = y0 - y_offset  # 正值向上（像素值减小）
             img_draw.line([(x0 + margin - 3, y_pix + margin), (x0 + margin + 3, y_pix + margin)], fill=tick_color, width=1)
             if font and y_data != y_center:  # 不为y_center时才绘制标签
-                img_draw.text((x0 + margin + 5, y_pix + margin - 5), format_number(y_data), fill=tick_color, font=font)
+                img_draw.text((x0 + margin - 25, y_pix + margin - 5), format_number(y_data), fill=tick_color, font=font)
 
         # 绘制下半轴刻度 (y < y_center)
         for y_data in lower_ticks:
@@ -243,7 +241,7 @@ def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, 
             y_pix = y0 + y_offset  # 负值向下（像素值增大）
             img_draw.line([(x0 + margin - 3, y_pix + margin), (x0 + margin + 3, y_pix + margin)], fill=tick_color, width=1)
             if font:
-                img_draw.text((x0 + margin + 5, y_pix + margin - 5), format_number(y_data), fill=tick_color, font=font)
+                img_draw.text((x0 + margin - 25, y_pix + margin - 5), format_number(y_data), fill=tick_color, font=font)
     else:
         raise ValueError("y_range must be a tuple of two elements")
 
@@ -255,11 +253,10 @@ def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, 
             # 获取文本的边界框以准确计算宽度，实现居中
             bbox = img_draw.textbbox((0, 0), title, font=font)
             text_width = bbox[2] - bbox[0]
-            center_x = x0 + margin - text_width // 2
+            center_x = W//2 + margin - text_width // 2
             img_draw.text((center_x, margin//3), title, fill=axis_color, font=font)
 
 
-# ---------- 四个生成函数 ----------
 def gen_img_ycbcr2rgb_coor(y=128, scale=2.0, out_path=None):
     """
     横坐标 Cb∈[-128,127]，纵坐标 Cr∈[-128,127]，固定亮度 y
@@ -442,7 +439,7 @@ def gen_img_dhbyh_coor(y=128, s=0.5, range=180, out_path=None):
     print(f"Saved: {out_path}")
 
 
-def gen_img_rgbgainbyh_coor(y=128, s=0.5, scale=2.0, out_path=None, rgain=None, ggain=None, bgain=None):
+def gen_img_rgbgainbyh_coor(y=128, s=0.5, rgain=None, ggain=None, bgain=None, out_path=None):
     # 仅允许 rgain/ggain/bgain 中至多一个有效；若三者均为 None，则直接返回
     if rgain is None and ggain is None and bgain is None:
         return
@@ -450,53 +447,49 @@ def gen_img_rgbgainbyh_coor(y=128, s=0.5, scale=2.0, out_path=None, rgain=None, 
     if sum(x is not None for x in (rgain, ggain, bgain)) > 1:
         return
 
-    range_yaxis = 1.0
     if rgain is not None:
         out_path = f"colormap_rgbgainbyh_y{y}_s{s}_rgain{rgain}.png" if out_path is None else out_path
-        range_yaxis = rgain
         ylabel = "rgain"
+        range = rgain
     elif ggain is not None:
         out_path = f"colormap_rgbgainbyh_y{y}_s{s}_ggain{ggain}.png" if out_path is None else out_path
-        range_yaxis = ggain
         ylabel = "ggain"
+        range = ggain
     elif bgain is not None:
         out_path = f"colormap_rgbgainbyh_y{y}_s{s}_bgain{bgain}.png" if out_path is None else out_path
-        range_yaxis = bgain
         ylabel = "bgain"
+        range = bgain
     else:
         raise ValueError("one of r/g/bgain must be specified!")
 
-    range_str = f"{range_yaxis}"
-    color_gain = None
-    if range_yaxis == 0:
-        range_yaxis = 1.0
-        color_gain = 1.0
+    zero_gain = False
+    if range == 0:
+        range = 1.0
+        zero_gain = True
 
-    gain_range = np.arange(range_yaxis, -1.0, -(range_yaxis+1)/128)
-    h_grid, _ = np.meshgrid(np.arange(-180, 180), gain_range, indexing='xy')
-
-    y = np.ones_like(h_grid) * y
-    s = np.ones_like(h_grid) * s * 181
+    max_gain = 1 + range
+    min_gain = max(1 - range, 0)
+    h_grid, gain_grid = np.meshgrid(np.arange(-180, 180), np.arange(max_gain, min_gain-0.01, -range/64), indexing='xy')
+    y_val = np.ones_like(h_grid) * y
+    s_val = np.ones_like(h_grid) * s * 181
     h_rad = np.radians(h_grid)
-    cb = np.clip(s * np.cos(h_rad), -128, 127)
-    cr = np.clip(s * np.sin(h_rad), -128, 127)
-    r, g, b = ycbcr2rgb(y, cb, cr)
+    cb = np.clip(s_val * np.cos(h_rad), -128, 127)
+    cr = np.clip(s_val * np.sin(h_rad), -128, 127)
+    r, g, b = ycbcr2rgb(y_val, cb, cr)
 
-    if color_gain is None:
-        color_gain = np.maximum(gain_range + 1.0, 0)
-        color_gain = np.repeat(color_gain[:, None], r.shape[1], axis=1)
-    if rgain:
-        r = np.clip(r * color_gain, 0, 255).astype(np.uint8)
-    elif ggain:
-        g = np.clip(g * color_gain, 0, 255).astype(np.uint8)
-    elif bgain:
-        b = np.clip(b * color_gain, 0, 255).astype(np.uint8)
-
+    gain_grid = 1 if zero_gain else gain_grid
+    if rgain is not None:
+        r = np.clip(r * gain_grid, 0, 255).astype(np.uint8)
+    elif ggain is not None:
+        g = np.clip(g * gain_grid, 0, 255).astype(np.uint8)
+    elif bgain is not None:
+        b = np.clip(b * gain_grid, 0, 255).astype(np.uint8)
     rgb = np.stack([r, g, b], axis=-1)
     img = Image.fromarray(rgb, mode="RGB")
 
+    scale = 300 / img.height # set new height to ~300
     new_hgt = int(scale * img.height)
-    new_wid = 3 * new_hgt
+    new_wid = int(2 * img.width)
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
 
     # 添加边距的图像
@@ -510,16 +503,92 @@ def gen_img_rgbgainbyh_coor(y=128, s=0.5, scale=2.0, out_path=None, rgain=None, 
     except:
         font = None
     x0 = int(img.width / 2)  # 图像中心x坐标
-    y0 = int(img.height - img.height / (range_yaxis + 1))  # 图像中心y坐标
+    y0 = int(img.height * range / (range + 1 - min_gain))  # 图像中心y坐标
 
     x_rane = np.arange(-180, 180+45, 45)
-    y_rane = np.arange(0, range_yaxis+1+0.5, 0.5)
-    y_cent = 1.0
-    title = f"Color Map of {ylabel} (y={y}, s={s}, {ylabel}=±{range_str})"
+    y_rane = np.arange(min_gain, max_gain+0.5, 0.5)
+    if zero_gain:
+        title = f"Color Map of {ylabel}-by-H (y={y}, s={s}, {ylabel}=OFF)"
+    else:
+        title = f"Color Map of {ylabel}-by-H (y={y}, s={s}, {ylabel}=[{min_gain}, {max_gain}])"
+    draw_axis(draw, img.width, img.height, margin, x0, y0, x_rane, y_rane, "H", ylabel, title=title, font=font, y_center=1)
+
+    padded_img.save(out_path)
+    print(f"Saved: {out_path}")
+
+def gen_img_rgbgain2w_coor(rgain=None, ggain=None, bgain=None, out_path=None):
+    # 仅允许 rgain/ggain/bgain 中至多一个有效；若三者均为 None，则直接返回
+    if rgain is None and ggain is None and bgain is None:
+        return
+    # 若同时指定了多个增益，也直接返回
+    if sum(x is not None for x in (rgain, ggain, bgain)) > 1:
+        return
+
+    if rgain is not None:
+        out_path = f"colormap_rgbgain2w_rgain{rgain}.png" if out_path is None else out_path
+        ylabel = "rgain"
+        range = rgain
+    elif ggain is not None:
+        out_path = f"colormap_rgbgain2w_ggain{ggain}.png" if out_path is None else out_path
+        ylabel = "ggain"
+        range = ggain
+    elif bgain is not None:
+        out_path = f"colormap_rgbgain2w_bgain{bgain}.png" if out_path is None else out_path
+        ylabel = "bgain"
+        range = bgain
+    else:
+        raise ValueError("one of r/g/bgain must be specified!")
+
+    zero_gain = False
+    if range == 0:
+        range = 1.0
+        zero_gain = True
+
+    max_gain = 1 + range
+    min_gain = max(1 - range, 0)
+    w_grid, gain_grid = np.meshgrid(np.arange(0, 256), np.arange(max_gain, min_gain-0.01, -range/64), indexing='xy')
+    r = w_grid.astype(np.uint8)
+    g = w_grid.astype(np.uint8)
+    b = w_grid.astype(np.uint8)
+    gain_grid = 1 if zero_gain else gain_grid
+    if rgain is not None:
+        r = np.clip(r * gain_grid, 0, 255).astype(np.uint8)
+    elif ggain is not None:
+        g = np.clip(g * gain_grid, 0, 255).astype(np.uint8)
+    elif bgain is not None:
+        b = np.clip(b * gain_grid, 0, 255).astype(np.uint8)
+    rgb = np.stack([r, g, b], axis=-1)
+    img = Image.fromarray(rgb, mode="RGB")
+
+    new_hgt = 300 # ~300
+    new_wid = int(2 * img.width) # ~ 512
+    img = img.resize((new_wid, new_hgt), Image.BICUBIC)
+
+    # 添加边距的图像
+    margin = 64
+    padded_img = Image.new("RGB", (img.width + 2 * margin, img.height + 2 * margin), (255, 255, 255))
+    padded_img.paste(img, (margin, margin))
+
+    draw = ImageDraw.Draw(padded_img)
+    try:
+        font = ImageFont.truetype("arial.ttf", 12)
+    except:
+        font = None
+    x0 = 0
+    y0 = int(img.height * range / (range + 1 - min_gain))
+
+    x_rane = np.arange(0, 256, 32)
+    y_rane = np.arange(min_gain, max_gain+0.5, 0.5)
+    y_cent = 1
+    if zero_gain:
+        title = f"Color Map of {ylabel}-on-gray ({ylabel}=OFF)"
+    else:
+        title = f"Color Map of {ylabel}-on-gray ({ylabel}=[{min_gain}, {max_gain}])"
     draw_axis(draw, img.width, img.height, margin, x0, y0, x_rane, y_rane, "H", ylabel, title=title, font=font, y_center=y_cent)
 
     padded_img.save(out_path)
     print(f"Saved: {out_path}")
+
 
 
 if __name__ == "__main__":
@@ -535,6 +604,7 @@ if __name__ == "__main__":
     parser.add_argument("-r", "--rgain", type=float, help="red gain range, draw rgainbyh")
     parser.add_argument("-g", "--ggain", type=float, help="green gain range, draw ggainbyh")
     parser.add_argument("-b", "--bgain", type=float, help="blue gain range, draw bgainbyh")
+    parser.add_argument("--white", action="store_true", help="apply white color")
     args, _ = parser.parse_known_args()
 
     if args.yval is not None and args.yval >= 0:
@@ -548,12 +618,15 @@ if __name__ == "__main__":
     if args.dh is not None and args.dh >= 0:
         gen_img_dhbyh_coor(y=yval, s=args.sval, range=args.dh)
 
-    if args.rgain is not None and args.rgain >= 0:
-        gen_img_rgbgainbyh_coor(y=yval, s=args.sval, rgain=args.rgain)
-    if args.ggain is not None and args.ggain >= 0:
-        gen_img_rgbgainbyh_coor(y=yval, s=args.sval, ggain=args.ggain)
-    if args.bgain is not None and args.bgain >= 0:
-        gen_img_rgbgainbyh_coor(y=yval, s=args.sval, bgain=args.bgain)
+    if args.white:
+        gen_img_rgbgain2w_coor(rgain=args.rgain, ggain=args.ggain, bgain=args.bgain)
+    else:
+        if args.rgain is not None and args.rgain >= 0:
+            gen_img_rgbgainbyh_coor(y=yval, s=args.sval, rgain=args.rgain)
+        if args.ggain is not None and args.ggain >= 0:
+            gen_img_rgbgainbyh_coor(y=yval, s=args.sval, ggain=args.ggain)
+        if args.bgain is not None and args.bgain >= 0:
+            gen_img_rgbgainbyh_coor(y=yval, s=args.sval, bgain=args.bgain)
 
     # gen_img_sbyh_coor()
     # gen_img_hbyh_coor()
