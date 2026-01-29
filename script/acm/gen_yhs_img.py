@@ -102,7 +102,7 @@ def hsv2rgb(h, s, v):
 
 
 # ---------- 画图通用工具 ----------
-def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, font=None, x_center=None, y_center=None):
+def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, font=None, x_center=None, y_center=None, title=None):
     # 辅助函数：判断数值是否为整数
     def is_integer(value):
         if isinstance(value, int):
@@ -251,6 +251,12 @@ def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, 
     if font:
         img_draw.text((W + margin + hm, y0 - 15 + margin), xlabel, fill=axis_color, font=font)
         img_draw.text((x0 + margin + 5, margin - hm - 5), ylabel, fill=axis_color, font=font)
+        if title:
+            # 获取文本的边界框以准确计算宽度，实现居中
+            bbox = img_draw.textbbox((0, 0), title, font=font)
+            text_width = bbox[2] - bbox[0]
+            center_x = x0 + margin - text_width // 2
+            img_draw.text((center_x, margin//3), title, fill=axis_color, font=font)
 
 
 # ---------- 四个生成函数 ----------
@@ -259,12 +265,12 @@ def gen_img_ycbcr2rgb_coor(y=128, scale=2.0, out_path=None):
     横坐标 Cb∈[-128,127]，纵坐标 Cr∈[-128,127]，固定亮度 y
     """
     if out_path is None:
-        out_path = f"ycbcr2rgb_coor_y{y}.png"
+        out_path = f"colormap_ycbcr2rgb_y{y}.png"
     base = 256
     # 修复坐标轴方向问题：图像中 y 轴向下为正，但我们需要 y 轴（Cr）向上为正
     cb_grid, cr_grid = np.meshgrid(np.arange(-128, 128), np.arange(127, -129, -1), indexing='xy')
-    y = np.ones_like(cb_grid) * y
-    r, g, b = ycbcr2rgb(y, cb_grid, cr_grid)
+    y_grid = np.ones_like(cb_grid) * y
+    r, g, b = ycbcr2rgb(y_grid, cb_grid, cr_grid)
     rgb = np.stack([r, g, b], axis=-1)  # (256,256,3)
 
     img = Image.fromarray(rgb, mode="RGB")
@@ -284,7 +290,8 @@ def gen_img_ycbcr2rgb_coor(y=128, scale=2.0, out_path=None):
     # 坐标轴中心点在图像中心
     x0 = int(img.width / 2)  # 图像中心x坐标
     y0 = int(img.height / 2)  # 图像中心y坐标
-    draw_axis(draw, img.width, img.height, margin, x0, y0, (-128, 128), (-128, 128), "Cb", "Cr", font)
+    title = f"Color Map of YUV2RGB (y={y})"
+    draw_axis(draw, img.width, img.height, margin, x0, y0, (-128, 128), (-128, 128), "Cb", "Cr", title=title, font=font)
 
     padded_img.save(out_path)
     print(f"Saved: {out_path}")
@@ -296,18 +303,16 @@ def gen_img_dybyh_coor(y=128, s=1.0, range=64, out_path=None):
     实际 y = 128 + dy
     """
     if out_path is None:
-        out_path = f"dybyh_coor_y{y}_s{s}_range{range}.png"
+        out_path = f"colormap_dybyh_y{y}_s{s}_range{range}.png"
 
-    ylabel = "ΔY"
+    title = f"Color Map of DeltaY-by-H (y={y}, s={s}, ΔY=±{range})"
     if range > 0:
         h_grid, dy_grid = np.meshgrid(np.arange(-180, 180), np.arange(range, -range-1, -1), indexing='xy')
         y = np.clip(y + dy_grid, 0, 255) # 360x512
-        ylabel += f"(±{range})"
     else:
         range = 64
         h_grid, dy_grid = np.meshgrid(np.arange(-180, 180), np.arange(range, -range-1, -1), indexing='xy')
         y = np.ones_like(h_grid) * y
-        ylabel += "(OFF)"
     s = np.ones_like(h_grid) * s * 181
 
     h_rad = np.radians(h_grid)
@@ -334,7 +339,7 @@ def gen_img_dybyh_coor(y=128, s=1.0, range=64, out_path=None):
         font = None
     x0 = int(img.width / 2)  # 图像中心x坐标
     y0 = int(img.height / 2)  # 图像中心y坐标
-    draw_axis(draw, img.width, img.height, margin, x0, y0, (-180, 180), (-range, range), "H", ylabel, font)
+    draw_axis(draw, img.width, img.height, margin, x0, y0, (-180, 180), (-range, range), "H", "ΔY", title=title, font=font)
 
     padded_img.save(out_path)
     print(f"Saved: {out_path}")
@@ -346,18 +351,16 @@ def gen_img_dsbyh_coor(y=128, s=0.5, range=0.5, out_path=None):
     s 对应为 s+ds，画出坐标轴
     """
     if out_path is None:
-        out_path = f"dsbyh_coor_y{y}_s{s}_range{range}.png"
+        out_path = f"colormap_dsbyh_y{y}_s{s}_range{range}.png"
 
-    ylabel = "ΔS"
+    title = f"Color Map of DeltaS-by-H (y={y}, s={s}, ΔS=±{range})"
     if range > 0:
         h_grid, ds_grid = np.meshgrid(np.arange(-180, 180), np.arange(range, -range-0.01, -range/64), indexing='xy')
         s = np.clip(s + ds_grid, 0, 1) * 181
-        ylabel += f"(±{range})"
     else:
         range = 0.5
         h_grid, ds_grid = np.meshgrid(np.arange(-180, 180), np.arange(range, -range-0.01, -range/64), indexing='xy')
         s = np.ones_like(h_grid) * s * 181
-        ylabel += "(OFF)"
     y = np.ones_like(h_grid) * y
 
     h_rad = np.radians(h_grid)
@@ -384,7 +387,7 @@ def gen_img_dsbyh_coor(y=128, s=0.5, range=0.5, out_path=None):
         font = None
     x0 = int(img.width / 2)  # 图像中心x坐标
     y0 = int(img.height / 2)  # 图像中心y坐标
-    draw_axis(draw, img.width, img.height, margin, x0, y0, (-180, 180), (-range, range), "H", ylabel, font)
+    draw_axis(draw, img.width, img.height, margin, x0, y0, (-180, 180), (-range, range), "H", "ΔS", title=title, font=font)
 
     padded_img.save(out_path)
     print(f"Saved: {out_path}")
@@ -396,18 +399,16 @@ def gen_img_dhbyh_coor(y=128, s=0.5, range=180, out_path=None):
     给定亮度 y 和饱和度 s，画出坐标轴
     """
     if out_path is None:
-        out_path = f"dhbyh_coor_y{y}_s{s}_range{range}.png"
+        out_path = f"colormap_dhbyh_y{y}_s{s}_range{range}.png"
 
-    ylabel = "ΔH"
+    title = f"Color Map of DeltaH-by-H (y={y}, s={s}, ΔH=±{range})"
     if range > 0:
         h_grid, dh_grid = np.meshgrid(np.arange(-180, 180), np.arange(range, -range-1, -1), indexing='xy')
         h = h_grid + dh_grid
-        ylabel += f"(±{range})"
     else:
         range = 180
         h_grid, dh_grid = np.meshgrid(np.arange(-180, 180), np.arange(range, -range-1, -1), indexing='xy')
         h = h_grid
-        ylabel += "(OFF)"
     y = np.ones_like(h_grid) * y
     s = np.ones_like(h_grid) * s * 181
 
@@ -435,7 +436,7 @@ def gen_img_dhbyh_coor(y=128, s=0.5, range=180, out_path=None):
         font = None
     x0 = int(img.width / 2)  # 图像中心x坐标
     y0 = int(img.height / 2)  # 图像中心y坐标
-    draw_axis(draw, img.width, img.height, margin, x0, y0, (-180, 180), (-range, range), "H", ylabel, font)
+    draw_axis(draw, img.width, img.height, margin, x0, y0, (-180, 180), (-range, range), "H", "ΔH", title=title, font=font)
 
     padded_img.save(out_path)
     print(f"Saved: {out_path}")
@@ -451,27 +452,25 @@ def gen_img_rgbgainbyh_coor(y=128, s=0.5, scale=2.0, out_path=None, rgain=None, 
 
     range_yaxis = 1.0
     if rgain is not None:
-        out_path = f"rgbgainbyh_coor_y{y}_s{s}_rgain{rgain}.png" if out_path is None else out_path
+        out_path = f"colormap_rgbgainbyh_y{y}_s{s}_rgain{rgain}.png" if out_path is None else out_path
         range_yaxis = rgain
         ylabel = "rgain"
     elif ggain is not None:
-        out_path = f"rgbgainbyh_coor_y{y}_s{s}_ggain{ggain}.png" if out_path is None else out_path
+        out_path = f"colormap_rgbgainbyh_y{y}_s{s}_ggain{ggain}.png" if out_path is None else out_path
         range_yaxis = ggain
         ylabel = "ggain"
     elif bgain is not None:
-        out_path = f"rgbgainbyh_coor_y{y}_s{s}_bgain{bgain}.png" if out_path is None else out_path
+        out_path = f"colormap_rgbgainbyh_y{y}_s{s}_bgain{bgain}.png" if out_path is None else out_path
         range_yaxis = bgain
         ylabel = "bgain"
     else:
         raise ValueError("one of r/g/bgain must be specified!")
 
+    range_str = f"{range_yaxis}"
     color_gain = None
     if range_yaxis == 0:
         range_yaxis = 1.0
         color_gain = 1.0
-        ylabel += "(OFF)"
-    else:
-        ylabel += f"({range_yaxis})"
 
     gain_range = np.arange(range_yaxis, -1.0, -(range_yaxis+1)/128)
     h_grid, _ = np.meshgrid(np.arange(-180, 180), gain_range, indexing='xy')
@@ -516,7 +515,8 @@ def gen_img_rgbgainbyh_coor(y=128, s=0.5, scale=2.0, out_path=None, rgain=None, 
     x_rane = np.arange(-180, 180+45, 45)
     y_rane = np.arange(0, range_yaxis+1+0.5, 0.5)
     y_cent = 1.0
-    draw_axis(draw, img.width, img.height, margin, x0, y0, x_rane, y_rane, "H", ylabel, font, y_center=y_cent)
+    title = f"Color Map of {ylabel} (y={y}, s={s}, {ylabel}=±{range_str})"
+    draw_axis(draw, img.width, img.height, margin, x0, y0, x_rane, y_rane, "H", ylabel, title=title, font=font, y_center=y_cent)
 
     padded_img.save(out_path)
     print(f"Saved: {out_path}")
