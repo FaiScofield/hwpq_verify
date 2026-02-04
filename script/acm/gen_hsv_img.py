@@ -1,7 +1,6 @@
 import os
 import sys
 import argparse
-from matplotlib.pyplot import ylabel
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -11,42 +10,60 @@ g_r2y_mat_bt709 = np.array(
 
 g_y2r_mat_bt709 = np.array([[1.0, 0.0, 1.5748], [1.0, -0.187324, -0.468124], [1.0, 1.8556, 0.0]], dtype=np.float32)
 
-
-def ycbcr2rgb(y, cb, cr):
+def hsv2rgb(h, s, v):
     """
-    将 YCbCr 转换到 RGB，输入为标量或数组，返回 0~255 的 uint8 RGB
-    ITU-R BT.709 标准，使用矩阵乘法
+    将 HSV 转换到 RGB，输入为标量或数组，返回 0~255 的 uint8 RGB
+    h: 0~360, s: 0~1, v: 0~1
     """
-    y = np.asarray(y, dtype=np.float32)
-    cb = np.asarray(cb, dtype=np.float32)
-    cr = np.asarray(cr, dtype=np.float32)
+    h = np.asarray(h, dtype=np.float32) % 360
+    s = np.asarray(s, dtype=np.float32)
+    v = np.asarray(v, dtype=np.float32)
 
-    # 组合 YCbCr 分量为 (..., 3) 形状
-    ycbcr_stacked = np.stack([y, cb, cr], axis=-1)
+    c = v * s
+    x = c * (1 - np.abs((h / 60) % 2 - 1))
+    m = v - c
 
-    # 保存原始形状用于后续恢复
-    original_shape = ycbcr_stacked.shape
+    r = np.zeros_like(h)
+    g = np.zeros_like(h)
+    b = np.zeros_like(h)
 
-    # 将输入重塑为二维矩阵，便于矩阵乘法
-    ycbcr_flat = ycbcr_stacked.reshape(-1, 3)  # (N, 3)
+    cond = (h >= 0) & (h < 60)
+    r[cond] = c[cond]
+    g[cond] = x[cond]
+    b[cond] = 0
 
-    # 执行矩阵乘法: (N, 3) x (3, 3) -> (N, 3)
-    rgb_flat = np.dot(ycbcr_flat, g_y2r_mat_bt709.T)  # 注意转置以实现正确的矩阵乘法
+    cond = (h >= 60) & (h < 120)
+    r[cond] = x[cond]
+    g[cond] = c[cond]
+    b[cond] = 0
 
-    # 恢复原始形状
-    rgb = rgb_flat.reshape(original_shape)
+    cond = (h >= 120) & (h < 180)
+    r[cond] = 0
+    g[cond] = c[cond]
+    b[cond] = x[cond]
 
-    # 分离R、G、B通道
-    r = rgb[..., 0] + 0.5
-    g = rgb[..., 1] + 0.5
-    b = rgb[..., 2] + 0.5
+    cond = (h >= 180) & (h < 240)
+    r[cond] = 0
+    g[cond] = x[cond]
+    b[cond] = c[cond]
 
-    # 裁剪并转 uint8
-    r = np.clip(r, 0, 255).astype(np.uint8)
-    g = np.clip(g, 0, 255).astype(np.uint8)
-    b = np.clip(b, 0, 255).astype(np.uint8)
+    cond = (h >= 240) & (h < 300)
+    r[cond] = x[cond]
+    g[cond] = 0
+    b[cond] = c[cond]
+
+    cond = (h >= 300) & (h < 360)
+    r[cond] = c[cond]
+    g[cond] = 0
+    b[cond] = x[cond]
+
+    r = ((r + m) * 255).astype(np.uint8)
+    g = ((g + m) * 255).astype(np.uint8)
+    b = ((b + m) * 255).astype(np.uint8)
     return r, g, b
 
+
+# ---------- 画图通用工具 ----------
 def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, font=None, x_center=None, y_center=None, title=None):
     # 辅助函数：判断数值是否为整数
     def is_integer(value):
@@ -202,23 +219,28 @@ def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, 
             img_draw.text((center_x, margin//3), title, fill=axis_color, font=font)
 
 
-def gen_img_ycbcr2rgb_coor(y=128, out_path=None):
-    y = np.clip(y, 0, 255)
+def gen_img_hsv2rgb_coor(vval=128, out_path=None):
+    vval = np.clip(vval, 0, 255)
     if out_path is None:
-        out_path = f"colormap_ycbcr2rgb_y{y}.png"
+        out_path = f"colormap_hsv2rgb_v{vval}.png"
 
-    # 注意坐标轴方向问题：图像中 y 轴向下为正，但我们需要 y 轴（Cr）向上为正
-    cb_grid, cr_grid = np.meshgrid(np.arange(-128, 128), np.arange(127, -129, -1), indexing='xy')
-    y_grid = np.ones_like(cb_grid) * y
-    r, g, b = ycbcr2rgb(y_grid, cb_grid, cr_grid)
-    rgb = np.stack([r, g, b], axis=-1)  # (256,256,3)
+    # 修复坐标轴方向问题：图像中 y 轴向下为正，但我们需要 y 轴（Cr）向上为正
+    radius = 256
+    x_grid, y_grid = np.meshgrid(np.arange(-radius, radius+1), np.arange(radius, -radius-1, -1), indexing='xy')
+    x_grid = x_grid.astype(np.float32) / radius
+    y_grid = y_grid.astype(np.float32) / radius
+    h = np.arctan2(y_grid, x_grid) * 180 / np.pi + 360 # to positive angle
+    s = np.sqrt(x_grid**2 + y_grid**2)
+    v = np.ones_like(x_grid) * vval / 255
 
-    scale = 2.0
+    r, g, b = hsv2rgb(h, s, v)
+    r[s > 1] = 255
+    g[s > 1] = 255
+    b[s > 1] = 255
+    rgb = np.stack([r, g, b], axis=-1)  # (H,W,3)
+
     img = Image.fromarray(rgb, mode="RGB")
-    img = img.resize((int(scale * img.width), int(scale * img.height)), Image.BICUBIC)
-
-    # 添加边距的图像
-    margin = 64
+    margin = 64 # 添加边距的图像
     padded_img = Image.new("RGB", (img.width + 2 * margin, img.height + 2 * margin), (255, 255, 255))
     padded_img.paste(img, (margin, margin))
 
@@ -231,37 +253,35 @@ def gen_img_ycbcr2rgb_coor(y=128, out_path=None):
     # 坐标轴中心点在图像中心
     x0 = int(img.width / 2)  # 图像中心x坐标
     y0 = int(img.height / 2)  # 图像中心y坐标
-    title = f"Color Map of YUV2RGB (y={y})"
-    draw_axis(draw, img.width, img.height, margin, x0, y0, (-128, 128), (-128, 128), "Cb", "Cr", title=title, font=font)
+    title = f"Color Map of HSV2RGB (v={vval})"
+    draw_axis(draw, img.width, img.height, margin, x0, y0, (-1, 1), (-1, 1), "S", "S", title=title, font=font)
 
     padded_img.save(out_path)
     print(f"Saved: {out_path}")
 
 
-def gen_img_dybyh_coor(y=128, s=1.0, range=64, out_path=None):
-    y = np.clip(y, 0, 255)
-    s = np.clip(s, 0, 1.0)
+def gen_img_dvbyh_coor(vval=128, sval=1.0, range=64, out_path=None):
+    vval = np.clip(vval, 0, 255)
+    sval = np.clip(sval, 0, 1.0)
     range = np.clip(range, 0, 255)
     if out_path is None:
-        out_path = f"colormap_dybyh_y{y}_s{s}_range{range}.png"
+        out_path = f"colormap_dvbyh_v{vval}_s{sval}_range{range}.png"
 
-    title = f"Color Map of DeltaY-by-H (y={y}, s={s}, ΔY=±{range})"
+    title = f"Color Map of DeltaV-by-H (v={vval}, s={sval}, ΔV=±{range})"
     if range > 0:
-        h_grid, dy_grid = np.meshgrid(np.arange(-180, 180), np.arange(range, -range-1, -1), indexing='xy')
-        y = np.clip(y + dy_grid, 0, 255) # 360x512
+        h_grid, dv_grid = np.meshgrid(np.arange(-180, 180), np.arange(range, -range-1, -1), indexing='xy')
+        v = np.clip(vval + dv_grid, 0, 255) / 255 # 360x512
     else:
         range = 64
-        h_grid, dy_grid = np.meshgrid(np.arange(-180, 180), np.arange(range, -range-1, -1), indexing='xy')
-        y = np.ones_like(h_grid) * y
-    s = np.ones_like(h_grid) * s * 181
+        h_grid, dv_grid = np.meshgrid(np.arange(-180, 180), np.arange(range, -range-1, -1), indexing='xy')
+        v = np.ones_like(h_grid) * vval / 255
+    h = h_grid + 360 # make sure h is positive
+    s = np.ones_like(h_grid) * sval
 
-    h_rad = np.radians(h_grid)
-    cb = np.clip(s * np.cos(h_rad), -128, 127)
-    cr = np.clip(s * np.sin(h_rad), -128, 127)
-    r, g, b = ycbcr2rgb(y, cb, cr)
+    r, g, b = hsv2rgb(h, s, v)
     rgb = np.stack([r, g, b], axis=-1)
-    img = Image.fromarray(rgb, mode="RGB")
 
+    img = Image.fromarray(rgb, mode="RGB")
     new_hgt = 256 # ~ 256
     new_wid = 2 * img.width # ~ 720
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
@@ -278,36 +298,37 @@ def gen_img_dybyh_coor(y=128, s=1.0, range=64, out_path=None):
         font = None
     x0 = int(img.width / 2)  # 图像中心x坐标
     y0 = int(img.height / 2)  # 图像中心y坐标
-    draw_axis(draw, img.width, img.height, margin, x0, y0, (-180, 180), (-range, range), "H", "ΔY", title=title, font=font)
+    step = (range + 2) // 4
+    y_rane = np.arange(-range, range + step // 2, step)
+    y_rane = np.clip(y_rane, -range, range)
+    draw_axis(draw, img.width, img.height, margin, x0, y0, (-180, 180), y_rane, "H", "ΔV", title=title, font=font)
 
     padded_img.save(out_path)
     print(f"Saved: {out_path}")
 
 
-def gen_img_dsbyh_coor(y=128, s=0.5, range=0.5, out_path=None):
-    y = np.clip(y, 0, 255)
-    s = np.clip(s, 0, 1.0)
+def gen_img_dsbyh_coor(vval=128, sval=0.5, range=0.5, out_path=None):
+    vval = np.clip(vval, 0, 255)
+    sval = np.clip(sval, 0, 1.0)
     range = np.clip(range, 0, 1.0)
     if out_path is None:
-        out_path = f"colormap_dsbyh_y{y}_s{s}_range{range}.png"
+        out_path = f"colormap_dsbyh_v{vval}_s{sval}_range{range}.png"
 
-    title = f"Color Map of DeltaS-by-H (y={y}, s={s}, ΔS=±{range})"
+    title = f"Color Map of DeltaS-by-H (v={vval}, s={sval}, ΔS=±{range})"
     if range > 0:
         h_grid, ds_grid = np.meshgrid(np.arange(-180, 180), np.arange(range, -range-0.01, -range/64), indexing='xy')
-        s = np.clip(s + ds_grid, 0, 1) * 181
+        s = np.clip(sval + ds_grid, 0, 1)
     else:
         range = 0.5
         h_grid, ds_grid = np.meshgrid(np.arange(-180, 180), np.arange(range, -range-0.01, -range/64), indexing='xy')
-        s = np.ones_like(h_grid) * s * 181
-    y = np.ones_like(h_grid) * y
+        s = np.ones_like(h_grid) * sval
+    h = h_grid + 360 # make sure h is positive
+    v = np.ones_like(h_grid) * vval / 255
 
-    h_rad = np.radians(h_grid)
-    cb = np.clip(s * np.cos(h_rad), -128, 127)
-    cr = np.clip(s * np.sin(h_rad), -128, 127)
-    r, g, b = ycbcr2rgb(y, cb, cr)
+    r, g, b = hsv2rgb(h, s, v)
     rgb = np.stack([r, g, b], axis=-1)
-    img = Image.fromarray(rgb, mode="RGB")
 
+    img = Image.fromarray(rgb, mode="RGB")
     new_hgt = 256 # ~ 256
     new_wid = 2 * img.width # ~ 720
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
@@ -330,31 +351,27 @@ def gen_img_dsbyh_coor(y=128, s=0.5, range=0.5, out_path=None):
     print(f"Saved: {out_path}")
 
 
-def gen_img_dhbyh_coor(y=128, s=0.5, range=180, out_path=None):
-    y = np.clip(y, 0, 255)
-    s = np.clip(s, 0, 1.0)
+def gen_img_dhbyh_coor(vval=128, sval=0.5, range=180, out_path=None):
+    vval = np.clip(vval, 0, 255)
+    sval = np.clip(sval, 0, 1.0)
     range = np.clip(range, 0, 360)
     if out_path is None:
-        out_path = f"colormap_dhbyh_y{y}_s{s}_range{range}.png"
+        out_path = f"colormap_dhbyh_v{vval}_s{sval}_range{range}.png"
 
-    title = f"Color Map of DeltaH-by-H (y={y}, s={s}, ΔH=±{range})"
+    title = f"Color Map of DeltaH-by-H (v={vval}, s={sval}, ΔH=±{range})"
     if range > 0:
         h_grid, dh_grid = np.meshgrid(np.arange(-180, 180), np.arange(range, -range-1, -1), indexing='xy')
-        h = h_grid + dh_grid
+        h = h_grid + dh_grid + 360
     else:
         range = 180
         h_grid, dh_grid = np.meshgrid(np.arange(-180, 180), np.arange(range, -range-1, -1), indexing='xy')
-        h = h_grid
-    y = np.ones_like(h_grid) * y
-    s = np.ones_like(h_grid) * s * 181
-
-    h_rad = np.radians(h)
-    cb = np.clip(s * np.cos(h_rad), -128, 127)
-    cr = np.clip(s * np.sin(h_rad), -128, 127)
-    r, g, b = ycbcr2rgb(y, cb, cr)
+        h = h_grid + 360
+    v = np.ones_like(h_grid) * vval / 255
+    s = np.ones_like(h_grid) * sval
+    r, g, b = hsv2rgb(h, s, v)
     rgb = np.stack([r, g, b], axis=-1)
-    img = Image.fromarray(rgb, mode="RGB")
 
+    img = Image.fromarray(rgb, mode="RGB")
     new_hgt = 256 # ~ 256
     new_wid = 2 * img.width # ~ 720
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
@@ -377,8 +394,8 @@ def gen_img_dhbyh_coor(y=128, s=0.5, range=180, out_path=None):
     print(f"Saved: {out_path}")
 
 
-def gen_img_rgbgainbyh_coor(y=128, s=0.5, rgain=None, ggain=None, bgain=None, out_path=None):
-    y = np.clip(y, 0, 255)
+def gen_img_rgbgainbyh_coor(vval=128, sval=0.5, rgain=None, ggain=None, bgain=None, out_path=None):
+    vval = np.clip(vval, 0, 255)
     # 仅允许 rgain/ggain/bgain 中至多一个有效；若三者均为 None，则直接返回
     if rgain is None and ggain is None and bgain is None:
         return
@@ -387,15 +404,15 @@ def gen_img_rgbgainbyh_coor(y=128, s=0.5, rgain=None, ggain=None, bgain=None, ou
         return
 
     if rgain is not None:
-        out_path = f"colormap_rgbgainbyh_y{y}_s{s}_rgain{rgain}.png" if out_path is None else out_path
+        out_path = f"colormap_rgbgainbyh_v{vval}_s{sval}_rgain{rgain}.png" if out_path is None else out_path
         ylabel = "rgain"
         range = rgain
     elif ggain is not None:
-        out_path = f"colormap_rgbgainbyh_y{y}_s{s}_ggain{ggain}.png" if out_path is None else out_path
+        out_path = f"colormap_rgbgainbyh_v{vval}_s{sval}_ggain{ggain}.png" if out_path is None else out_path
         ylabel = "ggain"
         range = ggain
     elif bgain is not None:
-        out_path = f"colormap_rgbgainbyh_y{y}_s{s}_bgain{bgain}.png" if out_path is None else out_path
+        out_path = f"colormap_rgbgainbyh_v{vval}_s{sval}_bgain{bgain}.png" if out_path is None else out_path
         ylabel = "bgain"
         range = bgain
     else:
@@ -409,12 +426,10 @@ def gen_img_rgbgainbyh_coor(y=128, s=0.5, rgain=None, ggain=None, bgain=None, ou
     max_gain = 1 + range
     min_gain = max(1 - range, 0)
     h_grid, gain_grid = np.meshgrid(np.arange(-180, 180), np.arange(max_gain, min_gain-0.01, -range/64), indexing='xy')
-    y_val = np.ones_like(h_grid) * y
-    s_val = np.ones_like(h_grid) * s * 181
-    h_rad = np.radians(h_grid)
-    cb = np.clip(s_val * np.cos(h_rad), -128, 127)
-    cr = np.clip(s_val * np.sin(h_rad), -128, 127)
-    r, g, b = ycbcr2rgb(y_val, cb, cr)
+    h = h_grid + 360
+    s = np.ones_like(h_grid) * sval
+    v = np.ones_like(h_grid) * vval / 255
+    r, g, b = hsv2rgb(h, s, v)
 
     gain_grid = 1 if zero_gain else gain_grid
     if rgain is not None:
@@ -424,8 +439,8 @@ def gen_img_rgbgainbyh_coor(y=128, s=0.5, rgain=None, ggain=None, bgain=None, ou
     elif bgain is not None:
         b = np.clip(b * gain_grid, 0, 255).astype(np.uint8)
     rgb = np.stack([r, g, b], axis=-1)
-    img = Image.fromarray(rgb, mode="RGB")
 
+    img = Image.fromarray(rgb, mode="RGB")
     new_hgt = 256 # ~ 256
     new_wid = 2 * img.width # ~ 720
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
@@ -446,9 +461,9 @@ def gen_img_rgbgainbyh_coor(y=128, s=0.5, rgain=None, ggain=None, bgain=None, ou
     x_rane = np.arange(-180, 180+45, 45)
     y_rane = np.arange(min_gain, max_gain+0.5, 0.5)
     if zero_gain:
-        title = f"Color Map of {ylabel}-by-H (y={y}, s={s}, {ylabel}=OFF)"
+        title = f"Color Map of {ylabel}-by-H (v={vval}, s={sval}, {ylabel}=OFF)"
     else:
-        title = f"Color Map of {ylabel}-by-H (y={y}, s={s}, {ylabel}=[{min_gain}, {max_gain}])"
+        title = f"Color Map of {ylabel}-by-H (v={vval}, s={sval}, {ylabel}=[{min_gain}, {max_gain}])"
     draw_axis(draw, img.width, img.height, margin, x0, y0, x_rane, y_rane, "H", ylabel, title=title, font=font, y_center=1)
 
     padded_img.save(out_path)
@@ -496,8 +511,8 @@ def gen_img_rgbgain2w_coor(rgain=None, ggain=None, bgain=None, out_path=None):
     elif bgain is not None:
         b = np.clip(b * gain_grid, 0, 255).astype(np.uint8)
     rgb = np.stack([r, g, b], axis=-1)
-    img = Image.fromarray(rgb, mode="RGB")
 
+    img = Image.fromarray(rgb, mode="RGB")
     new_hgt = 300 # ~ 300
     new_wid = 2 * img.width # ~ 512
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
@@ -528,15 +543,14 @@ def gen_img_rgbgain2w_coor(rgain=None, ggain=None, bgain=None, out_path=None):
     print(f"Saved: {out_path}")
 
 
-
 if __name__ == "__main__":
     ## arg parser
     parser = argparse.ArgumentParser(exit_on_error=False)
     # parser.add_argument("-i", "--input", default="", type=str, help="输入图像文件, yuv444p格式")
     # parser.add_argument("-o", "--output", default="", type=str, help="输出图像文件")
-    parser.add_argument("-y", "--yval", type=int, help="y value, range: [0, 255], draw ycbcr2rgb")
+    parser.add_argument("-v", "--vval", type=int, help="v value, range: [0, 255], draw hsv2rgb")
     parser.add_argument("-s", "--sval", type=float, default=0.5, help="s value, range: [0.0, 1.0]")
-    parser.add_argument("-Y", "--dy", type=int, help="delta y range, draw dybyh")
+    parser.add_argument("-V", "--dv", type=int, help="delta v range, draw dvbyh")
     parser.add_argument("-S", "--ds", type=float, help="delta s range, draw dsbyh")
     parser.add_argument("-H", "--dh", type=int, help="delta h range, draw dhbyh")
     parser.add_argument("-r", "--rgain", type=float, help="red gain range, draw rgainbyh")
@@ -545,23 +559,23 @@ if __name__ == "__main__":
     parser.add_argument("--white", action="store_true", help="apply white color")
     args, _ = parser.parse_known_args()
 
-    if args.yval is not None and args.yval >= 0:
-        gen_img_ycbcr2rgb_coor(y=args.yval)
+    if args.vval is not None and args.vval >= 0:
+        gen_img_hsv2rgb_coor(vval=args.vval)
 
-    yval = args.yval if args.yval is not None else 128
-    if args.dy is not None and args.dy >= 0:
-        gen_img_dybyh_coor(y=yval, s=args.sval, range=args.dy)
+    vval = args.vval if args.vval is not None else 128
+    if args.dv is not None and args.dv >= 0:
+        gen_img_dvbyh_coor(vval=vval, sval=args.sval, range=args.dv)
     if args.ds is not None and args.ds >= 0:
-        gen_img_dsbyh_coor(y=yval, s=args.sval, range=args.ds)
+        gen_img_dsbyh_coor(vval=vval, sval=args.sval, range=args.ds)
     if args.dh is not None and args.dh >= 0:
-        gen_img_dhbyh_coor(y=yval, s=args.sval, range=args.dh)
+        gen_img_dhbyh_coor(vval=vval, sval=args.sval, range=args.dh)
 
     if args.white:
         gen_img_rgbgain2w_coor(rgain=args.rgain, ggain=args.ggain, bgain=args.bgain)
     else:
         if args.rgain is not None and args.rgain >= 0:
-            gen_img_rgbgainbyh_coor(y=yval, s=args.sval, rgain=args.rgain)
+            gen_img_rgbgainbyh_coor(vval=vval, sval=args.sval, rgain=args.rgain)
         if args.ggain is not None and args.ggain >= 0:
-            gen_img_rgbgainbyh_coor(y=yval, s=args.sval, ggain=args.ggain)
+            gen_img_rgbgainbyh_coor(vval=vval, sval=args.sval, ggain=args.ggain)
         if args.bgain is not None and args.bgain >= 0:
-            gen_img_rgbgainbyh_coor(y=yval, s=args.sval, bgain=args.bgain)
+            gen_img_rgbgainbyh_coor(vval=vval, sval=args.sval, bgain=args.bgain)
