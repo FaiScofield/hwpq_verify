@@ -202,7 +202,7 @@ if __name__ == "__main__":
     parser.add_argument("-a", type=float, default=None,
                         help="插值参数: 对于bicubic是锐化参数(默认-0.5)，对于lanczos是窗口半径(默认3)")
     parser.add_argument("-p", "--precision", type=int, default=0,
-                        help="定点化精度位数，如设为9则将所有系数乘以2^9=512后四舍五入 (默认: 0, 不进行定点化)")
+                        help="定点化精度位数，(默认: 0, 不进行定点化)")
     parser.add_argument("-w", "--weight", type=float,
                         help="设置权重，反向求取dx")
     parser.add_argument("--norm", action="store_true", help="系数归一化")
@@ -254,7 +254,7 @@ if __name__ == "__main__":
 
         # 如果指定了精度，则进行定点化处理
         if args.precision > 0:
-            scale_factor = 2 ** args.precision - 1
+            scale_factor = 2 ** args.precision
             weights = (weights * scale_factor + 0.5 * np.sign(weights)).astype(int)
             print(f"Fixed-point coefficients (Q.{args.precision}):")
         else:

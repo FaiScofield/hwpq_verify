@@ -291,8 +291,8 @@ class DciConfig(ModuleConfigCore):
         ## parse dependent arguments
         img_wid = kwargs["width"] if "width" in kwargs else 1920
         img_hgt = kwargs["height"] if "height" in kwargs else 1080
-        blk_size_hor = img_wid >> 4
-        blk_size_ver = img_hgt >> 4
+        blk_size_hor = img_wid + (0 if img_wid < 1080 else 15) >> 4
+        blk_size_ver = img_hgt + (0 if img_hgt < 1080 else 15) >> 4
         blk_size_hor_half = (blk_size_hor + 1) >> 1
         blk_size_ver_half = (blk_size_ver + 1) >> 1
         lum_zero = random.randint(0, 255)

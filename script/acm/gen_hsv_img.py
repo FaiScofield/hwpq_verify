@@ -530,14 +530,14 @@ def gen_img_rgbgain2w_coor(rgain=None, ggain=None, bgain=None, out_path=None):
     x0 = 0
     y0 = int(img.height * range / (range + 1 - min_gain))
 
-    x_rane = np.arange(0, 256, 32)
+    x_rane = np.arange(0, 256 + 16, 32)
     y_rane = np.arange(min_gain, max_gain+0.5, 0.5)
     y_cent = 1
     if zero_gain:
         title = f"Color Map of {ylabel}-on-gray ({ylabel}=OFF)"
     else:
         title = f"Color Map of {ylabel}-on-gray ({ylabel}=[{min_gain}, {max_gain}])"
-    draw_axis(draw, img.width, img.height, margin, x0, y0, x_rane, y_rane, "H", ylabel, title=title, font=font, y_center=y_cent)
+    draw_axis(draw, img.width, img.height, margin, x0, y0, x_rane, y_rane, "Gray", ylabel, title=title, font=font, y_center=y_cent)
 
     padded_img.save(out_path)
     print(f"Saved: {out_path}")

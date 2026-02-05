@@ -75,7 +75,7 @@ def main(args):
 
         ## other module results
         sub_dir = f"{dev_output_folder}/vdpp_test/out_vep_1080p_com"
-        com_arg = f"-i {dev_data_path}/input/input_960x540_nv12_601l.yuv -w 960 -g 540 -f 0 -r 0 -m 2"
+        com_arg = f"-i {dev_data_path}/input/input_960x540_601l_nv12.yuv -w 960 -g 540 -f 0 -r 0 -m 2"
         utl.run_cmd(f"adb shell mkdir -p {sub_dir}")
         utl.run_cmd(f"adb shell vdpp_test {com_arg} -o {sub_dir}/out_960x540_nv12_601l_0x1.yuv -F 2 --en_hist=0 --en_pyr=0 --en_bbd=0 --en_dmsr=1 --en_es=0 --en_shp=0")
         utl.run_cmd(f"adb shell vdpp_test {com_arg} -o {sub_dir}/out_960x540_nv12_601l_0x2.yuv -F 2 --en_hist=0 --en_pyr=0 --en_bbd=0 --en_dmsr=0 --en_es=1 --en_shp=0")
@@ -127,7 +127,7 @@ def main(args):
 
         ## other module results
         sub_dir = f"{dev_output_folder}/hwpq_test/out_vep_1080p_com"
-        com_arg = f"-i {dev_data_path}/input/input_960x540_nv12_601l.yuv -w 960 -g 540 -f 2 -r 0 -m 2"
+        com_arg = f"-i {dev_data_path}/input/input_960x540_601l_nv12.yuv -w 960 -g 540 -f 2 -r 0 -m 2"
         utl.run_cmd(f"adb shell mkdir -p {sub_dir}")
         utl.run_cmd(f"adb shell hwpq_test {com_arg} -o {sub_dir}/out_960x540_nv12_601l_0x1.yuv -F 2 --en_hist=0 --en_pyr=0 --en_bbd=0 --en_dmsr=1 --en_es=0 --en_shp=0")
         utl.run_cmd(f"adb shell hwpq_test {com_arg} -o {sub_dir}/out_960x540_nv12_601l_0x2.yuv -F 2 --en_hist=0 --en_pyr=0 --en_bbd=0 --en_dmsr=0 --en_es=1 --en_shp=0")
