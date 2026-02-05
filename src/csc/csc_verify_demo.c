@@ -21,8 +21,7 @@
 #include <string.h>
 
 
-struct cmd_config_addition_csc
-{
+struct cmd_config_addition_csc {
     struct post_csc_convert_mode convert_mode;
     struct post_csc bcsh_cfg;
 
@@ -782,7 +781,8 @@ int main(int argc, char *const argv[])
     LOGI("mid_fmt: %d (%s)\n", mid_fmt, common_verify_imgfmt_str(mid_fmt));
 
     for (int k = 0; k < cmd_config.nb_frame; k++) {
-        ret = image_read_to_planar(fp_src, p_src, k, cmd_config.src_wid, cmd_config.src_hgt, cmd_config.src_fmt, depth);
+        ret = image_read_to_planar(fp_src, p_src, k, cmd_config.src_wid, cmd_config.src_hgt, cmd_config.src_wid_vir,
+            cmd_config.src_hgt_vir, cmd_config.src_fmt, depth);
         if (ret) {
             LOGE("Failed to read frame #%d from input file '%s'! %s\n", k, cmd_config.input_file, strerror(errno));
             break;
@@ -796,7 +796,7 @@ int main(int argc, char *const argv[])
         run_csc_with_coef(p_src, p_dst, cmd_config.src_wid, cmd_config.src_hgt, mid_fmt, &csc_coefs, &csc_mode);
         dump_csc_regs(NULL, 0x0, &csc_coefs, bIsPostCsc);
         ret = image_write_from_plannar(fp_dst, (ushort *)p_dst, k, cmd_config.dst_wid, cmd_config.dst_hgt,
-            cmd_config.dst_fmt, depth);
+            cmd_config.dst_wid_vir, cmd_config.dst_hgt_vir, cmd_config.dst_fmt, depth);
         if (ret) {
             break;
         }

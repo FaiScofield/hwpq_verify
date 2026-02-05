@@ -36,15 +36,22 @@ struct common_verify_cmd_config
     char config_file[1024]; // '.json' config file
     char crc_file[1024];    // '.txt' file to record CRC values. NOTE: opened by mode 'a'
     char platform_name[32]; // RK3576/RK3572/...
+
     int src_wid;            // defaut: 1920
     int src_hgt;            // default: 1080
+    int src_wid_vir;        // default: src_wid
+    int src_hgt_vir;        // default: src_hgt
     int src_fmt;            // {0-yuv444p, 1-nyuv444sp(nv24), 2-yuv444i, 3-rgb888, 4-rgba8888}
                             //   (+10 for 10bit lsb unpacked; +20 for 10bit packed)
     int src_clrspc;         // {0/1(RGBL/F), 2/3(601L/F), 4/5(709L/F), 8/9(2020L/F)}
+
     int dst_wid;            // default: 1920
     int dst_hgt;            // default: 1080
+    int dst_wid_vir;        // default: dst_wid
+    int dst_hgt_vir;        // default: dst_hgt
     int dst_fmt;            // same to src_fmt
     int dst_clrspc;         // same to src_clrspc
+
     int nb_frame;           // default: 1
     int mode;               // default: -1, further parsed for some modules needed
     int seed;               // random seed, default: -1

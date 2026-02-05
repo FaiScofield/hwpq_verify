@@ -107,12 +107,12 @@ static char g_logbuf[2048];
 #define ROUND_U(x)         ((float)(x) + 0.5f)
 #define ROUND_F(x)         ((x) > 0 ? ((float)(x) + 0.5f) : ((float)(x) - 0.5f))
 #define ROUND_D(x)         ((x) > 0 ? ((double)(x) + 0.5) : ((double)(x) - 0.5))
-#define ROUND_U8(x)        (uchar) ROUND_U(x)
-#define ROUND_U16(x)       (ushort) ROUND_U(x)
-#define ROUND_U32(x)       (uint) ROUND_U(x)
-#define ROUND_S8(x)        (char)ROUND_F(x)
-#define ROUND_S16(x)       (short)ROUND_F(x)
-#define ROUND_S32(x)       (int)ROUND_F(x)
+#define ROUND_U8(x)        ((uchar)ROUND_U(x))
+#define ROUND_U16(x)       ((ushort)ROUND_U(x))
+#define ROUND_U32(x)       ((uint)ROUND_U(x))
+#define ROUND_S8(x)        ((char)ROUND_F(x))
+#define ROUND_S16(x)       ((short)ROUND_F(x))
+#define ROUND_S32(x)       ((int)ROUND_F(x))
 #define ROUND_F32(x)       ROUND_F(x)
 #define ROUND_F64(x)       ROUND_D(x)
 
@@ -150,13 +150,13 @@ const char *get_basename(const char *path);
 #include "verify_img_fmt.h"
 
 // read image data from fp, then convert to U8/U10bit YUV444P or planar RGB
-int image_read_to_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt, int depth);
+int image_read_to_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth);
 // write 8/10bit image data to fp from U8/U10bit YUV444P or planar RGB
-int image_write_from_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt, int depth);
+int image_write_from_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth);
 // read image data from fp (then shift) to U10bit YUV444P or planar RGB
-int image_read_to_10bit_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt);
+int image_read_to_10bit_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt);
 // write 10bit image data to fp from U10bit YUV444P or planar RGB
-int image_write_from_10bit_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt);
+int image_write_from_10bit_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt);
 // read image data from fp
 int image_read(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt);
 // write image data to fp
@@ -167,17 +167,17 @@ int imgcvt_pack_10bit(uint16_t const *p_src, uint8_t *p_dst, int w, int h, int s
 // unpack an 10bit-packed image format
 int imgcvt_unpack_10bit(uint8_t const *p_src, uint16_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt);
 // convert image to 10bit lsb planar format from any 8/10bit input format
-int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt,
-    bool has_alpha);
+int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int h, int sw_strd, int sh_strd,
+    int dw_strd, int dh_strd, int fmt, bool has_alpha);
 // convert image to any 10bit output format from 10bit lsb planar format
-int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd,
-    int fmt, bool has_alpha);
+int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, int h, int sw_strd, int sh_strd,
+    int dw_strd, int dh_strd, int fmt, bool has_alpha);
 // convert image to 8bit lsb planar format from any 8bit input format
-int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt,
-    bool has_alpha);
+int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h, int sw_strd, int sh_strd, int dw_strd,
+    int dh_strd, int fmt, bool has_alpha);
 // convert image to any 8bit output format from 8bit lsb planar format
-int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt,
-    bool has_alpha);
+int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h, int sw_strd, int sh_strd,
+    int dw_strd, int dh_strd, int dst_fmt, bool has_alpha);
 
 
 // dump regisers data to a file or stdout, with 4 registers in each row

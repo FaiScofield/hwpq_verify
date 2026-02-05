@@ -17,29 +17,34 @@
 
 
 const struct option g_common_verify_arg_supported_options[] = {
-    {    "help", ARG_NONE, NULL, 'h'}, // print help message
-    {   "input",  ARG_REQ, NULL, 'i'}, // input filename
-    {   "width",  ARG_REQ, NULL, 'w'}, // input image width, set to '1920' if not specified
-    {  "height",  ARG_REQ, NULL, 'g'}, // input image height, set to '1080' if not specified
-    {  "format",  ARG_REQ, NULL, 'f'}, // input image format, set to '0' if not specified
-    {  "clrspc",  ARG_REQ, NULL, 's'}, // input image colorspace, set to '1-RGBF/5-709F' if not specified
-    {  "output",  ARG_REQ, NULL, 'o'}, // output filename, set to 'dirname(input)/custom_output_basename' if not specified
-    {  "outwid",  ARG_REQ, NULL, 'W'}, // output image width, same to 'width' if not specified
-    {  "outhgt",  ARG_REQ, NULL, 'G'}, // output image height, same to 'height' if not specified
-    {  "outfmt",  ARG_REQ, NULL, 'F'}, // output image format, same to 'format' if not specified
-    {  "outclr",  ARG_REQ, NULL, 'S'}, // output image colorspace, set to 'clrspc' if not specified
-    { "nframes",  ARG_REQ, NULL, 'n'}, // number of frames of to process, set to '1' if not specified
-    {  "config",  ARG_REQ, NULL, 'c'}, // config file ('.json' for config; '.bin/.dat' for register data), set to 'NULL' if not specified
-    {     "crc",  ARG_REQ, NULL, 'C'}, // crc file ('.txt/.dat'), set to 'NULL' if not specified
-    {"platform",  ARG_REQ, NULL, 'p'}, // RK3572, RK3576, RK3538..., set to 'RK3572' if not specified
-    {    "mode",  ARG_REQ, NULL, 'm'}, // test mode, customized by each model, set to '-1' if not specified
-    {         0,        0,    0,   0}  // end of option list
+    {"swvir",    ARG_REQ,  NULL, 0  }, // src width  stride
+    {"shvir",    ARG_REQ,  NULL, 0  }, // src height stride
+    {"dwvir",    ARG_REQ,  NULL, 0  }, // dst width  stride
+    {"dhvir",    ARG_REQ,  NULL, 0  }, // dst height stride
+    {"help",     ARG_NONE, NULL, 'h'}, // print help message
+    {"input",    ARG_REQ,  NULL, 'i'}, // input filename
+    {"width",    ARG_REQ,  NULL, 'w'}, // input image width, set to '1920' if not specified
+    {"height",   ARG_REQ,  NULL, 'g'}, // input image height, set to '1080' if not specified
+    {"format",   ARG_REQ,  NULL, 'f'}, // input image format, set to '0' if not specified
+    {"clrspc",   ARG_REQ,  NULL, 's'}, // input image colorspace, set to '1-RGBF/5-709F' if not specified
+    {"output",   ARG_REQ,  NULL, 'o'}, // output filename, set to 'dirname(input)/custom_output_basename' if not specified
+    {"outwid",   ARG_REQ,  NULL, 'W'}, // output image width, same to 'width' if not specified
+    {"outhgt",   ARG_REQ,  NULL, 'G'}, // output image height, same to 'height' if not specified
+    {"outfmt",   ARG_REQ,  NULL, 'F'}, // output image format, same to 'format' if not specified
+    {"outclr",   ARG_REQ,  NULL, 'S'}, // output image colorspace, set to 'clrspc' if not specified
+    {"nframes",  ARG_REQ,  NULL, 'n'}, // number of frames of to process, set to '1' if not specified
+    {"config",   ARG_REQ,  NULL, 'c'}, // config file ('.json' for config; '.bin/.dat' for register data), set to 'NULL' if not specified
+    {"crc",      ARG_REQ,  NULL, 'C'}, // crc file ('.txt/.dat'), set to 'NULL' if not specified
+    {"platform", ARG_REQ,  NULL, 'p'}, // RK3572, RK3576, RK3538..., set to 'RK3572' if not specified
+    {"mode",     ARG_REQ,  NULL, 'm'}, // test mode, customized by each model, set to '-1' if not specified
+    {0,          0,        0,    0  }  // end of option list
 };
 
 void common_verify_arg_print_usage(const char *program)
 {
     printf("\nUsage: %s [options]\n", program);
     printf("\nProgram Common Options:\n");
+    printf("  -h  --help                      | print this message\n");
     printf("  -i  --input       [intput_file] | input filename\n");
     printf("  -w  --width       [input_width] | input image width, default: 1920\n");
     printf("  -g  --height     [input_height] | input image height, default: 1080\n");
@@ -60,7 +65,10 @@ void common_verify_arg_print_usage(const char *program)
     printf("  -p  --platform  [platform_name] | platform like: RK3572(default)/RK3576/RK3538...\n");
     printf("  -m  --mode           [mode_num] | test mode, customized by each model, default: -1\n");
     printf("  -s  --seed        [random_seed] | random seed, customized using by each model, default: -1\n");
-    printf("  -h  --help                      | print this message\n");
+    printf("      --swvir    [src_wid_stride] | src width  stride\n");
+    printf("      --shvir    [src_hgt_stride] | src height stride\n");
+    printf("      --dwvir    [dst_wid_stride] | dst width  stride\n");
+    printf("      --dhvir    [dst_hgt_stride] | dst height stride\n");
     printf("\n");
 }
 
@@ -79,64 +87,73 @@ int common_verify_arg_get_cmd_config(int argc, char *const argv[], struct common
     int opt = -1;
     int idx = -1;
     const char *short_option_str = "-hi:w:g:f:r:o:W:G:F:R:n:c:C:p:m:s:"; // -1 for keep unknow option index unchanged
-    while ((opt = getopt_long(argc, argv, short_option_str, g_common_verify_arg_supported_options, &idx)) != -1) {
+    while ((opt = getopt_long_only(argc, argv, short_option_str, g_common_verify_arg_supported_options, &idx)) != -1) {
         switch (opt) {
+        case 0: {
+            switch (idx) {
+            case 0:  config.src_wid_vir = strtol(optarg, NULL, 0); break;
+            case 1:  config.src_hgt_vir = strtol(optarg, NULL, 0); break;
+            case 2:  config.dst_wid_vir = strtol(optarg, NULL, 0); break;
+            case 3:  config.dst_hgt_vir = strtol(optarg, NULL, 0); break;
+            default: break;
+            }
+            printf(" - set %dth option: %s = %s\n", idx, g_common_verify_arg_supported_options[idx].name, optarg);
+        } break;
         case 'h': common_verify_arg_print_usage(argv[0]); return -1;
         case 'i': strncpy(config.input_file, optarg, 1024); break;
         case 'o': strncpy(config.output_file, optarg, 1024); break;
         case 'c': strncpy(config.config_file, optarg, 1024); break;
         case 'C': strncpy(config.crc_file, optarg, 1024); break;
         case 'p': strncpy(config.platform_name, optarg, 32); break;
-        case 'w': config.src_wid = atoi(optarg); break;
-        case 'g': config.src_hgt = atoi(optarg); break;
-        case 'f': config.src_fmt = atoi(optarg); break;
-        case 'r': config.src_clrspc = atoi(optarg); break;
-        case 'W': config.dst_wid = atoi(optarg); break;
-        case 'G': config.dst_hgt = atoi(optarg); break;
-        case 'F': config.dst_fmt = atoi(optarg); break;
-        case 'R': config.dst_clrspc = atoi(optarg); break;
-        case 'n': config.nb_frame = atoi(optarg); break;
-        case 'm': config.mode = atoi(optarg); break;
-        case 's': config.seed = atoi(optarg); break;
+        case 'w': config.src_wid = strtol(optarg, NULL, 0); break;
+        case 'g': config.src_hgt = strtol(optarg, NULL, 0); break;
+        case 'f': config.src_fmt = strtol(optarg, NULL, 0); break;
+        case 'r': config.src_clrspc = strtol(optarg, NULL, 0); break;
+        case 'W': config.dst_wid = strtol(optarg, NULL, 0); break;
+        case 'G': config.dst_hgt = strtol(optarg, NULL, 0); break;
+        case 'F': config.dst_fmt = strtol(optarg, NULL, 0); break;
+        case 'R': config.dst_clrspc = strtol(optarg, NULL, 0); break;
+        case 'n': config.nb_frame = strtol(optarg, NULL, 0); break;
+        case 'm': config.mode = strtol(optarg, NULL, 0); break;
+        case 's': config.seed = strtol(optarg, NULL, 0); break;
         default:  break;
         }
     }
 
     /* check args, set default values if necessary */
-    if (config.input_file[0] == '\0') {
+    if (config.input_file[0] == '\0')
         printf(" - input_file not set!\n");
-        // return -1;
-    }
-    if (config.platform_name[0] == '\0') {
+    if (config.platform_name[0] == '\0')
         strncpy(config.platform_name, "RK3572", 32);
-    }
-    if (config.src_wid < 0) {
+
+    if (config.src_wid < 0)
         config.src_wid = 1920;
-    }
-    if (config.src_hgt < 0) {
+    if (config.src_hgt < 0)
         config.src_hgt = 1080;
-    }
-    if (config.src_fmt < 0) {
+    if (config.src_fmt < 0)
         config.src_fmt = 0;
-    }
-    if (config.src_clrspc < 0) {
+    if (config.src_clrspc < 0)
         config.src_clrspc = config.src_fmt % 10 < 3 ? RGBFULL : YUV709F; // default to RGBF/709F
-    }
-    if (config.dst_wid < 0) {
+    if (config.src_wid_vir < 0)
+        config.src_wid_vir = ROUND_S32(config.src_wid * common_verify_imgfmt_pitch_ratio(config.src_fmt));
+    if (config.src_hgt_vir < 0)
+        config.src_hgt_vir = config.src_hgt;
+
+    if (config.dst_wid < 0)
         config.dst_wid = config.src_wid;
-    }
-    if (config.dst_hgt < 0) {
+    if (config.dst_hgt < 0)
         config.dst_hgt = config.src_hgt;
-    }
-    if (config.dst_fmt < 0) {
+    if (config.dst_fmt < 0)
         config.dst_fmt = config.src_fmt % 10 + 10; // default to [10, 19], 10bit unpacked data
-    }
-    if (config.dst_clrspc < 0) {
+    if (config.dst_clrspc < 0)
         config.dst_clrspc = config.dst_fmt % 10 < 3 ? RGBFULL : YUV709F; // default to RGBF/709F
-    }
-    if (config.nb_frame < 0) {
+    if (config.dst_wid_vir < 0)
+        config.dst_wid_vir = ROUND_S32(config.dst_wid * common_verify_imgfmt_pitch_ratio(config.dst_fmt));
+    if (config.dst_hgt_vir < 0)
+        config.dst_hgt_vir = config.dst_hgt;
+
+    if (config.nb_frame < 0)
         config.nb_frame = 1;
-    }
     if (config.output_file[0] == '\0') {
         strncpy(config.output_dir, get_dirname(config.input_file), 1024);
         snprintf(config.output_file, 1024, "%s/verify_out_%dx%d_%s.%s", config.output_dir, config.dst_wid,
@@ -172,12 +189,12 @@ int common_verify_arg_dump_config(struct common_verify_cmd_config *config)
     LOGI(" - config_file: %s\n", config->config_file);
     LOGI(" - crc_file: %s\n", config->crc_file);
     LOGI(" - platform name: %s\n", config->platform_name);
-    LOGI(" - src_wid: %d\n", config->src_wid);
-    LOGI(" - src_hgt: %d\n", config->src_hgt);
+    LOGI(" - src_wid: %d (%d)\n", config->src_wid, config->src_wid_vir);
+    LOGI(" - src_hgt: %d (%d)\n", config->src_hgt, config->src_hgt_vir);
     LOGI(" - src_fmt: %d (%s)\n", config->src_fmt, common_verify_imgfmt_str(config->src_fmt));
     LOGI(" - src_clrspc: %d (%s)\n", config->src_clrspc, common_verify_clrspc_str(config->src_clrspc));
-    LOGI(" - dst_wid: %d\n", config->dst_wid);
-    LOGI(" - dst_hgt: %d\n", config->dst_hgt);
+    LOGI(" - dst_wid: %d (%d)\n", config->dst_wid, config->dst_wid_vir);
+    LOGI(" - dst_hgt: %d (%d)\n", config->dst_hgt, config->dst_hgt_vir);
     LOGI(" - dst_fmt: %d (%s)\n", config->dst_fmt, common_verify_imgfmt_str(config->dst_fmt));
     LOGI(" - dst_clrspc: %d (%s)\n", config->dst_clrspc, common_verify_clrspc_str(config->dst_clrspc));
     LOGI(" - nb_frame: %d\n", config->nb_frame);

@@ -93,46 +93,6 @@ int common_verify_imgfmt_bpp(int fmt)
     }
 }
 
-// used in `image_read_to_10bit_planar()`
-int common_verify_imgfmt_check(int fmt)
-{
-    switch (fmt) {
-    case RGBA8888:
-    case RGB888:
-    case RGB_PLANAR:
-    case YUV444P:
-    case YUV444SP:
-    case YUV444I:
-    // case YUV422P:
-    // case YUV422SP:
-    // case YUV420P:
-    // case YUV420SP:
-    case RGB_101010LSB:
-    case RGB_PLANAR10LSB:
-    case YUV444P_10LSB:
-    case YUV444SP_10LSB:
-    case YUV444I_10LSB:
-    // case YUV422P_10LSB:
-    // case YUV422SP_10LSB:
-    // case YUV420P_10LSB:
-    // case YUV420SP_10LSB:
-    case RGBA_1010102:
-    case RGB_10PACKED:
-    case RGB_PLANAR10PACKED:
-    case YUV444P_10PACKED:
-    case YUV444SP_10PACKED:
-    case YUV444I_10PACKED:
-    // case YUV422P_10PACKED:
-    case YUV422SP_10PACKED:
-    // case YUV420P_10PACKED:
-    case YUV420SP_10PACKED:  return 1;
-    default:
-        // TODO: unsupported by now
-        LOGE("%s: unsupported image format %d for now!\n", __func__, fmt);
-        return 0;
-    }
-}
-
 float common_verify_imgfmt_pitch_ratio(int fmt)
 {
     switch (fmt) {
@@ -165,6 +125,42 @@ float common_verify_imgfmt_pitch_ratio(int fmt)
     case YUV422SP_10PACKED:
     case YUV420P_10PACKED:
     case YUV420SP_10PACKED:  return 5 / 4.f;
+    default:                 LOGE("%s: unsupported image format %d for now!\n", __func__, fmt); return 0.f;
+    }
+}
+
+float common_verify_imgfmt_framesize_ratio(int fmt)
+{
+    switch (fmt) {
+    case RGB888:
+    case RGBA8888:
+    case RGB_101010LSB:
+    case RGB_10PACKED:
+    case RGBA_1010102:
+    case YUV444I:
+    case YUV444I_10LSB:
+    case YUV444I_10PACKED:   return 1.f;
+    case RGB_PLANAR:
+    case RGB_PLANAR10LSB:
+    case RGB_PLANAR10PACKED:
+    case YUV444P:
+    case YUV444SP:
+    case YUV444P_10LSB:
+    case YUV444SP_10LSB:
+    case YUV444P_10PACKED:
+    case YUV444SP_10PACKED:  return 3.f;
+    case YUV422P:
+    case YUV422SP:
+    case YUV422P_10LSB:
+    case YUV422SP_10LSB:
+    case YUV422P_10PACKED:
+    case YUV422SP_10PACKED:  return 2.f;
+    case YUV420P:
+    case YUV420SP:
+    case YUV420P_10LSB:
+    case YUV420SP_10LSB:
+    case YUV420P_10PACKED:
+    case YUV420SP_10PACKED:  return 1.5f;
     default:                 LOGE("%s: unsupported image format %d for now!\n", __func__, fmt); return 0.f;
     }
 }

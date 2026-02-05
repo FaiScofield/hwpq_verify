@@ -59,8 +59,8 @@ enum common_verify_image_format {
 const char *common_verify_imgfmt_str(int fmt);
 const char *common_verify_imgfmt_exten_str(int fmt);
 int common_verify_imgfmt_bpp(int fmt);
-int common_verify_imgfmt_check(int fmt);
 float common_verify_imgfmt_pitch_ratio(int fmt);
+float common_verify_imgfmt_framesize_ratio(int fmt); // get the framesize ratio to the first planesize
 static inline bool common_verify_imgfmt_is_yuv(int fmt) { return fmt % 10 >= 3; }
 static inline bool common_verify_imgfmt_is_rgb(int fmt) { return fmt % 10 < 3; }
 int common_verify_imgfmt_get_def_planar(int fmt, int depth);

@@ -13,6 +13,14 @@
 #include <stdio.h>
 #include <string.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_NO_PSD
+#define STBI_NO_TGA
+#define STBI_NO_GIF
+#define STBI_NO_HDR
+#define STBI_NO_PIC
+#define STBI_NO_PNM
+#include "stb_image.h" // only jpeg//png/bmp support
 
 int main(int argc, char *const argv[])
 {
@@ -27,7 +35,7 @@ int main(int argc, char *const argv[])
     common_verify_arg_dump_config(&config);
 
     /* alloc i/o/t memories */
-    const size_t frame_size_max = config.src_wid * config.src_hgt * 4 * 2; // 4 channels x 16bpp
+    const size_t frame_size_max = config.src_wid_vir * config.src_hgt_vir * sizeof(uint16_t); // 16bpp
     void *p_src = calloc(frame_size_max, 1);
     void *p_dst = calloc(frame_size_max, 1);
     if (!p_src || !p_dst) {
@@ -52,20 +60,31 @@ int main(int argc, char *const argv[])
     LOGI("mid_fmt: %d(%s), bpp: %d, frame_size: %d\n", mid_fmt, common_verify_imgfmt_str(mid_fmt), mid_fmt_bpp, mid_fmt_size);
 
     for (int k = 0; k < config.nb_frame; k++) {
-        ret = image_read_to_planar(fp_src, p_src, k, config.src_wid, config.src_hgt, config.src_fmt, depth);
+        // read src data
+        ret = image_read_to_planar(fp_src, p_src, k, config.src_wid, config.src_hgt, config.src_wid_vir,
+            config.src_hgt_vir, config.src_fmt, depth);
         if (ret) {
             LOGE("Failed to read frame #%d from input file '%s'! %s\n", k, config.input_file, strerror(errno));
             break;
         }
 
-        ret = image_write_from_plannar(fp_dst, p_src, k, config.dst_wid, config.dst_hgt, config.dst_fmt, depth);
+        // write planar src data
+        if (1) {
+            char filename[1024];
+            snprintf(filename, 1023, "%s_%s.%s", config.output_file, common_verify_imgfmt_str(mid_fmt),
+                common_verify_imgfmt_exten_str(mid_fmt));
+            FILE *fp = fopen(filename, "wb");
+            fwrite(p_src, 1, mid_fmt_size, fp);
+            fclose(fp);
+        }
+
+        // write dst data
+        ret = image_write_from_plannar(fp_dst, p_src, k, config.dst_wid, config.dst_hgt, config.dst_wid_vir,
+            config.dst_hgt_vir, config.dst_fmt, depth);
         if (ret) {
             LOGE("Failed to write frame #%d to output file '%s'! %s\n", k, config.output_file, strerror(errno));
             break;
         }
-
-        // append planar src data to dst file
-        // fwrite(p_src, 1, mid_fmt_size, fp_dst);
     }
     if (0 == ret) {
         LOGI("done. write output to file: '%s'\n", config.output_file);
