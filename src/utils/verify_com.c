@@ -499,7 +499,8 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
     ushort *p_dst_ug = (ushort *)((uint8_t *)p_dst + dw_strd * dh_strd);
     ushort *p_dst_vb = (ushort *)((uint8_t *)p_dst_ug + dwc_strd * dhc_strd);
     ushort *p_dst_a = keep_alpha ? (ushort *)((uint8_t *)p_dst_vb + dwc_strd * dhc_strd) : NULL;
-    LOGT_f("dst u/v offset: %td / %td\n", p_dst_ug - p_dst_yr, p_dst_vb - p_dst_yr);
+    LOGT_f("dst u/v offset: %td / %td\n", (uint8_t *)p_dst_ug - (uint8_t *)p_dst_yr,
+        (uint8_t *)p_dst_vb - (uint8_t *)p_dst_yr);
 
     switch (src_fmt) {
     /* 8bit normal data to 10bit planar lsb data */
@@ -834,7 +835,8 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
     const ushort *p_src_ug = (ushort *)((uint8_t *)p_src + sw_strd * sh_strd);
     const ushort *p_src_vb = (ushort *)((uint8_t *)p_src_ug + swc_strd * shc_strd);
     const ushort *p_src_a = has_alpha ? (ushort *)((uint8_t *)p_src_vb + swc_strd * shc_strd) : NULL;
-    LOGT_f("src u/v offset: %td / %td\n", p_src_ug - p_src_yr, p_src_vb - p_src_yr);
+    LOGT_f("src u/v offset: %td / %td\n", (uint8_t *)p_src_ug - (uint8_t *)p_src_yr,
+        (uint8_t *)p_src_vb - (uint8_t *)p_src_yr);
 
     switch (dst_fmt) {
     /* 10bit plannar to 10bit lsb data */
@@ -860,12 +862,13 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
         ushort *p_dst_y = (ushort *)p_dst;
         ushort *p_dst_u = (ushort *)((uint8_t *)p_dst + dh_strd * dw_strd);
         ushort *p_dst_v = (ushort *)((uint8_t *)p_dst_u + dhc_strd * dwc_strd);
-        LOGT_f("dst u/v offset: %td / %td\n", p_dst_u - p_dst_y, p_dst_v - p_dst_y);
+        LOGT_f("dst u/v offset: %td / %td\n", (uint8_t *)p_dst_u - (uint8_t *)p_dst_y,
+            (uint8_t *)p_dst_v - (uint8_t *)p_dst_y);
         for (int y = 0; y < h; y++)
-            memcpy(p_dst_y + y * dw_strd, p_src_yr + sw_strd * y, MIN(dw_strd, sw_strd));
+            memcpy((uint8_t *)p_dst_y + y * dw_strd, (uint8_t *)p_src_yr + sw_strd * y, MIN(dw_strd, sw_strd));
         for (int y = 0; y < chroma_hgt; y++) {
-            memcpy(p_dst_u + y * dwc_strd, p_src_ug + swc_strd * y, MIN(dwc_strd, swc_strd));
-            memcpy(p_dst_v + y * dwc_strd, p_src_ug + swc_strd * y, MIN(dwc_strd, swc_strd));
+            memcpy((uint8_t *)p_dst_u + y * dwc_strd, (uint8_t *)p_src_ug + swc_strd * y, MIN(dwc_strd, swc_strd));
+            memcpy((uint8_t *)p_dst_v + y * dwc_strd, (uint8_t *)p_src_vb + swc_strd * y, MIN(dwc_strd, swc_strd));
         }
     } break;
     case YUV444SP_10LSB: {
@@ -888,12 +891,7 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
         ushort *p_dst_y = (ushort *)p_dst;
         ushort *p_dst_c = (ushort *)((uint8_t *)p_dst + dh_strd * dw_strd);
         for (int y = 0; y < h; y++) {
-            // for (int x = 0, j = 0; x < w; x++, j += 2) {
-            //     const int src_ofs = y * sw_strd / 2 + x;
-            //     const int dst_ofs = y * dw_strd / 2 + x;
-            //     p_dst_y[dst_ofs] = p_src_yr[src_ofs];
-            // }
-            memcpy(p_dst_y + y * dw_strd, p_src_yr + sw_strd * y, MIN(dw_strd, sw_strd));
+            memcpy((uint8_t *)p_dst_y + y * dw_strd, (uint8_t *)p_src_yr + y * sw_strd, MIN(dw_strd, sw_strd));
             for (int x = 0, j = 0; x < chroma_wid; x++, j += 2) {
                 const int src_ofs = y * sw_strd / 4 + x;
                 const int dst_ofs = y * dw_strd / 2 + j;
@@ -907,12 +905,7 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
         ushort *p_dst_y = (ushort *)p_dst;
         ushort *p_dst_c = (ushort *)((uint8_t *)p_dst + dh_strd * dw_strd);
         for (int y = 0; y < h; y++) {
-            // for (int x = 0, j = 0; x < w; x++, j += 2) {
-            //     const int src_ofs = y * sw_strd / 2 + x;
-            //     const int dst_ofs = y * dw_strd / 2 + x;
-            //     p_dst_y[dst_ofs] = p_src_yr[src_ofs];
-            // }
-            memcpy(p_dst_y + y * dw_strd, p_src_yr + sw_strd * y, MIN(dw_strd, sw_strd));
+            memcpy((uint8_t *)p_dst_y + y * dw_strd, (uint8_t *)p_src_yr + sw_strd * y, MIN(dw_strd, sw_strd));
         }
         for (int y = 0; y < chroma_hgt; y++) {
             for (int x = 0, j = 0; x < chroma_wid; x++, j += 2) {
@@ -1117,7 +1110,8 @@ int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h
     uint8_t *p_dst_ug = p_dst + dw_strd * dh_strd;
     uint8_t *p_dst_vb = p_dst_ug + dwc_strd * dhc_strd;
     uint8_t *p_dst_a = keep_alpha ? (p_dst_vb + dwc_strd * dhc_strd) : NULL;
-    LOGT_f("dst u/v offset: %td / %td\n", p_dst_ug - p_dst_yr, p_dst_vb - p_dst_yr);
+    LOGT_f("dst u/v offset: %td / %td\n", (uint8_t *)p_dst_ug - (uint8_t *)p_dst_yr,
+        (uint8_t *)p_dst_vb - (uint8_t *)p_dst_yr);
 
     switch (src_fmt) {
     /* 8bit normal data to 8bit planar lsb data */
@@ -1211,7 +1205,8 @@ int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int
     const uint8_t *p_src_ug = p_src + sw_strd * sh_strd;
     const uint8_t *p_src_vb = p_src_ug + swc_strd * shc_strd;
     const uint8_t *p_src_a = has_alpha ? (p_src_vb + swc_strd * shc_strd) : NULL;
-    LOGT_f("src u/v offset: %td / %td\n", p_src_ug - p_src_yr, p_src_vb - p_src_yr);
+    LOGT_f("src u/v offset: %td / %td\n", (uint8_t *)p_src_ug - (uint8_t *)p_src_yr,
+        (uint8_t *)p_src_vb - (uint8_t *)p_src_yr);
 
     switch (dst_fmt) {
     /* 8bit planar lsb data to 8bit normal data */

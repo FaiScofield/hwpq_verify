@@ -35,7 +35,8 @@ int main(int argc, char *const argv[])
     common_verify_arg_dump_config(&config);
 
     /* alloc i/o/t memories */
-    const size_t frame_size_max = config.src_wid_vir * config.src_hgt_vir * sizeof(uint16_t); // 16bpp
+    
+    const size_t frame_size_max = config.src_wid_vir * config.src_hgt_vir * 4 * sizeof(uint16_t);
     void *p_src = calloc(frame_size_max, 1);
     void *p_dst = calloc(frame_size_max, 1);
     if (!p_src || !p_dst) {
