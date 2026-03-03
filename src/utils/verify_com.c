@@ -1,14 +1,10 @@
 /**
- * @copyright Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
+ * @copyright:   Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
  * @description: verify_com.c
- * @author: vance.wu@rock-chips.com
- * @create: 2025-09-12
- * @history:
- *  2025-01-01 vance.wu: Add/fix more 8/10bit pixel formats support for IO.
- *  2025-10-23 vance.wu: Add more 8bit pixel formats support for IO.
- *  2025-10-12 vance.wu: Add 10bit-packed-YUV444 formats support for IO.
- *  2025-09-08 vance.wu: Add common macros & functions for commonly usage.
- *  2025-09-15 vance.wu: Add pixel format pack/unpack functions.
+ * @author:      vance.wu@rock-chips.com
+ * @create:      2025-09-12
+ * @modifier:    vance.wu@rock-chips.com
+ * @modify:      2026-03-03
  */
 
 #include "verify_com.h"
@@ -121,7 +117,7 @@ const char *get_basename(const char *path) { return basename((char *)path); }
 
 
 /********** image io functions **********/
-int image_read_to_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth)
+int image_read_to_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth, int dither)
 {
     if (!fp || !p_buf) {
         LOGE_f("invalid fp or output buffer!\n");
@@ -153,11 +149,12 @@ int image_read_to_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int ws
     if (0 == ret) {
         if (depth == 8) {
             const int dst_stride = w * 1;
-            ret = imgcvt_to_planar_8bit_lsb(p_src, (uint8_t *)p_buf, w, h, wstrd, hstrd, dst_stride, h, fmt, keep_alpha);
+            ret = imgcvt_to_planar_8bit_lsb(p_src, (uint8_t *)p_buf, w, h, wstrd, hstrd, dst_stride, h, fmt, keep_alpha, dither);
         }
         else if (depth == 10) {
             const int dst_stride = w * 2;
-            ret = imgcvt_to_planar_10bit_lsb(p_src, (uint16_t *)p_buf, w, h, wstrd, hstrd, dst_stride, h, fmt, keep_alpha);
+            ret = imgcvt_to_planar_10bit_lsb(p_src, (uint16_t *)p_buf, w, h, wstrd, hstrd, dst_stride, h, fmt,
+                keep_alpha, dither);
         }
         else {
             LOGE_f("invalid target depth=%d !\n", depth);
@@ -169,7 +166,7 @@ int image_read_to_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int ws
     return ret;
 }
 
-int image_write_from_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth)
+int image_write_from_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth, int dither)
 {
     if (!fp || !p_buf) {
         LOGE_f("invalid fp or output buffer!\n");
@@ -192,11 +189,13 @@ int image_write_from_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, in
     ushort *p_dst = (ushort *)calloc(frame_size, 1);
     if (depth == 8) {
         const int src_wstrd = w;
-        ret = imgcvt_from_planar_8bit_lsb((uint8_t *)p_buf, (uint8_t *)p_dst, w, h, src_wstrd, h, wstrd, hstrd, fmt, has_alpha);
+        ret = imgcvt_from_planar_8bit_lsb((uint8_t *)p_buf, (uint8_t *)p_dst, w, h, src_wstrd, h, wstrd, hstrd, fmt,
+            has_alpha, dither);
     }
     else if (depth == 10) {
         const int src_wstrd = w * 2;
-        ret = imgcvt_from_planar_10bit_lsb((uint16_t *)p_buf, (uint8_t *)p_dst, w, h, src_wstrd, h, wstrd, hstrd, fmt, has_alpha);
+        ret = imgcvt_from_planar_10bit_lsb((uint16_t *)p_buf, (uint8_t *)p_dst, w, h, src_wstrd, h, wstrd, hstrd, fmt,
+            has_alpha, dither);
     }
     else {
         LOGE_f("invalid target depth=%d !\n", depth);
@@ -220,14 +219,14 @@ int image_write_from_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, in
     return ret;
 }
 
-int image_read_to_10bit_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt)
+int image_read_to_10bit_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int dither)
 {
-    return image_read_to_planar(fp, p_buf, frmidx, w, h, wstrd, hstrd, fmt, 10);
+    return image_read_to_planar(fp, p_buf, frmidx, w, h, wstrd, hstrd, fmt, 10, dither);
 }
 
-int image_write_from_10bit_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt)
+int image_write_from_10bit_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int dither)
 {
-    return image_write_from_plannar(fp, p_buf, frmidx, w, h, wstrd, hstrd, fmt, 10);
+    return image_write_from_plannar(fp, p_buf, frmidx, w, h, wstrd, hstrd, fmt, 10, dither);
 }
 
 int image_read(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt)
@@ -474,7 +473,7 @@ int imgcvt_unpack_10bit(uint8_t const *p_src, uint16_t *p_dst, int w, int h, int
 }
 
 int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int h, int sw_strd, int sh_strd,
-    int dw_strd, int dh_strd, int src_fmt, bool keep_alpha)
+    int dw_strd, int dh_strd, int src_fmt, bool keep_alpha, int dither)
 {
     assert(p_src != (uint8_t *)p_dst);
     assert(dw_strd >= w * 2);
@@ -499,27 +498,97 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
     ushort *p_dst_ug = (ushort *)((uint8_t *)p_dst + dw_strd * dh_strd);
     ushort *p_dst_vb = (ushort *)((uint8_t *)p_dst_ug + dwc_strd * dhc_strd);
     ushort *p_dst_a = keep_alpha ? (ushort *)((uint8_t *)p_dst_vb + dwc_strd * dhc_strd) : NULL;
-    LOGT_f("dst u/v offset: %td / %td\n", (uint8_t *)p_dst_ug - (uint8_t *)p_dst_yr,
-        (uint8_t *)p_dst_vb - (uint8_t *)p_dst_yr);
+    LOGT_f("dst u/v offset: %td / %td\n", (uint8_t *)p_dst_ug - (uint8_t *)p_dst_yr, (uint8_t *)p_dst_vb - (uint8_t *)p_dst_yr);
 
     switch (src_fmt) {
     /* 8bit normal data to 10bit planar lsb data */
     case RGBA8888: chnl_num = 4; // NO break here!
-    case RGB888:
+    case RGB888:{
+        assert(sw_strd >= w * chnl_num);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                const int src_ofs = y * sw_strd + x * chnl_num;
+                const int dst_ofs = y * dw_strd / 2 + x;
+                int r = p_src[src_ofs + 0];
+                int g = p_src[src_ofs + 1];
+                int b = p_src[src_ofs + 2];
+                if (1 == dither) {
+                    p_dst_yr[dst_ofs] = ROUND_S32(r / 255.f * 1023.f);
+                    p_dst_ug[dst_ofs] = ROUND_S32(g / 255.f * 1023.f);
+                    p_dst_vb[dst_ofs] = ROUND_S32(b / 255.f * 1023.f);
+                }
+                else if (2 == dither) {
+                    p_dst_yr[dst_ofs] = (r << 2) | (r >> 6);
+                    p_dst_ug[dst_ofs] = (g << 2) + (g >> 6);
+                    p_dst_vb[dst_ofs] = (b << 2) + (b >> 6);
+                }
+                else {
+                    p_dst_yr[dst_ofs] = r << 2;
+                    p_dst_ug[dst_ofs] = g << 2;
+                    p_dst_vb[dst_ofs] = b << 2;
+                }
+                // ignore alpha channel here
+            }
+        }
+    } break;
     case YUV444I:  {
         assert(sw_strd >= w * chnl_num);
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 const int src_ofs = y * sw_strd + x * chnl_num;
                 const int dst_ofs = y * dw_strd / 2 + x;
-                p_dst_yr[dst_ofs] = p_src[src_ofs + 0] << 2;
-                p_dst_ug[dst_ofs] = p_src[src_ofs + 1] << 2;
-                p_dst_vb[dst_ofs] = p_src[src_ofs + 2] << 2;
+                int y = p_src[src_ofs + 0];
+                int cb = p_src[src_ofs + 1] - 128;
+                int cr = p_src[src_ofs + 2] - 128;
+                if (1 == dither) {
+                    p_dst_yr[dst_ofs] = ROUND_S32(y / 255.f * 1023.f);
+                    p_dst_ug[dst_ofs] = ROUND_S32(cb / 255.f * 1023.f + 512);
+                    p_dst_vb[dst_ofs] = ROUND_S32(cr / 255.f * 1023.f + 512);
+                }
+                else if (2 == dither) {
+                    p_dst_yr[dst_ofs] = (y << 2) | (y >> 6);
+                    p_dst_ug[dst_ofs] = (cb << 2) + (cb >> 6) + 512;
+                    p_dst_vb[dst_ofs] = (cr << 2) + (cr >> 6) + 512;
+                }
+                else {
+                    p_dst_yr[dst_ofs] = y << 2;
+                    p_dst_ug[dst_ofs] = (cb << 2) + 512;
+                    p_dst_vb[dst_ofs] = (cr << 2) + 512;
+                }
                 // ignore alpha channel here
             }
         }
     } break;
-    case RGB_PLANAR:
+    case RGB_PLANAR: {
+        assert(sw_strd >= w * 1);
+        const uchar *p_src_yr = p_src;
+        const uchar *p_src_ug = p_src + sw_strd * sh_strd;
+        const uchar *p_src_vb = p_src + sw_strd * sh_strd * 2;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                const int src_ofs = y * sw_strd + x;
+                const int dst_ofs = y * dw_strd / 2 + x;
+                int r = p_src_yr[src_ofs];
+                int g = p_src_ug[src_ofs];
+                int b = p_src_vb[src_ofs];
+                if (1 == dither) {
+                    p_dst_yr[dst_ofs] = ROUND_S32(r / 255.f * 1023.f);
+                    p_dst_ug[dst_ofs] = ROUND_S32(g / 255.f * 1023.f);
+                    p_dst_vb[dst_ofs] = ROUND_S32(b / 255.f * 1023.f);
+                }
+                else if (2 == dither) {
+                    p_dst_yr[dst_ofs] = (r << 2) | (r >> 6);
+                    p_dst_ug[dst_ofs] = (g << 2) + (g >> 6);
+                    p_dst_vb[dst_ofs] = (b << 2) + (b >> 6);
+                }
+                else {
+                    p_dst_yr[dst_ofs] = r << 2;
+                    p_dst_ug[dst_ofs] = g << 2;
+                    p_dst_vb[dst_ofs] = b << 2;
+                }
+            }
+        }
+    } break;
     case YUV444P:    {
         assert(sw_strd >= w * 1);
         const uchar *p_src_yr = p_src;
@@ -529,9 +598,24 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
             for (int x = 0; x < w; x++) {
                 const int src_ofs = y * sw_strd + x;
                 const int dst_ofs = y * dw_strd / 2 + x;
-                p_dst_yr[dst_ofs] = p_src_yr[src_ofs] << 2;
-                p_dst_ug[dst_ofs] = p_src_ug[src_ofs] << 2;
-                p_dst_vb[dst_ofs] = p_src_vb[src_ofs] << 2;
+                int y = p_src_yr[src_ofs];
+                int cb = p_src_ug[src_ofs] - 128;
+                int cr = p_src_vb[src_ofs] - 128;
+                if (1 == dither) {
+                    p_dst_yr[dst_ofs] = ROUND_S32(y / 255.f * 1023.f);
+                    p_dst_ug[dst_ofs] = ROUND_S32(cb / 255.f * 1023.f + 512);
+                    p_dst_vb[dst_ofs] = ROUND_S32(cr / 255.f * 1023.f + 512);
+                }
+                else if (2 == dither) {
+                    p_dst_yr[dst_ofs] = (y << 2) | (y >> 6);
+                    p_dst_ug[dst_ofs] = (cb << 2) + (cb >> 6) + 512;
+                    p_dst_vb[dst_ofs] = (cr << 2) + (cr >> 6) + 512;
+                }
+                else {
+                    p_dst_yr[dst_ofs] = y << 2;
+                    p_dst_ug[dst_ofs] = (cb << 2) + 512;
+                    p_dst_vb[dst_ofs] = (cr << 2) + 512;
+                }
             }
         }
     } break;
@@ -544,30 +628,28 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
                 const int src_ofs_y = y * sw_strd + x;
                 const int src_ofs_c = y * sw_strd * 2 + x * 2;
                 const int dst_ofs = y * dw_strd / 2 + x;
-                p_dst_yr[dst_ofs] = p_src_y[src_ofs_y + 0] << 2;
-                p_dst_ug[dst_ofs] = p_src_c[src_ofs_c + 0] << 2;
-                p_dst_vb[dst_ofs] = p_src_c[src_ofs_c + 1] << 2;
+                int y = p_src_y[src_ofs_y];
+                int cb = p_src_c[src_ofs_c + 0] - 128;
+                int cr = p_src_c[src_ofs_c + 1] - 128;
+                if (1 == dither) {
+                    p_dst_yr[dst_ofs] = ROUND_S32(y / 255.f * 1023.f);
+                    p_dst_ug[dst_ofs] = ROUND_S32(cb / 255.f * 1023.f + 512);
+                    p_dst_vb[dst_ofs] = ROUND_S32(cr / 255.f * 1023.f + 512);
+                }
+                else if (2 == dither) {
+                    p_dst_yr[dst_ofs] = (y << 2) | (y >> 6);
+                    p_dst_ug[dst_ofs] = (cb << 2) + (cb >> 6) + 512;
+                    p_dst_vb[dst_ofs] = (cr << 2) + (cr >> 6) + 512;
+                }
+                else {
+                    p_dst_yr[dst_ofs] = y << 2;
+                    p_dst_ug[dst_ofs] = (cb << 2) + 512;
+                    p_dst_vb[dst_ofs] = (cr << 2) + 512;
+                }
             }
         }
     } break;
-    case YUV422SP: {
-        assert(sw_strd >= w * 1);
-        const uchar *p_src_y = p_src;
-        const uchar *p_src_c = p_src + sw_strd * sh_strd;
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                const int src_ofs_y = y * sw_strd + x;
-                const int dst_ofs_y = y * dw_strd / 2 + x;
-                p_dst_yr[dst_ofs_y] = p_src_y[src_ofs_y] << 2;
-            }
-            for (int x = 0; x < w / 2; x++) {
-                const int src_ofs_c = y * sw_strd + x * 2;
-                const int dst_ofs_c = y * dw_strd / 4 + x;
-                p_dst_ug[dst_ofs_c] = p_src_c[src_ofs_c + 0] << 2;
-                p_dst_vb[dst_ofs_c] = p_src_c[src_ofs_c + 1] << 2;
-            }
-        }
-    } break;
+    case YUV422SP:
     case YUV420SP: {
         assert(sw_strd >= w * 1);
         const uchar *p_src_y = p_src;
@@ -576,15 +658,32 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
             for (int x = 0; x < w; x++) {
                 const int src_ofs_y = y * sw_strd + x;
                 const int dst_ofs_y = y * dw_strd / 2 + x;
-                p_dst_yr[dst_ofs_y] = p_src_y[src_ofs_y] << 2;
+                if (1 == dither)
+                    p_dst_yr[dst_ofs_y] = ROUND_S32(p_src_y[src_ofs_y] / 255.f * 1023.f);
+                else if (2 == dither)
+                    p_dst_yr[dst_ofs_y] = (p_src_y[src_ofs_y] >> 6) | (p_src_y[src_ofs_y] << 2);
+                else
+                    p_dst_yr[dst_ofs_y] = p_src_y[src_ofs_y] << 2;
             }
         }
-        for (int y = 0; y < h / 2; y++) {
-            for (int x = 0; x < w / 2; x++) {
+        for (int y = 0; y < chroma_hgt; y++) {
+            for (int x = 0; x < chroma_wid; x++) {
                 const int src_ofs_c = y * sw_strd + x * 2;
                 const int dst_ofs_c = y * dw_strd / 4 + x;
-                p_dst_ug[dst_ofs_c] = p_src_c[src_ofs_c + 0] << 2;
-                p_dst_vb[dst_ofs_c] = p_src_c[src_ofs_c + 1] << 2;
+                int cb = p_src_c[src_ofs_c + 0] - 128;
+                int cr = p_src_c[src_ofs_c + 1] - 128;
+                if (1 == dither) {
+                    p_dst_ug[dst_ofs_c] = ROUND_S32(cb / 225.f * 1023.f + 512);
+                    p_dst_vb[dst_ofs_c] = ROUND_S32(cr / 225.f * 1023.f + 512);
+                }
+                else if (2 == dither) {
+                    p_dst_ug[dst_ofs_c] = (cb << 2) + (cb >> 6) + 512;
+                    p_dst_vb[dst_ofs_c] = (cr << 2) + (cr >> 6) + 512;
+                }
+                else {
+                    p_dst_ug[dst_ofs_c] = (cb << 2) + 512;
+                    p_dst_vb[dst_ofs_c] = (cr << 2) + 512;
+                }
             }
         }
     } break;
@@ -812,7 +911,7 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
 }
 
 int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, int h, int sw_strd, int sh_strd,
-    int dw_strd, int dh_strd, int dst_fmt, bool has_alpha)
+    int dw_strd, int dh_strd, int dst_fmt, bool has_alpha, int dither)
 {
     assert((uint8_t *)p_src != p_dst);
     assert(sw_strd >= w * 2);
@@ -835,8 +934,7 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
     const ushort *p_src_ug = (ushort *)((uint8_t *)p_src + sw_strd * sh_strd);
     const ushort *p_src_vb = (ushort *)((uint8_t *)p_src_ug + swc_strd * shc_strd);
     const ushort *p_src_a = has_alpha ? (ushort *)((uint8_t *)p_src_vb + swc_strd * shc_strd) : NULL;
-    LOGT_f("src u/v offset: %td / %td\n", (uint8_t *)p_src_ug - (uint8_t *)p_src_yr,
-        (uint8_t *)p_src_vb - (uint8_t *)p_src_yr);
+    LOGT_f("src u/v offset: %td / %td\n", (uint8_t *)p_src_ug - (uint8_t *)p_src_yr, (uint8_t *)p_src_vb - (uint8_t *)p_src_yr);
 
     switch (dst_fmt) {
     /* 10bit plannar to 10bit lsb data */
@@ -862,8 +960,7 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
         ushort *p_dst_y = (ushort *)p_dst;
         ushort *p_dst_u = (ushort *)((uint8_t *)p_dst + dh_strd * dw_strd);
         ushort *p_dst_v = (ushort *)((uint8_t *)p_dst_u + dhc_strd * dwc_strd);
-        LOGT_f("dst u/v offset: %td / %td\n", (uint8_t *)p_dst_u - (uint8_t *)p_dst_y,
-            (uint8_t *)p_dst_v - (uint8_t *)p_dst_y);
+        LOGT_f("dst u/v offset: %td / %td\n", (uint8_t *)p_dst_u - (uint8_t *)p_dst_y, (uint8_t *)p_dst_v - (uint8_t *)p_dst_y);
         for (int y = 0; y < h; y++)
             memcpy((uint8_t *)p_dst_y + y * dw_strd, (uint8_t *)p_src_yr + sw_strd * y, MIN(dw_strd, sw_strd));
         for (int y = 0; y < chroma_hgt; y++) {
@@ -996,7 +1093,7 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
         for (int y = 0; y < chroma_hgt; y++) {
             uchar *p_dst_ug = (uchar *)p_dst + dw_strd * dh_strd;
             uchar *p_dst_vb = (uchar *)p_dst_ug + dwc_strd * dhc_strd;
-                            //   (YUV422P_10PACKED == dst_fmt ? dw_strd * dh_strd * 3 / 2 : dw_strd * dh_strd * 5 / 4);
+            //   (YUV422P_10PACKED == dst_fmt ? dw_strd * dh_strd * 3 / 2 : dw_strd * dh_strd * 5 / 4);
             for (int x = 0, j = 0; x <= chroma_wid - 4; x += 4, j += 5) {
                 const int src_ofs = y * sw_strd / 4 + x;
                 const int dst_ofs = y * dw_strd / 2 + j;
@@ -1085,7 +1182,7 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
 }
 
 int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h, int sw_strd, int sh_strd, int dw_strd,
-    int dh_strd, int src_fmt, bool keep_alpha)
+    int dh_strd, int src_fmt, bool keep_alpha, int dither)
 {
     assert(p_src != p_dst);
     assert(dw_strd >= w * 1);
@@ -1110,8 +1207,7 @@ int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h
     uint8_t *p_dst_ug = p_dst + dw_strd * dh_strd;
     uint8_t *p_dst_vb = p_dst_ug + dwc_strd * dhc_strd;
     uint8_t *p_dst_a = keep_alpha ? (p_dst_vb + dwc_strd * dhc_strd) : NULL;
-    LOGT_f("dst u/v offset: %td / %td\n", (uint8_t *)p_dst_ug - (uint8_t *)p_dst_yr,
-        (uint8_t *)p_dst_vb - (uint8_t *)p_dst_yr);
+    LOGT_f("dst u/v offset: %td / %td\n", (uint8_t *)p_dst_ug - (uint8_t *)p_dst_yr, (uint8_t *)p_dst_vb - (uint8_t *)p_dst_yr);
 
     switch (src_fmt) {
     /* 8bit normal data to 8bit planar lsb data */
@@ -1180,7 +1276,7 @@ int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h
 }
 
 int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h, int sw_strd, int sh_strd,
-    int dw_strd, int dh_strd, int dst_fmt, bool has_alpha)
+    int dw_strd, int dh_strd, int dst_fmt, bool has_alpha, int dither)
 {
     assert(p_src != p_dst);
     assert(dw_strd >= w * 1);
@@ -1205,8 +1301,7 @@ int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int
     const uint8_t *p_src_ug = p_src + sw_strd * sh_strd;
     const uint8_t *p_src_vb = p_src_ug + swc_strd * shc_strd;
     const uint8_t *p_src_a = has_alpha ? (p_src_vb + swc_strd * shc_strd) : NULL;
-    LOGT_f("src u/v offset: %td / %td\n", (uint8_t *)p_src_ug - (uint8_t *)p_src_yr,
-        (uint8_t *)p_src_vb - (uint8_t *)p_src_yr);
+    LOGT_f("src u/v offset: %td / %td\n", (uint8_t *)p_src_ug - (uint8_t *)p_src_yr, (uint8_t *)p_src_vb - (uint8_t *)p_src_yr);
 
     switch (dst_fmt) {
     /* 8bit planar lsb data to 8bit normal data */

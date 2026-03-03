@@ -3,8 +3,8 @@
  * @description: verify_cmd_parser.c
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-05
- * @history:
- *  2025-09-08 vance.wu: Adjust cmd line options for second parsing support.
+ * @modifier: vance.wu@rock-chips.com
+ * @modify: 2026-03-03
  */
 
 #include "verify_cmd_parser.h"
@@ -21,6 +21,8 @@ const struct option g_common_verify_arg_supported_options[] = {
     {"shvir",    ARG_REQ,  NULL, 0  }, // src height stride
     {"dwvir",    ARG_REQ,  NULL, 0  }, // dst width  stride
     {"dhvir",    ARG_REQ,  NULL, 0  }, // dst height stride
+    {"dup",      ARG_REQ,  NULL, 0  }, // dither up
+    {"ddn",      ARG_REQ,  NULL, 0  }, // dither down
     {"help",     ARG_NONE, NULL, 'h'}, // print help message
     {"input",    ARG_REQ,  NULL, 'i'}, // input filename
     {"width",    ARG_REQ,  NULL, 'w'}, // input image width, set to '1920' if not specified
@@ -69,6 +71,8 @@ void common_verify_arg_print_usage(const char *program)
     printf("      --shvir    [src_hgt_stride] | src height stride\n");
     printf("      --dwvir    [dst_wid_stride] | dst width  stride\n");
     printf("      --dhvir    [dst_hgt_stride] | dst height stride\n");
+    printf("      --dup           [dither_up] | dither up method, default: 0\n");
+    printf("      --ddn         [dither_down] | dither down method, default: 0\n");
     printf("\n");
 }
 
@@ -95,6 +99,8 @@ int common_verify_arg_get_cmd_config(int argc, char *const argv[], struct common
             case 1:  config.src_hgt_vir = strtol(optarg, NULL, 0); break;
             case 2:  config.dst_wid_vir = strtol(optarg, NULL, 0); break;
             case 3:  config.dst_hgt_vir = strtol(optarg, NULL, 0); break;
+            case 4:  config.dither_up = strtol(optarg, NULL, 0); break;
+            case 5:  config.dither_dn = strtol(optarg, NULL, 0); break;
             default: break;
             }
             printf(" - set %dth option: %s = %s\n", idx, g_common_verify_arg_supported_options[idx].name, optarg);
@@ -200,6 +206,7 @@ int common_verify_arg_dump_config(struct common_verify_cmd_config *config)
     LOGI(" - nb_frame: %d\n", config->nb_frame);
     LOGI(" - custom mode: %d\n", config->mode);
     LOGI(" - random seed: %d\n", config->seed);
+    LOGI(" - dither up/down: %d / %d\n", config->dither_up, config->dither_dn);
     LOGI("----------------------------------------\n");
     return 0;
 }

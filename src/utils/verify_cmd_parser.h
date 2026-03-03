@@ -1,10 +1,10 @@
 /**
- * @copyright Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
+ * @copyright:   Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
  * @description: verify_cmd_parser.h
- * @author: vance.wu@rock-chips.com
- * @create: 2025-09-05
- * @history:
- *  2025-09-08 vance.wu: Adjust cmd line options for second parsing support.
+ * @author:      vance.wu@rock-chips.com
+ * @create:      2025-09-05
+ * @modifier:    vance.wu@rock-chips.com
+ * @modify:      2026-03-03
  */
 
 #ifndef _VERIFY_CMD_PARSER_
@@ -51,6 +51,9 @@ struct common_verify_cmd_config
     int dst_hgt_vir;        // default: dst_hgt
     int dst_fmt;            // same to src_fmt
     int dst_clrspc;         // same to src_clrspc
+
+    int dither_up;          // dither up method, default: 0
+    int dither_dn;          // dither down method, default: 0
 
     int nb_frame;           // default: 1
     int mode;               // default: -1, further parsed for some modules needed

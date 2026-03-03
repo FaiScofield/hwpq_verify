@@ -1,14 +1,10 @@
 /**
- * @copyright Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
+ * @copyright:   Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
  * @description: verify_com.h
- * @author: vance.wu@rock-chips.com
- * @create: 2025-09-05
- * @history:
- *  2025-10-23 vance.wu: Add more 8bit pixel formats support for IO.
- *  2025-10-15 vance.wu: Fix ABS macro, remove ABS_U8/16/32 macros.
- *  2025-10-12 vance.wu: Add 10bit-packed-YUV444 formats support for IO.
- *  2025-09-08 vance.wu: Add common macros & functions for commonly usage.
- *  2025-09-15 vance.wu: Add pixel format pack/unpack functions.
+ * @author:      vance.wu@rock-chips.com
+ * @create:      2025-09-05
+ * @modifier:    vance.wu@rock-chips.com
+ * @modify:      2026-03-03
  */
 
 #ifndef _VERIFY_COM_H_
@@ -150,13 +146,13 @@ const char *get_basename(const char *path);
 #include "verify_img_fmt.h"
 
 // read image data from fp, then convert to U8/U10bit YUV444P or planar RGB
-int image_read_to_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth);
+int image_read_to_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth, int dither);
 // write 8/10bit image data to fp from U8/U10bit YUV444P or planar RGB
-int image_write_from_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth);
+int image_write_from_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth, int dither);
 // read image data from fp (then shift) to U10bit YUV444P or planar RGB
-int image_read_to_10bit_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt);
+int image_read_to_10bit_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int dither);
 // write 10bit image data to fp from U10bit YUV444P or planar RGB
-int image_write_from_10bit_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt);
+int image_write_from_10bit_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int dither);
 // read image data from fp
 int image_read(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt);
 // write image data to fp
@@ -168,16 +164,16 @@ int imgcvt_pack_10bit(uint16_t const *p_src, uint8_t *p_dst, int w, int h, int s
 int imgcvt_unpack_10bit(uint8_t const *p_src, uint16_t *p_dst, int w, int h, int src_strd, int dst_strd, int fmt);
 // convert image to 10bit lsb planar format from any 8/10bit input format
 int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int h, int sw_strd, int sh_strd,
-    int dw_strd, int dh_strd, int fmt, bool has_alpha);
+    int dw_strd, int dh_strd, int fmt, bool has_alpha, int dither);
 // convert image to any 10bit output format from 10bit lsb planar format
 int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, int h, int sw_strd, int sh_strd,
-    int dw_strd, int dh_strd, int fmt, bool has_alpha);
+    int dw_strd, int dh_strd, int fmt, bool has_alpha, int dither);
 // convert image to 8bit lsb planar format from any 8bit input format
 int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h, int sw_strd, int sh_strd, int dw_strd,
-    int dh_strd, int fmt, bool has_alpha);
+    int dh_strd, int fmt, bool has_alpha, int dither);
 // convert image to any 8bit output format from 8bit lsb planar format
 int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h, int sw_strd, int sh_strd,
-    int dw_strd, int dh_strd, int dst_fmt, bool has_alpha);
+    int dw_strd, int dh_strd, int dst_fmt, bool has_alpha, int dither);
 
 
 // dump regisers data to a file or stdout, with 4 registers in each row

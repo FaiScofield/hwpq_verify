@@ -90,7 +90,7 @@ int main(int argc, char *const argv[])
     int crc_val = -1;
     for (int k = 0; k < config.nb_frame; k++) {
         ret = image_read_to_10bit_planar(fp_src, (ushort *)p_src, k, config.src_wid, config.src_hgt, config.src_wid_vir,
-            config.src_hgt_vir, config.src_fmt);
+            config.src_hgt_vir, config.src_fmt, config.dither_up);
         if (ret) {
             LOGE("Failed to read frame #%d from input file '%s'! %s\n", k, config.input_file, strerror(errno));
             break;

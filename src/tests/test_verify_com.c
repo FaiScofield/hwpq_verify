@@ -3,8 +3,8 @@
  * @description: test_verify_com.c
  * @author: vance.wu@rock-chips.com
  * @create: 2025-10-21
- * @history:
- *  - 2025-10-21 vance.wu: first version, support image format convertion.
+ * @modifier:    vance.wu@rock-chips.com
+ * @modify:      2026-03-03
  */
 
 #include "verify_com.h"
@@ -35,7 +35,7 @@ int main(int argc, char *const argv[])
     common_verify_arg_dump_config(&config);
 
     /* alloc i/o/t memories */
-    
+
     const size_t frame_size_max = config.src_wid_vir * config.src_hgt_vir * 4 * sizeof(uint16_t);
     void *p_src = calloc(frame_size_max, 1);
     void *p_dst = calloc(frame_size_max, 1);
@@ -63,7 +63,7 @@ int main(int argc, char *const argv[])
     for (int k = 0; k < config.nb_frame; k++) {
         // read src data
         ret = image_read_to_planar(fp_src, p_src, k, config.src_wid, config.src_hgt, config.src_wid_vir,
-            config.src_hgt_vir, config.src_fmt, depth);
+            config.src_hgt_vir, config.src_fmt, depth, config.dither_up);
         if (ret) {
             LOGE("Failed to read frame #%d from input file '%s'! %s\n", k, config.input_file, strerror(errno));
             break;
@@ -72,7 +72,7 @@ int main(int argc, char *const argv[])
         // write planar src data
         if (1) {
             char filename[1024];
-            snprintf(filename, 1023, "%s_%s.%s", config.output_file, common_verify_imgfmt_str(mid_fmt),
+            snprintf(filename, 1023, "%s_midFmt_%s.%s", config.output_file, common_verify_imgfmt_str(mid_fmt),
                 common_verify_imgfmt_exten_str(mid_fmt));
             FILE *fp = fopen(filename, "wb");
             fwrite(p_src, 1, mid_fmt_size, fp);
@@ -81,7 +81,7 @@ int main(int argc, char *const argv[])
 
         // write dst data
         ret = image_write_from_plannar(fp_dst, p_src, k, config.dst_wid, config.dst_hgt, config.dst_wid_vir,
-            config.dst_hgt_vir, config.dst_fmt, depth);
+            config.dst_hgt_vir, config.dst_fmt, depth, config.dither_dn);
         if (ret) {
             LOGE("Failed to write frame #%d to output file '%s'! %s\n", k, config.output_file, strerror(errno));
             break;
