@@ -33,5 +33,7 @@ cmake -G "MinGW Makefiles" -H../ -B%BUILD_DIR% ^
 
 cmake --build %BUILD_DIR% --target install -j 6 --
 
+:: copy compile_commands.json to project root
+copy /Y %BUILD_DIR%/compile_commands.json ../
 
 @echo on
