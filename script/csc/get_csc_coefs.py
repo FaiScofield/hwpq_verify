@@ -44,7 +44,7 @@ class CscCoefConfig:
     pixel_depth = 10
     coef_precision = 0
     tune_fix_coefs = 0  # 0-no tuning, >0 means a diagonal ratio (float), no need to set this value
-    platform = "RK3572"
+    platform = "rk3572"
 
 
 class CscBcshConfig:
@@ -362,9 +362,9 @@ def get_csc_coefs(config: CscCoefConfig, bcsh_cfg: Optional[CscBcshConfig]) -> t
     ## get fixed mat, dtype=np.int32
     if config.coef_precision > 0:
         csc_coefs, csc_offset = get_fixed_coefs_mat(config, final_mat, range_ofs_i, range_ofs_o)
-        if config.platform.upper() == "RK3576":
-            rnd_half = 1 << (config.precision - 1)
-            csc_offset = (csc_offset + rnd_half + (csc_offset >> 31)) >> config.precision
+        if config.platform.lower() == "rk3576":
+            rnd_half = 1 << (config.coef_precision - 1)
+            csc_offset = (csc_offset + rnd_half + (csc_offset >> 31)) >> config.coef_precision
     else:
         csc_coefs = final_mat
         csc_offset = range_ofs_o + final_mat @ range_ofs_i
@@ -426,6 +426,7 @@ if __name__ == '__main__':
         default="",
         help="dump all csc coefs for all supported modes to a file when '-a' is set",
     )
+    parser.add_argument("-p", "--platform", type=str, default="RK3572", help="the RK soc platform name, like: rk3572/rk3576/rk3538")
     parser.add_argument(
         "-M", "--mode", type=str, default="", help="a single csc mode string, like: '601f_to_rgbl/rgbf_to_2020f' ...)"
     )
@@ -465,7 +466,7 @@ if __name__ == '__main__':
     csc_config.pixel_depth = depth
     csc_config.coef_precision = precision
     csc_config.tune_fix_coefs = args.fix_check
-    csc_config.platform = "RK3572" # RK3576/RK3572/RK3538
+    csc_config.platform = args.platform.lower() # RK3576/RK3572/RK3538
 
     bcsh = CscBcshConfig()
     # bcsh.hue = 256
@@ -527,6 +528,9 @@ if __name__ == '__main__':
                 regs[7] = offset[2].astype(np.uint32)
                 print("\t- reg[0:4]: 0x%08X 0x%08X 0x%08X 0x%08X" % (regs[0], regs[1], regs[2], regs[3]))
                 print("\t- reg[4:8]: 0x%08X 0x%08X 0x%08X 0x%08X" % (regs[4], regs[5], regs[6], regs[7]))
+        else:
+            print(f"invalid csc mode: {mode_str.upper()}!")
+            exit(-1)
 
         if args.color is not None:
             out_color = mat @ args.color + offset
@@ -534,5 +538,3 @@ if __name__ == '__main__':
                 out_color = (out_color.astype(np.int32) +  (1 << (precision - 1))) >> precision
                 out_color = np.clip(out_color, 0, 2**depth - 1)
             print(f"do conversion: {args.color} -> {out_color}")
-        else:
-            print(f"invalid csc mode: {mode_str.upper()}!")
