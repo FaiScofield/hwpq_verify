@@ -42,8 +42,8 @@ int main(int argc, char *const argv[])
         LOGI(" - crc_file update to: '%s'!\n", cmd_config.crc_file);
     }
 
-    const int bIsInputYuv = cmd_config.src_fmt % 10 >= 3;
-    const int bIsOutputYuv = cmd_config.dst_fmt % 10 >= 3;
+    const int bIsInputYuv = common_verify_imgfmt_is_yuv(cmd_config.src_fmt);
+    const int bIsOutputYuv = common_verify_imgfmt_is_yuv(cmd_config.dst_fmt);
 
     /* alloc i/o/t memories */
     const size_t frame_size_max = cmd_config.src_wid * cmd_config.src_hgt * 4 * 2; // 4 channels x 16bpp

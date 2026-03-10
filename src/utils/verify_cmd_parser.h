@@ -52,7 +52,7 @@ struct common_verify_cmd_config
     int dst_fmt;            // same to src_fmt
     int dst_clrspc;         // same to src_clrspc
 
-    int dither_up;          // dither up method, default: 0
+    int dither_up;          // dither up method, default: 0, range: {1-scale, 2-fillMsb, else-shift}
     int dither_dn;          // dither down method, default: 0
 
     int nb_frame;           // default: 1

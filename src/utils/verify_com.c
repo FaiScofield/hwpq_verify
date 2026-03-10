@@ -467,6 +467,15 @@ int imgcvt_unpack_10bit(uint8_t const *p_src, uint16_t *p_dst, int w, int h, int
             }
         }
     } break;
+    case YUV400_10PACKED: {
+        for (int i = 0; i < h; i++) {
+            const uint8_t *src_y = (uint8_t *)((uint8_t *)p_src + i * src_strd);
+            uint16_t *dst_y = (uint16_t *)((uint8_t *)p_dst + i * dst_strd);
+            for (int j = 0, k = 0; j < w; j += 4, k += 5) {
+                unpack_data_10bit(src_y + k, dst_y + j);
+            }
+        }
+    } break;
     default: LOGE_f("unsupported image format %d case to pack !\n", fmt); return -1;
     }
     return 0;
@@ -483,15 +492,18 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
     const float ratio = common_verify_imgfmt_framesize_ratio(src_fmt);
     // const int frame_size = (w * h * bpp + 7) / 8;
     const int frame_size = sw_strd * sh_strd * ratio;
-    LOGD_f("src fmt: %d(%s), bpp: %d, frame_size: %d, plane_size_ratio: %.1f\n", src_fmt,
-        common_verify_imgfmt_str(src_fmt), bpp, frame_size, ratio);
+    LOGD_f("src fmt: %d(%s), bpp: %d, frame_size: %d, plane_size_ratio: %.1f, ditherType: %d\n", src_fmt,
+        common_verify_imgfmt_str(src_fmt), bpp, frame_size, ratio, dither);
     LOGD_f("src_stride: %dx%d, dst_stride: %dx%d\n", sw_strd, sh_strd, dw_strd, dh_strd);
 
     int chnl_num = 3;
-    const int chroma_hgt = (src_fmt % 10 >= YUV420P) ? h / 2 : h;
-    const int chroma_wid = (src_fmt % 10 >= YUV422P) ? w / 2 : w;
-    const int dhc_strd = (src_fmt % 10 >= YUV420P) ? dh_strd / 2 : dh_strd;
-    const int dwc_strd = (src_fmt % 10 >= YUV422P) ? dw_strd / 2 : dw_strd;
+    const int src_base_fmt = src_fmt & 0xF;
+    const int chroma_hgt = src_base_fmt == YUV400 ? 0 : (src_base_fmt >= YUV420P ? h / 2 : h);
+    const int chroma_wid = src_base_fmt == YUV400 ? 0 : (src_base_fmt >= YUV422P ? w / 2 : w);
+    const int dhc_strd = src_base_fmt == YUV400 ? 0 : (src_base_fmt >= YUV420P ? dh_strd / 2 : dh_strd);
+    const int dwc_strd = src_base_fmt == YUV400 ? 0 : (src_base_fmt >= YUV422P ? dw_strd / 2 : dw_strd);
+    const int swc_strd = src_base_fmt == YUV400 ? 0 : (src_base_fmt >= YUV422P ? sw_strd / 2 : sw_strd);
+    const int shc_strd = src_base_fmt == YUV400 ? 0 : (src_base_fmt >= YUV420P ? sh_strd / 2 : sh_strd);
 
     // dst planar addrs
     ushort *p_dst_yr = (ushort *)p_dst;
@@ -503,7 +515,7 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
     switch (src_fmt) {
     /* 8bit normal data to 10bit planar lsb data */
     case RGBA8888: chnl_num = 4; // NO break here!
-    case RGB888:{
+    case RGB888:   {
         assert(sw_strd >= w * chnl_num);
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
@@ -531,7 +543,7 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
             }
         }
     } break;
-    case YUV444I:  {
+    case YUV444I: {
         assert(sw_strd >= w * chnl_num);
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
@@ -589,7 +601,7 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
             }
         }
     } break;
-    case YUV444P:    {
+    case YUV444P: {
         assert(sw_strd >= w * 1);
         const uchar *p_src_yr = p_src;
         const uchar *p_src_ug = p_src + sw_strd * sh_strd;
@@ -615,6 +627,47 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
                     p_dst_yr[dst_ofs] = y << 2;
                     p_dst_ug[dst_ofs] = (cb << 2) + 512;
                     p_dst_vb[dst_ofs] = (cr << 2) + 512;
+                }
+            }
+        }
+    } break;
+    case YUV422P:
+    case YUV420P:
+    case YUV400:  {
+        assert(sw_strd >= w * 1);
+        const uchar *p_src_y = p_src;
+        const uchar *p_src_u = p_src_y + sw_strd * sh_strd;
+        const uchar *p_src_v = p_src_u + swc_strd / 2 * shc_strd;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                const int src_ofs_y = y * sw_strd + x;
+                const int dst_ofs_y = y * dw_strd / 2 + x;
+                int y = p_src_y[src_ofs_y];
+                if (1 == dither)
+                    p_dst_yr[dst_ofs_y] = ROUND_S32(y / 255.f * 1023.f);
+                else if (2 == dither)
+                    p_dst_yr[dst_ofs_y] = (y << 2) | (y >> 6);
+                else
+                    p_dst_yr[dst_ofs_y] = y << 2;
+            }
+        }
+        for (int y = 0; y < chroma_hgt; y++) {
+            for (int x = 0; x < chroma_wid; x++) {
+                const int src_ofs_c = y * swc_strd + x;
+                const int dst_ofs_c = y * dwc_strd / 2 + x;
+                int cb = p_src_u[src_ofs_c] - 128;
+                int cr = p_src_v[src_ofs_c] - 128;
+                if (1 == dither) {
+                    p_dst_ug[dst_ofs_c] = ROUND_S32(cb / 255.f * 1023.f + 512);
+                    p_dst_vb[dst_ofs_c] = ROUND_S32(cr / 255.f * 1023.f + 512);
+                }
+                else if (2 == dither) {
+                    p_dst_ug[dst_ofs_c] = (cb << 2) + (cb >> 6) + 512;
+                    p_dst_vb[dst_ofs_c] = (cr << 2) + (cr >> 6) + 512;
+                }
+                else {
+                    p_dst_ug[dst_ofs_c] = (cb << 2) + 512;
+                    p_dst_vb[dst_ofs_c] = (cr << 2) + 512;
                 }
             }
         }
@@ -703,11 +756,13 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
         }
     } break;
     case RGB_PLANAR10LSB:
+    case YUV400_10LSB:
     case YUV444P_10LSB:
     case YUV422P_10LSB:
     case YUV420P_10LSB:   {
         assert(sw_strd >= w * 2);
         assert(sw_strd == dw_strd);
+        // todo: support different stride
         memcpy(p_dst, p_src, frame_size);
     } break;
     case YUV444SP_10LSB: {
@@ -829,6 +884,30 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
             }
         }
     } break;
+    case YUV422P_10PACKED:
+    case YUV420P_10PACKED:
+    case YUV400_10PACKED:  {
+        assert(w % 4 == 0);
+        assert(sw_strd >= w * 5 / 4);
+        uchar *p_src_y = (uchar *)p_src;
+        uchar *p_src_u = (uchar *)p_src_y + sw_strd * sh_strd;
+        uchar *p_src_v = (uchar *)p_src_u + swc_strd / 2 * shc_strd;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0, j = 0; x <= w - 4; x += 4, j += 5) {
+                const int src_ofs = y * sw_strd + j;
+                const int dst_ofs = y * dw_strd / 2 + x;
+                unpack_data_10bit(p_src_y + src_ofs, p_dst_yr + dst_ofs);
+            }
+        }
+        for (int y = 0; y < chroma_hgt; y++) {
+            for (int x = 0, j = 0; x <= chroma_wid - 2; x += 2, j += 5) {
+                const int src_ofs = y * swc_strd + j;
+                const int dst_ofs = y * dwc_strd / 2 + x;
+                unpack_data_10bit(p_src_u + src_ofs, p_dst_ug + dst_ofs);
+                unpack_data_10bit(p_src_v + src_ofs, p_dst_vb + dst_ofs);
+            }
+        }
+    } break;
     case YUV444SP_10PACKED: {
         assert(w % 4 == 0); // must align with 4 pixels
         assert(sw_strd >= w * 5 / 4);
@@ -920,15 +999,17 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
     const int bpp = common_verify_imgfmt_bpp(dst_fmt);
     // const int frame_size = (w * h * bpp + 7) / 8;
     const int frame_size = dw_strd * dh_strd * common_verify_imgfmt_framesize_ratio(dst_fmt);
-    LOGD_f("dst fmt: %d(%s), bpp: %d, frame_size: %d\n", dst_fmt, common_verify_imgfmt_str(dst_fmt), bpp, frame_size);
-    LOGD_f("src_stride: %d, dst_stride: %d\n", sw_strd, dw_strd);
+    LOGD_f("dst fmt: %d(%s), bpp: %d, frame_size: %d, ditherType: %d\n", dst_fmt, common_verify_imgfmt_str(dst_fmt),
+        bpp, frame_size, dither);
+    LOGD_f("src_stride: %dx%d, dst_stride: %dx%d\n", sw_strd, sh_strd, dw_strd, dh_strd);
 
-    const int chroma_hgt = (dst_fmt % 10 >= YUV420P) ? h / 2 : h;
-    const int chroma_wid = (dst_fmt % 10 >= YUV422P) ? w / 2 : w;
-    const int shc_strd = (dst_fmt % 10 >= YUV420P) ? sh_strd / 2 : sh_strd;
-    const int swc_strd = (dst_fmt % 10 >= YUV422P) ? sw_strd / 2 : sw_strd;
-    const int dhc_strd = (dst_fmt % 10 >= YUV420P) ? dh_strd / 2 : dh_strd;
-    const int dwc_strd = (dst_fmt % 10 >= YUV422P) ? dw_strd / 2 : dw_strd;
+    const int dst_base_fmt = dst_fmt & 0xF;
+    const int chroma_hgt = dst_base_fmt == YUV400 ? 0 : (dst_base_fmt >= YUV420P ? h / 2 : h);
+    const int chroma_wid = dst_base_fmt == YUV400 ? 0 : (dst_base_fmt >= YUV422P ? w / 2 : w);
+    const int shc_strd = dst_base_fmt == YUV400 ? 0 : (dst_base_fmt >= YUV420P ? sh_strd / 2 : sh_strd);
+    const int swc_strd = dst_base_fmt == YUV400 ? 0 : (dst_base_fmt >= YUV422P ? sw_strd / 2 : sw_strd);
+    const int dhc_strd = dst_base_fmt == YUV400 ? 0 : (dst_base_fmt >= YUV420P ? dh_strd / 2 : dh_strd);
+    const int dwc_strd = dst_base_fmt == YUV400 ? 0 : (dst_base_fmt >= YUV422P ? dw_strd / 2 : dw_strd);
 
     const ushort *p_src_yr = (ushort *)p_src;
     const ushort *p_src_ug = (ushort *)((uint8_t *)p_src + sw_strd * sh_strd);
@@ -952,6 +1033,7 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
         }
     } break;
     case RGB_PLANAR10LSB:
+    case YUV400_10LSB:
     case YUV444P_10LSB:
     case YUV422P_10LSB:
     case YUV420P_10LSB:   {
@@ -1078,6 +1160,7 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
             }
         }
     } break;
+    case YUV400_10PACKED:
     case YUV422P_10PACKED:
     case YUV420P_10PACKED: {
         assert(w % 4 == 0); // must align with 4 pixels
@@ -1193,15 +1276,16 @@ int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h
     const float ratio = common_verify_imgfmt_framesize_ratio(src_fmt);
     // const int frame_size = (w * h * bpp + 7) / 8;
     const int frame_size = sw_strd * sh_strd * ratio;
-    LOGD_f("src fmt: %d(%s), bpp: %d, frame_size: %d, plane_size_ratio: %.1f\n", src_fmt,
-        common_verify_imgfmt_str(src_fmt), bpp, frame_size, ratio);
+    LOGD_f("src fmt: %d(%s), bpp: %d, frame_size: %d, plane_size_ratio: %.1f, ditherType: %d\n", src_fmt,
+        common_verify_imgfmt_str(src_fmt), bpp, frame_size, ratio, dither);
     LOGD_f("src_stride: %dx%d, dst_stride: %dx%d\n", sw_strd, sh_strd, dw_strd, dh_strd);
 
     int chnl_num = 3;
-    const int chroma_hgt = (src_fmt % 10 >= YUV420P) ? h / 2 : h;
-    const int chroma_wid = (src_fmt % 10 >= YUV422P) ? w / 2 : w;
-    const int dhc_strd = (src_fmt % 10 >= YUV420P) ? dh_strd / 2 : dh_strd;
-    const int dwc_strd = (src_fmt % 10 >= YUV422P) ? dw_strd / 2 : dw_strd;
+    const int src_base_fmt = src_fmt & 0xF;
+    const int chroma_hgt = src_base_fmt == YUV400 ? 0 : (src_base_fmt >= YUV420P ? h / 2 : h);
+    const int chroma_wid = src_base_fmt == YUV400 ? 0 : (src_base_fmt >= YUV422P ? w / 2 : w);
+    const int dhc_strd = src_base_fmt == YUV400 ? 0 : (src_base_fmt >= YUV420P ? dh_strd / 2 : dh_strd);
+    const int dwc_strd = src_base_fmt == YUV400 ? 0 : (src_base_fmt >= YUV422P ? dw_strd / 2 : dw_strd);
 
     uint8_t *p_dst_yr = p_dst;
     uint8_t *p_dst_ug = p_dst + dw_strd * dh_strd;
@@ -1228,11 +1312,13 @@ int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h
         }
     } break;
     case RGB_PLANAR:
+    case YUV400:
     case YUV444P:
     case YUV422P:
     case YUV420P:    {
         assert(sw_strd >= w * 1);
         assert(sw_strd == dw_strd);
+        // todo: support different stride
         memcpy(p_dst, p_src, frame_size);
     } break;
     case YUV444SP: {
@@ -1286,16 +1372,18 @@ int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int
     const int bpp = common_verify_imgfmt_bpp(dst_fmt);
     // const int frame_size = (w * h * bpp + 7) / 8;
     const int frame_size = dw_strd * h * common_verify_imgfmt_framesize_ratio(dst_fmt);
-    LOGD_f("dst fmt: %d(%s), bpp: %d, frame_size: %d\n", dst_fmt, common_verify_imgfmt_str(dst_fmt), bpp, frame_size);
+    LOGD_f("dst fmt: %d(%s), bpp: %d, frame_size: %d, ditherType: %d\n", dst_fmt, common_verify_imgfmt_str(dst_fmt),
+        bpp, frame_size, dither);
     LOGD_f("src_stride: %dx%d, dst_stride: %dx%d\n", sw_strd, sh_strd, dw_strd, dh_strd);
 
     int chnl_num = 3;
-    const int chroma_hgt = (dst_fmt % 10 >= YUV420P) ? h / 2 : h;
-    const int chroma_wid = (dst_fmt % 10 >= YUV422P) ? w / 2 : w;
-    const int shc_strd = (dst_fmt % 10 >= YUV420P) ? sh_strd / 2 : sh_strd;
-    const int swc_strd = (dst_fmt % 10 >= YUV422P) ? sw_strd / 2 : sw_strd;
-    const int dhc_strd = (dst_fmt % 10 >= YUV420P) ? dh_strd / 2 : dh_strd;
-    const int dwc_strd = (dst_fmt % 10 >= YUV422P) ? dw_strd / 2 : dw_strd;
+    const int dst_base_fmt = dst_fmt & 0xF;
+    const int chroma_hgt = dst_base_fmt == YUV400 ? 0 : (dst_base_fmt >= YUV420P ? h / 2 : h);
+    const int chroma_wid = dst_base_fmt == YUV400 ? 0 : (dst_base_fmt >= YUV422P ? w / 2 : w);
+    const int shc_strd = dst_base_fmt == YUV400 ? 0 : (dst_base_fmt >= YUV420P ? sh_strd / 2 : sh_strd);
+    const int swc_strd = dst_base_fmt == YUV400 ? 0 : (dst_base_fmt >= YUV422P ? sw_strd / 2 : sw_strd);
+    const int dhc_strd = dst_base_fmt == YUV400 ? 0 : (dst_base_fmt >= YUV420P ? dh_strd / 2 : dh_strd);
+    const int dwc_strd = dst_base_fmt == YUV400 ? 0 : (dst_base_fmt >= YUV422P ? dw_strd / 2 : dw_strd);
 
     const uint8_t *p_src_yr = p_src;
     const uint8_t *p_src_ug = p_src + sw_strd * sh_strd;
@@ -1323,6 +1411,7 @@ int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int
         }
     } break;
     case RGB_PLANAR:
+    case YUV400:
     case YUV444P:
     case YUV422P:
     case YUV420P:    {

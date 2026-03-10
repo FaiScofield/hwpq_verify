@@ -1,10 +1,10 @@
 /**
- * @copyright Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
- * @description: verify_cmd_parser.c
- * @author: vance.wu@rock-chips.com
- * @create: 2025-09-05
- * @modifier: vance.wu@rock-chips.com
- * @modify: 2026-03-03
+ * @copyright: Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
+ * @brief:     verify_cmd_parser.c
+ * @author:    vance.wu@rock-chips.com
+ * @create:    2025-09-05
+ * @modifier:  vance.wu@rock-chips.com
+ * @modify:    2026-03-03
  */
 
 #include "verify_cmd_parser.h"
@@ -50,15 +50,15 @@ void common_verify_arg_print_usage(const char *program)
     printf("  -i  --input       [intput_file] | input filename\n");
     printf("  -w  --width       [input_width] | input image width, default: 1920\n");
     printf("  -g  --height     [input_height] | input image height, default: 1080\n");
-    printf("  -f  --format     [input_format] | input image format, default: 0, support: {rgb(0)[a(1)|planar(2)]; "
-           "yuv[444p(3)|444sp(4)|444i(5)|422p(6)|422sp(7)|420p(8)|420sp(9)}"
-           "(+10 for 10bit unpacked(LSB); +20 for 10bit packed)\n");
+    printf("  -f  --format     [input_format] | input image format, default: 0x0, support: {rgb(0)[a(1)|planar(2)]; "
+           "yuv[444p(3)|444sp(4)|444i(5)|422p(6)|422sp(7)|420p(8)|420sp(9)|400(a)}"
+           "(+0x10 for 10bit unpacked(LSB); +0x20 for 10bit packed)\n");
     printf("  -r  --clrspc [input_colorspace] | input image colorspace, default: 1-RGBF/5-709F, support: {0/1(RGBL/F), "
            "2/3(601L/F), 4/5(709L/F), 8/9(2020L/F)}\n");
     printf("  -o  --output      [output_file] | output filename, default: 'dirname(input)/custom_output_basename'\n");
     printf("  -W  --outwid     [output_width] | output image width, default: same to 'width'\n");
     printf("  -G  --outhgt    [output_height] | output image height, default: same to 'height'\n");
-    printf("  -F  --outfmt    [output_format] | output image format, default: mod('format',10)+10\n");
+    printf("  -F  --outfmt    [output_format] | output image format, default: mod('format',10)+0x10\n");
     printf("  -R  --outclr [output_colorspace]| output image colorspace, default: same to 'clrspc'\n");
     printf("  -n  --nframes      [num_frames] | number of frames to process, default: 1\n");
     printf("  -c  --config      [config_file] | config filename, default: 'NULL'; '.json' for config; '.bin/.dat' for "
@@ -71,8 +71,8 @@ void common_verify_arg_print_usage(const char *program)
     printf("      --shvir    [src_hgt_stride] | src height stride\n");
     printf("      --dwvir    [dst_wid_stride] | dst width  stride\n");
     printf("      --dhvir    [dst_hgt_stride] | dst height stride\n");
-    printf("      --dup           [dither_up] | dither up method, default: 0\n");
-    printf("      --ddn         [dither_down] | dither down method, default: 0\n");
+    printf("      --dup           [dither_up] | dither up method, default: 0, support: {1-scale, 2-fillMsb, else-shift}\n");
+    printf("      --ddn         [dither_down] | dither down method, default: 0, support: {1-scale, 2-fillMsb, else-shift}\n");
     printf("\n");
 }
 
@@ -139,7 +139,7 @@ int common_verify_arg_get_cmd_config(int argc, char *const argv[], struct common
     if (config.src_fmt < 0)
         config.src_fmt = 0;
     if (config.src_clrspc < 0)
-        config.src_clrspc = config.src_fmt % 10 < 3 ? RGBFULL : YUV709F; // default to RGBF/709F
+        config.src_clrspc = common_verify_imgfmt_is_rgb(config.src_fmt) ? RGBFULL : YUV709F; // default to RGBF/709F
     if (config.src_wid_vir < 0)
         config.src_wid_vir = ROUND_S32(config.src_wid * common_verify_imgfmt_pitch_ratio(config.src_fmt));
     if (config.src_hgt_vir < 0)
@@ -150,9 +150,9 @@ int common_verify_arg_get_cmd_config(int argc, char *const argv[], struct common
     if (config.dst_hgt < 0)
         config.dst_hgt = config.src_hgt;
     if (config.dst_fmt < 0)
-        config.dst_fmt = config.src_fmt % 10 + 10; // default to [10, 19], 10bit unpacked data
+        config.dst_fmt = (config.src_fmt & 0xF) + 0x10; // default to [0x10, 0x1a], 10bit unpacked data
     if (config.dst_clrspc < 0)
-        config.dst_clrspc = config.dst_fmt % 10 < 3 ? RGBFULL : YUV709F; // default to RGBF/709F
+        config.dst_clrspc = common_verify_imgfmt_is_rgb(config.dst_fmt) ? RGBFULL : YUV709F; // default to RGBF/709F
     if (config.dst_wid_vir < 0)
         config.dst_wid_vir = ROUND_S32(config.dst_wid * common_verify_imgfmt_pitch_ratio(config.dst_fmt));
     if (config.dst_hgt_vir < 0)

@@ -1,11 +1,10 @@
 /**
- * @copyright Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
- * @description: verify_img_fmt.h
- * @author: vance.wu@rock-chips.com
- * @create: 2025-09-05
- * @history:
- *  2025-10-23 vance.wu: Add more auxiliary functions.
- *  2025-10-12 vance.wu: Add function 'common_verify_imgfmt_pitch_ratio' to calculate row pitch (unit: byte).
+ * @copyright: Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
+ * @bref:      verify_img_fmt.h
+ * @author:    vance.wu@rock-chips.com
+ * @create:    2025-09-05
+ * @modifier:  vance.wu@rock-chips.com
+ * @modify:    2026-03-10
  */
 
 #ifndef _VERIFY_IMG_FMT_H_
@@ -17,43 +16,48 @@
 extern "C" {
 #endif
 
+#define VERIFY_IMG_FMT_MASK 0x0000030F
+
 /* image format definition */
 enum common_verify_image_format {
     /* 8bit unpacked formats */
-    RGB888 = 0,     // [23:0]=[B8:G8:R8]. DRM_FORMAT_BGR888
-    RGBA8888 = 1,   // [31:0]=[A8:B8:G8:R8]. DRM_FORMAT_ABGR8888
-    RGB_PLANAR = 2, // plane order: R-G-B
-    YUV444P = 3,    // YU24, plane order: Y-U-V. DRM_FORMAT_YUV444
-    YUV444SP = 4,   // NV24, plane order: Y-UV. DRM_FORMAT_NV24
-    YUV444I = 5,    // VU24, [23:0]=[V8:U8:Y8]. DRM_FORMAT_VUY888
-    YUV422P = 6,    // YU16, plane order: Y-U-V. DRM_FORMAT_YUV422
-    YUV422SP = 7,   // NV16, plane order: Y-UV. DRM_FORMAT_NV16
-    YUV420P = 8,    // YU12, plane order: Y-U-V. DRM_FORMAT_YUV420
-    YUV420SP = 9,   // NV12, plane order: Y-UV. DRM_FORMAT_NV12
+    RGB888 = 0x0,     // [23:0]=[B8:G8:R8]. DRM_FORMAT_BGR888
+    RGBA8888 = 0x1,   // [31:0]=[A8:B8:G8:R8]. DRM_FORMAT_ABGR8888
+    RGB_PLANAR = 0x2, // plane order: R-G-B
+    YUV444P = 0x3,    // YU24, plane order: Y-U-V. DRM_FORMAT_YUV444
+    YUV444SP = 0x4,   // NV24, plane order: Y-UV. DRM_FORMAT_NV24
+    YUV444I = 0x5,    // VU24, [23:0]=[V8:U8:Y8]. DRM_FORMAT_VUY888
+    YUV422P = 0x6,    // YU16, plane order: Y-U-V. DRM_FORMAT_YUV422
+    YUV422SP = 0x7,   // NV16, plane order: Y-UV. DRM_FORMAT_NV16
+    YUV420P = 0x8,    // YU12, plane order: Y-U-V. DRM_FORMAT_YUV420
+    YUV420SP = 0x9,   // NV12, plane order: Y-UV. DRM_FORMAT_NV12
+    YUV400 = 0xa,     // Grayscale, DRM_FORMAT_R8
 
     /* 10bit lsb + 6bit padding formats */
-    RGB_101010LSB = RGB888 + 10,
+    RGB_101010LSB = RGB888 + 0x10,
     /* NO RGBA_10101010LSB format */
-    RGB_PLANAR10LSB = RGB_PLANAR + 10,
-    YUV444P_10LSB = YUV444P + 10,
-    YUV444SP_10LSB = YUV444SP + 10,
-    YUV444I_10LSB = YUV444I + 10,
-    YUV422P_10LSB = YUV422P + 10,
-    YUV422SP_10LSB = YUV422SP + 10,
-    YUV420P_10LSB = YUV420P + 10,
-    YUV420SP_10LSB = YUV420SP + 10,
+    RGB_PLANAR10LSB = RGB_PLANAR + 0x10,
+    YUV444P_10LSB = YUV444P + 0x10,
+    YUV444SP_10LSB = YUV444SP + 0x10,
+    YUV444I_10LSB = YUV444I + 0x10,
+    YUV422P_10LSB = YUV422P + 0x10,
+    YUV422SP_10LSB = YUV422SP + 0x10,
+    YUV420P_10LSB = YUV420P + 0x10,
+    YUV420SP_10LSB = YUV420SP + 0x10,
+    YUV400_10LSB = YUV400 + 0x10,
 
     /* 10bit packed formats */
-    RGB_10PACKED = RGB888 + 20,           // [29:0]=[B10:G10:R10]
-    RGBA_1010102 = RGBA8888 + 20,         // [31:0]=[A2:B10:G10:R10], DRM_FORMAT_ABGR2101010
-    RGB_PLANAR10PACKED = RGB_PLANAR + 20, //
-    YUV444P_10PACKED = YUV444P + 20,      //
-    YUV444SP_10PACKED = YUV444SP + 20,    // NV30, [19:0]=[V10:U10] for chroma plane. DRM_FORMAT_NV30
-    YUV444I_10PACKED = YUV444I + 20,      // [29:0]=[V10:U10:Y10], DRM_FORMAT_VUY101010
-    YUV422P_10PACKED = YUV422P + 20,      //
-    YUV422SP_10PACKED = YUV422SP + 20,    // NV20, [19:0]=[V10:U10] for chroma plane. DRM_FORMAT_NV20
-    YUV420P_10PACKED = YUV420P + 20,      //
-    YUV420SP_10PACKED = YUV420SP + 20,    // NV15, [19:0]=[V10:U10] for chroma plane. DRM_FORMAT_NV15
+    RGB_10PACKED = RGB888 + 0x20,           // [29:0]=[B10:G10:R10]
+    RGBA_1010102 = RGBA8888 + 0x20,         // [31:0]=[A2:B10:G10:R10], DRM_FORMAT_ABGR2101010
+    RGB_PLANAR10PACKED = RGB_PLANAR + 0x20, //
+    YUV444P_10PACKED = YUV444P + 0x20,      //
+    YUV444SP_10PACKED = YUV444SP + 0x20,    // NV30, [19:0]=[V10:U10] for chroma plane. DRM_FORMAT_NV30
+    YUV444I_10PACKED = YUV444I + 0x20,      // [29:0]=[V10:U10:Y10], DRM_FORMAT_VUY101010
+    YUV422P_10PACKED = YUV422P + 0x20,      //
+    YUV422SP_10PACKED = YUV422SP + 0x20,    // NV20, [19:0]=[V10:U10] for chroma plane. DRM_FORMAT_NV20
+    YUV420P_10PACKED = YUV420P + 0x20,      //
+    YUV420SP_10PACKED = YUV420SP + 0x20,    // NV15, [19:0]=[V10:U10] for chroma plane. DRM_FORMAT_NV15
+    YUV400_10PACKED = YUV400 + 0x20,
 };
 
 const char *common_verify_imgfmt_str(int fmt);
@@ -61,8 +65,8 @@ const char *common_verify_imgfmt_exten_str(int fmt);
 int common_verify_imgfmt_bpp(int fmt);
 float common_verify_imgfmt_pitch_ratio(int fmt);
 float common_verify_imgfmt_framesize_ratio(int fmt); // get the framesize ratio to the first planesize
-static inline bool common_verify_imgfmt_is_yuv(int fmt) { return fmt % 10 >= 3; }
-static inline bool common_verify_imgfmt_is_rgb(int fmt) { return fmt % 10 < 3; }
+static inline bool common_verify_imgfmt_is_yuv(int fmt) { return (fmt & 0xF) >= 3; }
+static inline bool common_verify_imgfmt_is_rgb(int fmt) { return (fmt & 0xF) < 3; }
 int common_verify_imgfmt_get_def_planar(int fmt, int depth);
 
 /* colorspace definition */

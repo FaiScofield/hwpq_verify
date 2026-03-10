@@ -1,10 +1,10 @@
 /**
- * @copyright Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
- * @description: test_verify_com.c
- * @author: vance.wu@rock-chips.com
- * @create: 2025-10-21
- * @modifier:    vance.wu@rock-chips.com
- * @modify:      2026-03-03
+ * @copyright: Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
+ * @bref:      test_verify_com.c
+ * @author:    vance.wu@rock-chips.com
+ * @create:    2025-10-21
+ * @modifier:  vance.wu@rock-chips.com
+ * @modify:    2026-03-10
  */
 
 #include "verify_com.h"

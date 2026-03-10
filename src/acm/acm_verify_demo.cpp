@@ -29,15 +29,16 @@ int main(int argc, char *const argv[])
     }
     common_verify_arg_dump_config(&config);
 
-    const int bIsInputYuv = config.src_fmt % 10 >= 3;
-    const int bIsOutputYuv = config.dst_fmt % 10 >= 3;
+    const int bIsInputYuv = common_verify_imgfmt_is_yuv(config.src_fmt);
+    const int bIsOutputYuv = common_verify_imgfmt_is_yuv(config.dst_fmt);
 
     // check nessary parameters
     if (config.config_file[0] == '\0') {
         LOGE(" - config_file is not specified!\n");
         return -1;
     }
-    if (config.src_clrspc <= RGBFULL || config.dst_clrspc <= RGBFULL || config.src_fmt % 10 < 3 || config.dst_fmt % 10 < 3)
+    if (config.src_clrspc <= RGBFULL || config.dst_clrspc <= RGBFULL || common_verify_imgfmt_is_rgb(config.src_fmt) ||
+        common_verify_imgfmt_is_rgb(config.dst_fmt))
     {
         LOGE(" - src_fmt(%d) & dst_fmt(%d) should be YUV family! (also to the colorspaces)\n", config.src_fmt, config.dst_fmt);
         return -1;

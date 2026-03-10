@@ -1,11 +1,10 @@
 /**
- * @copyright Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
- * @description: verify_img_fmt.c
- * @author: vance.wu@rock-chips.com
- * @create: 2025-09-05
- * @history:
- *  2025-10-23 vance.wu: Add more auxiliary functions.
- *  2025-10-12 vance.wu: Add function 'common_verify_imgfmt_pitch_ratio' to calculate row pitch (unit: byte).
+ * @copyright: Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
+ * @bref:      verify_img_fmt.c
+ * @author:    vance.wu@rock-chips.com
+ * @create:    2025-09-05
+ * @modifier:  vance.wu@rock-chips.com
+ * @modify:    2026-03-10
  */
 
 #include "verify_img_fmt.h"
@@ -24,6 +23,7 @@ const char *common_verify_imgfmt_str(int fmt)
     case YUV422SP:           return "nv16";
     case YUV420P:            return "yu12";
     case YUV420SP:           return "nv12";
+    case YUV400:             return "gray";
     case RGB_101010LSB:      return "rgb101010l";
     case RGB_PLANAR10LSB:    return "rgb10l_planar";
     case YUV444P_10LSB:      return "yuv444p10l";
@@ -33,16 +33,18 @@ const char *common_verify_imgfmt_str(int fmt)
     case YUV422SP_10LSB:     return "yuv422sp10l";
     case YUV420P_10LSB:      return "yuv420p10l";
     case YUV420SP_10LSB:     return "yuv420sp10l";
-    case RGB_10PACKED:       return "rgb10pack";
+    case YUV400_10LSB:       return "gray10l";
+    case RGB_10PACKED:       return "rgb10bp";
     case RGBA_1010102:       return "rgba1010102";
-    case RGB_PLANAR10PACKED: return "rgb10pack_planar";
-    case YUV444P_10PACKED:   return "yuv444p10pack";
+    case RGB_PLANAR10PACKED: return "rgb10bp_planar";
+    case YUV444P_10PACKED:   return "yuv444p10bp";
     case YUV444SP_10PACKED:  return "nv30";
-    case YUV444I_10PACKED:   return "yuv444i10pack";
-    case YUV422P_10PACKED:   return "yuv422p10pack";
+    case YUV444I_10PACKED:   return "yuv444i10bp";
+    case YUV422P_10PACKED:   return "yuv422p10bp";
     case YUV422SP_10PACKED:  return "nv20";
-    case YUV420P_10PACKED:   return "yuv420p10pack";
+    case YUV420P_10PACKED:   return "yuv420p10bp";
     case YUV420SP_10PACKED:  return "nv15";
+    case YUV400_10PACKED:    return "gray10bp";
     default:                 return "UnknownImgFmt";
     }
 }
@@ -50,8 +52,8 @@ const char *common_verify_imgfmt_str(int fmt)
 const char *common_verify_imgfmt_exten_str(int fmt)
 {
     // valid range now: [0, 29]
-    if (fmt < 30) {
-        return fmt % 10 < 3 ? "rgb" : "yuv";
+    if (fmt & VERIFY_IMG_FMT_MASK) {
+        return common_verify_imgfmt_is_rgb(fmt) ? "rgb" : "yuv";
     }
     LOGE("%s: UnknownImgFmt=%d!\n", __func__, fmt);
     return "bin";
@@ -89,6 +91,9 @@ int common_verify_imgfmt_bpp(int fmt)
     case YUV422SP_10PACKED:  return 20; // 16/4*5
     case YUV420P_10PACKED:
     case YUV420SP_10PACKED:  return 15; // 12/4*5
+    case YUV400_10LSB:       return 16;
+    case YUV400_10PACKED:    return 10;
+    case YUV400:             return 8;
     default:                 LOGE("%s: UnknownImgFmt=%d!\n", __func__, fmt); return 0;
     }
 }
@@ -105,7 +110,8 @@ float common_verify_imgfmt_pitch_ratio(int fmt)
     case YUV422P:
     case YUV422SP:
     case YUV420P:
-    case YUV420SP:           return 1.f;
+    case YUV420SP:
+    case YUV400:             return 1.f;
     case RGB_101010LSB:
     case YUV444I_10LSB:      return 3 * 2.f;
     case RGB_PLANAR10LSB:
@@ -114,7 +120,8 @@ float common_verify_imgfmt_pitch_ratio(int fmt)
     case YUV422P_10LSB:
     case YUV422SP_10LSB:
     case YUV420P_10LSB:
-    case YUV420SP_10LSB:     return 2.f;
+    case YUV420SP_10LSB:
+    case YUV400_10LSB:       return 2.f;
     case RGB_10PACKED:
     case YUV444I_10PACKED:   return 3 * 5 / 4.f;
     case RGBA_1010102:       return 4.f;
@@ -124,7 +131,8 @@ float common_verify_imgfmt_pitch_ratio(int fmt)
     case YUV422P_10PACKED:
     case YUV422SP_10PACKED:
     case YUV420P_10PACKED:
-    case YUV420SP_10PACKED:  return 5 / 4.f;
+    case YUV420SP_10PACKED:
+    case YUV400_10PACKED:    return 5 / 4.f;
     default:                 LOGE("%s: unsupported image format %d for now!\n", __func__, fmt); return 0.f;
     }
 }
@@ -137,6 +145,9 @@ float common_verify_imgfmt_framesize_ratio(int fmt)
     case RGB_101010LSB:
     case RGB_10PACKED:
     case RGBA_1010102:
+    case YUV400:
+    case YUV400_10LSB:
+    case YUV400_10PACKED:
     case YUV444I:
     case YUV444I_10LSB:
     case YUV444I_10PACKED:   return 1.f;
@@ -170,14 +181,14 @@ int common_verify_imgfmt_get_def_planar(int fmt, int depth)
     switch (fmt) {
     case RGBA8888:
     case RGB888:
-    case RGB_PLANAR:         return depth == 10 ? RGB_PLANAR10LSB : RGB_PLANAR;
+    case RGB_PLANAR:         return depth <= 8 ? RGB_PLANAR : RGB_PLANAR10LSB;
     case YUV444P:
     case YUV444SP:
-    case YUV444I:            return depth == 10 ? YUV444P_10LSB : YUV444P;
+    case YUV444I:            return depth <= 8 ? YUV444P : YUV444P_10LSB;
     case YUV422P:
-    case YUV422SP:           return depth == 10 ? YUV422P_10LSB : YUV422P;
+    case YUV422SP:           return depth <= 8 ? YUV422P : YUV422P_10LSB;
     case YUV420P:
-    case YUV420SP:           return depth == 10 ? YUV420P_10LSB : YUV420P;
+    case YUV420SP:           return depth <= 8 ? YUV420P : YUV420P_10LSB;
     case RGB_101010LSB:
     case RGB_PLANAR10LSB:
     case RGBA_1010102:
@@ -197,6 +208,9 @@ int common_verify_imgfmt_get_def_planar(int fmt, int depth)
     case YUV420SP_10LSB:
     case YUV420P_10PACKED:
     case YUV420SP_10PACKED:  return YUV420P_10LSB;
+    case YUV400:             return depth <= 8 ? YUV400 : YUV400_10LSB;
+    case YUV400_10LSB:
+    case YUV400_10PACKED:    return YUV400_10LSB;
     default:                 LOGE("%s: unsupported image format %d for now!\n", __func__, fmt); return -1;
     }
 }
