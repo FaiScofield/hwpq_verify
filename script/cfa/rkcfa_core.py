@@ -4,7 +4,7 @@ Filename     : rkcfa_core.py
 Creacted By  : vance.wu@rock-chips.com
 Creacted Date: 2025-01-17
 Description  : 
-Modify Date  : 2026-03-09
+Modify Date  : 2026-03-10
 '''
 
 import os
@@ -34,6 +34,7 @@ class RkCfaPlatformInfo:
 g_cfa_support_platforms = {
     # name, enum_idx(same to 'rkcfa_platform'), cfa_pattern(2D array, 0=R/1=G/2=B/3=W/4=Gray), ed_coefs(2D array), ed_factor
     'common':   RkCfaPlatformInfo('COMMON',    0, [[4]],                            [[0,0,0,14,0], [0,6,10,2,0]], 32),
+    # 'common':   RkCfaPlatformInfo('COMMON',    0, [[4]],                            [[0,0,0,16,0], [0,0,16,0,0]], 32),
     'ec060kc1': RkCfaPlatformInfo('EC060KC1',  1, [[0,1,2], [1,2,0], [2,0,1]],      [[0,0,0, 5,3], [1,13,3,4,3]], 32),
     'ec060kh3': RkCfaPlatformInfo('EC060KH3',  2, [[1,2,2,0,0,1], [0,0,1,1,2,2]],   [[0,0,0,11,0], [0,5,11,5,0]], 32),
     'ec060kh4': RkCfaPlatformInfo('EC060KH4',  3, [[1,2,2,0,0,1], [0,0,1,1,2,2]],   [[0,0,0,11,0], [0,5,11,5,0]], 32),
@@ -155,28 +156,30 @@ def dither_od(img: np.ndarray, src_depth=8, dst_depth=4, od_matrix_8bit: np.ndar
         err = (err + (1 << (err_rshift_bit - 1)) + (err >> 7)) >> err_rshift_bit
         assert(np.max(err[:]) == 2**src_rshift_bit - 1)
         assert(np.min(err[:]) == -2**src_rshift_bit)
-        dst = (img.astype(np.int16) + err.astype(np.int16)) >> src_rshift_bit
-        dst = np.clip(dst, 0, 255).astype(np.uint8)
-        dst = (dst & mask) # MSB valid
+        dst = (img.astype(np.int16) + err.astype(np.int16))
+        dst = np.clip(dst, 0, 255).astype(np.uint8) & mask  # MSB valid
     return dst
 
-def dither_ec(img: np.ndarray, pf_info: RkCfaPlatformInfo, target_bit=4, clip_old_val=False):
-    assert(1 <= target_bit <= 7)
-    mask = 2**target_bit - 1
-
-    step = 255 / ((1 << target_bit) - 1)
-    rnd = step // 2
+def dither_ec(pf_info: RkCfaPlatformInfo, img: np.ndarray, src_depth=8, dst_depth=4, modulate_lps=False):
+    assert(1 <= dst_depth <= 8 and src_depth > dst_depth)
+    np.random.seed(114514)
 
     ed_coefs = pf_info.ed_coefs
-    ed_factor = pf_info.ed_factor
+    ed_factor = pf_info.ed_factor #32
     H, W = img.shape[0], img.shape[1]
-    CH, CW = ed_coefs.shape[0], ed_coefs.shape[1]
+    CH, CW = ed_coefs.shape[0], ed_coefs.shape[1] # 2x3/2x5/3x5
     assert(CW <= 5 and CH == 2)
     pad = CW // 2
 
-    ed_coefs = ed_coefs.astype(np.float32) / ed_factor
-    ed_coefs = ed_coefs.reshape(-1)[pad+1:]
+    # ed_coefs = ed_coefs.astype(np.float32) / ed_factor
+    ed_coefs = ed_coefs.reshape(-1)[pad+1:].astype(np.int32)
     error_buf = np.zeros((CH, W + 2 * pad), dtype=np.int16)
+    dst = np.zeros((H, W), dtype=np.uint8 if dst_depth <= 8 else np.uint16)
+
+    src_rshift_bit = src_depth - dst_depth # [2, 6]
+    mask = (2**dst_depth - 1) << src_rshift_bit
+    # step = ((1 << src_depth) - 1) // ((1 << dst_depth) - 1)
+    # rnd = step // 2
 
     ## define the lambda function for counting error
     if CH == 2 and CW == 3: # ED area: 2x3
@@ -190,7 +193,6 @@ def dither_ec(img: np.ndarray, pf_info: RkCfaPlatformInfo, target_bit=4, clip_ol
             er1[j + 1] * coefs[3] + er1[j + 2] * coefs[2] + er2[j - 2] * coefs[1] + er2[j - 1] * coefs[0]
     else:
         raise TypeError(f'Unsupported ED area size: {CH}x{CW}!')
-    old_val_clip = lambda r: np.clip(r, 0, 255) if clip_old_val else r
 
     for y in range(H):
         error_row0 = error_buf[y%CH, :].view()
@@ -199,16 +201,22 @@ def dither_ec(img: np.ndarray, pf_info: RkCfaPlatformInfo, target_bit=4, clip_ol
         for x in range(W):
             j = pad + x
             err_val = count_err(error_row0, error_row1, error_row2, ed_coefs, j)
-            old_val = img[y, x] + np.floor(err_val)
-            # old_val = old_val_clip(old_val)
-            new_val = (old_val + rnd) // step * step
-            new_val = np.clip(new_val, 0, 255)
-            img[y, x] = new_val
+            err_val = (err_val + ed_factor // 2) // ed_factor
+            old_val = img[y, x] + err_val
+            # old_val = img[y, x] + np.floor(err_val)
+            # new_val = (old_val + rnd) // step * step
+            # new_val = np.clip(new_val, 0, (1 << src_depth) - 1)
+            new_val = np.clip(old_val, 0, (1 << src_depth) - 1) & mask
+            rnd_val = np.random.randint(0, 128)
+            if modulate_lps and rnd_val <= 83:
+                new_val += (1 << src_rshift_bit) * np.sign(err_val)
+                new_val = np.clip(new_val, 0, (1 << src_depth) - 1) & mask
+            dst[y, x] = (new_val >> src_rshift_bit) if src_depth > 8 else new_val
             error_row2[j] = old_val - new_val
         error_row0[:] = 0 # reset to 0 for next row
 
-    img[:] = np.bitwise_and(img, mask)
-    return img
+    # img[:] = np.bitwise_and(img, mask)
+    return dst
 
 ##### pattern to color conversion #####
 def cfa_pattern2color(img: np.ndarray, pf_info: RkCfaPlatformInfo, norm_to_8bit=True):
@@ -575,35 +583,39 @@ if __name__ == '__main__':
     # read input image
     W = args.width
     H = args.height
+    WC = W
+    HC = H
     is_normal_img = False
-    normal_img_ext = ['png', 'bmp', 'jpg', 'jpeg', 'tif']
-    for ext in normal_img_ext:
-        if args.input.endswith(ext):
-            is_normal_img = True
-            img = Image.open(args.input).resize((W, H))
-            args.src_depth = 8
-            break
-
     is_yuv_planar = False
     imgY = None
-    if not is_normal_img:
-        if args.format == 'gray':
-            data = np.fromfile(args.input, dtype=np.uint8 if args.src_depth <= 8 else np.uint16)
-            img = data.reshape(H, W)
-            imgY = np.expand_dims(img, axis=2)
-        elif args.format == 'yuv420p' or args.format == 'yu12':
-            data = np.fromfile(args.input, dtype=np.uint8)
-            imgY = data[0:H*W].reshape(H, W)
-            imgU = data[H*W:H*W*5//4].reshape(H//2, W//2)
-            imgV = data[H*W*5//4:H*W*6//4].reshape(H//2, W//2)
-            is_yuv_planar = True
-        elif args.format == 'yuv420p10l':
-            data = np.fromfile(args.input, dtype=np.uint16)
-            imgY = data[0:H*W].reshape(H, W)
-            imgU = data[H*W:H*W*5//4].reshape(H//2, W//2)
-            imgV = data[H*W*5//4:H*W*6//4].reshape(H//2, W//2)
-            is_yuv_planar = True
+    imgU = None
+    imgV = None
+    normal_img_ext = ['png', 'bmp', 'jpg', 'jpeg', 'tif']
+    try:
+        for ext in normal_img_ext:
+            if args.input.endswith(ext):
+                is_normal_img = True
+                img = Image.open(args.input).resize((W, H))
+                args.src_depth = 8
+                break
 
+        if not is_normal_img:
+            if args.format == 'gray' or args.format == 'gray10l':
+                HC = WC = 0
+                data = np.fromfile(args.input, dtype=np.uint8 if args.src_depth <= 8 else np.uint16)
+                imgY = data[0:H*W].reshape(H, W)
+            elif args.format == 'yuv420p' or args.format == 'yu12' or args.format == 'yuv420p10l':
+                WC = W // 2
+                HC = H // 2
+                data = np.fromfile(args.input, dtype=np.uint8 if args.src_depth <= 8 else np.uint16)
+                imgY = data[0:H*W].reshape(H, W)
+                imgU = data[H*W:H*W+HC*WC].reshape(HC, WC)
+                imgV = data[H*W+HC*WC:H*W+HC*WC*2].reshape(HC, WC)
+                is_yuv_planar = True
+
+    except Exception as e:
+        print(f'Error: input file {args.input} is not valid! {e}')
+        exit(-1)
 
 
     # run test
@@ -618,23 +630,27 @@ if __name__ == '__main__':
     if args.type == 'c2p':
         dst, _ = c2p_input2pattern(np.array(imgY), pf_info)
     elif args.type == 'od':
-        dst = dither_od(np.array(imgY), src_depth=args.src_depth, dst_depth=args.dst_depth)
+        dst = dither_od(img=np.array(imgY), src_depth=args.src_depth, dst_depth=args.dst_depth)
     elif args.type == 'ec' or args.type == 'ed':
-        dst = dither_ec(np.array(imgY), pf_info, target_bit=args.dst_depth)
+        dst = dither_ec(pf_info=pf_info, img=np.array(imgY), src_depth=args.src_depth, dst_depth=args.dst_depth, modulate_lps=False)
+    elif args.type == 'round':
+        dst = np.round(np.array(imgY) / (2**args.src_depth - 1) * (2**args.dst_depth - 1)).astype(np.uint8) << (8 - args.dst_depth)
 
     if is_normal_img:
         Image.fromarray(dst, mode='L').save(args.output)
-    elif is_yuv_planar:
+    else:
         if args.dst_depth <= 8:
-            data = np.zeros(H*W*6//4, dtype=np.uint8)
-            data[0:H*W] = dst.flatten()
-            data[H*W:H*W*5//4] = imgU.flatten() >> (args.src_depth - 8)
-            data[H*W*5//4:H*W*6//4] = imgV.flatten() >> (args.src_depth - 8)
+            if imgU is not None and imgV is not None:
+                data = np.zeros(dst.size + imgU.size + imgV.size, dtype=np.uint8)
+                data[0:dst.size] = dst.flatten()
+                data[dst.size:dst.size+imgU.size] = imgU.flatten() >> (args.src_depth - 8)
+                data[dst.size+imgU.size:dst.size+imgU.size+imgV.size] = imgV.flatten() >> (args.src_depth - 8)
+            else:
+                data = np.zeros(dst.size, dtype=np.uint8)
+                data[0:dst.size] = dst.flatten()
             data.tofile(args.output)
         else:
             print(f'Error: dst_depth {args.dst_depth} is not supported for yuv planar format!')
             exit(-1)
-    else:
-        data.tofile(args.output)
 
     print(f'save result to {args.output}.')
