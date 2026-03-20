@@ -52,6 +52,7 @@ def parse_common_args(args):
     )
     parser.add_argument("-iw", "--input_wid", type=int, default=0, help="used when input_num > 0")
     parser.add_argument("-ih", "--input_hgt", type=int, default=0, help="used when input_num > 0")
+    parser.add_argument("-fn", "--frame_num", type=int, default=1, help="used when input_num = 0")
     parser.add_argument("-cn", "--config_num", type=int, default=0, help="generate random config number")
     parser.add_argument(
         "-cs",
@@ -77,7 +78,8 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
     root_dir = args.root if args.root != "" else "//172.16.4.246/vop/RKCFA/batch_sim/sim_check_fpga_rk3572/"
     input_dir = os.path.join(root_dir, "input")
     output_dir = os.path.join(root_dir, "output")
-    config_dir = os.path.join(root_dir, "config")
+    # config_dir = os.path.join(root_dir, "config")
+    config_dir = os.path.join(root_dir, "acm_rand_config_20260318")
     log_dir = os.path.join(root_dir, "log")
     os.makedirs(input_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
@@ -103,6 +105,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
     platform = args.platform
     nb_input = int(args.input_num)
     nb_config = int(args.config_num)
+    nb_frame = int(args.frame_num)
     input_seed = int(args.input_seed)
     config_seed = int(args.config_seed)
     img_fmt = IMG_FMT.from_int(args.input_fmt)
@@ -113,7 +116,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
     logger.info(f"Set root_dir: {root_dir}")
     logger.info(f"Set module_args: '{module_args}'")
     logger.info(f"Set platform: {platform}")
-    logger.info(f"Set input file: {args.input_file}, size: {img_wid}x{img_hgt}")
+    logger.info(f"Set input file: {args.input_file}, size: {img_wid}x{img_hgt}, nb_frame: {nb_frame}")
     logger.info(f"Set random input/config num: {nb_input} / {nb_config}")
     if nb_input > 0:
         logger.info(f"Set input seed: {input_seed}, image size: {img_wid}x{img_hgt}, format: {img_fmt}")
@@ -230,7 +233,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
                     # run command
                     cmd_str = (
                         exe
-                        + f" -i {input_path} -o {output_dir} -c {config_path} -C {final_crc_file} -w {wid} -g {hgt} -f {img_fmt.value[0]} -F {12 if is_rgb_fmt else 13} {module_args}"
+                        + f" -i {input_path} -n {nb_frame} -o {output_dir} -c {config_path} -C {final_crc_file} -w {wid} -g {hgt} -f {img_fmt.value[0]} -F {12 if is_rgb_fmt else 13} {module_args}"
                     )
                     ret = run_cmd(cmd_str, False, logger)
                     if ret != 0:

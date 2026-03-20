@@ -10,6 +10,42 @@ g_r2y_mat_bt709 = np.array(
 
 g_y2r_mat_bt709 = np.array([[1.0, 0.0, 1.5748], [1.0, -0.187324, -0.468124], [1.0, 1.8556, 0.0]], dtype=np.float32)
 
+def rgb2hsv(r, g, b):
+    """
+    将 RGB 转换到 HSV，输入为 0~255 的 uint8 或浮点，返回 (h, s, v)
+    h: 0~360, s: 0~1, v: 0~1
+    """
+    r = np.asarray(r, dtype=np.float32) / 255.0
+    g = np.asarray(g, dtype=np.float32) / 255.0
+    b = np.asarray(b, dtype=np.float32) / 255.0
+
+    maxc = np.maximum(np.maximum(r, g), b)
+    minc = np.minimum(np.minimum(r, g), b)
+    delta = maxc - minc
+
+    # 计算色相 H
+    h = np.zeros_like(maxc)
+    cond = delta != 0
+    rc = (maxc - r) / delta
+    gc = (maxc - g) / delta
+    bc = (maxc - b) / delta
+
+    h = np.where(cond,
+                 np.where(maxc == r, (bc - gc),
+                          np.where(maxc == g, 2.0 + rc - bc,
+                                   4.0 + gc - rc)),
+                 h)
+    h = (h / 6.0) % 1.0
+    h = h * 360.0
+
+    # 计算饱和度 S
+    s = np.where(maxc != 0, delta / maxc, 0.0)
+
+    # 计算明度 V
+    v = maxc
+
+    return h, s, v
+
 def hsv2rgb(h, s, v):
     """
     将 HSV 转换到 RGB，输入为标量或数组，返回 0~255 的 uint8 RGB
@@ -64,7 +100,7 @@ def hsv2rgb(h, s, v):
 
 
 # ---------- 画图通用工具 ----------
-def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, font=None, x_center=None, y_center=None, title=None):
+def draw_axis_coor(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, font=None, x_center=None, y_center=None, title=None):
     # 辅助函数：判断数值是否为整数
     def is_integer(value):
         if int(value) - value == 0:
@@ -219,7 +255,7 @@ def draw_axis(img_draw, W, H, margin, x0, y0, x_range, y_range, xlabel, ylabel, 
             img_draw.text((center_x, margin//3), title, fill=axis_color, font=font)
 
 
-def gen_img_hsv2rgb_coor(vval=128, out_path=None):
+def gen_img_hsv2rgb_coor(vval=128, draw_axis=True, out_path=None):
     vval = np.clip(vval, 0, 255)
     if out_path is None:
         out_path = f"colormap_hsv2rgb_v{vval}.png"
@@ -240,27 +276,29 @@ def gen_img_hsv2rgb_coor(vval=128, out_path=None):
     rgb = np.stack([r, g, b], axis=-1)  # (H,W,3)
 
     img = Image.fromarray(rgb, mode="RGB")
-    margin = 64 # 添加边距的图像
-    padded_img = Image.new("RGB", (img.width + 2 * margin, img.height + 2 * margin), (255, 255, 255))
-    padded_img.paste(img, (margin, margin))
+    if draw_axis:
+        margin = 64 # 添加边距的图像
+        padded_img = Image.new("RGB", (img.width + 2 * margin, img.height + 2 * margin), (255, 255, 255))
+        padded_img.paste(img, (margin, margin))
 
-    # 画坐标轴
-    draw = ImageDraw.Draw(padded_img)
-    try:
-        font = ImageFont.truetype("arial.ttf", 12)
-    except:
-        font = None
-    # 坐标轴中心点在图像中心
-    x0 = int(img.width / 2)  # 图像中心x坐标
-    y0 = int(img.height / 2)  # 图像中心y坐标
-    title = f"Color Map of HSV2RGB (v={vval})"
-    draw_axis(draw, img.width, img.height, margin, x0, y0, (-1, 1), (-1, 1), "S", "S", title=title, font=font)
+        # 画坐标轴
+        draw = ImageDraw.Draw(padded_img)
+        try:
+            font = ImageFont.truetype("arial.ttf", 12)
+        except:
+            font = None
+        # 坐标轴中心点在图像中心
+        x0 = int(img.width / 2)  # 图像中心x坐标
+        y0 = int(img.height / 2)  # 图像中心y坐标
+        title = f"Color Map of HSV2RGB (v={vval})"
+        draw_axis_coor(draw, img.width, img.height, margin, x0, y0, (-1, 1), (-1, 1), "S", "S", title=title, font=font)
+        img = padded_img
 
-    padded_img.save(out_path)
+    img.save(out_path)
     print(f"Saved: {out_path}")
 
 
-def gen_img_dvbyh_coor(vval=128, sval=1.0, range=64, out_path=None):
+def gen_img_dvbyh_coor(vval=128, sval=1.0, range=64, draw_axis=True, out_path=None):
     vval = np.clip(vval, 0, 255)
     sval = np.clip(sval, 0, 1.0)
     range = np.clip(range, 0, 255)
@@ -286,28 +324,30 @@ def gen_img_dvbyh_coor(vval=128, sval=1.0, range=64, out_path=None):
     new_wid = 2 * img.width # ~ 720
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
 
-    # 添加边距的图像
-    margin = 64
-    padded_img = Image.new("RGB", (img.width + 2 * margin, img.height + 2 * margin), (255, 255, 255))
-    padded_img.paste(img, (margin, margin))
+    if draw_axis:
+        # 添加边距的图像
+        margin = 64
+        padded_img = Image.new("RGB", (img.width + 2 * margin, img.height + 2 * margin), (255, 255, 255))
+        padded_img.paste(img, (margin, margin))
 
-    draw = ImageDraw.Draw(padded_img)
-    try:
-        font = ImageFont.truetype("arial.ttf", 12)
-    except:
-        font = None
-    x0 = int(img.width / 2)  # 图像中心x坐标
-    y0 = int(img.height / 2)  # 图像中心y坐标
-    step = (range + 2) // 4
-    y_rane = np.arange(-range, range + step // 2, step)
-    y_rane = np.clip(y_rane, -range, range)
-    draw_axis(draw, img.width, img.height, margin, x0, y0, (-180, 180), y_rane, "H", "ΔV", title=title, font=font)
+        draw = ImageDraw.Draw(padded_img)
+        try:
+            font = ImageFont.truetype("arial.ttf", 12)
+        except:
+            font = None
+        x0 = int(img.width / 2)  # 图像中心x坐标
+        y0 = int(img.height / 2)  # 图像中心y坐标
+        step = (range + 2) // 4
+        y_rane = np.arange(-range, range + step // 2, step)
+        y_rane = np.clip(y_rane, -range, range)
+        draw_axis_coor(draw, img.width, img.height, margin, x0, y0, (-180, 180), y_rane, "H", "ΔV", title=title, font=font)
+        img = padded_img
 
-    padded_img.save(out_path)
+    img.save(out_path)
     print(f"Saved: {out_path}")
 
 
-def gen_img_dsbyh_coor(vval=128, sval=0.5, range=0.5, out_path=None):
+def gen_img_dsbyh_coor(vval=128, sval=0.5, range=0.5, draw_axis=True, out_path=None):
     vval = np.clip(vval, 0, 255)
     sval = np.clip(sval, 0, 1.0)
     range = np.clip(range, 0, 1.0)
@@ -333,25 +373,27 @@ def gen_img_dsbyh_coor(vval=128, sval=0.5, range=0.5, out_path=None):
     new_wid = 2 * img.width # ~ 720
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
 
-    # 添加边距的图像
-    margin = 64
-    padded_img = Image.new("RGB", (img.width + 2 * margin, img.height + 2 * margin), (255, 255, 255))
-    padded_img.paste(img, (margin, margin))
+    if draw_axis:
+        # 添加边距的图像
+        margin = 64
+        padded_img = Image.new("RGB", (img.width + 2 * margin, img.height + 2 * margin), (255, 255, 255))
+        padded_img.paste(img, (margin, margin))
 
-    draw = ImageDraw.Draw(padded_img)
-    try:
-        font = ImageFont.truetype("arial.ttf", 12)
-    except:
-        font = None
-    x0 = int(img.width / 2)  # 图像中心x坐标
-    y0 = int(img.height / 2)  # 图像中心y坐标
-    draw_axis(draw, img.width, img.height, margin, x0, y0, (-180, 180), (-range, range), "H", "ΔS", title=title, font=font)
+        draw = ImageDraw.Draw(padded_img)
+        try:
+            font = ImageFont.truetype("arial.ttf", 12)
+        except:
+            font = None
+        x0 = int(img.width / 2)  # 图像中心x坐标
+        y0 = int(img.height / 2)  # 图像中心y坐标
+        draw_axis_coor(draw, img.width, img.height, margin, x0, y0, (-180, 180), (-range, range), "H", "ΔS", title=title, font=font)
+        img = padded_img
 
-    padded_img.save(out_path)
+    img.save(out_path)
     print(f"Saved: {out_path}")
 
 
-def gen_img_dhbyh_coor(vval=128, sval=0.5, range=180, out_path=None):
+def gen_img_dhbyh_coor(vval=128, sval=0.5, range=180, draw_axis=True, out_path=None):
     vval = np.clip(vval, 0, 255)
     sval = np.clip(sval, 0, 1.0)
     range = np.clip(range, 0, 360)
@@ -376,25 +418,27 @@ def gen_img_dhbyh_coor(vval=128, sval=0.5, range=180, out_path=None):
     new_wid = 2 * img.width # ~ 720
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
 
-    # 添加边距的图像
-    margin = 64
-    padded_img = Image.new("RGB", (img.width + 2 * margin, img.height + 2 * margin), (255, 255, 255))
-    padded_img.paste(img, (margin, margin))
+    if draw_axis:
+        # 添加边距的图像
+        margin = 64
+        padded_img = Image.new("RGB", (img.width + 2 * margin, img.height + 2 * margin), (255, 255, 255))
+        padded_img.paste(img, (margin, margin))
 
-    draw = ImageDraw.Draw(padded_img)
-    try:
-        font = ImageFont.truetype("arial.ttf", 12)
-    except:
-        font = None
-    x0 = int(img.width / 2)  # 图像中心x坐标
-    y0 = int(img.height / 2)  # 图像中心y坐标
-    draw_axis(draw, img.width, img.height, margin, x0, y0, (-180, 180), (-range, range), "H", "ΔH", title=title, font=font)
+        draw = ImageDraw.Draw(padded_img)
+        try:
+            font = ImageFont.truetype("arial.ttf", 12)
+        except:
+            font = None
+        x0 = int(img.width / 2)  # 图像中心x坐标
+        y0 = int(img.height / 2)  # 图像中心y坐标
+        draw_axis_coor(draw, img.width, img.height, margin, x0, y0, (-180, 180), (-range, range), "H", "ΔH", title=title, font=font)
+        img = padded_img
 
-    padded_img.save(out_path)
+    img.save(out_path)
     print(f"Saved: {out_path}")
 
 
-def gen_img_rgbgainbyh_coor(vval=128, sval=0.5, rgain=None, ggain=None, bgain=None, out_path=None):
+def gen_img_rgbgainbyh_coor(vval=128, sval=0.5, rgain=None, ggain=None, bgain=None, draw_axis=True, out_path=None):
     vval = np.clip(vval, 0, 255)
     # 仅允许 rgain/ggain/bgain 中至多一个有效；若三者均为 None，则直接返回
     if rgain is None and ggain is None and bgain is None:
@@ -445,31 +489,33 @@ def gen_img_rgbgainbyh_coor(vval=128, sval=0.5, rgain=None, ggain=None, bgain=No
     new_wid = 2 * img.width # ~ 720
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
 
-    # 添加边距的图像
-    margin = 64
-    padded_img = Image.new("RGB", (img.width + 2 * margin, img.height + 2 * margin), (255, 255, 255))
-    padded_img.paste(img, (margin, margin))
+    if draw_axis:
+        # 添加边距的图像
+        margin = 64
+        padded_img = Image.new("RGB", (img.width + 2 * margin, img.height + 2 * margin), (255, 255, 255))
+        padded_img.paste(img, (margin, margin))
 
-    draw = ImageDraw.Draw(padded_img)
-    try:
-        font = ImageFont.truetype("arial.ttf", 12)
-    except:
-        font = None
-    x0 = int(img.width / 2)  # 图像中心x坐标
-    y0 = int(img.height * range / (range + 1 - min_gain))  # 图像中心y坐标
+        draw = ImageDraw.Draw(padded_img)
+        try:
+            font = ImageFont.truetype("arial.ttf", 12)
+        except:
+            font = None
+        x0 = int(img.width / 2)  # 图像中心x坐标
+        y0 = int(img.height * range / (range + 1 - min_gain))  # 图像中心y坐标
 
-    x_rane = np.arange(-180, 180+45, 45)
-    y_rane = np.arange(min_gain, max_gain+0.5, 0.5)
-    if zero_gain:
-        title = f"Color Map of {ylabel}-by-H (v={vval}, s={sval}, {ylabel}=OFF)"
-    else:
-        title = f"Color Map of {ylabel}-by-H (v={vval}, s={sval}, {ylabel}=[{min_gain}, {max_gain}])"
-    draw_axis(draw, img.width, img.height, margin, x0, y0, x_rane, y_rane, "H", ylabel, title=title, font=font, y_center=1)
+        x_rane = np.arange(-180, 180+45, 45)
+        y_rane = np.arange(min_gain, max_gain+0.5, 0.5)
+        if zero_gain:
+            title = f"Color Map of {ylabel}-by-H (v={vval}, s={sval}, {ylabel}=OFF)"
+        else:
+            title = f"Color Map of {ylabel}-by-H (v={vval}, s={sval}, {ylabel}=[{min_gain}, {max_gain}])"
+        draw_axis_coor(draw, img.width, img.height, margin, x0, y0, x_rane, y_rane, "H", ylabel, title=title, font=font, y_center=1)
+        img = padded_img
 
-    padded_img.save(out_path)
+    img.save(out_path)
     print(f"Saved: {out_path}")
 
-def gen_img_rgbgain2w_coor(rgain=None, ggain=None, bgain=None, out_path=None):
+def gen_img_rgbgain2w_coor(rgain=None, ggain=None, bgain=None, draw_axis=True, out_path=None):
     # 仅允许 rgain/ggain/bgain 中至多一个有效；若三者均为 None，则直接返回
     if rgain is None and ggain is None and bgain is None:
         return
@@ -517,65 +563,79 @@ def gen_img_rgbgain2w_coor(rgain=None, ggain=None, bgain=None, out_path=None):
     new_wid = 2 * img.width # ~ 512
     img = img.resize((new_wid, new_hgt), Image.BICUBIC)
 
-    # 添加边距的图像
-    margin = 64
-    padded_img = Image.new("RGB", (img.width + 2 * margin, img.height + 2 * margin), (255, 255, 255))
-    padded_img.paste(img, (margin, margin))
+    if draw_axis:
+        # 添加边距的图像
+        margin = 64
+        padded_img = Image.new("RGB", (img.width + 2 * margin, img.height + 2 * margin), (255, 255, 255))
+        padded_img.paste(img, (margin, margin))
 
-    draw = ImageDraw.Draw(padded_img)
-    try:
-        font = ImageFont.truetype("arial.ttf", 12)
-    except:
-        font = None
-    x0 = 0
-    y0 = int(img.height * range / (range + 1 - min_gain))
+        draw = ImageDraw.Draw(padded_img)
+        try:
+            font = ImageFont.truetype("arial.ttf", 12)
+        except:
+            font = None
+        x0 = 0
+        y0 = int(img.height * range / (range + 1 - min_gain))
 
-    x_rane = np.arange(0, 256 + 16, 32)
-    y_rane = np.arange(min_gain, max_gain+0.5, 0.5)
-    y_cent = 1
-    if zero_gain:
-        title = f"Color Map of {ylabel}-on-gray ({ylabel}=OFF)"
-    else:
-        title = f"Color Map of {ylabel}-on-gray ({ylabel}=[{min_gain}, {max_gain}])"
-    draw_axis(draw, img.width, img.height, margin, x0, y0, x_rane, y_rane, "Gray", ylabel, title=title, font=font, y_center=y_cent)
+        x_rane = np.arange(0, 256 + 16, 32)
+        y_rane = np.arange(min_gain, max_gain+0.5, 0.5)
+        y_cent = 1
+        if zero_gain:
+            title = f"Color Map of {ylabel}-on-gray ({ylabel}=OFF)"
+        else:
+            title = f"Color Map of {ylabel}-on-gray ({ylabel}=[{min_gain}, {max_gain}])"
+        draw_axis_coor(draw, img.width, img.height, margin, x0, y0, x_rane, y_rane, "Gray", ylabel, title=title, font=font, y_center=y_cent)
+        img = padded_img
 
-    padded_img.save(out_path)
+    img.save(out_path)
     print(f"Saved: {out_path}")
 
 
 if __name__ == "__main__":
     ## arg parser
     parser = argparse.ArgumentParser(exit_on_error=False)
-    # parser.add_argument("-i", "--input", default="", type=str, help="输入图像文件, yuv444p格式")
-    # parser.add_argument("-o", "--output", default="", type=str, help="输出图像文件")
+    parser.add_argument("--rgb2hsv", nargs="+", type=int, help="input rgb value(r, g, b), do rgb2hsv")
+    parser.add_argument("--hsv2rgb", nargs="+", type=float, help="input hsv value(h, s, v), do hsv2rgb")
     parser.add_argument("-v", "--vval", type=int, help="v value, range: [0, 255], draw hsv2rgb")
     parser.add_argument("-s", "--sval", type=float, default=0.5, help="s value, range: [0.0, 1.0]")
-    parser.add_argument("-V", "--dv", type=int, help="delta v range, draw dvbyh")
-    parser.add_argument("-S", "--ds", type=float, help="delta s range, draw dsbyh")
-    parser.add_argument("-H", "--dh", type=int, help="delta h range, draw dhbyh")
+    parser.add_argument("-V", "--dv", type=int, help="delta v range, draw dvbyh, range: [0, 255]")
+    parser.add_argument("-S", "--ds", type=float, help="delta s range, draw dsbyh, range: [0.0, 1.0]")
+    parser.add_argument("-H", "--dh", type=int, help="delta h range, draw dhbyh, range: [0, 360]")
     parser.add_argument("-r", "--rgain", type=float, help="red gain range, draw rgainbyh")
     parser.add_argument("-g", "--ggain", type=float, help="green gain range, draw ggainbyh")
     parser.add_argument("-b", "--bgain", type=float, help="blue gain range, draw bgainbyh")
     parser.add_argument("--white", action="store_true", help="apply white color")
+    parser.add_argument("--no_draw_axis", action="store_false", dest="draw_axis", help="draw axis")
+    parser.set_defaults(draw_axis=True)
     args, _ = parser.parse_known_args()
+
+    if args.rgb2hsv is not None and len(args.rgb2hsv) == 3:
+        h, s, v = rgb2hsv(args.rgb2hsv[0], args.rgb2hsv[1], args.rgb2hsv[2])
+        print(f"rgb2hsv: {args.rgb2hsv} -> {float(h), float(s), float(v)}")
+        exit(0)
+
+    if args.hsv2rgb is not None and len(args.hsv2rgb) == 3:
+        r, g, b = hsv2rgb(args.hsv2rgb[0], args.hsv2rgb[1], args.hsv2rgb[2])
+        print(f"hsv2rgb: {args.hsv2rgb} -> {r, g, b}")
+        exit(0)
 
     if args.vval is not None and args.vval >= 0:
         gen_img_hsv2rgb_coor(vval=args.vval)
 
     vval = args.vval if args.vval is not None else 128
     if args.dv is not None and args.dv >= 0:
-        gen_img_dvbyh_coor(vval=vval, sval=args.sval, range=args.dv)
+        gen_img_dvbyh_coor(vval=vval, sval=args.sval, range=args.dv, draw_axis=args.draw_axis)
     if args.ds is not None and args.ds >= 0:
-        gen_img_dsbyh_coor(vval=vval, sval=args.sval, range=args.ds)
+        gen_img_dsbyh_coor(vval=vval, sval=args.sval, range=args.ds, draw_axis=args.draw_axis)
     if args.dh is not None and args.dh >= 0:
-        gen_img_dhbyh_coor(vval=vval, sval=args.sval, range=args.dh)
+        gen_img_dhbyh_coor(vval=vval, sval=args.sval, range=args.dh, draw_axis=args.draw_axis)
 
     if args.white:
-        gen_img_rgbgain2w_coor(rgain=args.rgain, ggain=args.ggain, bgain=args.bgain)
+        gen_img_rgbgain2w_coor(rgain=args.rgain, ggain=args.ggain, bgain=args.bgain, draw_axis=args.draw_axis)
     else:
         if args.rgain is not None and args.rgain >= 0:
-            gen_img_rgbgainbyh_coor(vval=vval, sval=args.sval, rgain=args.rgain)
+            gen_img_rgbgainbyh_coor(vval=vval, sval=args.sval, rgain=args.rgain, draw_axis=args.draw_axis)
         if args.ggain is not None and args.ggain >= 0:
-            gen_img_rgbgainbyh_coor(vval=vval, sval=args.sval, ggain=args.ggain)
+            gen_img_rgbgainbyh_coor(vval=vval, sval=args.sval, ggain=args.ggain, draw_axis=args.draw_axis)
         if args.bgain is not None and args.bgain >= 0:
-            gen_img_rgbgainbyh_coor(vval=vval, sval=args.sval, bgain=args.bgain)
+            gen_img_rgbgainbyh_coor(vval=vval, sval=args.sval, bgain=args.bgain, draw_axis=args.draw_axis)

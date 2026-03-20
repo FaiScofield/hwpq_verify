@@ -30,13 +30,22 @@ class AcmRegister(ModuleRegisterCore):
             self.platform = kwargs["platform"].upper()
         if self.platform.lower() == "rk3572":
             self.base_addr = 0xF9000000
-            self.nb_regs = 441
+            self.nb_regs = 441 # 1764 bytes, nb_regs=2+221+153+65=441
             self.regs = [
                 Reg(0x00006400, 0x0, "ACM_CTRL"),
                 Reg(0x00006404, 0x0, "DELTA_RANGE"),
                 # Reg(0x00006408, 0x0, "FETCH_START"),
+                # Reg(0x00006410, 0x0, "DEBUG_POINT0_CFG"),
+                # Reg(0x00006414, 0x0, "DEBUG_POINT1_CFG"),
+                # Reg(0x00006418, 0x0, "DEBUG_POINT2_CFG"),
+                # Reg(0x0000641C, 0x0, "DEBUG_POINT3_CFG"),
                 # Reg(0x00006420, 0x0, "FETCH_DONE"),
+                # Reg(0x00006424, 0x0, "ReservedA0"),
+                # Reg(0x00006428, 0x0, "ReservedA1"),
+                # Reg(0x0000642C, 0x0, "ReservedA2"),
             ]
+            # self.regs += [Reg(0x00006430 + idx * 4, 0x0, f"DEBUG{idx//4}_POINT{idx%4}") for idx in range(12)] # 6430~646C
+            # self.regs += [Reg(0x00006470 + idx * 4, 0x0, f"ReservedB{idx}") for idx in range(36)] # 6470~64FC
             self.regs += [Reg(0x00006500 + idx * 4, 0x0, f"YHS_GAIN_BY_Y_SEG{idx}") for idx in range(153)]  # 17*9
             self.regs += [Reg(0x00006764 + idx * 4, 0x0, f"YHS_GAIN_BY_S_SEG{idx}") for idx in range(221)]  # 17*13
             self.regs += [Reg(0x00006AD8 + idx * 4, 0x0, f"YHS_DEL_BY_H_SEG{idx}") for idx in range(65)]
