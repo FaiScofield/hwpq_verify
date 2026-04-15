@@ -58,10 +58,29 @@ enum common_verify_image_format {
     YUV420P_10PACKED = YUV420P + 0x20,      //
     YUV420SP_10PACKED = YUV420SP + 0x20,    // NV15, [19:0]=[V10:U10] for chroma plane. DRM_FORMAT_NV15
     YUV400_10PACKED = YUV400 + 0x20,
+
+    /* 8bit tile 4x4 */
+    YUV444P_TILE4X4 = YUV444P + 0x30,
+    YUV444SP_TILE4X4 = YUV444SP + 0x30,
+    YUV422P_TILE4X4 = YUV422P + 0x30,
+    YUV422SP_TILE4X4 = YUV422SP + 0x30,
+    YUV420P_TILE4X4 = YUV420P + 0x30,
+    YUV420SP_TILE4X4 = YUV420SP + 0x30,
+    YUV400_TILE4X4 = YUV400 + 0x30,
+
+    /* 10bit tile 4x4 */
+    YUV444P_TILE4X4_10PACKED = YUV444P + 0x40,
+    YUV444SP_TILE4X4_10PACKED = YUV444SP + 0x40,
+    YUV422P_TILE4X4_10PACKED = YUV422P + 0x40,
+    YUV422SP_TILE4X4_10PACKED = YUV422SP + 0x40,
+    YUV420P_TILE4X4_10PACKED = YUV420P + 0x40,
+    YUV420SP_TILE4X4_10PACKED = YUV420SP + 0x40,
+    YUV400_TILE4X4_10PACKED = YUV400 + 0x40,
 };
 
 const char *common_verify_imgfmt_str(int fmt);
 const char *common_verify_imgfmt_exten_str(int fmt);
+int common_verify_imgfmt_depth(int fmt);
 int common_verify_imgfmt_bpp(int fmt);
 float common_verify_imgfmt_pitch_ratio(int fmt);
 float common_verify_imgfmt_framesize_ratio(int fmt); // get the framesize ratio to the first planesize
@@ -86,6 +105,13 @@ int common_verify_clrspc_offset(int clrspc, int bit_depth, int *offsetx3);
 static inline bool common_verify_clrspc_is_full_range(int clrspc) { return clrspc & 0x1; }
 /* convert common_verify_colorspace to drm_color_encoding, <0 if error */
 int common_verify_clrspc_to_kernel_encoding(int clrspc);
+
+/* dither type definition */
+enum common_verify_dither_type {
+    DITHER_NONE = 0,
+    DITHER_SCALE = 1,
+    DITHER_FILL_MSB = 2,
+};
 
 #ifdef __cplusplus
 }

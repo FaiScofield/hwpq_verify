@@ -52,13 +52,13 @@ void common_verify_arg_print_usage(const char *program)
     printf("  -g  --height     [input_height] | input image height, default: 1080\n");
     printf("  -f  --format     [input_format] | input image format, default: 0x0, support: {rgb(0)[a(1)|planar(2)]; "
            "yuv[444p(3)|444sp(4)|444i(5)|422p(6)|422sp(7)|420p(8)|420sp(9)|400(a)}"
-           "(+0x10 for 10bit unpacked(LSB); +0x20 for 10bit packed)\n");
+           "(+0x10 for 10bit unpacked(LSB); +0x20 for 10bit packed, +0x30 for tile4x4)\n");
     printf("  -r  --clrspc [input_colorspace] | input image colorspace, default: 1-RGBF/5-709F, support: {0/1(RGBL/F), "
            "2/3(601L/F), 4/5(709L/F), 8/9(2020L/F)}\n");
     printf("  -o  --output      [output_file] | output filename, default: 'dirname(input)/custom_output_basename'\n");
     printf("  -W  --outwid     [output_width] | output image width, default: same to 'width'\n");
     printf("  -G  --outhgt    [output_height] | output image height, default: same to 'height'\n");
-    printf("  -F  --outfmt    [output_format] | output image format, default: mod('format',10)+0x10\n");
+    printf("  -F  --outfmt    [output_format] | output image format, default: mod('format',16)+0x10\n");
     printf("  -R  --outclr [output_colorspace]| output image colorspace, default: same to 'clrspc'\n");
     printf("  -n  --nframes      [num_frames] | number of frames to process, default: 1\n");
     printf("  -c  --config      [config_file] | config filename, default: 'NULL'; '.json' for config; '.bin/.dat' for "
