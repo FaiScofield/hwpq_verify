@@ -238,3 +238,33 @@ def extras_args_to_dict(extras: list[str]) -> dict:
         else:
             i += 1
     return kwargs
+
+
+def calc_crc32(data):
+    """
+    计算CRC32校验值，查找表只初始化一次以提高性能
+    
+    Args:
+        data: 输入数据，可以是bytes或bytearray
+        
+    Returns:
+        uint32: CRC32校验值
+    """
+    # 使用函数属性保存查找表，只初始化一次
+    if not hasattr(calc_crc32, '_table'):
+        table = []
+        for i in range(256):
+            c = i
+            for j in range(8):
+                c = (c >> 1) ^ (0xEDB88320 if (c & 1) else 0)
+            table.append(c)
+        calc_crc32._table = table
+
+    # 初始化CRC值
+    crc = 0xFFFFFFFF
+
+    # 遍历数据计算CRC
+    for byte in data:
+        crc = calc_crc32._table[(crc ^ byte) & 0xFF] ^ (crc >> 8)
+
+    return crc ^ 0xFFFFFFFF
