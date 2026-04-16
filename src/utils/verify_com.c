@@ -125,7 +125,7 @@ int image_read_to_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int ws
     }
     if (frmidx < 0 || w <= 0 || h <= 0 || wstrd < w || hstrd < h) {
         LOGE_f("invalid argument! frmidx: %d, w: %d, h: %d, wstrd: %d, hstrd: %d, fmt: %#x, %s\n", frmidx, w, h, wstrd,
-            hstrd, fmt, common_verify_imgfmt_str(fmt));
+            hstrd, fmt, common_verify_imgfmt_name(fmt));
         return -1;
     }
 
@@ -174,7 +174,7 @@ int image_write_from_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, in
     }
     if (frmidx < 0 || w <= 0 || h <= 0 || wstrd < w || hstrd < h) {
         LOGE_f("invalid argument! frmidx: %d, w: %d, h: %d, wstrd: %d, hstrd: %d, fmt: %#x, %s\n", frmidx, w, h, wstrd,
-            hstrd, fmt, common_verify_imgfmt_str(fmt));
+            hstrd, fmt, common_verify_imgfmt_name(fmt));
         return -1;
     }
 
@@ -242,7 +242,7 @@ int image_read(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt)
 
     const int bpp = common_verify_imgfmt_bpp(fmt);
     const int frame_size = (w * h * bpp + 7) / 8;
-    LOGD("fmt: %#x(%s), bpp: %d, frame_size: %d\n", fmt, common_verify_imgfmt_str(fmt), bpp, frame_size);
+    LOGD("fmt: %#x(%s), bpp: %d, frame_size: %d\n", fmt, common_verify_imgfmt_name(fmt), bpp, frame_size);
 
     fseek(fp, frame_size * frmidx, SEEK_SET);
     size_t read_size = fread(p_buf, 1, frame_size, fp);
@@ -267,7 +267,7 @@ int image_write(FILE *fp, void *p_buf, int frmidx, int w, int h, int fmt)
 
     const int bpp = common_verify_imgfmt_bpp(fmt);
     const int frame_size = (w * h * bpp + 7) / 8;
-    LOGD("fmt: %#x(%s), bpp: %d, frame_size: %d\n", fmt, common_verify_imgfmt_str(fmt), bpp, frame_size);
+    LOGD("fmt: %#x(%s), bpp: %d, frame_size: %d\n", fmt, common_verify_imgfmt_name(fmt), bpp, frame_size);
 
     size_t write_size = fwrite(p_buf, 1, frame_size, fp);
     if (write_size != frame_size) {
@@ -493,7 +493,7 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
     // const int frame_size = (w * h * bpp + 7) / 8;
     const int frame_size = sw_strd * sh_strd * ratio;
     LOGD_f("src fmt: %#x(%s), bpp: %d, frame_size: %d, plane_size_ratio: %.1f, ditherType: %d\n", src_fmt,
-        common_verify_imgfmt_str(src_fmt), bpp, frame_size, ratio, dither);
+        common_verify_imgfmt_name(src_fmt), bpp, frame_size, ratio, dither);
     LOGD_f("src_stride: %dx%d, dst_stride: %dx%d\n", sw_strd, sh_strd, dw_strd, dh_strd);
 
     int chnl_num = 3;
@@ -1038,6 +1038,114 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
             }
         }
     } break;
+    case YUV422SP_TILE4X4: {
+        assert(w % 4 == 0 && h % 4 == 0);
+        const int tile_w = w / 4;
+        const int tile_h = h / 4;
+
+        for (int ty = 0; ty < tile_h; ty++) {
+            for (int tx = 0; tx < tile_w; tx++) {
+                const int tile_idx = ty * tile_w + tx;
+                const int src_tile_offset = tile_idx * 32;
+
+                const uchar *p_src_tile_y = p_src + src_tile_offset;
+                const uchar *p_src_tile_uv = p_src_tile_y + 16;
+
+                for (int row = 0; row < 4; row++) {
+                    const int y = ty * 4 + row;
+                    for (int col = 0; col < 4; col++) {
+                        const int x = tx * 4 + col;
+                        const int src_ofs = row * 4 + col;
+                        const int dst_ofs = y * dw_strd / 2 + x;
+                        int y_val = p_src_tile_y[src_ofs];
+                        if (DITHER_SCALE == dither)
+                            p_dst_yr[dst_ofs] = ROUND_S32(y_val / 255.f * 1023.f);
+                        else if (DITHER_FILL_MSB == dither)
+                            p_dst_yr[dst_ofs] = (y_val << 2) | (y_val >> 6);
+                        else
+                            p_dst_yr[dst_ofs] = y_val << 2;
+                    }
+                }
+
+                for (int row = 0; row < 4; row++) {
+                    for (int col = 0; col < 4; col++) {
+                        const int y = ty * 4 + row;
+                        const int x = tx * 4 + col;
+                        const int src_ofs = row * 4 + col;
+                        const int dst_ofs = y * dw_strd / 2 + x;
+                        int u_val = p_src_tile_uv[src_ofs * 2 + 0] - 128;
+                        int v_val = p_src_tile_uv[src_ofs * 2 + 1] - 128;
+                        if (DITHER_SCALE == dither) {
+                            p_dst_ug[dst_ofs] = ROUND_S32(u_val / 255.f * 1023.f + 512);
+                            p_dst_vb[dst_ofs] = ROUND_S32(v_val / 255.f * 1023.f + 512);
+                        }
+                        else if (DITHER_FILL_MSB == dither) {
+                            p_dst_ug[dst_ofs] = (u_val << 2) + (u_val >> 6) + 512;
+                            p_dst_vb[dst_ofs] = (v_val << 2) + (v_val >> 6) + 512;
+                        }
+                        else {
+                            p_dst_ug[dst_ofs] = (u_val << 2) + 512;
+                            p_dst_vb[dst_ofs] = (v_val << 2) + 512;
+                        }
+                    }
+                }
+            }
+        }
+    } break;
+    case YUV444SP_TILE4X4: {
+        assert(w % 4 == 0 && h % 4 == 0);
+        const int tile_w = w / 4;
+        const int tile_h = h / 4;
+
+        for (int ty = 0; ty < tile_h; ty++) {
+            for (int tx = 0; tx < tile_w; tx++) {
+                const int tile_idx = ty * tile_w + tx;
+                const int src_tile_offset = tile_idx * 48;
+
+                const uchar *p_src_tile_y = p_src + src_tile_offset;
+                const uchar *p_src_tile_uv = p_src_tile_y + 16;
+
+                for (int row = 0; row < 4; row++) {
+                    const int y = ty * 4 + row;
+                    for (int col = 0; col < 4; col++) {
+                        const int x = tx * 4 + col;
+                        const int src_ofs = row * 4 + col;
+                        const int dst_ofs = y * dw_strd / 2 + x;
+                        int y_val = p_src_tile_y[src_ofs];
+                        if (DITHER_SCALE == dither)
+                            p_dst_yr[dst_ofs] = ROUND_S32(y_val / 255.f * 1023.f);
+                        else if (DITHER_FILL_MSB == dither)
+                            p_dst_yr[dst_ofs] = (y_val << 2) | (y_val >> 6);
+                        else
+                            p_dst_yr[dst_ofs] = y_val << 2;
+                    }
+                }
+
+                for (int row = 0; row < 4; row++) {
+                    for (int col = 0; col < 4; col++) {
+                        const int y = ty * 4 + row;
+                        const int x = tx * 4 + col;
+                        const int src_ofs = row * 4 + col;
+                        const int dst_ofs = y * dw_strd / 2 + x;
+                        int u_val = p_src_tile_uv[src_ofs * 2 + 0] - 128;
+                        int v_val = p_src_tile_uv[src_ofs * 2 + 1] - 128;
+                        if (DITHER_SCALE == dither) {
+                            p_dst_ug[dst_ofs] = ROUND_S32(u_val / 255.f * 1023.f + 512);
+                            p_dst_vb[dst_ofs] = ROUND_S32(v_val / 255.f * 1023.f + 512);
+                        }
+                        else if (DITHER_FILL_MSB == dither) {
+                            p_dst_ug[dst_ofs] = (u_val << 2) + (u_val >> 6) + 512;
+                            p_dst_vb[dst_ofs] = (v_val << 2) + (v_val >> 6) + 512;
+                        }
+                        else {
+                            p_dst_ug[dst_ofs] = (u_val << 2) + 512;
+                            p_dst_vb[dst_ofs] = (v_val << 2) + 512;
+                        }
+                    }
+                }
+            }
+        }
+    } break;
     default: LOGE_f("unsupported image format %#x for now!\n", src_fmt); return -1;
     }
 
@@ -1054,7 +1162,7 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
     const int bpp = common_verify_imgfmt_bpp(dst_fmt);
     // const int frame_size = (w * h * bpp + 7) / 8;
     const int frame_size = dw_strd * dh_strd * common_verify_imgfmt_framesize_ratio(dst_fmt);
-    LOGD_f("dst fmt: %#x(%s), bpp: %d, frame_size: %d, ditherType: %d\n", dst_fmt, common_verify_imgfmt_str(dst_fmt),
+    LOGD_f("dst fmt: %#x(%s), bpp: %d, frame_size: %d, ditherType: %d\n", dst_fmt, common_verify_imgfmt_name(dst_fmt),
         bpp, frame_size, dither);
     LOGD_f("src_stride: %dx%d, dst_stride: %dx%d\n", sw_strd, sh_strd, dw_strd, dh_strd);
 
@@ -1332,7 +1440,7 @@ int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h
     // const int frame_size = (w * h * bpp + 7) / 8;
     const int frame_size = sw_strd * sh_strd * ratio;
     LOGD_f("src fmt: %#x(%s), bpp: %d, frame_size: %d, plane_size_ratio: %.1f, ditherType: %d\n", src_fmt,
-        common_verify_imgfmt_str(src_fmt), bpp, frame_size, ratio, dither);
+        common_verify_imgfmt_name(src_fmt), bpp, frame_size, ratio, dither);
     LOGD_f("src_stride: %dx%d, dst_stride: %dx%d\n", sw_strd, sh_strd, dw_strd, dh_strd);
 
     int chnl_num = 3;
@@ -1448,6 +1556,82 @@ int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h
             }
         }
     } break;
+    case YUV422SP_TILE4X4: {
+        assert(w % 4 == 0 && h % 4 == 0);
+        const int tile_w = w / 4;
+        const int tile_h = h / 4;
+
+        for (int ty = 0; ty < tile_h; ty++) {
+            for (int tx = 0; tx < tile_w; tx++) {
+                const int tile_idx = ty * tile_w + tx;
+                const int src_tile_offset = tile_idx * 32;
+
+                const uchar *p_src_tile_y = p_src + src_tile_offset;
+                const uchar *p_src_tile_uv = p_src_tile_y + 16;
+
+                for (int row = 0; row < 4; row++) {
+                    const int dy = ty * 4 + row;
+                    for (int col = 0; col < 4; col++) {
+                        const int dx = tx * 4 + col;
+                        const int src_ofs = row * 4 + col;
+                        const int dst_ofs = dy * dw_strd + dx;
+                        p_dst_yr[dst_ofs] = p_src_tile_y[src_ofs];
+                    }
+                }
+
+                for (int row = 0; row < 2; row++) {
+                    for (int col = 0; col < 4; col++) {
+                        const int dy = ty * 2 + row;
+                        const int dx = tx * 4 + col;
+                        const int src_ofs = row * 4 + col;
+                        const int dst_ofs = dy * dw_strd + dx;
+                        int u_val = p_src_tile_uv[src_ofs * 2 + 0] - 128;
+                        int v_val = p_src_tile_uv[src_ofs * 2 + 1] - 128;
+                        p_dst_ug[dst_ofs] = u_val;
+                        p_dst_vb[dst_ofs] = v_val;
+                    }
+                }
+            }
+        }
+    } break;
+    case YUV444SP_TILE4X4: {
+        assert(w % 4 == 0 && h % 4 == 0);
+        const int tile_w = w / 4;
+        const int tile_h = h / 4;
+
+        for (int ty = 0; ty < tile_h; ty++) {
+            for (int tx = 0; tx < tile_w; tx++) {
+                const int tile_idx = ty * tile_w + tx;
+                const int src_tile_offset = tile_idx * 48;
+
+                const uchar *p_src_tile_y = p_src + src_tile_offset;
+                const uchar *p_src_tile_uv = p_src_tile_y + 16;
+
+                for (int row = 0; row < 4; row++) {
+                    const int dy = ty * 4 + row;
+                    for (int col = 0; col < 4; col++) {
+                        const int dx = tx * 4 + col;
+                        const int src_ofs = row * 4 + col;
+                        const int dst_ofs = dy * dw_strd + dx;
+                        p_dst_yr[dst_ofs] = p_src_tile_y[src_ofs];
+                    }
+                }
+
+                for (int row = 0; row < 4; row++) {
+                    const int dy = ty * 4 + row;
+                    for (int col = 0; col < 4; col++) {
+                        const int dx = tx * 4 + col;
+                        const int src_ofs = row * 4 + col;
+                        const int dst_ofs = dy * dw_strd / 2 + dx;
+                        int u_val = p_src_tile_uv[src_ofs * 2 + 0] - 128;
+                        int v_val = p_src_tile_uv[src_ofs * 2 + 1] - 128;
+                        p_dst_ug[dst_ofs] = u_val;
+                        p_dst_vb[dst_ofs] = v_val;
+                    }
+                }
+            }
+        }
+    } break;
     default: LOGE_f("unsupported image format %#x for now!\n", src_fmt); return -1;
     }
     return 0;
@@ -1464,7 +1648,7 @@ int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int
     const int bpp = common_verify_imgfmt_bpp(dst_fmt);
     // const int frame_size = (w * h * bpp + 7) / 8;
     const int frame_size = dw_strd * h * common_verify_imgfmt_framesize_ratio(dst_fmt);
-    LOGD_f("dst fmt: %#x(%s), bpp: %d, frame_size: %d, ditherType: %d\n", dst_fmt, common_verify_imgfmt_str(dst_fmt),
+    LOGD_f("dst fmt: %#x(%s), bpp: %d, frame_size: %d, ditherType: %d\n", dst_fmt, common_verify_imgfmt_name(dst_fmt),
         bpp, frame_size, dither);
     LOGD_f("src_stride: %dx%d, dst_stride: %dx%d\n", sw_strd, sh_strd, dw_strd, dh_strd);
 
@@ -1552,6 +1736,7 @@ int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int
             }
         }
     } break;
+
     case YUV420SP_TILE4X4: {
         assert(w % 4 == 0 && h % 4 == 0);
         const int tile_w = w / 4;
@@ -1583,6 +1768,82 @@ int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int
                         const int src_ofs = sy * sw_strd / 2 + sx;
                         p_dst_tile_uv[dst_ofs + 0] = p_src_ug[src_ofs];
                         p_dst_tile_uv[dst_ofs + 1] = p_src_vb[src_ofs];
+                    }
+                }
+            }
+        }
+    } break;
+    case YUV422SP_TILE4X4: {
+        assert(w % 4 == 0 && h % 4 == 0);
+        const int tile_w = w / 4;
+        const int tile_h = h / 4;
+
+        for (int ty = 0; ty < tile_h; ty++) {
+            for (int tx = 0; tx < tile_w; tx++) {
+                const int tile_idx = ty * tile_w + tx;
+                const int dst_tile_offset = tile_idx * 32;
+
+                uchar *p_dst_tile_y = p_dst + dst_tile_offset;
+                uchar *p_dst_tile_uv = p_dst_tile_y + 16;
+
+                for (int row = 0; row < 4; row++) {
+                    const int sy = ty * 4 + row;
+                    for (int col = 0; col < 4; col++) {
+                        const int sx = tx * 4 + col;
+                        const int dst_ofs = row * 4 + col;
+                        const int src_ofs = sy * sw_strd + sx;
+                        p_dst_tile_y[dst_ofs] = p_src_yr[src_ofs];
+                    }
+                }
+
+                for (int row = 0; row < 4; row++) {
+                    const int sy = ty * 4 + row;
+                    for (int col = 0; col < 4; col++) {
+                        const int sx = tx * 4 + col;
+                        const int dst_ofs = row * 4 + col;
+                        const int src_ofs = sy * sw_strd / 2 + sx;
+                        int u_val = p_src_ug[src_ofs] + 128;
+                        int v_val = p_src_vb[src_ofs] + 128;
+                        p_dst_tile_uv[dst_ofs * 2 + 0] = u_val;
+                        p_dst_tile_uv[dst_ofs * 2 + 1] = v_val;
+                    }
+                }
+            }
+        }
+    } break;
+    case YUV444SP_TILE4X4: {
+        assert(w % 4 == 0 && h % 4 == 0);
+        const int tile_w = w / 4;
+        const int tile_h = h / 4;
+
+        for (int ty = 0; ty < tile_h; ty++) {
+            for (int tx = 0; tx < tile_w; tx++) {
+                const int tile_idx = ty * tile_w + tx;
+                const int dst_tile_offset = tile_idx * 48;
+
+                uchar *p_dst_tile_y = p_dst + dst_tile_offset;
+                uchar *p_dst_tile_uv = p_dst_tile_y + 16;
+
+                for (int row = 0; row < 4; row++) {
+                    const int sy = ty * 4 + row;
+                    for (int col = 0; col < 4; col++) {
+                        const int sx = tx * 4 + col;
+                        const int dst_ofs = row * 4 + col;
+                        const int src_ofs = sy * sw_strd + sx;
+                        p_dst_tile_y[dst_ofs] = p_src_yr[src_ofs];
+                    }
+                }
+
+                for (int row = 0; row < 4; row++) {
+                    const int sy = ty * 4 + row;
+                    for (int col = 0; col < 4; col++) {
+                        const int sx = tx * 4 + col;
+                        const int dst_ofs = row * 4 + col;
+                        const int src_ofs = sy * sw_strd + sx;
+                        int u_val = p_src_ug[src_ofs] + 128;
+                        int v_val = p_src_vb[src_ofs] + 128;
+                        p_dst_tile_uv[dst_ofs * 2 + 0] = u_val;
+                        p_dst_tile_uv[dst_ofs * 2 + 1] = v_val;
                     }
                 }
             }

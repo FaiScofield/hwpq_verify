@@ -778,7 +778,7 @@ int main(int argc, char *const argv[])
 
     int crc_val = -1;
     const int mid_fmt = common_verify_imgfmt_get_def_planar(cmd_config.src_fmt, depth);
-    LOGI("mid_fmt: %d (%s)\n", mid_fmt, common_verify_imgfmt_str(mid_fmt));
+    LOGI("mid_fmt: %d (%s)\n", mid_fmt, common_verify_imgfmt_name(mid_fmt));
 
     for (int k = 0; k < cmd_config.nb_frame; k++) {
         ret = image_read_to_planar(fp_src, p_src, k, cmd_config.src_wid, cmd_config.src_hgt, cmd_config.src_wid_vir,

@@ -163,7 +163,7 @@ int common_verify_arg_get_cmd_config(int argc, char *const argv[], struct common
     if (config.output_file[0] == '\0') {
         strncpy(config.output_dir, get_dirname(config.input_file), 1024);
         snprintf(config.output_file, 1024, "%s/verify_out_%dx%d_%s.%s", config.output_dir, config.dst_wid,
-            config.dst_hgt, common_verify_imgfmt_str(config.dst_fmt), common_verify_imgfmt_exten_str(config.dst_fmt));
+            config.dst_hgt, common_verify_imgfmt_name(config.dst_fmt), common_verify_imgfmt_exten_str(config.dst_fmt));
         printf(" - output_file no set, force update to '%s'!\n", config.output_file);
     }
     else {
@@ -173,7 +173,7 @@ int common_verify_arg_get_cmd_config(int argc, char *const argv[], struct common
         if (flag == 1) {
             strncpy(config.output_dir, config.output_file, 1024);
             snprintf(config.output_file, 1024, "%s/verify_out_%dx%d_%s.%s", config.output_dir, config.dst_wid,
-                config.dst_hgt, common_verify_imgfmt_str(config.dst_fmt), common_verify_imgfmt_exten_str(config.dst_fmt));
+                config.dst_hgt, common_verify_imgfmt_name(config.dst_fmt), common_verify_imgfmt_exten_str(config.dst_fmt));
             printf(" - output_file is a directory, force update to: '%s'!\n", config.output_file);
         }
     }
@@ -197,11 +197,11 @@ int common_verify_arg_dump_config(struct common_verify_cmd_config *config)
     LOGI(" - platform name: %s\n", config->platform_name);
     LOGI(" - src_wid: %d (%d)\n", config->src_wid, config->src_wid_vir);
     LOGI(" - src_hgt: %d (%d)\n", config->src_hgt, config->src_hgt_vir);
-    LOGI(" - src_fmt: %d (%s)\n", config->src_fmt, common_verify_imgfmt_str(config->src_fmt));
+    LOGI(" - src_fmt: %d (%s)\n", config->src_fmt, common_verify_imgfmt_name(config->src_fmt));
     LOGI(" - src_clrspc: %d (%s)\n", config->src_clrspc, common_verify_clrspc_str(config->src_clrspc));
     LOGI(" - dst_wid: %d (%d)\n", config->dst_wid, config->dst_wid_vir);
     LOGI(" - dst_hgt: %d (%d)\n", config->dst_hgt, config->dst_hgt_vir);
-    LOGI(" - dst_fmt: %d (%s)\n", config->dst_fmt, common_verify_imgfmt_str(config->dst_fmt));
+    LOGI(" - dst_fmt: %d (%s)\n", config->dst_fmt, common_verify_imgfmt_name(config->dst_fmt));
     LOGI(" - dst_clrspc: %d (%s)\n", config->dst_clrspc, common_verify_clrspc_str(config->dst_clrspc));
     LOGI(" - nb_frame: %d\n", config->nb_frame);
     LOGI(" - custom mode: %d\n", config->mode);

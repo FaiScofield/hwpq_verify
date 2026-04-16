@@ -16,10 +16,10 @@
 extern "C" {
 #endif
 
-#define VERIFY_IMG_FMT_MASK 0x0000030F
+#define PQVF_IMG_FMT_MASK 0x0000030F
 
 /* image format definition */
-enum common_verify_image_format {
+enum pqvf_imgfmt {
     /* 8bit unpacked formats */
     RGB888 = 0x0,     // [23:0]=[B8:G8:R8]. DRM_FORMAT_BGR888
     RGBA8888 = 0x1,   // [31:0]=[A8:B8:G8:R8]. DRM_FORMAT_ABGR8888
@@ -60,32 +60,35 @@ enum common_verify_image_format {
     YUV400_10PACKED = YUV400 + 0x20,
 
     /* 8bit tile 4x4 */
-    YUV444P_TILE4X4 = YUV444P + 0x30,
     YUV444SP_TILE4X4 = YUV444SP + 0x30,
-    YUV422P_TILE4X4 = YUV422P + 0x30,
     YUV422SP_TILE4X4 = YUV422SP + 0x30,
-    YUV420P_TILE4X4 = YUV420P + 0x30,
     YUV420SP_TILE4X4 = YUV420SP + 0x30,
     YUV400_TILE4X4 = YUV400 + 0x30,
 
     /* 10bit tile 4x4 */
-    YUV444P_TILE4X4_10PACKED = YUV444P + 0x40,
     YUV444SP_TILE4X4_10PACKED = YUV444SP + 0x40,
-    YUV422P_TILE4X4_10PACKED = YUV422P + 0x40,
     YUV422SP_TILE4X4_10PACKED = YUV422SP + 0x40,
-    YUV420P_TILE4X4_10PACKED = YUV420P + 0x40,
     YUV420SP_TILE4X4_10PACKED = YUV420SP + 0x40,
     YUV400_TILE4X4_10PACKED = YUV400 + 0x40,
 };
 
-const char *common_verify_imgfmt_str(int fmt);
+const char *common_verify_imgfmt_name(int fmt);
+const char *common_verify_imgfmt_full_name(int fmt);
 const char *common_verify_imgfmt_exten_str(int fmt);
 int common_verify_imgfmt_depth(int fmt);
 int common_verify_imgfmt_bpp(int fmt);
+// ws/hs set to 0 to use default virtual size
+int common_verify_imgfmt_framesize(int fmt, int w, int h, int ws, int hs);
 float common_verify_imgfmt_pitch_ratio(int fmt);
 float common_verify_imgfmt_framesize_ratio(int fmt); // get the framesize ratio to the first planesize
 static inline bool common_verify_imgfmt_is_yuv(int fmt) { return (fmt & 0xF) >= 3; }
+static inline bool common_verify_imgfmt_is_yuv444(int fmt) { return (fmt & 0xF) >= 3 && (fmt & 0xF) <= 5; }
+static inline bool common_verify_imgfmt_is_yuv422(int fmt) { return (fmt & 0xF) >= 6 && (fmt & 0xF) <= 7; }
+static inline bool common_verify_imgfmt_is_yuv420(int fmt) { return (fmt & 0xF) >= 8 && (fmt & 0xF) <= 9; }
 static inline bool common_verify_imgfmt_is_rgb(int fmt) { return (fmt & 0xF) < 3; }
+static inline bool common_verify_imgfmt_is_raster(int fmt) { return fmt < 0x30; }
+static inline bool common_verify_imgfmt_is_tile(int fmt) { return fmt >= 0x30; }
+int common_verify_imgfmt_get_tile_bytes(int fmt);
 int common_verify_imgfmt_get_def_planar(int fmt, int depth);
 
 /* colorspace definition */

@@ -45,7 +45,7 @@ int main(int argc, char *const argv[])
     const int mid_fmt_bpp = common_verify_imgfmt_bpp(mid_fmt);
     const int mid_fmt_size = (config.src_wid * config.src_hgt * mid_fmt_bpp + 7) / 8;
     const size_t frame_size_max = config.src_wid_vir * config.src_hgt_vir * 4 * sizeof(uint16_t);
-    LOGI("mid_fmt: %#x(%s), bpp: %d, frame_size: %d\n", mid_fmt, common_verify_imgfmt_str(mid_fmt), mid_fmt_bpp, mid_fmt_size);
+    LOGI("mid_fmt: %#x(%s), bpp: %d, frame_size: %d\n", mid_fmt, common_verify_imgfmt_name(mid_fmt), mid_fmt_bpp, mid_fmt_size);
 
     /* alloc i/o/t memories */
     p_src = calloc(frame_size_max, 1);
@@ -75,12 +75,12 @@ int main(int argc, char *const argv[])
             break;
         }
 
-        int crc_src = common_verify_crc32(p_src, mid_fmt_size);
+        // int crc_src = common_verify_crc32(p_src, mid_fmt_size);
 
         // write planar src data
         if (1) {
             char filename[1024];
-            snprintf(filename, 1023, "%s_midFmt_%s.%s", config.output_file, common_verify_imgfmt_str(mid_fmt),
+            snprintf(filename, 1023, "%s_midFmt_%s.%s", config.output_file, common_verify_imgfmt_name(mid_fmt),
                 common_verify_imgfmt_exten_str(mid_fmt));
             FILE *fp = fopen(filename, "wb");
             fwrite(p_src, 1, mid_fmt_size, fp);

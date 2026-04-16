@@ -10,7 +10,7 @@
 #include "verify_img_fmt.h"
 #include "verify_com.h"
 
-const char *common_verify_imgfmt_str(int fmt)
+const char *common_verify_imgfmt_name(int fmt)
 {
     switch (fmt) {
     case RGB888:             return "rgb24";
@@ -46,6 +46,8 @@ const char *common_verify_imgfmt_str(int fmt)
     case YUV420SP_10PACKED:  return "nv15";
     case YUV400_10PACKED:    return "gray10bp";
     case YUV420SP_TILE4X4:   return "yuv420sp_tile4x4";
+    case YUV422SP_TILE4X4:   return "yuv422sp_tile4x4";
+    case YUV444SP_TILE4X4:   return "yuv444sp_tile4x4";
     default:                 return "UnknownImgFmt";
     }
 }
@@ -53,7 +55,7 @@ const char *common_verify_imgfmt_str(int fmt)
 const char *common_verify_imgfmt_exten_str(int fmt)
 {
     // valid range now: [0, 29]
-    if (fmt & VERIFY_IMG_FMT_MASK) {
+    if (fmt & PQVF_IMG_FMT_MASK) {
         return common_verify_imgfmt_is_rgb(fmt) ? "rgb" : "yuv";
     }
     LOGE("%s: UnknownImgFmt=%d!\n", __func__, fmt);
@@ -108,7 +110,9 @@ int common_verify_imgfmt_bpp(int fmt)
     case YUV400_10LSB:       return 16;
     case YUV400_10PACKED:    return 10;
     case YUV400:             return 8;
-    case YUV420SP_TILE4X4:   return 12;
+    case YUV420SP_TILE4X4:   return 12; // 4x4 tile: 16B Y + 8B UV = 24B for 16 pixels
+    case YUV422SP_TILE4X4:   return 16; // 4x4 tile: 16B Y + 16B UV = 32B for 16 pixels
+    case YUV444SP_TILE4X4:   return 24; // 4x4 tile: 16B Y + 32B UV = 48B for 16 pixels
     default:                 LOGE("%s: UnknownImgFmt=%d!\n", __func__, fmt); return 0;
     }
 }
@@ -148,7 +152,9 @@ float common_verify_imgfmt_pitch_ratio(int fmt)
     case YUV420P_10PACKED:
     case YUV420SP_10PACKED:
     case YUV400_10PACKED:    return 5 / 4.f;
-    case YUV420SP_TILE4X4:   return 1.0f; // TODO: not pitch support!
+    case YUV420SP_TILE4X4:
+    case YUV422SP_TILE4X4:
+    case YUV444SP_TILE4X4:   return 1.0f; // TODO: not pitch support!
     default:                 LOGE("%s: unsupported image format %d for now!\n", __func__, fmt); return 0.f;
     }
 }
@@ -188,7 +194,9 @@ float common_verify_imgfmt_framesize_ratio(int fmt)
     case YUV420SP_10LSB:
     case YUV420P_10PACKED:
     case YUV420SP_10PACKED:
-    case YUV420SP_TILE4X4:   return 1.5f;
+    case YUV420SP_TILE4X4:   return 1.5f; // 24 bytes for 16 pixels = 1.0 bytes per pixel
+    case YUV422SP_TILE4X4:   return 2.0f; // 32 bytes for 16 pixels = 2.0 bytes per pixel
+    case YUV444SP_TILE4X4:   return 3.0f; // 48 bytes for 16 pixels = 3.0 bytes per pixel
     default:                 LOGE("%s: unsupported image format %d for now!\n", __func__, fmt); return 0.f;
     }
 }
@@ -206,6 +214,7 @@ int common_verify_imgfmt_get_def_planar(int fmt, int depth)
     case YUV422SP:           return depth <= 8 ? YUV422P : YUV422P_10LSB;
     case YUV420P:
     case YUV420SP:           return depth <= 8 ? YUV420P : YUV420P_10LSB;
+    // 10bit formats
     case RGB_101010LSB:
     case RGB_PLANAR10LSB:
     case RGBA_1010102:
@@ -225,10 +234,14 @@ int common_verify_imgfmt_get_def_planar(int fmt, int depth)
     case YUV420SP_10LSB:
     case YUV420P_10PACKED:
     case YUV420SP_10PACKED:  return YUV420P_10LSB;
+    // yuv400 formats
     case YUV400:             return depth <= 8 ? YUV400 : YUV400_10LSB;
     case YUV400_10LSB:
     case YUV400_10PACKED:    return YUV400_10LSB;
+    // tile4x4 formats
     case YUV420SP_TILE4X4:   return YUV420P;
+    case YUV422SP_TILE4X4:   return YUV422P;
+    case YUV444SP_TILE4X4:   return YUV444P;
     default:                 LOGE("%s: unsupported image format %d for now!\n", __func__, fmt); return -1;
     }
 }
