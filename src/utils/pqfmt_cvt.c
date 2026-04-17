@@ -1,6 +1,6 @@
 /**
  * @copyright: Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
- * @brief:     图像格式转换模块实现
+ * @brief:     Image format conversion module implementation
  * @author:
  * @create:    2026-04-16
  */
@@ -10,6 +10,9 @@
 #include "verify_com.h"
 #include <string.h>
 #include <math.h>
+
+static int pqvf_cvt_exec_same_canonical(const pqvf_cvt_ctx_t *ctx, const uint8_t *src, uint8_t *dst);
+static int pqvf_cvt_exec_different_canonical(const pqvf_cvt_ctx_t *ctx, pqvf_imgfmt_e src_canonical, pqvf_imgfmt_e dst_canonical, const uint8_t *src, uint8_t *dst);
 
 int pqvf_cvt_init(pqvf_cvt_ctx_t *ctx, pqvf_imgfmt_e src_fmt, pqvf_imgfmt_e dst_fmt, int w, int h) {
     if (!ctx) return -1;
@@ -49,7 +52,7 @@ pqvf_imgfmt_e pqvf_cvt_get_intermediate_fmt(pqvf_imgfmt_e src_fmt, pqvf_imgfmt_e
             return src_canonical;
         }
         if (pqvf_fmt_is_yuv(src_fmt) && pqvf_fmt_is_yuv(dst_fmt)) {
-            return PQVF_FMT_YUV420P;
+            return PQVF_FMT_YUV420P_YU12;
         }
         if (pqvf_fmt_is_rgb(src_fmt) && pqvf_fmt_is_rgb(dst_fmt)) {
             return PQVF_FMT_RGB888;

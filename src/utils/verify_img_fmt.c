@@ -55,7 +55,7 @@ const char *common_verify_imgfmt_name(int fmt)
 const char *common_verify_imgfmt_exten_str(int fmt)
 {
     // valid range now: [0, 29]
-    if (fmt & PQVF_IMG_FMT_MASK) {
+    if (fmt & COMMON_VERIFY_IMG_FMT_MASK) {
         return common_verify_imgfmt_is_rgb(fmt) ? "rgb" : "yuv";
     }
     LOGE("%s: UnknownImgFmt=%d!\n", __func__, fmt);

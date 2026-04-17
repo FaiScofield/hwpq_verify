@@ -16,10 +16,10 @@
 extern "C" {
 #endif
 
-#define PQVF_IMG_FMT_MASK 0x0000030F
+#define COMMON_VERIFY_IMG_FMT_MASK 0x0000030F
 
 /* image format definition */
-enum pqvf_imgfmt {
+enum common_verify_imgfmt {
     /* 8bit unpacked formats */
     RGB888 = 0x0,     // [23:0]=[B8:G8:R8]. DRM_FORMAT_BGR888
     RGBA8888 = 0x1,   // [31:0]=[A8:B8:G8:R8]. DRM_FORMAT_ABGR8888

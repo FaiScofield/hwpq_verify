@@ -15,7 +15,11 @@ endif()
 add_executable(test_verify_com ${TEST_VERIFY_COM_SRC})
 target_link_libraries(test_verify_com ${VERIFY_LIBS})
 
+# test_pqfmt
+add_executable(test_pqfmt ${CMAKE_CURRENT_LIST_DIR}/test_pqfmt.c)
+target_link_libraries(test_pqfmt ${VERIFY_LIBS})
+
 # install
-install(TARGETS test_verify_com
+install(TARGETS test_verify_com test_pqfmt
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
