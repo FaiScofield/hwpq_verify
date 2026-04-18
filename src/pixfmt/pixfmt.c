@@ -1,7 +1,7 @@
 ﻿/**
  * @copyright: Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
  * @brief:     Image format management module implementation
- * @author:
+ * @author:    vance.wu@rock-chips.com
  * @create:    2026-04-16
  */
 
@@ -978,6 +978,19 @@ int pixfmt_get_min_align_width(pixfmt_e fmt, int wid, int *retAlign)
     return PIXFMT_INVALID;
 }
 
+int pixfmt_get_min_align_height(pixfmt_e fmt, int hgt, int *retAlign)
+{
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    assert(attr != NULL);
+
+    if (attr->base_type == PIXFMT_TYPE_RGB)
+        return hgt;
+    if (attr->base_type == PIXFMT_TYPE_YUV)
+        return pixfmt_yuv_get_min_align_height(attr, hgt, retAlign);
+
+    return PIXFMT_INVALID;
+}
+
 int pixfmt_get_min_pitches(pixfmt_e fmt, int wid, int *retPitchesx3)
 {
     const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
@@ -991,7 +1004,7 @@ int pixfmt_get_min_pitches(pixfmt_e fmt, int wid, int *retPitchesx3)
     return PIXFMT_INVALID;
 }
 
-size_t pixfmt_get_framesize(pixfmt_e fmt, int wid, int hgt, int rowpitch)
+size_t pixfmt_get_frame_size(pixfmt_e fmt, int wid, int hgt, int rowpitch)
 {
     const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
     assert(attr != NULL);

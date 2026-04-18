@@ -1,7 +1,7 @@
 /**
  * @copyright: Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
  * @brief:     YUV format descriptor and related helper functions
- * @author:
+ * @author:    vance.wu@rock-chips.com
  * @create:    2026-04-16
  */
 
@@ -148,6 +148,7 @@ extern int pixfmt_yuv_desc_get_chroma_subsampling(const pixfmt_yuv_desc_s *desc,
  * YUV format calculation helper functions
  */
 extern int pixfmt_yuv_get_min_align_width(const pixfmt_attr_s *attr, int wid, int *retAlign);
+extern int pixfmt_yuv_get_min_align_height(const pixfmt_attr_s *attr, int hgt, int *retAlign);
 extern int pixfmt_yuv_get_min_pitches(const pixfmt_attr_s *attr, int wid, int *retPitchesx3);
 extern size_t pixfmt_yuv_get_framesize(const pixfmt_attr_s *attr, int w, int h, int rowpitch);
 extern uint8_t pixfmt_yuv_desc_calc_tile_bytes(const pixfmt_yuv_desc_s *desc);

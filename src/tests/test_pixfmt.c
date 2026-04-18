@@ -133,13 +133,13 @@ static void test_pixfmt_get_by_name(void) {
 static void test_pixfmt_framesize(void) {
     printf("\n=== Test: Framesize Calculation ===\n");
 
-    size_t rgb888_size = pixfmt_get_framesize(PIXFMT_RGB888, 1920, 1080, 0);
+    size_t rgb888_size = pixfmt_get_frame_size(PIXFMT_RGB888, 1920, 1080, 0);
     TEST_ASSERT(rgb888_size == 1920 * 1080 * 3, "RGB888 1920x1080 framesize should be 6,220,800");
 
-    size_t rgba8888_size = pixfmt_get_framesize(PIXFMT_RGBA8888, 1920, 1080, 0);
+    size_t rgba8888_size = pixfmt_get_frame_size(PIXFMT_RGBA8888, 1920, 1080, 0);
     TEST_ASSERT(rgba8888_size == 1920 * 1080 * 4, "RGBA8888 1920x1080 framesize should be 8,294,400");
 
-    size_t yuv420p_size = pixfmt_get_framesize(PIXFMT_YUV420P_YU12, 1920, 1080, 0);
+    size_t yuv420p_size = pixfmt_get_frame_size(PIXFMT_YUV420P_YU12, 1920, 1080, 0);
     TEST_ASSERT(yuv420p_size == 1920 * 1080 * 3 / 2, "YUV420P 1920x1080 framesize should be 3,110,400");
 }
 
@@ -199,7 +199,7 @@ static void test_pixfmt_yuv_desc(void) {
 static void test_pixfmt_cvt_init(void) {
     printf("\n=== Test: Format Conversion Init ===\n");
 
-    pixfmt_cvt_ctx_s ctx;
+    pixfmt_cvt_info_s ctx;
     int ret = pixfmt_cvt_init(&ctx, PIXFMT_RGB888, PIXFMT_RGB565, 1920, 1080);
     TEST_ASSERT(ret == 0, "pixfmt_cvt_init should succeed");
     TEST_ASSERT(ctx.src_fmt == PIXFMT_RGB888, "src_fmt should be RGB888");

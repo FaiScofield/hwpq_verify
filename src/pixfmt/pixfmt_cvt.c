@@ -1,7 +1,7 @@
 /**
  * @copyright: Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
  * @brief:     Image format conversion module implementation
- * @author:
+ * @author:    vance.wu@rock-chips.com
  * @create:    2026-04-16
  */
 
@@ -69,11 +69,11 @@
 #define DRM_FORMAT_R16          fourcc_code('R', '1', '6', ' ') /* [15:0] R little endian */
 #endif
 
-static int pixfmt_cvt_exec_same_canonical(const pixfmt_cvt_ctx_s *ctx, const uint8_t *src, uint8_t *dst);
-static int pixfmt_cvt_exec_different_canonical(const pixfmt_cvt_ctx_s *ctx, pixfmt_e src_canonical,
+static int pixfmt_cvt_exec_same_canonical(const pixfmt_cvt_info_s *ctx, const uint8_t *src, uint8_t *dst);
+static int pixfmt_cvt_exec_different_canonical(const pixfmt_cvt_info_s *ctx, pixfmt_e src_canonical,
     pixfmt_e dst_canonical, const uint8_t *src, uint8_t *dst);
 
-int pixfmt_cvt_init(pixfmt_cvt_ctx_s *ctx, pixfmt_e src_fmt, pixfmt_e dst_fmt, int w, int h)
+int pixfmt_cvt_init(pixfmt_cvt_info_s *ctx, pixfmt_e src_fmt, pixfmt_e dst_fmt, int w, int h)
 {
     if (!ctx)
         return -1;
@@ -129,13 +129,13 @@ pixfmt_e pixfmt_cvt_get_intermediate_fmt(pixfmt_e src_fmt, pixfmt_e dst_fmt)
     return PIXFMT_INVALID;
 }
 
-int pixfmt_cvt_exec(const pixfmt_cvt_ctx_s *ctx, const uint8_t *src, uint8_t *dst)
+int pixfmt_cvt_exec(const pixfmt_cvt_info_s *ctx, const uint8_t *src, uint8_t *dst)
 {
     if (!ctx || !src || !dst)
         return -1;
 
     if (ctx->src_fmt == ctx->dst_fmt) {
-        memcpy(dst, src, pixfmt_get_framesize(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride));
+        memcpy(dst, src, pixfmt_get_frame_size(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride));
         return 0;
     }
 
@@ -153,14 +153,14 @@ int pixfmt_cvt_exec(const pixfmt_cvt_ctx_s *ctx, const uint8_t *src, uint8_t *ds
     return pixfmt_cvt_exec_different_canonical(ctx, src_canonical, dst_canonical, src, dst);
 }
 
-static int pixfmt_cvt_exec_same_canonical(const pixfmt_cvt_ctx_s *ctx, const uint8_t *src, uint8_t *dst)
+static int pixfmt_cvt_exec_same_canonical(const pixfmt_cvt_info_s *ctx, const uint8_t *src, uint8_t *dst)
 {
     pixfmt_e inter_fmt = pixfmt_cvt_get_intermediate_fmt(ctx->src_fmt, ctx->dst_fmt);
     if (inter_fmt == PIXFMT_INVALID)
         return -1;
 
-    size_t src_size = pixfmt_get_framesize(ctx->src_fmt, ctx->src_w, ctx->src_h, ctx->src_stride);
-    size_t dst_size = pixfmt_get_framesize(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride);
+    size_t src_size = pixfmt_get_frame_size(ctx->src_fmt, ctx->src_w, ctx->src_h, ctx->src_stride);
+    size_t dst_size = pixfmt_get_frame_size(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride);
 
     if (ctx->src_fmt == ctx->dst_fmt) {
         memcpy(dst, src, src_size);
@@ -170,11 +170,11 @@ static int pixfmt_cvt_exec_same_canonical(const pixfmt_cvt_ctx_s *ctx, const uin
     return -1;
 }
 
-static int pixfmt_cvt_exec_different_canonical(const pixfmt_cvt_ctx_s *ctx, pixfmt_e src_canonical,
+static int pixfmt_cvt_exec_different_canonical(const pixfmt_cvt_info_s *ctx, pixfmt_e src_canonical,
     pixfmt_e dst_canonical, const uint8_t *src, uint8_t *dst)
 {
-    size_t inter_size = pixfmt_get_framesize(src_canonical, ctx->src_w, ctx->src_h, ctx->src_stride);
-    size_t dst_size = pixfmt_get_framesize(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride);
+    size_t inter_size = pixfmt_get_frame_size(src_canonical, ctx->src_w, ctx->src_h, ctx->src_stride);
+    size_t dst_size = pixfmt_get_frame_size(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride);
 
     return -1;
 }

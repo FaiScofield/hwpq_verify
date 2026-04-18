@@ -1,7 +1,7 @@
 /**
  * @copyright: Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
  * @brief:     RGB format descriptor and related helper functions
- * @author:
+ * @author:    vance.wu@rock-chips.com
  * @create:    2026-04-16
  */
 

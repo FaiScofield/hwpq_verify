@@ -1,7 +1,7 @@
 /**
  * @copyright: Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
  * @brief:     YUV format descriptor implementation
- * @author:
+ * @author:    vance.wu@rock-chips.com
  * @create:    2026-04-16
  */
 
@@ -613,7 +613,10 @@ int pixfmt_yuv_get_min_align_width(const pixfmt_attr_s *attr, int wid, int *retA
     const pixfmt_yuv_desc_s *desc = attr->desc.yuv;
     int align = 1;
 
-    if (attr->bitpacked_order != PIXFMT_UNPACKED) {
+    if (attr->layout == PIXFMT_LAYOUT_TILE) {
+        align = desc->tile_wid;
+    }
+    else if (attr->bitpacked_order != PIXFMT_UNPACKED) {
         /**
          * for bitpacked formats, most of them must have an align width
          * interleaved: VU30/XV30, bpp=30/32
@@ -643,6 +646,32 @@ int pixfmt_yuv_get_min_align_width(const pixfmt_attr_s *attr, int wid, int *retA
         *retAlign = align;
 
     return wid;
+}
+
+int pixfmt_yuv_get_min_align_height(const pixfmt_attr_s *attr, int hgt, int *retAlign)
+{
+    assert(attr && attr->base_type == PIXFMT_TYPE_YUV);
+
+    const pixfmt_yuv_desc_s *desc = attr->desc.yuv;
+    int align = 1;
+
+    if (attr->layout == PIXFMT_LAYOUT_TILE) {
+        align = desc->tile_hgt;
+    }
+    else if (attr->layout == PIXFMT_LAYOUT_INTERLEAVED || desc->sampling == PIXFMT_YUV_SAMPLING_400) {
+        align = 1;
+    }
+    else if (attr->layout == PIXFMT_LAYOUT_SEMIPLANAR || attr->layout == PIXFMT_LAYOUT_PLANAR) {
+        // no YUV400 included
+        align = desc->uv_sample_ratio_ver;
+    }
+
+    hgt = ALIGN_N_DIV(hgt, align);
+
+    if (retAlign)
+        *retAlign = align;
+
+    return hgt;
 }
 
 int pixfmt_yuv_get_min_pitches(const pixfmt_attr_s *attr, int wid, int *retPitchesx3)
