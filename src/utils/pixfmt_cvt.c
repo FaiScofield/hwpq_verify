@@ -5,8 +5,8 @@
  * @create:    2026-04-16
  */
 
-#include "pqfmt_cvt.h"
-#include "pqfmt.h"
+#include "pixfmt_cvt.h"
+#include "pixfmt.h"
 #include "verify_com.h"
 #include <string.h>
 #include <math.h>
@@ -95,9 +95,9 @@ bool pixfmt_cvt_is_supported(pixfmt_e src_fmt, pixfmt_e dst_fmt)
     if (src_fmt == dst_fmt)
         return true;
 
-    // if (!pqfmt_can_input(src_fmt))
+    // if (!pixfmt_can_input(src_fmt))
     //     return false;
-    // if (!pqfmt_can_output(dst_fmt))
+    // if (!pixfmt_can_output(dst_fmt))
     //     return false;
 
     pixfmt_e src_canonical = pixfmt_cvt_get_canonical(src_fmt);
@@ -118,10 +118,10 @@ pixfmt_e pixfmt_cvt_get_intermediate_fmt(pixfmt_e src_fmt, pixfmt_e dst_fmt)
         if (src_canonical == dst_canonical) {
             return src_canonical;
         }
-        if (pixfmt_cvt_is_yuv(src_fmt) && pixfmt_cvt_is_yuv(dst_fmt)) {
+        if (pixfmt_is_yuv(src_fmt) && pixfmt_is_yuv(dst_fmt)) {
             return PIXFMT_YUV420P_YU12;
         }
-        if (pixfmt_cvt_is_rgb(src_fmt) && pixfmt_cvt_is_rgb(dst_fmt)) {
+        if (pixfmt_is_rgb(src_fmt) && pixfmt_is_rgb(dst_fmt)) {
             return PIXFMT_RGB888;
         }
     }
@@ -135,7 +135,7 @@ int pixfmt_cvt_exec(const pixfmt_cvt_ctx_s *ctx, const uint8_t *src, uint8_t *ds
         return -1;
 
     if (ctx->src_fmt == ctx->dst_fmt) {
-        memcpy(dst, src, pixfmt_cvt_framesize(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride, 0));
+        memcpy(dst, src, pixfmt_get_framesize(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride));
         return 0;
     }
 
@@ -159,8 +159,8 @@ static int pixfmt_cvt_exec_same_canonical(const pixfmt_cvt_ctx_s *ctx, const uin
     if (inter_fmt == PIXFMT_INVALID)
         return -1;
 
-    size_t src_size = pixfmt_cvt_framesize(ctx->src_fmt, ctx->src_w, ctx->src_h, ctx->src_stride, 0);
-    size_t dst_size = pixfmt_cvt_framesize(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride, 0);
+    size_t src_size = pixfmt_get_framesize(ctx->src_fmt, ctx->src_w, ctx->src_h, ctx->src_stride);
+    size_t dst_size = pixfmt_get_framesize(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride);
 
     if (ctx->src_fmt == ctx->dst_fmt) {
         memcpy(dst, src, src_size);
@@ -173,8 +173,8 @@ static int pixfmt_cvt_exec_same_canonical(const pixfmt_cvt_ctx_s *ctx, const uin
 static int pixfmt_cvt_exec_different_canonical(const pixfmt_cvt_ctx_s *ctx, pixfmt_e src_canonical,
     pixfmt_e dst_canonical, const uint8_t *src, uint8_t *dst)
 {
-    size_t inter_size = pixfmt_cvt_framesize(src_canonical, ctx->src_w, ctx->src_h, ctx->src_stride, 0);
-    size_t dst_size = pixfmt_cvt_framesize(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride, 0);
+    size_t inter_size = pixfmt_get_framesize(src_canonical, ctx->src_w, ctx->src_h, ctx->src_stride);
+    size_t dst_size = pixfmt_get_framesize(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride);
 
     return -1;
 }

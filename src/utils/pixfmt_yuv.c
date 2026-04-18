@@ -5,8 +5,8 @@
  * @create:    2026-04-16
  */
 
-#include "pqfmt_yuv.h"
-#include "pqfmt.h"
+#include "pixfmt_yuv.h"
+#include "pixfmt.h"
 #include "verify_com.h"
 
 #include <stdio.h>

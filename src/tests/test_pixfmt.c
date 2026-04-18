@@ -5,10 +5,10 @@
  * @create:    2026-04-17
  */
 
- #include "pqfmt.h"
- #include "pqfmt_rgb.h"
- #include "pqfmt_yuv.h"
- #include "pqfmt_cvt.h"
+ #include "pixfmt.h"
+ #include "pixfmt_rgb.h"
+ #include "pixfmt_yuv.h"
+ #include "pixfmt_cvt.h"
  #include <assert.h>
  #include <stdio.h>
 

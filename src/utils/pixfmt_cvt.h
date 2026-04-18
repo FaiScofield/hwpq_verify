@@ -8,7 +8,7 @@
 #ifndef _PIXFMT_CVT_H_
 #define _PIXFMT_CVT_H_
 
-#include "pqfmt.h"
+#include "pixfmt.h"
 
 #include <stdbool.h>
 #include <stdint.h>

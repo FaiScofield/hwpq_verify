@@ -5,8 +5,8 @@
  * @create:    2026-04-16
  */
 
-#include "pqfmt_rgb.h"
-#include "pqfmt.h"
+#include "pixfmt_rgb.h"
+#include "pixfmt.h"
 #include "verify_com.h"
 
 #include <stdio.h>
