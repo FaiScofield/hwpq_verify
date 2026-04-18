@@ -176,13 +176,13 @@ int pixfmt_rgb_get_min_align_width(const pixfmt_attr_s *attr, int wid, int *retA
     return wid;
 }
 
-int pixfmt_rgb_get_min_pitches(const pixfmt_attr_s *attr, int wid, int *retPitchesx3)
+int pixfmt_rgb_get_min_pitches(const pixfmt_attr_s *attr, int wid, int *retPitch)
 {
     assert(attr && attr->base_type == PIXFMT_TYPE_RGB && attr->desc.rgb);
-    assert(retPitchesx3 != NULL);
+    assert(retPitch != NULL);
 
     if (attr->layout == PIXFMT_LAYOUT_INTERLEAVED) {
-        *retPitchesx3 = attr->bpp * wid / 8;
+        *retPitch = attr->bpp * wid / 8;
         return 0;
     }
 
@@ -190,12 +190,16 @@ int pixfmt_rgb_get_min_pitches(const pixfmt_attr_s *attr, int wid, int *retPitch
     return PIXFMT_INVALID;
 }
 
-size_t pixfmt_rgb_get_framesize(const pixfmt_attr_s *attr, int w, int h, int rowpitch)
+size_t pixfmt_rgb_get_framesize(const pixfmt_attr_s *attr, int w, int h, int rowpitch, size_t *retPlaneSize)
 {
     assert(attr && attr->base_type == PIXFMT_TYPE_RGB);
+
     if (rowpitch < w)
         pixfmt_rgb_get_min_pitches(attr, w, &rowpitch);
     size_t size = rowpitch * h;
+
+    if (retPlaneSize)
+        *retPlaneSize = size;
     return size;
 }
 

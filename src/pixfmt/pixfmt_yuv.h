@@ -150,7 +150,7 @@ extern int pixfmt_yuv_desc_get_chroma_subsampling(const pixfmt_yuv_desc_s *desc,
 extern int pixfmt_yuv_get_min_align_width(const pixfmt_attr_s *attr, int wid, int *retAlign);
 extern int pixfmt_yuv_get_min_align_height(const pixfmt_attr_s *attr, int hgt, int *retAlign);
 extern int pixfmt_yuv_get_min_pitches(const pixfmt_attr_s *attr, int wid, int *retPitchesx3);
-extern size_t pixfmt_yuv_get_framesize(const pixfmt_attr_s *attr, int w, int h, int rowpitch);
+extern size_t pixfmt_yuv_get_framesize(const pixfmt_attr_s *attr, int w, int h, int rowpitch, size_t *retPlaneSizesx3);
 extern uint8_t pixfmt_yuv_desc_calc_tile_bytes(const pixfmt_yuv_desc_s *desc);
 
 extern size_t pixfmt_yuv_desc_calc_framesize(const pixfmt_yuv_desc_s *desc, int w, int h, int stride);

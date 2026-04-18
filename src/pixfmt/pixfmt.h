@@ -183,7 +183,7 @@ extern int pixfmt_nb_planes(pixfmt_e fmt);
 extern int pixfmt_get_min_align_width(pixfmt_e fmt, int wid, int *retAlign);
 extern int pixfmt_get_min_align_height(pixfmt_e fmt, int hgt, int *retAlign);
 extern int pixfmt_get_min_pitches(pixfmt_e fmt, int wid, int *retPitchesx3);
-extern size_t pixfmt_get_frame_size(pixfmt_e fmt, int wid, int hgt, int rowpitch);
+extern size_t pixfmt_get_frame_size(pixfmt_e fmt, int wid, int hgt, int rowpitch, size_t *retPlaneSizesx3);
 // extern size_t pixfmt_planesize(pixfmt_e fmt, int plane_idx, int w, int h, int ws, int hs);
 
 /* ========== YUV specific functions ========== */

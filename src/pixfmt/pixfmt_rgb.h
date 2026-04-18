@@ -84,8 +84,8 @@ extern uint8_t pixfmt_rgb_desc_get_channel_bits(const pixfmt_rgb_desc_s *desc, u
  * RGB format conversion helper functions
  */
 extern int pixfmt_rgb_get_min_align_width(const pixfmt_attr_s *attr, int wid, int *retAlign);
-extern int pixfmt_rgb_get_min_pitches(const pixfmt_attr_s *attr, int wid, int *retPitchesx3);
-extern size_t pixfmt_rgb_get_framesize(const pixfmt_attr_s *attr, int w, int h, int rowpitch);
+extern int pixfmt_rgb_get_min_pitches(const pixfmt_attr_s *attr, int wid, int *retPitch);
+extern size_t pixfmt_rgb_get_framesize(const pixfmt_attr_s *attr, int w, int h, int rowpitch, size_t *retPlaneSize);
 
 /**
  * RGB format comparison function

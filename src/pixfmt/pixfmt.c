@@ -1004,15 +1004,15 @@ int pixfmt_get_min_pitches(pixfmt_e fmt, int wid, int *retPitchesx3)
     return PIXFMT_INVALID;
 }
 
-size_t pixfmt_get_frame_size(pixfmt_e fmt, int wid, int hgt, int rowpitch)
+size_t pixfmt_get_frame_size(pixfmt_e fmt, int wid, int hgt, int rowpitch, size_t *retPlaneSizesx3)
 {
     const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
     assert(attr != NULL);
 
     if (attr->base_type == PIXFMT_TYPE_RGB)
-        return pixfmt_rgb_get_framesize(attr, wid, hgt, rowpitch);
+        return pixfmt_rgb_get_framesize(attr, wid, hgt, rowpitch, retPlaneSizesx3);
     if (attr->base_type == PIXFMT_TYPE_YUV)
-        return pixfmt_yuv_get_framesize(attr, wid, hgt, rowpitch);
+        return pixfmt_yuv_get_framesize(attr, wid, hgt, rowpitch, retPlaneSizesx3);
 
     return 0;
 }

@@ -41,7 +41,7 @@ extern bool pixfmt_fill_frame_attr(pixfmt_frame_s *frame);
 extern bool pixfmt_check_frame_valid(const pixfmt_frame_s *frame);
 
 /// @brief: Get the plane address/size from given plane index
-extern void *pixfmt_get_plane_addr(const pixfmt_frame_s *frame, int plane_idx, void *retPlaneAddrsx3);
+extern void *pixfmt_get_plane_addr(const pixfmt_frame_s *frame, int plane_idx, void **retPlaneAddrsx3);
 extern size_t pixfmt_get_plane_size(const pixfmt_frame_s *frame, int plane_idx, size_t *retPlaneSizesx3);
 
 
