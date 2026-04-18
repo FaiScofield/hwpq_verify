@@ -11,11 +11,72 @@
 #include <string.h>
 #include <math.h>
 
-static int pqvf_cvt_exec_same_canonical(const pqvf_cvt_ctx_t *ctx, const uint8_t *src, uint8_t *dst);
-static int pqvf_cvt_exec_different_canonical(const pqvf_cvt_ctx_t *ctx, pqvf_imgfmt_e src_canonical, pqvf_imgfmt_e dst_canonical, const uint8_t *src, uint8_t *dst);
+#ifndef fourcc_code
+#define fourcc_code(a, b, c, d) ((uint32_t)(a) | ((uint32_t)(b) << 8) | ((uint32_t)(c) << 16) | ((uint32_t)(d) << 24))
 
-int pqvf_cvt_init(pqvf_cvt_ctx_t *ctx, pqvf_imgfmt_e src_fmt, pqvf_imgfmt_e dst_fmt, int w, int h) {
-    if (!ctx) return -1;
+#define DRM_FORMAT_RGB888       fourcc_code('R', 'G', '2', '4') /* [23:0] R:G:B little endian */
+#define DRM_FORMAT_BGR888       fourcc_code('B', 'G', '2', '4') /* [23:0] B:G:R little endian */
+#define DRM_FORMAT_ARGB8888     fourcc_code('A', 'R', '2', '4') /* [31:0] A:R:G:B 8:8:8:8 little endian */
+#define DRM_FORMAT_ABGR8888     fourcc_code('A', 'B', '2', '4') /* [31:0] A:B:G:R 8:8:8:8 little endian */
+#define DRM_FORMAT_RGBA8888     fourcc_code('R', 'A', '2', '4') /* [31:0] R:G:B:A 8:8:8:8 little endian */
+#define DRM_FORMAT_BGRA8888     fourcc_code('B', 'A', '2', '4') /* [31:0] B:G:R:A 8:8:8:8 little endian */
+#define DRM_FORMAT_RGB332       fourcc_code('R', 'G', 'B', '8') /* [7:0] R:G:B 3:3:2 */
+#define DRM_FORMAT_BGR233       fourcc_code('B', 'G', 'R', '8') /* [7:0] B:G:R 2:3:3 */
+#define DRM_FORMAT_RGB565       fourcc_code('R', 'G', '1', '6') /* [15:0] R:G:B 5:6:5 little endian */
+#define DRM_FORMAT_BGR565       fourcc_code('B', 'G', '1', '6') /* [15:0] B:G:R 5:6:5 little endian */
+#define DRM_FORMAT_ABGR1555     fourcc_code('A', 'B', '1', '5') /* [15:0] A:B:G:R 1:5:5:5 little endian */
+#define DRM_FORMAT_RGBA5551     fourcc_code('R', 'A', '1', '5') /* [15:0] R:G:B:A 5:5:5:1 little endian */
+#define DRM_FORMAT_ABGR4444     fourcc_code('A', 'B', '1', '2') /* [15:0] A:B:G:R 4:4:4:4 little endian */
+#define DRM_FORMAT_RGBA4444     fourcc_code('R', 'A', '1', '2') /* [15:0] R:G:B:A 4:4:4:4 little endian */
+#define DRM_FORMAT_ABGR2101010  fourcc_code('A', 'B', '3', '0') /* [31:0] A:B:G:R 2:10:10:10 little endian */
+#define DRM_FORMAT_RGBA1010102  fourcc_code('R', 'A', '3', '0') /* [31:0] R:G:B:A 10:10:10:2 little endian */
+
+#define DRM_FORMAT_VUY888       fourcc_code('V', 'U', '2', '4') /* [23:0] Cr:Cb:Y 8:8:8 little endian */
+#define DRM_FORMAT_VUY101010    fourcc_code('V', 'U', '3', '0') /* Y followed by U then V, 10:10:10 */
+#define DRM_FORMAT_XVYU2101010  fourcc_code('X', 'V', '3', '0') /* [31:0] X:Cr:Y:Cb 2:10:10:10 little endian */
+#define DRM_FORMAT_YUV410       fourcc_code('Y', 'U', 'V', '9') /* 4x4 subsampled Cb (1) and Cr (2) planes */
+#define DRM_FORMAT_YVU410       fourcc_code('Y', 'V', 'U', '9') /* 4x4 subsampled Cr (1) and Cb (2) planes */
+#define DRM_FORMAT_YUV411       fourcc_code('Y', 'U', '1', '1') /* 4x1 subsampled Cb (1) and Cr (2) planes */
+#define DRM_FORMAT_YVU411       fourcc_code('Y', 'V', '1', '1') /* 4x1 subsampled Cr (1) and Cb (2) planes */
+#define DRM_FORMAT_YUV420       fourcc_code('Y', 'U', '1', '2') /* 2x2 subsampled Cb (1) and Cr (2) planes */
+#define DRM_FORMAT_YVU420       fourcc_code('Y', 'V', '1', '2') /* 2x2 subsampled Cr (1) and Cb (2) planes */
+#define DRM_FORMAT_YUV422       fourcc_code('Y', 'U', '1', '6') /* 2x1 subsampled Cb (1) and Cr (2) planes */
+#define DRM_FORMAT_YVU422       fourcc_code('Y', 'V', '1', '6') /* 2x1 subsampled Cr (1) and Cb (2) planes */
+#define DRM_FORMAT_YUV444       fourcc_code('Y', 'U', '2', '4') /* non-subsampled Cb (1) and Cr (2) planes */
+#define DRM_FORMAT_YVU444       fourcc_code('Y', 'V', '2', '4') /* non-subsampled Cr (1) and Cb (2) planes */
+#define DRM_FORMAT_NV12         fourcc_code('N', 'V', '1', '2') /* 2x2 subsampled Cr:Cb plane */
+#define DRM_FORMAT_NV21         fourcc_code('N', 'V', '2', '1') /* 2x2 subsampled Cb:Cr plane */
+#define DRM_FORMAT_NV16         fourcc_code('N', 'V', '1', '6') /* 2x1 subsampled Cr:Cb plane */
+#define DRM_FORMAT_NV61         fourcc_code('N', 'V', '6', '1') /* 2x1 subsampled Cb:Cr plane */
+#define DRM_FORMAT_NV24         fourcc_code('N', 'V', '2', '4') /* non-subsampled Cr:Cb plane */
+#define DRM_FORMAT_NV42         fourcc_code('N', 'V', '4', '2') /* non-subsampled Cb:Cr plane */
+#define DRM_FORMAT_YUYV         fourcc_code('Y', 'U', 'Y', 'V') /* [31:0] V0:Y1:U0:Y0 8:8:8:8 little endian */
+#define DRM_FORMAT_YVYU         fourcc_code('Y', 'V', 'Y', 'U') /* [31:0] U0:Y1:V0:Y0 8:8:8:8 little endian */
+#define DRM_FORMAT_UYVY         fourcc_code('U', 'Y', 'V', 'Y') /* [31:0] Y1:V0:Y0:U0 8:8:8:8 little endian */
+#define DRM_FORMAT_VYUY         fourcc_code('V', 'Y', 'U', 'Y') /* [31:0] Y1:U0:Y0:V0 8:8:8:8 little endian */
+#define DRM_FORMAT_Y210         fourcc_code('Y', '2', '1', '0') /* [63:0] V:X 10:6 little endian per 2 Y pixels */
+#define DRM_FORMAT_Y212         fourcc_code('Y', '2', '1', '2') /* [63:0] V:X 12:4 little endian per 2 Y pixels */
+#define DRM_FORMAT_Y216         fourcc_code('Y', '2', '1', '6') /* [63:0] V0:Y1:U0:Y0 16:16:16:16 */
+#define DRM_FORMAT_NV15         fourcc_code('N', 'V', '1', '5') /* 2x2 subsampled Cr:Cb plane */
+#define DRM_FORMAT_NV20         fourcc_code('N', 'V', '2', '0') /* 2x1 subsampled Cr:Cb plane */
+#define DRM_FORMAT_NV30         fourcc_code('N', 'V', '3', '0') /* non-subsampled Cr:Cb plane */
+#define DRM_FORMAT_R1           fourcc_code('R', '1', ' ', ' ') /* [7:0] 1:1:1:1:1:1:1:1 eight pixels/byte */
+#define DRM_FORMAT_R2           fourcc_code('R', '2', ' ', ' ') /* [7:0] R0:R1:R2:R3 2:2:2:2 four pixels/byte */
+#define DRM_FORMAT_R4           fourcc_code('R', '4', ' ', ' ') /* [7:0] R0:R1 4:4 two pixels/byte */
+#define DRM_FORMAT_R8           fourcc_code('R', '8', ' ', ' ') /* [7:0] R */
+#define DRM_FORMAT_R10          fourcc_code('R', '1', '0', ' ') /* [15:0] x:R 6:10 little endian */
+#define DRM_FORMAT_R12          fourcc_code('R', '1', '2', ' ') /* [15:0] x:R 4:12 little endian */
+#define DRM_FORMAT_R16          fourcc_code('R', '1', '6', ' ') /* [15:0] R little endian */
+#endif
+
+static int pixfmt_cvt_exec_same_canonical(const pixfmt_cvt_ctx_s *ctx, const uint8_t *src, uint8_t *dst);
+static int pixfmt_cvt_exec_different_canonical(const pixfmt_cvt_ctx_s *ctx, pixfmt_e src_canonical,
+    pixfmt_e dst_canonical, const uint8_t *src, uint8_t *dst);
+
+int pixfmt_cvt_init(pixfmt_cvt_ctx_s *ctx, pixfmt_e src_fmt, pixfmt_e dst_fmt, int w, int h)
+{
+    if (!ctx)
+        return -1;
 
     ctx->src_fmt = src_fmt;
     ctx->dst_fmt = dst_fmt;
@@ -23,73 +84,83 @@ int pqvf_cvt_init(pqvf_cvt_ctx_t *ctx, pqvf_imgfmt_e src_fmt, pqvf_imgfmt_e dst_
     ctx->src_h = h;
     ctx->dst_w = w;
     ctx->dst_h = h;
-    ctx->src_stride = pqvf_fmt_vir_wid(src_fmt, w, 0);
-    ctx->dst_stride = pqvf_fmt_vir_wid(dst_fmt, w, 0);
+    // ctx->src_stride = pixfmt_cvt_vir_wid(src_fmt, w, 0);
+    // ctx->dst_stride = pixfmt_cvt_vir_wid(dst_fmt, w, 0);
 
     return 0;
 }
 
-bool pqvf_cvt_is_supported(pqvf_imgfmt_e src_fmt, pqvf_imgfmt_e dst_fmt) {
-    if (src_fmt == dst_fmt) return true;
+bool pixfmt_cvt_is_supported(pixfmt_e src_fmt, pixfmt_e dst_fmt)
+{
+    if (src_fmt == dst_fmt)
+        return true;
 
-    if (!pqvf_fmt_can_input(src_fmt)) return false;
-    if (!pqvf_fmt_can_output(dst_fmt)) return false;
+    // if (!pqfmt_can_input(src_fmt))
+    //     return false;
+    // if (!pqfmt_can_output(dst_fmt))
+    //     return false;
 
-    pqvf_imgfmt_e src_canonical = pqvf_fmt_get_canonical(src_fmt);
-    pqvf_imgfmt_e dst_canonical = pqvf_fmt_get_canonical(dst_fmt);
+    pixfmt_e src_canonical = pixfmt_cvt_get_canonical(src_fmt);
+    pixfmt_e dst_canonical = pixfmt_cvt_get_canonical(dst_fmt);
 
-    return src_canonical != PQVF_FMT_INVALID && dst_canonical != PQVF_FMT_INVALID;
+    return src_canonical != PIXFMT_INVALID && dst_canonical != PIXFMT_INVALID;
 }
 
-pqvf_imgfmt_e pqvf_cvt_get_intermediate_fmt(pqvf_imgfmt_e src_fmt, pqvf_imgfmt_e dst_fmt) {
-    if (src_fmt == dst_fmt) return src_fmt;
+pixfmt_e pixfmt_cvt_get_intermediate_fmt(pixfmt_e src_fmt, pixfmt_e dst_fmt)
+{
+    if (src_fmt == dst_fmt)
+        return src_fmt;
 
-    pqvf_imgfmt_e src_canonical = pqvf_fmt_get_canonical(src_fmt);
-    pqvf_imgfmt_e dst_canonical = pqvf_fmt_get_canonical(dst_fmt);
+    pixfmt_e src_canonical = pixfmt_cvt_get_canonical(src_fmt);
+    pixfmt_e dst_canonical = pixfmt_cvt_get_canonical(dst_fmt);
 
-    if (src_canonical != PQVF_FMT_INVALID && dst_canonical != PQVF_FMT_INVALID) {
+    if (src_canonical != PIXFMT_INVALID && dst_canonical != PIXFMT_INVALID) {
         if (src_canonical == dst_canonical) {
             return src_canonical;
         }
-        if (pqvf_fmt_is_yuv(src_fmt) && pqvf_fmt_is_yuv(dst_fmt)) {
-            return PQVF_FMT_YUV420P_YU12;
+        if (pixfmt_cvt_is_yuv(src_fmt) && pixfmt_cvt_is_yuv(dst_fmt)) {
+            return PIXFMT_YUV420P_YU12;
         }
-        if (pqvf_fmt_is_rgb(src_fmt) && pqvf_fmt_is_rgb(dst_fmt)) {
-            return PQVF_FMT_RGB888;
+        if (pixfmt_cvt_is_rgb(src_fmt) && pixfmt_cvt_is_rgb(dst_fmt)) {
+            return PIXFMT_RGB888;
         }
     }
 
-    return PQVF_FMT_INVALID;
+    return PIXFMT_INVALID;
 }
 
-int pqvf_cvt_exec(const pqvf_cvt_ctx_t *ctx, const uint8_t *src, uint8_t *dst) {
-    if (!ctx || !src || !dst) return -1;
+int pixfmt_cvt_exec(const pixfmt_cvt_ctx_s *ctx, const uint8_t *src, uint8_t *dst)
+{
+    if (!ctx || !src || !dst)
+        return -1;
 
     if (ctx->src_fmt == ctx->dst_fmt) {
-        memcpy(dst, src, pqvf_fmt_framesize(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride, 0));
+        memcpy(dst, src, pixfmt_cvt_framesize(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride, 0));
         return 0;
     }
 
-    pqvf_imgfmt_e src_canonical = pqvf_fmt_get_canonical(ctx->src_fmt);
-    pqvf_imgfmt_e dst_canonical = pqvf_fmt_get_canonical(ctx->dst_fmt);
+    pixfmt_e src_canonical = pixfmt_cvt_get_canonical(ctx->src_fmt);
+    pixfmt_e dst_canonical = pixfmt_cvt_get_canonical(ctx->dst_fmt);
 
-    if (src_canonical == PQVF_FMT_INVALID || dst_canonical == PQVF_FMT_INVALID) {
+    if (src_canonical == PIXFMT_INVALID || dst_canonical == PIXFMT_INVALID) {
         return -1;
     }
 
     if (src_canonical == dst_canonical) {
-        return pqvf_cvt_exec_same_canonical(ctx, src, dst);
+        return pixfmt_cvt_exec_same_canonical(ctx, src, dst);
     }
 
-    return pqvf_cvt_exec_different_canonical(ctx, src_canonical, dst_canonical, src, dst);
+    return pixfmt_cvt_exec_different_canonical(ctx, src_canonical, dst_canonical, src, dst);
 }
 
-static int pqvf_cvt_exec_same_canonical(const pqvf_cvt_ctx_t *ctx, const uint8_t *src, uint8_t *dst) {
-    pqvf_imgfmt_e inter_fmt = pqvf_cvt_get_intermediate_fmt(ctx->src_fmt, ctx->dst_fmt);
-    if (inter_fmt == PQVF_FMT_INVALID) return -1;
+static int pixfmt_cvt_exec_same_canonical(const pixfmt_cvt_ctx_s *ctx, const uint8_t *src, uint8_t *dst)
+{
+    pixfmt_e inter_fmt = pixfmt_cvt_get_intermediate_fmt(ctx->src_fmt, ctx->dst_fmt);
+    if (inter_fmt == PIXFMT_INVALID)
+        return -1;
 
-    size_t src_size = pqvf_fmt_framesize(ctx->src_fmt, ctx->src_w, ctx->src_h, ctx->src_stride, 0);
-    size_t dst_size = pqvf_fmt_framesize(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride, 0);
+    size_t src_size = pixfmt_cvt_framesize(ctx->src_fmt, ctx->src_w, ctx->src_h, ctx->src_stride, 0);
+    size_t dst_size = pixfmt_cvt_framesize(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride, 0);
 
     if (ctx->src_fmt == ctx->dst_fmt) {
         memcpy(dst, src, src_size);
@@ -99,14 +170,17 @@ static int pqvf_cvt_exec_same_canonical(const pqvf_cvt_ctx_t *ctx, const uint8_t
     return -1;
 }
 
-static int pqvf_cvt_exec_different_canonical(const pqvf_cvt_ctx_t *ctx, pqvf_imgfmt_e src_canonical, pqvf_imgfmt_e dst_canonical, const uint8_t *src, uint8_t *dst) {
-    size_t inter_size = pqvf_fmt_framesize(src_canonical, ctx->src_w, ctx->src_h, ctx->src_stride, 0);
-    size_t dst_size = pqvf_fmt_framesize(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride, 0);
+static int pixfmt_cvt_exec_different_canonical(const pixfmt_cvt_ctx_s *ctx, pixfmt_e src_canonical,
+    pixfmt_e dst_canonical, const uint8_t *src, uint8_t *dst)
+{
+    size_t inter_size = pixfmt_cvt_framesize(src_canonical, ctx->src_w, ctx->src_h, ctx->src_stride, 0);
+    size_t dst_size = pixfmt_cvt_framesize(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride, 0);
 
     return -1;
 }
 
-int pqvf_cvt_rgb888_to_rgb565(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride) {
+int pixfmt_cvt_rgb888_to_rgb565(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride)
+{
     for (int y = 0; y < h; y++) {
         const uint8_t *src_row = src + y * src_stride;
         uint16_t *dst_row = (uint16_t *)(dst + y * dst_stride);
@@ -125,7 +199,8 @@ int pqvf_cvt_rgb888_to_rgb565(const uint8_t *src, uint8_t *dst, int w, int h, in
     return 0;
 }
 
-int pqvf_cvt_rgb565_to_rgb888(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride) {
+int pixfmt_cvt_rgb565_to_rgb888(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride)
+{
     for (int y = 0; y < h; y++) {
         const uint16_t *src_row = (const uint16_t *)(src + y * src_stride);
         uint8_t *dst_row = dst + y * dst_stride;
@@ -145,7 +220,8 @@ int pqvf_cvt_rgb565_to_rgb888(const uint8_t *src, uint8_t *dst, int w, int h, in
     return 0;
 }
 
-int pqvf_cvt_rgb888_to_rgb332(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride) {
+int pixfmt_cvt_rgb888_to_rgb332(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride)
+{
     for (int y = 0; y < h; y++) {
         const uint8_t *src_row = src + y * src_stride;
         uint8_t *dst_row = dst + y * dst_stride;
@@ -163,7 +239,8 @@ int pqvf_cvt_rgb888_to_rgb332(const uint8_t *src, uint8_t *dst, int w, int h, in
     return 0;
 }
 
-int pqvf_cvt_rgb332_to_rgb888(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride) {
+int pixfmt_cvt_rgb332_to_rgb888(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride)
+{
     for (int y = 0; y < h; y++) {
         const uint8_t *src_row = src + y * src_stride;
         uint8_t *dst_row = dst + y * dst_stride;
@@ -183,7 +260,8 @@ int pqvf_cvt_rgb332_to_rgb888(const uint8_t *src, uint8_t *dst, int w, int h, in
     return 0;
 }
 
-int pqvf_cvt_yuv420sp_to_yuv420p(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride) {
+int pixfmt_cvt_yuv420sp_to_yuv420p(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride)
+{
     int uv_w = (w + 1) / 2;
     int uv_h = (h + 1) / 2;
 
@@ -204,7 +282,8 @@ int pqvf_cvt_yuv420sp_to_yuv420p(const uint8_t *src, uint8_t *dst, int w, int h,
     return 0;
 }
 
-int pqvf_cvt_yuv420p_to_yuv420sp(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride) {
+int pixfmt_cvt_yuv420p_to_yuv420sp(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride)
+{
     int uv_w = (w + 1) / 2;
     int uv_h = (h + 1) / 2;
 
@@ -225,7 +304,8 @@ int pqvf_cvt_yuv420p_to_yuv420sp(const uint8_t *src, uint8_t *dst, int w, int h,
     return 0;
 }
 
-int pqvf_cvt_rgb888_to_yuv420p(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride) {
+int pixfmt_cvt_rgb888_to_yuv420p(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride)
+{
     int uv_w = (w + 1) / 2;
     int uv_h = (h + 1) / 2;
 
@@ -262,7 +342,8 @@ int pqvf_cvt_rgb888_to_yuv420p(const uint8_t *src, uint8_t *dst, int w, int h, i
     return 0;
 }
 
-int pqvf_cvt_yuv420p_to_rgb888(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride) {
+int pixfmt_cvt_yuv420p_to_rgb888(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride)
+{
     int uv_w = (w + 1) / 2;
     int uv_h = (h + 1) / 2;
 
