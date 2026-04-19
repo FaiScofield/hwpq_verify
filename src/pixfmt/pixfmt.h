@@ -132,12 +132,6 @@ typedef enum pixfmt_layout {
     PIXFMT_LAYOUT_MAX
 } pixfmt_layout_e;
 
-typedef enum pixfmt_bitpacked_order {
-    PIXFMT_UNPACKED = 0,
-    PIXFMT_BITPACKED_LSB = 1, // like [29:0] B10:G10:R10
-    PIXFMT_BITPACKED_MSB = 2, // like [29:0] R10:G10:B10
-} pixfmt_bitpacked_order_e;
-
 typedef enum pixfmt_padding_pos {
     PIXFMT_NO_PADDING = 0,
     PIXFMT_PADDING_AT_LSB = 1,
@@ -157,12 +151,12 @@ typedef struct pixfmt_attr {
     } desc;
 
     pixfmt_layout_e layout;
-    pixfmt_padding_pos_e padding_pos;         // padding_pos is valid only when (depth % 8 != 0)
-    pixfmt_bitpacked_order_e bitpacked_order; // bitpacked_order is valid only when (depth % 8 != 0)
+    pixfmt_padding_pos_e padding_pos; // padding_pos is valid only when (depth % 8 != 0)
+    bool is_bitpacked; // is_bitpacked is valid only when (depth % 8 != 0)
 
-    uint8_t bpp;
-    uint8_t depth;    // bit-depth of the main channel
-    uint8_t nb_comps; // number of components (channels)
+    uint8_t bpp;       // bits-per-pixe;
+    uint8_t depth;     // bit-depth of the main channel
+    uint8_t nb_comps;  // number of components (channels)
 
     const char *full_name;
     const char *short_name;

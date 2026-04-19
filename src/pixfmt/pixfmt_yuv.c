@@ -44,7 +44,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv444i_xv30 = {
     .sampling = PIXFMT_YUV_SAMPLING_444,
     .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
+    .order = PIXFMT_ORDER_UYV,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -636,6 +636,8 @@ const char *pixfmt_uv_order_name(pixfmt_uv_order_e order)
     switch (order) {
     case PIXFMT_ORDER_YUV:  return "YUV";
     case PIXFMT_ORDER_YVU:  return "YVU";
+    case PIXFMT_ORDER_UYV:  return "UYV";
+    case PIXFMT_ORDER_VYU:  return "VYU";
     case PIXFMT_ORDER_YUYV: return "YUYV";
     case PIXFMT_ORDER_YVYU: return "YVYU";
     case PIXFMT_ORDER_UYVY: return "UYVY";
@@ -707,7 +709,7 @@ int pixfmt_yuv_get_min_align_width(const pixfmt_attr_s *attr, int wid, int *retA
     if (attr->layout == PIXFMT_LAYOUT_TILE) {
         align = desc->tile_wid;
     }
-    else if (attr->bitpacked_order != PIXFMT_UNPACKED) {
+    else if (attr->is_bitpacked) {
         /**
          * for bitpacked formats, most of them must have an align width
          * interleaved: VU30/XV30, bpp=30/32

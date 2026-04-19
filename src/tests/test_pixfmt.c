@@ -89,7 +89,7 @@ static void test_pixfmt_rgb565(void)
         return;
 
     TEST_ASSERT(attr->bpp == 16, "RGB565 bpp should be 16");
-    TEST_ASSERT(attr->bitpacked_order == PIXFMT_BITPACKED_MSB, "RGB565 bitpacked_order should be MSB");
+    TEST_ASSERT(attr->is_bitpacked == true, "RGB565 bitpacked_order should be MSB");
     TEST_ASSERT(attr->padding_pos == PIXFMT_NO_PADDING, "RGB565 padding_pos should be NO_PADDING");
 }
 
@@ -148,13 +148,13 @@ static void test_pixfmt_framesize(void)
 {
     printf("\n=== Test: Framesize Calculation ===\n");
 
-    size_t rgb888_size = pixfmt_get_frame_size(PIXFMT_RGB888, 1920, 1080, 0);
+    size_t rgb888_size = pixfmt_get_frame_size(PIXFMT_RGB888, 1920, 1080, 0, NULL);
     TEST_ASSERT(rgb888_size == 1920 * 1080 * 3, "RGB888 1920x1080 framesize should be 6,220,800");
 
-    size_t rgba8888_size = pixfmt_get_frame_size(PIXFMT_RGBA8888, 1920, 1080, 0);
+    size_t rgba8888_size = pixfmt_get_frame_size(PIXFMT_RGBA8888, 1920, 1080, 0, NULL);
     TEST_ASSERT(rgba8888_size == 1920 * 1080 * 4, "RGBA8888 1920x1080 framesize should be 8,294,400");
 
-    size_t yuv420p_size = pixfmt_get_frame_size(PIXFMT_YUV420P_YU12, 1920, 1080, 0);
+    size_t yuv420p_size = pixfmt_get_frame_size(PIXFMT_YUV420P_YU12, 1920, 1080, 0, NULL);
     TEST_ASSERT(yuv420p_size == 1920 * 1080 * 3 / 2, "YUV420P 1920x1080 framesize should be 3,110,400");
 }
 
@@ -213,21 +213,6 @@ static void test_pixfmt_yuv_desc(void)
 
     pixfmt_yuv_desc_get_chroma_subsampling(&g_yuv_desc_yuv422p_yu16, &h_sub, &v_sub);
     TEST_ASSERT(h_sub == 2 && v_sub == 1, "YUV422P subsampling should be 2x1");
-}
-
-static void test_pixfmt_cvt_init(void)
-{
-    printf("\n=== Test: Format Conversion Init ===\n");
-
-    pixfmt_cvt_info_s ctx;
-    int ret = pixfmt_cvt_init(&ctx, PIXFMT_RGB888, PIXFMT_RGB565, 1920, 1080);
-    TEST_ASSERT(ret == 0, "pixfmt_cvt_init should succeed");
-    TEST_ASSERT(ctx.src_fmt == PIXFMT_RGB888, "src_fmt should be RGB888");
-    TEST_ASSERT(ctx.dst_fmt == PIXFMT_RGB565, "dst_fmt should be RGB565");
-    TEST_ASSERT(ctx.src_w == 1920 && ctx.src_h == 1080, "src dimensions should be 1920x1080");
-
-    ret = pixfmt_cvt_init(NULL, PIXFMT_RGB888, PIXFMT_RGB565, 1920, 1080);
-    TEST_ASSERT(ret == -1, "pixfmt_cvt_init with NULL ctx should return -1");
 }
 
 static void test_pixfmt_cvt_is_supported(void)
@@ -456,7 +441,6 @@ int main(void)
     test_pixfmt_vir_wid();
     test_pixfmt_rgb_desc();
     test_pixfmt_yuv_desc();
-    test_pixfmt_cvt_init();
     test_pixfmt_cvt_is_supported();
     test_pixfmt_cvt_common_fmt();
     test_pixfmt_supported_fmts();

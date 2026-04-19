@@ -41,11 +41,13 @@ typedef enum pixfmt_yuv_sampling {
 } pixfmt_yuv_sampling_e;
 
 /**
- * UV/VU order enumeration
+ * UV/VU order from LSB to MSB
  */
 typedef enum pixfmt_uv_order {
     PIXFMT_ORDER_YUV,
     PIXFMT_ORDER_YVU,
+    PIXFMT_ORDER_UYV,
+    PIXFMT_ORDER_VYU,
     PIXFMT_ORDER_YUYV,
     PIXFMT_ORDER_YVYU,
     PIXFMT_ORDER_UYVY,
