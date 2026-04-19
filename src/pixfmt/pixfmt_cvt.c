@@ -69,27 +69,6 @@
 #define DRM_FORMAT_R16          fourcc_code('R', '1', '6', ' ') /* [15:0] R little endian */
 #endif
 
-static int pixfmt_cvt_exec_same_canonical(const pixfmt_cvt_info_s *ctx, const uint8_t *src, uint8_t *dst);
-static int pixfmt_cvt_exec_different_canonical(const pixfmt_cvt_info_s *ctx, pixfmt_e src_canonical,
-    pixfmt_e dst_canonical, const uint8_t *src, uint8_t *dst);
-
-int pixfmt_cvt_init(pixfmt_cvt_info_s *ctx, pixfmt_e src_fmt, pixfmt_e dst_fmt, int w, int h)
-{
-    if (!ctx)
-        return -1;
-
-    ctx->src_fmt = src_fmt;
-    ctx->dst_fmt = dst_fmt;
-    ctx->src_w = w;
-    ctx->src_h = h;
-    ctx->dst_w = w;
-    ctx->dst_h = h;
-    // ctx->src_stride = pixfmt_cvt_vir_wid(src_fmt, w, 0);
-    // ctx->dst_stride = pixfmt_cvt_vir_wid(dst_fmt, w, 0);
-
-    return 0;
-}
-
 bool pixfmt_cvt_is_supported(pixfmt_e src_fmt, pixfmt_e dst_fmt)
 {
     if (src_fmt == dst_fmt)
@@ -111,8 +90,8 @@ pixfmt_e pixfmt_cvt_get_intermediate_fmt(pixfmt_e src_fmt, pixfmt_e dst_fmt)
     if (src_fmt == dst_fmt)
         return src_fmt;
 
-    pixfmt_e src_canonical = pixfmt_cvt_get_canonical(src_fmt);
-    pixfmt_e dst_canonical = pixfmt_cvt_get_canonical(dst_fmt);
+    pixfmt_e src_canonical = pixfmt_get_common_fmt(src_fmt);
+    pixfmt_e dst_canonical = pixfmt_get_common_fmt(dst_fmt);
 
     if (src_canonical != PIXFMT_INVALID && dst_canonical != PIXFMT_INVALID) {
         if (src_canonical == dst_canonical) {

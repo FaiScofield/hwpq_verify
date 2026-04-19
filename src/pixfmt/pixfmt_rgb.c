@@ -115,6 +115,12 @@ const pixfmt_rgb_desc_s g_rgb_desc_abgr2101010 = {
     .comp_bits = {10, 10, 10, 2},
 };
 
+const pixfmt_rgb_desc_s g_rgb_desc_rgba10lsb = {
+    .order = PIXFMT_RGB_ORDER_RGB,
+    .alpha_pos = PIXFMT_ALPHA_MSB,
+    .comp_bits = {10, 10, 10, 10},
+};
+
 const char *pixfmt_rgb_order_name(pixfmt_rgb_order_e order)
 {
     switch (order) {

@@ -15,6 +15,11 @@ extern "C" {
 #endif
 
 /**
+ * Check if format conversion is supported
+ */
+extern bool pixfmt_cvt_is_supported(pixfmt_e src_fmt, pixfmt_e dst_fmt);
+
+/**
  * Format conversion initialization
  */
 extern int pixfmt_cvt_check(const pixfmt_frame_s *frame0, const pixfmt_frame_s *frame1);
@@ -24,21 +29,13 @@ extern int pixfmt_cvt_check(const pixfmt_frame_s *frame0, const pixfmt_frame_s *
  */
 extern int pixfmt_cvt_exec(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1);
 
-/**
- * Check if format conversion is supported
- */
-extern bool pixfmt_cvt_is_supported(pixfmt_e src_fmt, pixfmt_e dst_fmt);
 
-/**
- * Get intermediate format required for conversion
- */
-extern pixfmt_e pixfmt_cvt_get_intermediate_fmt(pixfmt_e src_fmt, pixfmt_e dst_fmt);
 
 
 /**
  * RGB conversion functions
  */
-extern int pixfmt_cvt_rgb_to_rgb332() extern int pixfmt_cvt_rgb565_to_rgb888(const void *src, void *dst, int w, int h,
+extern int pixfmt_cvt_rgb565_to_rgb888(const void *src, void *dst, int w, int h,
     int src_stride, int dst_stride);
 extern int pixfmt_cvt_rgb332_to_rgb888(const void *src, void *dst, int w, int h, int src_stride, int dst_stride);
 

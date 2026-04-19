@@ -5,30 +5,33 @@
  * @create:    2026-04-17
  */
 
- #include "pixfmt.h"
- #include "pixfmt_rgb.h"
- #include "pixfmt_yuv.h"
- #include "pixfmt_cvt.h"
- #include <assert.h>
- #include <stdio.h>
+#include "pixfmt.h"
+#include "pixfmt_cvt.h"
+#include "verify_com.h"
+#include <assert.h>
+#include <stdio.h>
 
-#define TEST_PASSED 0
-#define TEST_FAILED -1
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+#define TEST_PASSED     0
+#define TEST_FAILED     -1
 
 static int g_test_passed = 0;
 static int g_test_failed = 0;
 
-#define TEST_ASSERT(cond, fmt, ...) do { \
-    if (cond) { \
-        g_test_passed++; \
-        printf("[PASS] " fmt "\n", ##__VA_ARGS__); \
-    } else { \
-        g_test_failed++; \
-        printf("[FAIL] " fmt "\n", ##__VA_ARGS__); \
-    } \
-} while(0)
+#define TEST_ASSERT(cond, fmt, ...)                    \
+    do {                                               \
+        if (cond) {                                    \
+            g_test_passed++;                           \
+            printf("[PASS] " fmt "\n", ##__VA_ARGS__); \
+        }                                              \
+        else {                                         \
+            g_test_failed++;                           \
+            printf("[FAIL] " fmt "\n", ##__VA_ARGS__); \
+        }                                              \
+    } while (0)
 
-static void test_pixfmt_invalid_format(void) {
+static void test_pixfmt_invalid_format(void)
+{
     printf("\n=== Test: PIXFMT_INVALID ===\n");
 
     TEST_ASSERT(PIXFMT_INVALID == -1, "PIXFMT_INVALID should be -1");
@@ -40,12 +43,14 @@ static void test_pixfmt_invalid_format(void) {
     TEST_ASSERT(pixfmt_depth(PIXFMT_INVALID) == 0, "pixfmt_depth(PIXFMT_INVALID) should return 0");
 }
 
-static void test_pixfmt_rgb888(void) {
+static void test_pixfmt_rgb888(void)
+{
     printf("\n=== Test: RGB888 Format ===\n");
 
     const pixfmt_attr_s *attr = pixfmt_get_attr(PIXFMT_RGB888);
     TEST_ASSERT(attr != NULL, "pixfmt_get_desc(RGB888) should not be NULL");
-    if (!attr) return;
+    if (!attr)
+        return;
 
     TEST_ASSERT(attr->fmt_id == PIXFMT_RGB888, "fmt_id should be RGB888");
     TEST_ASSERT(attr->bpp == 24, "RGB888 bpp should be 24");
@@ -60,36 +65,42 @@ static void test_pixfmt_rgb888(void) {
     TEST_ASSERT(pixfmt_has_alpha(PIXFMT_RGB888) == false, "RGB888 should not have alpha");
 }
 
-static void test_pixfmt_rgba8888(void) {
+static void test_pixfmt_rgba8888(void)
+{
     printf("\n=== Test: RGBA8888 Format ===\n");
 
     const pixfmt_attr_s *attr = pixfmt_get_attr(PIXFMT_RGBA8888);
     TEST_ASSERT(attr != NULL, "pixfmt_get_desc(RGBA8888) should not be NULL");
-    if (!attr) return;
+    if (!attr)
+        return;
 
     TEST_ASSERT(attr->bpp == 32, "RGBA8888 bpp should be 32");
     TEST_ASSERT(attr->padding_pos == PIXFMT_NO_PADDING, "RGBA8888 padding_pos should be NO_PADDING");
     TEST_ASSERT(pixfmt_has_alpha(PIXFMT_RGBA8888) == true, "RGBA8888 should have alpha");
 }
 
-static void test_pixfmt_rgb565(void) {
+static void test_pixfmt_rgb565(void)
+{
     printf("\n=== Test: RGB565 Format ===\n");
 
     const pixfmt_attr_s *attr = pixfmt_get_attr(PIXFMT_RGB565);
     TEST_ASSERT(attr != NULL, "pixfmt_get_desc(RGB565) should not be NULL");
-    if (!attr) return;
+    if (!attr)
+        return;
 
     TEST_ASSERT(attr->bpp == 16, "RGB565 bpp should be 16");
     TEST_ASSERT(attr->bitpacked_order == PIXFMT_BITPACKED_MSB, "RGB565 bitpacked_order should be MSB");
     TEST_ASSERT(attr->padding_pos == PIXFMT_NO_PADDING, "RGB565 padding_pos should be NO_PADDING");
 }
 
-static void test_pixfmt_yuv420p(void) {
+static void test_pixfmt_yuv420p(void)
+{
     printf("\n=== Test: YUV420P Format ===\n");
 
     const pixfmt_attr_s *attr = pixfmt_get_attr(PIXFMT_YUV420P_YU12);
     TEST_ASSERT(attr != NULL, "pixfmt_get_desc(YUV420P) should not be NULL");
-    if (!attr) return;
+    if (!attr)
+        return;
 
     TEST_ASSERT(attr->base_type == PIXFMT_TYPE_YUV, "YUV420P base_type should be YUV");
     TEST_ASSERT(attr->layout == PIXFMT_LAYOUT_PLANAR, "YUV420P layout should be planar");
@@ -101,17 +112,20 @@ static void test_pixfmt_yuv420p(void) {
     TEST_ASSERT(h_sub == 2 && v_sub == 2, "YUV420P chroma subsampling should be 2x2");
 }
 
-static void test_pixfmt_yuv420sp(void) {
+static void test_pixfmt_yuv420sp(void)
+{
     printf("\n=== Test: YUV420SP (NV12) Format ===\n");
 
     const pixfmt_attr_s *attr = pixfmt_get_attr(PIXFMT_YUV420SP_NV12);
     TEST_ASSERT(attr != NULL, "pixfmt_get_desc(NV12) should not be NULL");
-    if (!attr) return;
+    if (!attr)
+        return;
 
     TEST_ASSERT(attr->layout == PIXFMT_LAYOUT_SEMIPLANAR, "NV12 layout should be semi-planar");
 }
 
-static void test_pixfmt_get_by_name(void) {
+static void test_pixfmt_get_by_name(void)
+{
     printf("\n=== Test: Get Format by Name ===\n");
 
     const pixfmt_attr_s *attr = pixfmt_get_attr_by_name("rgb888");
@@ -130,7 +144,8 @@ static void test_pixfmt_get_by_name(void) {
     TEST_ASSERT(attr == NULL, "get_fmt_desc_by_name('nonexistent') should return NULL");
 }
 
-static void test_pixfmt_framesize(void) {
+static void test_pixfmt_framesize(void)
+{
     printf("\n=== Test: Framesize Calculation ===\n");
 
     size_t rgb888_size = pixfmt_get_frame_size(PIXFMT_RGB888, 1920, 1080, 0);
@@ -143,7 +158,8 @@ static void test_pixfmt_framesize(void) {
     TEST_ASSERT(yuv420p_size == 1920 * 1080 * 3 / 2, "YUV420P 1920x1080 framesize should be 3,110,400");
 }
 
-static void test_pixfmt_vir_wid(void) {
+static void test_pixfmt_vir_wid(void)
+{
     printf("\n=== Test: Virtual Width Calculation ===\n");
 
     int row_pitches[3] = {0};
@@ -157,7 +173,8 @@ static void test_pixfmt_vir_wid(void) {
     TEST_ASSERT(row_pitches[0] == 1920 * 4, "RGBA8888 row pitch should be widthx4");
 }
 
-static void test_pixfmt_rgb_desc(void) {
+static void test_pixfmt_rgb_desc(void)
+{
     printf("\n=== Test: RGB Descriptor ===\n");
 
     TEST_ASSERT(pixfmt_rgb_desc_is_valid(&g_rgb_desc_rgb888) == true, "RGB888 desc should be valid");
@@ -173,12 +190,14 @@ static void test_pixfmt_rgb_desc(void) {
     TEST_ASSERT(a == 0, "RGB565 alpha should be 0");
 }
 
-static void test_pixfmt_yuv_desc(void) {
+static void test_pixfmt_yuv_desc(void)
+{
     printf("\n=== Test: YUV Descriptor ===\n");
 
     TEST_ASSERT(pixfmt_yuv_desc_is_valid(&g_yuv_desc_yuv420p_yu12) == true, "YUV420P desc should be valid");
     TEST_ASSERT(pixfmt_yuv_desc_is_tile(&g_yuv_desc_yuv420p_yv12) == false, "YUV420P should not be tile format");
-    TEST_ASSERT(pixfmt_yuv_desc_is_line_variant(&g_yuv_desc_yuv420p_yu12) == false, "YUV420P should not be line variant");
+    TEST_ASSERT(pixfmt_yuv_desc_is_line_variant(&g_yuv_desc_yuv420p_yu12) == false,
+        "YUV420P should not be line variant");
 
     TEST_ASSERT(pixfmt_yuv_desc_is_tile(&g_yuv_desc_yuv420sp_tile4x4) == true, "TILE4x4 should be tile format");
 
@@ -196,7 +215,8 @@ static void test_pixfmt_yuv_desc(void) {
     TEST_ASSERT(h_sub == 2 && v_sub == 1, "YUV422P subsampling should be 2x1");
 }
 
-static void test_pixfmt_cvt_init(void) {
+static void test_pixfmt_cvt_init(void)
+{
     printf("\n=== Test: Format Conversion Init ===\n");
 
     pixfmt_cvt_info_s ctx;
@@ -210,37 +230,104 @@ static void test_pixfmt_cvt_init(void) {
     TEST_ASSERT(ret == -1, "pixfmt_cvt_init with NULL ctx should return -1");
 }
 
-static void test_pixfmt_cvt_is_supported(void) {
+static void test_pixfmt_cvt_is_supported(void)
+{
     printf("\n=== Test: Conversion Support Check ===\n");
 
     TEST_ASSERT(pixfmt_cvt_is_supported(PIXFMT_RGB888, PIXFMT_RGB888) == true,
-                "Same format conversion should be supported");
-    TEST_ASSERT(pixfmt_cvt_is_supported(PIXFMT_RGB888, PIXFMT_RGB565) == true,
-                "RGB888 to RGB565 should be supported");
+        "Same format conversion should be supported");
+    TEST_ASSERT(pixfmt_cvt_is_supported(PIXFMT_RGB888, PIXFMT_RGB565) == true, "RGB888 to RGB565 should be supported");
     TEST_ASSERT(pixfmt_cvt_is_supported(PIXFMT_RGB888, PIXFMT_YUV420P_YU12) == true,
-                "RGB888 to YUV420P should be supported");
+        "RGB888 to YUV420P should be supported");
     TEST_ASSERT(pixfmt_cvt_is_supported(PIXFMT_YUV420P_YU12, PIXFMT_RGB888) == true,
-                "YUV420P to RGB888 should be supported");
+        "YUV420P to RGB888 should be supported");
 }
 
-static void test_pixfmt_cvt_intermediate_fmt(void) {
-    printf("\n=== Test: Intermediate Format ===\n");
+static void test_pixfmt_cvt_common_fmt(void)
+{
+    printf("\n=== Test: Common Format ===\n");
 
-    pixfmt_e inter = pixfmt_cvt_get_intermediate_fmt(PIXFMT_RGB888, PIXFMT_RGB888);
-    TEST_ASSERT(inter == PIXFMT_RGB888, "Same format intermediate should be the format itself");
+    pixfmt_e com_fmt;
 
-    inter = pixfmt_cvt_get_intermediate_fmt(PIXFMT_RGB888, PIXFMT_RGB565);
-    TEST_ASSERT(inter == PIXFMT_RGB888, "RGB to RGB intermediate should be RGB888");
+    pixfmt_e rgb_coms[] = {PIXFMT_RGB888, PIXFMT_BGR888, PIXFMT_RGB332, PIXFMT_BGR233, PIXFMT_RGB565, PIXFMT_BGR565};
+    for (int i = 0; i < ARRAY_SIZE(rgb_coms); ++i) {
+        com_fmt = pixfmt_get_common_fmt(rgb_coms[i], PIXFMT_LAYOUT_INTERLEAVED);
+        TEST_ASSERT(com_fmt == PIXFMT_RGB888, "%s to RGB common should be RGB888", pixfmt_short_name(rgb_coms[i]));
+    }
 
-    inter = pixfmt_cvt_get_intermediate_fmt(PIXFMT_YUV420P_YU12, PIXFMT_YUV422P_YU16);
-    TEST_ASSERT(inter == PIXFMT_YUV420P_YU12, "YUV to YUV intermediate should be YUV420P");
+    pixfmt_e rgba_coms[] = {PIXFMT_RGBA8888, PIXFMT_BGRA8888, PIXFMT_ARGB8888, PIXFMT_ABGR8888, PIXFMT_RGBA5551,
+        PIXFMT_ABGR1555, PIXFMT_RGBA4444, PIXFMT_ABGR4444};
+    for (int i = 0; i < ARRAY_SIZE(rgba_coms); ++i) {
+        com_fmt = pixfmt_get_common_fmt(rgba_coms[i], PIXFMT_LAYOUT_INTERLEAVED);
+        TEST_ASSERT(com_fmt == PIXFMT_RGBA8888, "%s to RGB common should be RGBA8888", pixfmt_short_name(rgba_coms[i]));
+    }
 
-    inter = pixfmt_cvt_get_intermediate_fmt(PIXFMT_RGB888, PIXFMT_YUV420P_YU12);
-    TEST_ASSERT(inter == PIXFMT_YUV420P_YU12 || inter == PIXFMT_RGB888,
-                "RGB to YUV intermediate should be YUV420P or RGB888");
+    pixfmt_e rgba10_coms[] = {PIXFMT_RGBA1010102, PIXFMT_ABGR2101010};
+    for (int i = 0; i < ARRAY_SIZE(rgba10_coms); ++i) {
+        com_fmt = pixfmt_get_common_fmt(rgba10_coms[i], PIXFMT_LAYOUT_INTERLEAVED);
+        TEST_ASSERT(com_fmt == PIXFMT_RGBA10Lsb, "%s to RGB common should be RGBA10Lsb", pixfmt_short_name(rgba10_coms[i]));
+    }
+
+    pixfmt_e yuv444_8bit_coms[] = {
+        PIXFMT_YUV444I_VU24, PIXFMT_YUV444P_YU24, PIXFMT_YUV444P_YV24, PIXFMT_YUV444SP_NV24, PIXFMT_YUV444SP_NV42};
+    for (int i = 0; i < ARRAY_SIZE(yuv444_8bit_coms); ++i) {
+        com_fmt = pixfmt_get_common_fmt(yuv444_8bit_coms[i], PIXFMT_LAYOUT_INTERLEAVED);
+        TEST_ASSERT(com_fmt == PIXFMT_YUV444I_VU24, "%s to 8bit YUV444I common should be PIXFMT_YUV444I_VU24",
+            pixfmt_short_name(yuv444_8bit_coms[i]));
+        com_fmt = pixfmt_get_common_fmt(yuv444_8bit_coms[i], PIXFMT_LAYOUT_PLANAR);
+        TEST_ASSERT(com_fmt == PIXFMT_YUV444P_YU24, "%s to 8bit YUV444P common should be PIXFMT_YUV444P_YU24",
+            pixfmt_short_name(yuv444_8bit_coms[i]));
+        com_fmt = pixfmt_get_common_fmt(yuv444_8bit_coms[i], PIXFMT_LAYOUT_SEMIPLANAR);
+        TEST_ASSERT(com_fmt == PIXFMT_YUV444SP_NV24, "%s to 8bit YUV444SP common should be PIXFMT_YUV444SP_NV24",
+            pixfmt_short_name(yuv444_8bit_coms[i]));
+    }
+
+    pixfmt_e yuv444_10bit_coms[] = {PIXFMT_YUV444I_VU30, PIXFMT_YUV444I_XV30, PIXFMT_YUV444I_10LSB,
+        PIXFMT_YUV444P_10LSB, PIXFMT_YUV444SP_NV30, PIXFMT_YUV444SP_10LSB};
+    for (int i = 0; i < ARRAY_SIZE(yuv444_10bit_coms); ++i) {
+        com_fmt = pixfmt_get_common_fmt(yuv444_10bit_coms[i], PIXFMT_LAYOUT_INTERLEAVED);
+        TEST_ASSERT(com_fmt == PIXFMT_YUV444I_10LSB, "%s to 10bit YUV444I common should be PIXFMT_YUV444I_10LSB",
+            pixfmt_short_name(yuv444_10bit_coms[i]));
+        com_fmt = pixfmt_get_common_fmt(yuv444_10bit_coms[i], PIXFMT_LAYOUT_PLANAR);
+        TEST_ASSERT(com_fmt == PIXFMT_YUV444P_10LSB, "%s to 10bit YUV444P common should be PIXFMT_YUV444P_10LSB",
+            pixfmt_short_name(yuv444_10bit_coms[i]));
+        com_fmt = pixfmt_get_common_fmt(yuv444_10bit_coms[i], PIXFMT_LAYOUT_SEMIPLANAR);
+        TEST_ASSERT(com_fmt == PIXFMT_YUV444SP_10LSB, "%s to 10bit YUV444SP common should be PIXFMT_YUV444SP_10LSB",
+            pixfmt_short_name(yuv444_10bit_coms[i]));
+    }
+
+    pixfmt_e yuv422_8bit_coms[] = {PIXFMT_YUV422I_YUYV, PIXFMT_YUV422I_YVYU, PIXFMT_YUV422I_UYVY, PIXFMT_YUV422I_VYUY,
+        PIXFMT_YUV422P_YU16, PIXFMT_YUV422P_YV16, PIXFMT_YUV422SP_NV16, PIXFMT_YUV422SP_NV61};
+    for (int i = 0; i < ARRAY_SIZE(yuv422_8bit_coms); ++i) {
+        // TODO, shoule be PIXFMT_YUV422P_YU16/PIXFMT_YUV422SP_NV16
+    }
+    com_fmt = pixfmt_get_common_fmt(PIXFMT_YUV422SP_NV20, PIXFMT_LAYOUT_SEMIPLANAR);
+    TEST_ASSERT(com_fmt == PIXFMT_YUV422SP_10LSB, "%s to 10bit YUV422SP common should be PIXFMT_YUV422SP_10LSB",
+        pixfmt_short_name(PIXFMT_YUV422SP_NV20));
+
+    pixfmt_e yuv420_8bit_coms[] = {PIXFMT_YUV420P_YU12, PIXFMT_YUV420P_YV12, PIXFMT_YUV420SP_NV12, PIXFMT_YUV420SP_NV21};
+    for (int i = 0; i < ARRAY_SIZE(yuv420_8bit_coms); ++i) {
+        // TODO, shoule be PIXFMT_YUV420P_YU12/PIXFMT_YUV420SP_NV12
+    }
+    com_fmt = pixfmt_get_common_fmt(PIXFMT_YUV420SP_NV15, PIXFMT_LAYOUT_SEMIPLANAR);
+    TEST_ASSERT(com_fmt == PIXFMT_YUV420SP_10LSB, "%s to 10bit YUV420SP common should be PIXFMT_YUV420SP_10LSB",
+        pixfmt_short_name(PIXFMT_YUV420SP_NV15));
+
+    com_fmt = pixfmt_get_common_fmt(PIXFMT_YUV444SP_TILE4x4, PIXFMT_LAYOUT_SEMIPLANAR);
+    TEST_ASSERT(com_fmt == PIXFMT_YUV444SP_NV24, "%s to 10bit YUV444SP common should be PIXFMT_YUV444SP_NV24",
+        pixfmt_short_name(PIXFMT_YUV444SP_TILE4x4));
+
+    com_fmt = pixfmt_get_common_fmt(PIXFMT_YUV422SP_TILE4x4, PIXFMT_LAYOUT_SEMIPLANAR);
+    TEST_ASSERT(com_fmt == PIXFMT_YUV422SP_NV16, "%s to 10bit YUV444SP common should be PIXFMT_YUV422SP_NV16",
+        pixfmt_short_name(PIXFMT_YUV422SP_TILE4x4));
+
+    com_fmt = pixfmt_get_common_fmt(PIXFMT_YUV420SP_TILE4x4, PIXFMT_LAYOUT_SEMIPLANAR);
+    TEST_ASSERT(com_fmt == PIXFMT_YUV420SP_NV12, "%s to 10bit YUV444SP common should be PIXFMT_YUV420SP_NV12",
+        pixfmt_short_name(PIXFMT_YUV420SP_TILE4x4));
 }
 
-static void test_pixfmt_supported_fmts(void) {
+static void test_pixfmt_supported_fmts(void)
+{
     printf("\n=== Test: Supported Format Lists ===\n");
 
     int count = 0;
@@ -253,7 +340,8 @@ static void test_pixfmt_supported_fmts(void) {
     TEST_ASSERT(fmts != NULL, "Output formats array should not be NULL");
 }
 
-static void test_pixfmt_rgb_cvt_functions(void) {
+static void test_pixfmt_rgb_cvt_functions(void)
+{
     printf("\n=== Test: RGB Conversion Functions ===\n");
 
     uint8_t src_rgb888[3] = {0xFF, 0x80, 0x40};
@@ -273,7 +361,8 @@ static void test_pixfmt_rgb_cvt_functions(void) {
     TEST_ASSERT(ret == 0, "rgb332_to_rgb888 should succeed");
 }
 
-static void test_pixfmt_yuv_cvt_functions(void) {
+static void test_pixfmt_yuv_cvt_functions(void)
+{
     printf("\n=== Test: YUV Conversion Functions ===\n");
 
     int w = 16, h = 16;
@@ -297,7 +386,8 @@ static void test_pixfmt_yuv_cvt_functions(void) {
     TEST_ASSERT(ret == 0, "yuv420p_to_yuv420sp should succeed");
 }
 
-static void test_pixfmt_rgb_yuv_cvt_functions(void) {
+static void test_pixfmt_rgb_yuv_cvt_functions(void)
+{
     printf("\n=== Test: RGB-YUV Cross Conversion ===\n");
 
     int w = 4, h = 4;
@@ -316,25 +406,28 @@ static void test_pixfmt_rgb_yuv_cvt_functions(void) {
     TEST_ASSERT(ret == 0, "yuv420p_to_rgb888 should succeed");
 }
 
-static void test_pixfmt_rgb_desc_equal(void) {
+static void test_pixfmt_rgb_desc_equal(void)
+{
     printf("\n=== Test: RGB Descriptor Equal ===\n");
 
     TEST_ASSERT(pixfmt_rgb_desc_equal(&g_rgb_desc_rgb888, &g_rgb_desc_rgb888) == true,
-                "Same descriptor should be equal");
+        "Same descriptor should be equal");
     TEST_ASSERT(pixfmt_rgb_desc_equal(&g_rgb_desc_rgb888, &g_rgb_desc_bgr888) == false,
-                "Different descriptors should not be equal");
+        "Different descriptors should not be equal");
 }
 
-static void test_pixfmt_yuv_desc_equal(void) {
+static void test_pixfmt_yuv_desc_equal(void)
+{
     printf("\n=== Test: YUV Descriptor Equal ===\n");
 
     TEST_ASSERT(pixfmt_yuv_desc_equal(&g_yuv_desc_yuv420p_yu12, &g_yuv_desc_yuv420p_yu12) == true,
-                "Same YUV descriptor should be equal");
+        "Same YUV descriptor should be equal");
     TEST_ASSERT(pixfmt_yuv_desc_equal(&g_yuv_desc_yuv420p_yu12, &g_yuv_desc_yuv420sp_nv12) == false,
-                "Different YUV descriptors should not be equal");
+        "Different YUV descriptors should not be equal");
 }
 
-static void test_pixfmt_all_formats_registered(void) {
+static void test_pixfmt_all_formats_registered(void)
+{
     printf("\n=== Test: All Formats Registered ===\n");
 
     for (int i = 0; i < PIXFMT_MAX; i++) {
@@ -346,7 +439,8 @@ static void test_pixfmt_all_formats_registered(void) {
     }
 }
 
-int main(void) {
+int main(void)
+{
     printf("===========================================\n");
     printf("       PIXFMT Unit Test Suite\n");
     printf("===========================================\n");
@@ -364,7 +458,7 @@ int main(void) {
     test_pixfmt_yuv_desc();
     test_pixfmt_cvt_init();
     test_pixfmt_cvt_is_supported();
-    test_pixfmt_cvt_intermediate_fmt();
+    test_pixfmt_cvt_common_fmt();
     test_pixfmt_supported_fmts();
     test_pixfmt_rgb_cvt_functions();
     test_pixfmt_yuv_cvt_functions();
@@ -383,7 +477,8 @@ int main(void) {
     if (g_test_failed > 0) {
         printf("\n*** SOME TESTS FAILED ***\n");
         return 1;
-    } else {
+    }
+    else {
         printf("\n*** ALL TESTS PASSED ***\n");
         return 0;
     }

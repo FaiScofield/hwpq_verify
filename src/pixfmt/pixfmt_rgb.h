@@ -58,6 +58,7 @@ extern const pixfmt_rgb_desc_s g_rgb_desc_abgr4444;
 extern const pixfmt_rgb_desc_s g_rgb_desc_rgba1010102;
 extern const pixfmt_rgb_desc_s g_rgb_desc_abgr1010102;
 extern const pixfmt_rgb_desc_s g_rgb_desc_abgr2101010;
+extern const pixfmt_rgb_desc_s g_rgb_desc_rgba10lsb;
 
 /* forward declaration */
 typedef struct pixfmt_attr pixfmt_attr_s;

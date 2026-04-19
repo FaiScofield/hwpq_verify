@@ -118,6 +118,45 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv444sp_nv30 = {
     .is_line_variant = false,
 };
 
+const pixfmt_yuv_desc_s g_yuv_desc_yuv444i_10lsb = {
+    .sampling = PIXFMT_YUV_SAMPLING_444,
+    .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
+    .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
+    .order = PIXFMT_ORDER_YUV,
+    .is_tile = false,
+    .tile_wid = 0,
+    .tile_hgt = 0,
+    .tile_bytes = 0,
+    .tile_offset_uv = 0,
+    .is_line_variant = false,
+};
+
+const pixfmt_yuv_desc_s g_yuv_desc_yuv444p_10lsb = {
+    .sampling = PIXFMT_YUV_SAMPLING_444,
+    .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
+    .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
+    .order = PIXFMT_ORDER_YUV,
+    .is_tile = false,
+    .tile_wid = 0,
+    .tile_hgt = 0,
+    .tile_bytes = 0,
+    .tile_offset_uv = 0,
+    .is_line_variant = false,
+};
+
+const pixfmt_yuv_desc_s g_yuv_desc_yuv444sp_10lsb = {
+    .sampling = PIXFMT_YUV_SAMPLING_444,
+    .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
+    .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
+    .order = PIXFMT_ORDER_YUV,
+    .is_tile = false,
+    .tile_wid = 0,
+    .tile_hgt = 0,
+    .tile_bytes = 0,
+    .tile_offset_uv = 0,
+    .is_line_variant = false,
+};
+
 const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_yuyv = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
@@ -239,6 +278,32 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422sp_nv20 = {
     .is_line_variant = false,
 };
 
+const pixfmt_yuv_desc_s g_yuv_desc_yuv422p_10lsb = {
+    .sampling = PIXFMT_YUV_SAMPLING_422,
+    .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
+    .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
+    .order = PIXFMT_ORDER_YUV,
+    .is_tile = false,
+    .tile_wid = 0,
+    .tile_hgt = 0,
+    .tile_bytes = 0,
+    .tile_offset_uv = 0,
+    .is_line_variant = false,
+};
+
+const pixfmt_yuv_desc_s g_yuv_desc_yuv422sp_10lsb = {
+    .sampling = PIXFMT_YUV_SAMPLING_422,
+    .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
+    .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
+    .order = PIXFMT_ORDER_YUV,
+    .is_tile = false,
+    .tile_wid = 0,
+    .tile_hgt = 0,
+    .tile_bytes = 0,
+    .tile_offset_uv = 0,
+    .is_line_variant = false,
+};
+
 const pixfmt_yuv_desc_s g_yuv_desc_yuv420p_yu12 = {
     .sampling = PIXFMT_YUV_SAMPLING_420,
     .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
@@ -292,6 +357,32 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv420sp_nv21 = {
 };
 
 const pixfmt_yuv_desc_s g_yuv_desc_yuv420sp_nv15 = {
+    .sampling = PIXFMT_YUV_SAMPLING_420,
+    .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
+    .uv_sample_ratio_hor = PIXFMT_YUV420_SAMPLE_RATIO_HOR,
+    .order = PIXFMT_ORDER_YUV,
+    .is_tile = false,
+    .tile_wid = 0,
+    .tile_hgt = 0,
+    .tile_bytes = 0,
+    .tile_offset_uv = 0,
+    .is_line_variant = false,
+};
+
+const pixfmt_yuv_desc_s g_yuv_desc_yuv420p_10lsb = {
+    .sampling = PIXFMT_YUV_SAMPLING_420,
+    .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
+    .uv_sample_ratio_hor = PIXFMT_YUV420_SAMPLE_RATIO_HOR,
+    .order = PIXFMT_ORDER_YUV,
+    .is_tile = false,
+    .tile_wid = 0,
+    .tile_hgt = 0,
+    .tile_bytes = 0,
+    .tile_offset_uv = 0,
+    .is_line_variant = false,
+};
+
+const pixfmt_yuv_desc_s g_yuv_desc_yuv420sp_10lsb = {
     .sampling = PIXFMT_YUV_SAMPLING_420,
     .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV420_SAMPLE_RATIO_HOR,
@@ -761,82 +852,27 @@ size_t pixfmt_yuv_get_framesize(const pixfmt_attr_s *attr, int w, int h, int row
         size = real_wid * h * attr->bpp / 8;
     }
 
+    /* get all plane sizes */
     if (retPlaneSizesx3) {
-        // TODO
-        // switch (attr->layout) {
-        // case PIXFMT_LAYOUT_PLANAR: {
-        //     int plane_wid = frame->wid;
-        //     int plane_hgt = frame->hgt;
+        int chroma_ratio = desc->uv_sample_ratio_ver * desc->uv_sample_ratio_hor + 2;
+        size_t chroma_size = size / chroma_ratio;
+        size_t luma_size = size - chroma_size;
 
-        //     if (plane_idx > 0) {
-        //         if (frame->fmt >= PIXFMT_YUV422P_YU16 && frame->fmt <= PIXFMT_YUV422P_YV16) {
-        //             plane_wid = (frame->wid + 1) / 2;
-        //         }
-        //         else if (frame->fmt >= PIXFMT_YUV420P_YU12 && frame->fmt <= PIXFMT_YUV420P_YV12) {
-        //             plane_wid = (frame->wid + 1) / 2;
-        //             plane_hgt = (frame->hgt + 1) / 2;
-        //         }
-        //         else if (frame->fmt >= PIXFMT_YUV411P_YU11 && frame->fmt <= PIXFMT_YUV411P_YV11) {
-        //             plane_wid = (frame->wid + 3) / 4;
-        //         }
-        //         else if (frame->fmt >= PIXFMT_YUV410P_YUV9 && frame->fmt <= PIXFMT_YUV410P_YVU9) {
-        //             plane_wid = (frame->wid + 3) / 4;
-        //             plane_hgt = (frame->hgt + 3) / 4;
-        //         }
-        //     }
-
-        //     int plane_pitch = frame->pitch;
-        //     if (plane_idx > 0) {
-        //         int uv_sample_ratio_hor = 1;
-        //         if (frame->fmt >= PIXFMT_YUV422P_YU16 && frame->fmt <= PIXFMT_YUV422P_YV16) {
-        //             uv_sample_ratio_hor = 2;
-        //         }
-        //         else if (frame->fmt >= PIXFMT_YUV420P_YU12 && frame->fmt <= PIXFMT_YUV420P_YV12) {
-        //             uv_sample_ratio_hor = 2;
-        //         }
-        //         else if (frame->fmt >= PIXFMT_YUV411P_YU11 && frame->fmt <= PIXFMT_YUV411P_YV11) {
-        //             uv_sample_ratio_hor = 4;
-        //         }
-        //         else if (frame->fmt >= PIXFMT_YUV410P_YUV9 && frame->fmt <= PIXFMT_YUV410P_YVU9) {
-        //             uv_sample_ratio_hor = 4;
-        //         }
-        //         plane_pitch = (frame->pitch + uv_sample_ratio_hor - 1) / uv_sample_ratio_hor;
-        //     }
-
-        //     plane_size = (size_t)plane_pitch * plane_hgt;
-        //     break;
-        // }
-
-        // case PIXFMT_LAYOUT_SEMIPLANAR: {
-        //     if (plane_idx == 0) {
-        //         plane_size = (size_t)frame->pitch * frame->hgt;
-        //     }
-        //     else {
-        //         int uv_sample_ratio_hor = 1;
-        //         if (frame->fmt >= PIXFMT_YUV422SP_NV16 && frame->fmt <= PIXFMT_YUV422SP_NV61) {
-        //             uv_sample_ratio_hor = 2;
-        //         }
-        //         else if (frame->fmt >= PIXFMT_YUV420SP_NV12 && frame->fmt <= PIXFMT_YUV420SP_NV21) {
-        //             uv_sample_ratio_hor = 2;
-        //         }
-        //         else if (frame->fmt >= PIXFMT_YUV444SP_NV24 && frame->fmt <= PIXFMT_YUV444SP_NV42) {
-        //             uv_sample_ratio_hor = 1;
-        //         }
-
-        //         int uv_pitch = (frame->pitch + uv_sample_ratio_hor - 1) / uv_sample_ratio_hor;
-        //         plane_size = (size_t)uv_pitch * frame->hgt;
-        //     }
-        //     break;
-        // }
-
-        // case PIXFMT_LAYOUT_INTERLEAVED:
-        // case PIXFMT_LAYOUT_TILE:
-        // case PIXFMT_LAYOUT_IRREGULAR:
-        // default:                        {
-        //     plane_size = frame->size;
-        //     break;
-        // }
-        // }
+        if (PIXFMT_LAYOUT_INTERLEAVED == attr->layout || PIXFMT_LAYOUT_TILE == attr->layout ||
+            PIXFMT_YUV_SAMPLING_400 == desc->sampling)
+        {
+            retPlaneSizesx3[0] = size;
+            retPlaneSizesx3[1] = retPlaneSizesx3[2] = 0;
+        }
+        if (PIXFMT_LAYOUT_PLANAR == attr->layout) {
+            retPlaneSizesx3[0] = luma_size;
+            retPlaneSizesx3[1] = retPlaneSizesx3[2] = chroma_size;
+        }
+        else if (PIXFMT_LAYOUT_SEMIPLANAR == attr->layout) {
+            retPlaneSizesx3[0] = luma_size;
+            retPlaneSizesx3[1] = chroma_size * 2;
+            retPlaneSizesx3[2] = 0;
+        }
     }
 
     return size;

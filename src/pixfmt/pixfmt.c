@@ -265,6 +265,23 @@ static const pixfmt_attr_s g_pixfmt_attr_table[] =
                              .alias = NULL,
                              },
 
+        [PIXFMT_RGBA10Lsb] =
+            {
+                             .fmt_id = PIXFMT_RGBA10Lsb,
+
+                             .base_type = PIXFMT_TYPE_RGB,
+                             .desc = &g_rgb_desc_rgba10lsb,
+                             .layout = PIXFMT_LAYOUT_INTERLEAVED,
+                             .padding_pos = PIXFMT_PADDING_AT_MSB,
+                             .bitpacked_order = PIXFMT_UNPACKED,
+                             .bpp = 64,
+                             .depth = 10,
+                             .nb_comps = 4,
+                             .full_name = "rgba10lsb",
+                             .short_name = "rgba64",
+                             .alias = NULL,
+                             },
+
         /* YUV Raster format */
         [PIXFMT_YUV444I_VU24] =
             {
@@ -407,9 +424,9 @@ static const pixfmt_attr_s g_pixfmt_attr_table[] =
                              },
 
         /* YUV Tile format */
-        [PIXFMT_YUV420SP_TILE4X4] =
+        [PIXFMT_YUV420SP_TILE4x4] =
             {
-                             .fmt_id = PIXFMT_YUV420SP_TILE4X4,
+                             .fmt_id = PIXFMT_YUV420SP_TILE4x4,
 
                              .base_type = PIXFMT_TYPE_YUV,
                              .desc = {.yuv = &g_yuv_desc_yuv420sp_tile4x4},
@@ -447,12 +464,29 @@ static const pixfmt_attr_s g_pixfmt_attr_table[] =
                              .base_type = PIXFMT_TYPE_YUV,
                              .desc = {.yuv = &g_yuv_desc_yuv444i_xv30},
                              .layout = PIXFMT_LAYOUT_INTERLEAVED,
-                             .padding_pos = PIXFMT_PADDING_ON_MSB,
+                             .padding_pos = PIXFMT_PADDING_AT_MSB,
                              .bitpacked_order = PIXFMT_BITPACKED_LSB,
                              .bpp = 32,
                              .depth = 10,
                              .full_name = "yuv444i_xv30",
                              .short_name = "yuv444i_xv30",
+                             .alias = NULL,
+                             },
+
+        [PIXFMT_YUV444I_10LSB] =
+            {
+                             .fmt_id = PIXFMT_YUV444I_10LSB,
+
+                             .base_type = PIXFMT_TYPE_YUV,
+                             .desc = {.yuv = &g_yuv_desc_yuv444i_10lsb},
+                             .layout = PIXFMT_LAYOUT_INTERLEAVED,
+                             .padding_pos = PIXFMT_PADDING_AT_MSB,
+                             .bitpacked_order = PIXFMT_UNPACKED,
+                             .bpp = 48,
+                             .depth = 10,
+                             .nb_comps = 3,
+                             .full_name = "yuv444i_10lsb",
+                             .short_name = "yuv444i_10lsb",
                              .alias = NULL,
                              },
 
@@ -467,8 +501,26 @@ static const pixfmt_attr_s g_pixfmt_attr_table[] =
                              .bitpacked_order = PIXFMT_UNPACKED,
                              .bpp = 24,
                              .depth = 8,
+                             .nb_comps = 3,
                              .full_name = "yuv444p_yv24",
                              .short_name = "yuv444p_yv24",
+                             .alias = NULL,
+                             },
+
+        [PIXFMT_YUV444P_10LSB] =
+            {
+                             .fmt_id = PIXFMT_YUV444P_10LSB,
+
+                             .base_type = PIXFMT_TYPE_YUV,
+                             .desc = {.yuv = &g_yuv_desc_yuv444p_10lsb},
+                             .layout = PIXFMT_LAYOUT_PLANAR,
+                             .padding_pos = PIXFMT_PADDING_AT_MSB,
+                             .bitpacked_order = PIXFMT_UNPACKED,
+                             .bpp = 48,
+                             .depth = 10,
+                             .nb_comps = 3,
+                             .full_name = "yuv444p_10lsb",
+                             .short_name = "yuv444p_10lsb",
                              .alias = NULL,
                              },
 
@@ -486,6 +538,23 @@ static const pixfmt_attr_s g_pixfmt_attr_table[] =
                              .desc = {.yuv = &g_yuv_desc_yuv444sp_nv30},
                              .padding_pos = PIXFMT_NO_PADDING,
                              .bitpacked_order = PIXFMT_UNPACKED,
+                             },
+
+        [PIXFMT_YUV444SP_10LSB] =
+            {
+                             .fmt_id = PIXFMT_YUV444SP_10LSB,
+
+                             .base_type = PIXFMT_TYPE_YUV,
+                             .desc = {.yuv = &g_yuv_desc_yuv444sp_10lsb},
+                             .layout = PIXFMT_LAYOUT_SEMIPLANAR,
+                             .padding_pos = PIXFMT_PADDING_AT_MSB,
+                             .bitpacked_order = PIXFMT_UNPACKED,
+                             .bpp = 48,
+                             .depth = 10,
+                             .nb_comps = 3,
+                             .full_name = "yuv444sp_10lsb",
+                             .short_name = "yuv444sp_10lsb",
+                             .alias = NULL,
                              },
 
         [PIXFMT_YUV422I_YVYU] =
@@ -616,6 +685,23 @@ static const pixfmt_attr_s g_pixfmt_attr_table[] =
                              .bitpacked_order = PIXFMT_UNPACKED,
                              },
 
+        [PIXFMT_YUV422P_10LSB] =
+            {
+                             .fmt_id = PIXFMT_YUV422P_10LSB,
+
+                             .base_type = PIXFMT_TYPE_YUV,
+                             .desc = {.yuv = &g_yuv_desc_yuv422p_10lsb},
+                             .layout = PIXFMT_LAYOUT_PLANAR,
+                             .padding_pos = PIXFMT_PADDING_AT_MSB,
+                             .bitpacked_order = PIXFMT_UNPACKED,
+                             .bpp = 32,
+                             .depth = 10,
+                             .nb_comps = 3,
+                             .full_name = "yuv422p_10lsb",
+                             .short_name = "yuv422p_10lsb",
+                             .alias = NULL,
+                             },
+
         [PIXFMT_YUV422SP_NV61] =
             {
                              .fmt_id = PIXFMT_YUV422SP_NV61,
@@ -648,6 +734,23 @@ static const pixfmt_attr_s g_pixfmt_attr_table[] =
                              .bitpacked_order = PIXFMT_UNPACKED,
                              },
 
+        [PIXFMT_YUV422SP_10LSB] =
+            {
+                             .fmt_id = PIXFMT_YUV422SP_10LSB,
+
+                             .base_type = PIXFMT_TYPE_YUV,
+                             .desc = {.yuv = &g_yuv_desc_yuv422sp_10lsb},
+                             .layout = PIXFMT_LAYOUT_SEMIPLANAR,
+                             .padding_pos = PIXFMT_PADDING_AT_MSB,
+                             .bitpacked_order = PIXFMT_UNPACKED,
+                             .bpp = 32,
+                             .depth = 10,
+                             .nb_comps = 3,
+                             .full_name = "yuv422sp_10lsb",
+                             .short_name = "yuv422sp_10lsb",
+                             .alias = NULL,
+                             },
+
         [PIXFMT_YUV420SP_NV21] =
             {
                              .fmt_id = PIXFMT_YUV420SP_NV21,
@@ -678,6 +781,40 @@ static const pixfmt_attr_s g_pixfmt_attr_table[] =
                              .desc = {.yuv = &g_yuv_desc_yuv420sp_nv15},
                              .padding_pos = PIXFMT_NO_PADDING,
                              .bitpacked_order = PIXFMT_UNPACKED,
+                             },
+
+        [PIXFMT_YUV420P_10LSB] =
+            {
+                             .fmt_id = PIXFMT_YUV420P_10LSB,
+
+                             .base_type = PIXFMT_TYPE_YUV,
+                             .desc = {.yuv = &g_yuv_desc_yuv420p_10lsb},
+                             .layout = PIXFMT_LAYOUT_PLANAR,
+                             .padding_pos = PIXFMT_PADDING_AT_MSB,
+                             .bitpacked_order = PIXFMT_UNPACKED,
+                             .bpp = 24,
+                             .depth = 10,
+                             .nb_comps = 3,
+                             .full_name = "yuv420p_10lsb",
+                             .short_name = "yuv420p_10lsb",
+                             .alias = NULL,
+                             },
+
+        [PIXFMT_YUV420SP_10LSB] =
+            {
+                             .fmt_id = PIXFMT_YUV420SP_10LSB,
+
+                             .base_type = PIXFMT_TYPE_YUV,
+                             .desc = {.yuv = &g_yuv_desc_yuv420sp_10lsb},
+                             .layout = PIXFMT_LAYOUT_SEMIPLANAR,
+                             .padding_pos = PIXFMT_PADDING_AT_MSB,
+                             .bitpacked_order = PIXFMT_UNPACKED,
+                             .bpp = 24,
+                             .depth = 10,
+                             .nb_comps = 3,
+                             .full_name = "yuv420sp_10lsb",
+                             .short_name = "yuv420sp_10lsb",
+                             .alias = NULL,
                              },
 
         [PIXFMT_YUV411P_YU11] =
@@ -745,9 +882,9 @@ static const pixfmt_attr_s g_pixfmt_attr_table[] =
                              },
 
         /* YUV Tile format */
-        [PIXFMT_YUV444SP_TILE4X4] =
+        [PIXFMT_YUV444SP_TILE4x4] =
             {
-                             .fmt_id = PIXFMT_YUV444SP_TILE4X4,
+                             .fmt_id = PIXFMT_YUV444SP_TILE4x4,
 
                              .full_name = "YUV444 Semi-Planar Tile 4x4",
                              .short_name = "yuv444sp_tile4x4",
@@ -1085,20 +1222,114 @@ int pixfmt_get_chroma_subsampling(pixfmt_e fmt, int *h_sub, int *v_sub)
     return pixfmt_yuv_desc_get_chroma_subsampling(desc->desc.yuv, h_sub, v_sub);
 }
 
-bool pixfmt_can_input(pixfmt_e fmt)
+pixfmt_e pixfmt_init_common_fmt_rgb(int depth, bool has_alpha)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    return desc != NULL;
+    if (depth <= 8)
+        return has_alpha ? PIXFMT_RGBA8888 : PIXFMT_RGB888;
+    else if (depth == 10)
+        return PIXFMT_RGBA10Lsb; // only PIXFMT_RGBA1010102 / PIXFMT_ABGR2101010
+    return PIXFMT_INVALID;
 }
 
-bool pixfmt_can_output(pixfmt_e fmt)
+pixfmt_e pixfmt_init_common_fmt_yuv(int depth, pixfmt_layout_e layout, pixfmt_yuv_sampling_e sampling)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    return desc != NULL;
+    pixfmt_e com_fmt = PIXFMT_INVALID;
+    switch (sampling) {
+    case PIXFMT_YUV_SAMPLING_444: {
+        if (depth <= 8) {
+            if (layout == PIXFMT_LAYOUT_INTERLEAVED)
+                com_fmt = PIXFMT_YUV444I_VU24;
+            else if (layout == PIXFMT_LAYOUT_PLANAR)
+                com_fmt = PIXFMT_YUV444P_YU24;
+            else if (layout == PIXFMT_LAYOUT_SEMIPLANAR)
+                com_fmt = PIXFMT_YUV444SP_NV24;
+        }
+        else if (depth == 10) {
+            if (layout == PIXFMT_LAYOUT_INTERLEAVED)
+                com_fmt = PIXFMT_YUV444I_10LSB;
+            else if (layout == PIXFMT_LAYOUT_PLANAR)
+                com_fmt = PIXFMT_YUV444P_10LSB;
+            else if (layout == PIXFMT_LAYOUT_SEMIPLANAR)
+                com_fmt = PIXFMT_YUV444SP_10LSB;
+        }
+    } break;
+    case PIXFMT_YUV_SAMPLING_422: {
+        if (depth <= 8) {
+            if (layout == PIXFMT_LAYOUT_INTERLEAVED)
+                com_fmt = PIXFMT_YUV422I_YUYV;
+            else if (layout == PIXFMT_LAYOUT_PLANAR)
+                com_fmt = PIXFMT_YUV422P_YU16;
+            else if (layout == PIXFMT_LAYOUT_SEMIPLANAR)
+                com_fmt = PIXFMT_YUV422SP_NV16;
+        }
+        else if (depth == 10) {
+            if (layout == PIXFMT_LAYOUT_PLANAR)
+                com_fmt = PIXFMT_YUV422P_10LSB;
+            else if (layout == PIXFMT_LAYOUT_SEMIPLANAR)
+                com_fmt = PIXFMT_YUV422SP_10LSB;
+        }
+    } break;
+    case PIXFMT_YUV_SAMPLING_420: {
+        if (depth <= 8) {
+            if (layout == PIXFMT_LAYOUT_PLANAR)
+                com_fmt = PIXFMT_YUV420P_YU12;
+            else if (layout == PIXFMT_LAYOUT_SEMIPLANAR)
+                com_fmt = PIXFMT_YUV420SP_NV12;
+        }
+        else if (depth == 10) {
+            if (layout == PIXFMT_LAYOUT_PLANAR)
+                com_fmt = PIXFMT_YUV420P_10LSB;
+            else if (layout == PIXFMT_LAYOUT_SEMIPLANAR)
+                com_fmt = PIXFMT_YUV420SP_10LSB;
+        }
+    } break;
+    case PIXFMT_YUV_SAMPLING_411: {
+        if (depth <= 8 && layout == PIXFMT_LAYOUT_PLANAR)
+            com_fmt = PIXFMT_YUV411P_YU11;
+    } break;
+    case PIXFMT_YUV_SAMPLING_410: {
+        if (depth <= 8 && layout == PIXFMT_LAYOUT_PLANAR)
+            com_fmt = PIXFMT_YUV410P_YUV9;
+    } break;
+    case PIXFMT_YUV_SAMPLING_400: {
+        if (depth <= 8)
+            com_fmt = PIXFMT_YUV400_R8;
+        else if (depth == 10)
+            com_fmt = PIXFMT_YUV400_R10;
+        else if (depth == 12)
+            com_fmt = PIXFMT_YUV400_R12;
+        else if (depth == 16)
+            com_fmt = PIXFMT_YUV400_R16;
+    } break;
+    case PIXFMT_YUV_SAMPLING_440: // no YUV440 formats for now
+    default:                      break;
+    }
+    return com_fmt;
 }
 
-pixfmt_e pixfmt_get_canonical(pixfmt_e fmt) { return fmt; }
+pixfmt_e pixfmt_get_common_fmt(pixfmt_e fmt, pixfmt_layout_e target_layout)
+{
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    assert(attr != NULL);
 
+    pixfmt_e com_fmt = PIXFMT_INVALID;
+
+    if (pixfmt_is_rgb(fmt)) {
+        /* convert to 8/10bit rgb[a], ignore target_layout */
+        const pixfmt_rgb_desc_s *desc = &attr->desc.rgb;
+        com_fmt = pixfmt_init_common_fmt_rgb(attr->depth, desc->alpha_pos != PIXFMT_ALPHA_NONE);
+    }
+    else if (pixfmt_is_yuv(fmt)) {
+        /* convert to 8/10bit planar yuv in common */
+        const pixfmt_yuv_desc_s *desc = &attr->desc.yuv;
+        if (desc->is_tile)
+            com_fmt = pixfmt_init_common_fmt_yuv(attr->depth, PIXFMT_LAYOUT_SEMIPLANAR, desc->sampling);
+        else
+            com_fmt = pixfmt_init_common_fmt_yuv(attr->depth, target_layout, desc->sampling);
+    }
+
+    return fmt;
+}
 
 pixfmt_e *pixfmt_get_supported_input_fmts(int *count)
 {

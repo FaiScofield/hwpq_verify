@@ -2,6 +2,7 @@ include_directories(${CMAKE_CURRENT_LIST_DIR}/include)
 include_directories(${CMAKE_CURRENT_LIST_DIR}/include/vop)
 include_directories(${CMAKE_CURRENT_LIST_DIR}/utils)
 include_directories(${CMAKE_CURRENT_LIST_DIR}/kernel)
+include_directories(${CMAKE_CURRENT_LIST_DIR}/pixfmt)
 
 ## set prebuilt libraries for module verification
 set(PREBUILT_LIB_SUFFIX "*.a")

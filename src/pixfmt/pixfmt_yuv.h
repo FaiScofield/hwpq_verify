@@ -79,11 +79,14 @@ typedef struct pixfmt_yuv_desc {
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv444i_vu24;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv444i_vu30;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv444i_xv30;
+extern const pixfmt_yuv_desc_s g_yuv_desc_yuv444i_10lsb;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv444p_yu24;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv444p_yv24;
+extern const pixfmt_yuv_desc_s g_yuv_desc_yuv444p_10lsb;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv444sp_nv24;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv444sp_nv42;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv444sp_nv30;
+extern const pixfmt_yuv_desc_s g_yuv_desc_yuv444sp_10lsb;
 
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_yuyv;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_yvyu;
@@ -94,15 +97,19 @@ extern const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_y212;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_y216;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv422p_yu16;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv422p_yv16;
+extern const pixfmt_yuv_desc_s g_yuv_desc_yuv422p_10lsb;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv422sp_nv16;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv422sp_nv61;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv422sp_nv20;
+extern const pixfmt_yuv_desc_s g_yuv_desc_yuv422sp_10lsb;
 
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv420p_yu12;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv420p_yv12;
+extern const pixfmt_yuv_desc_s g_yuv_desc_yuv420p_10lsb;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv420sp_nv12;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv420sp_nv21;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv420sp_nv15;
+extern const pixfmt_yuv_desc_s g_yuv_desc_yuv420sp_10lsb;
 
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv410p_yuv9;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv410p_yvu9;
