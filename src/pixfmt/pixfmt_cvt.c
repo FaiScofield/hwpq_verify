@@ -79,86 +79,20 @@ bool pixfmt_cvt_is_supported(pixfmt_e src_fmt, pixfmt_e dst_fmt)
     // if (!pixfmt_can_output(dst_fmt))
     //     return false;
 
-    pixfmt_e src_canonical = pixfmt_cvt_get_canonical(src_fmt);
-    pixfmt_e dst_canonical = pixfmt_cvt_get_canonical(dst_fmt);
+    // pixfmt_e src_canonical = pixfmt_get_common_fmt(src_fmt, PIXFMT_LAYOUT_PLANAR);
+    // pixfmt_e dst_canonical = pixfmt_get_common_fmt(dst_fmt, PIXFMT_LAYOUT_PLANAR);
 
-    return src_canonical != PIXFMT_INVALID && dst_canonical != PIXFMT_INVALID;
+    return false;
 }
 
-pixfmt_e pixfmt_cvt_get_intermediate_fmt(pixfmt_e src_fmt, pixfmt_e dst_fmt)
+
+int pixfmt_cvt_exec(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1)
 {
-    if (src_fmt == dst_fmt)
-        return src_fmt;
-
-    pixfmt_e src_canonical = pixfmt_get_common_fmt(src_fmt);
-    pixfmt_e dst_canonical = pixfmt_get_common_fmt(dst_fmt);
-
-    if (src_canonical != PIXFMT_INVALID && dst_canonical != PIXFMT_INVALID) {
-        if (src_canonical == dst_canonical) {
-            return src_canonical;
-        }
-        if (pixfmt_is_yuv(src_fmt) && pixfmt_is_yuv(dst_fmt)) {
-            return PIXFMT_YUV420P_YU12;
-        }
-        if (pixfmt_is_rgb(src_fmt) && pixfmt_is_rgb(dst_fmt)) {
-            return PIXFMT_RGB888;
-        }
-    }
-
-    return PIXFMT_INVALID;
+    return 0;
 }
 
-int pixfmt_cvt_exec(const pixfmt_cvt_info_s *ctx, const uint8_t *src, uint8_t *dst)
-{
-    if (!ctx || !src || !dst)
-        return -1;
-
-    if (ctx->src_fmt == ctx->dst_fmt) {
-        memcpy(dst, src, pixfmt_get_frame_size(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride));
-        return 0;
-    }
-
-    pixfmt_e src_canonical = pixfmt_cvt_get_canonical(ctx->src_fmt);
-    pixfmt_e dst_canonical = pixfmt_cvt_get_canonical(ctx->dst_fmt);
-
-    if (src_canonical == PIXFMT_INVALID || dst_canonical == PIXFMT_INVALID) {
-        return -1;
-    }
-
-    if (src_canonical == dst_canonical) {
-        return pixfmt_cvt_exec_same_canonical(ctx, src, dst);
-    }
-
-    return pixfmt_cvt_exec_different_canonical(ctx, src_canonical, dst_canonical, src, dst);
-}
-
-static int pixfmt_cvt_exec_same_canonical(const pixfmt_cvt_info_s *ctx, const uint8_t *src, uint8_t *dst)
-{
-    pixfmt_e inter_fmt = pixfmt_cvt_get_intermediate_fmt(ctx->src_fmt, ctx->dst_fmt);
-    if (inter_fmt == PIXFMT_INVALID)
-        return -1;
-
-    size_t src_size = pixfmt_get_frame_size(ctx->src_fmt, ctx->src_w, ctx->src_h, ctx->src_stride);
-    size_t dst_size = pixfmt_get_frame_size(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride);
-
-    if (ctx->src_fmt == ctx->dst_fmt) {
-        memcpy(dst, src, src_size);
-        return 0;
-    }
-
-    return -1;
-}
-
-static int pixfmt_cvt_exec_different_canonical(const pixfmt_cvt_info_s *ctx, pixfmt_e src_canonical,
-    pixfmt_e dst_canonical, const uint8_t *src, uint8_t *dst)
-{
-    size_t inter_size = pixfmt_get_frame_size(src_canonical, ctx->src_w, ctx->src_h, ctx->src_stride);
-    size_t dst_size = pixfmt_get_frame_size(ctx->dst_fmt, ctx->dst_w, ctx->dst_h, ctx->dst_stride);
-
-    return -1;
-}
-
-int pixfmt_cvt_rgb888_to_rgb565(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride)
+#if 0
+int pixfmt_cvt_rgb888_to_rgb565(const void *src, void *dst, int w, int h, int src_stride, int dst_stride)
 {
     for (int y = 0; y < h; y++) {
         const uint8_t *src_row = src + y * src_stride;
@@ -178,7 +112,7 @@ int pixfmt_cvt_rgb888_to_rgb565(const uint8_t *src, uint8_t *dst, int w, int h, 
     return 0;
 }
 
-int pixfmt_cvt_rgb565_to_rgb888(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride)
+int pixfmt_cvt_rgb565_to_rgb888(const void *src, void *dst, int w, int h, int src_stride, int dst_stride)
 {
     for (int y = 0; y < h; y++) {
         const uint16_t *src_row = (const uint16_t *)(src + y * src_stride);
@@ -199,7 +133,7 @@ int pixfmt_cvt_rgb565_to_rgb888(const uint8_t *src, uint8_t *dst, int w, int h, 
     return 0;
 }
 
-int pixfmt_cvt_rgb888_to_rgb332(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride)
+int pixfmt_cvt_rgb888_to_rgb332(const void *src, void *dst, int w, int h, int src_stride, int dst_stride)
 {
     for (int y = 0; y < h; y++) {
         const uint8_t *src_row = src + y * src_stride;
@@ -359,3 +293,4 @@ int pixfmt_cvt_yuv420p_to_rgb888(const uint8_t *src, uint8_t *dst, int w, int h,
 
     return 0;
 }
+#endif

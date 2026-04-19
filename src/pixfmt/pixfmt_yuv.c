@@ -213,6 +213,10 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_vyuy = {
     .is_line_variant = false,
 };
 
+const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_y210 = g_yuv_desc_yuv422i_yuyv;
+const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_y212 = g_yuv_desc_yuv422i_yuyv;
+const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_y216 = g_yuv_desc_yuv422i_yuyv;
+
 const pixfmt_yuv_desc_s g_yuv_desc_yuv422p_yu16 = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
@@ -564,20 +568,6 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422sp_tile4x4 = {
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_y210 = {
-    .sampling = PIXFMT_YUV_SAMPLING_422,
-    .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-
-    .order = PIXFMT_ORDER_YUYV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
 const pixfmt_yuv_desc_s g_yuv_desc_yuv420p = {
     .sampling = PIXFMT_YUV_SAMPLING_420,
     .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
@@ -901,19 +891,13 @@ bool pixfmt_yuv_desc_equal(const pixfmt_yuv_desc_s *desc1, const pixfmt_yuv_desc
 
 void pixfmt_yuv_desc_print(const pixfmt_yuv_desc_s *desc)
 {
-    if (!desc) {
-        printf("YUV Format: NULL\n");
-        return;
-    }
-
-    printf("YUV Format:\n");
-    printf("  Sampling: %s\n", pixfmt_yuv_sampling_name(desc->sampling));
-    printf("  Order: %s\n", pixfmt_uv_order_name(desc->order));
-    printf("  Tile: %s\n", desc->is_tile ? "Yes" : "No");
+    LOGI(" - Sampling: %s, sample ratios: %d/%d\n", pixfmt_yuv_sampling_name(desc->sampling), desc->uv_sample_ratio_ver,
+        desc->uv_sample_ratio_hor);
+    LOGI(" - Order: %s\n", pixfmt_uv_order_name(desc->order));
+    LOGI(" - Tile: %s\n", desc->is_tile ? "Yes" : "No");
     if (desc->is_tile) {
-        printf("  TileSize: %dx%d, Bytes: %d, Offset: %d\n", desc->tile_wid, desc->tile_hgt, desc->tile_bytes,
+        LOGI(" - TileSize: %dx%d, Bytes: %d, Offset: %d\n", desc->tile_wid, desc->tile_hgt, desc->tile_bytes,
             desc->tile_offset_uv);
     }
-    printf("  LineVariant: %s\n", desc->is_line_variant ? "Yes" : "No");
-    printf("  UV Ratio: V%d H%d\n", desc->uv_sample_ratio_ver, desc->uv_sample_ratio_hor);
+    LOGI(" - LineVariant: %s\n", desc->is_line_variant ? "Yes" : "No");
 }

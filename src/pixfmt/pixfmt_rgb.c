@@ -127,10 +127,10 @@ const char *pixfmt_rgb_order_name(pixfmt_rgb_order_e order)
 const char *pixfmt_alpha_pos_name(pixfmt_alpha_pos_e pos)
 {
     switch (pos) {
-    case PIXFMT_ALPHA_NONE: return "NoAlpha";
-    case PIXFMT_ALPHA_AT_LSB:  return "AlphaInLSM";
-    case PIXFMT_ALPHA_AT_MSB:  return "AlphaInMSB";
-    default:                return "UnknownAlphaPos";
+    case PIXFMT_ALPHA_NONE:   return "NoAlpha";
+    case PIXFMT_ALPHA_AT_LSB: return "AlphaInLSM";
+    case PIXFMT_ALPHA_AT_MSB: return "AlphaInMSB";
+    default:                  return "UnknownAlphaPos";
     }
 }
 
@@ -214,13 +214,7 @@ bool pixfmt_rgb_desc_equal(const pixfmt_rgb_desc_s *desc1, const pixfmt_rgb_desc
 
 void pixfmt_rgb_desc_print(const pixfmt_rgb_desc_s *desc)
 {
-    if (!desc) {
-        printf("RGB Format: NULL\n");
-        return;
-    }
-
-    printf("RGB Format:\n");
-    printf("  Order: %s\n", pixfmt_rgb_order_name(desc->order));
-    printf("  Alpha: %s\n", pixfmt_alpha_pos_name(desc->alpha_pos));
-    printf("  Bits: R%d G%d B%d A%d\n", desc->comp_bits[0], desc->comp_bits[1], desc->comp_bits[2], desc->comp_bits[3]);
+    LOGI(" - order: %d %s%s%s\n", desc->order, desc->alpha_pos == PIXFMT_ALPHA_AT_LSB ? "A" : "", pixfmt_rgb_order_name(desc->order),
+        desc->alpha_pos == PIXFMT_ALPHA_AT_MSB ? "A" : "");
+    LOGI(" - bits: R-%d G-%d B-%d A-%d\n", desc->comp_bits[0], desc->comp_bits[1], desc->comp_bits[2], desc->comp_bits[3]);
 }

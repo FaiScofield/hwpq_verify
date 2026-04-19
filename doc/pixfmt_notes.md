@@ -112,7 +112,7 @@
 | PIXFMT_YUV411P_YU11 | DRM_FORMAT_YUV411 | yuv411p8 / yu11 / yuv411p_yu11 | 12 | 8 | 3 | PLANAR | NO_PADDING | false | sampling: 4:1:1, order: yuv |
 | PIXFMT_YUV411P_YV11 | DRM_FORMAT_YVU411 | yvu411p8 / yv11 / yuv411p_yv11 | 12 | 8 | 3 | PLANAR | NO_PADDING | false | sampling: 4:1:1, order: yvu |
 | PIXFMT_YUV410P_YUV9 | DRM_FORMAT_YUV410 | yuv410p8 / yuv9 / yuv410p_yuv9 | 9 | 8 | 3 | PLANAR | NO_PADDING | false | sampling: 4:1:0, order: yuv |
-_YUV410_YUV410P_YVU9 | DRM_FORMAT_YVU410 | yvu410p8 / yvu9 / yuv410p_yvu9 | 9 | 8 | 33 | PLANAR | NO_PADDING | false | sampling: 4:1:0, order: yvu |
+| PIXFMT_YUV410P_YVU9 | DRM_FORMAT_YVU410 | yvu410p8 / yvu9 / yuv410p_yvu9 | 9 | 8 | 33 | PLANAR | NO_PADDING | false | sampling: 4:1:0, order: yvu |
 
 ### 2.3 YUV400 (Grayscale) 格式
 

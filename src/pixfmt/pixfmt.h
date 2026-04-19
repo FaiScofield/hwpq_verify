@@ -163,9 +163,15 @@ typedef struct pixfmt_attr {
     const char *alias;
 } pixfmt_attr_s;
 
+extern const pixfmt_attr_s g_pixfmt_attr_table[PIXFMT_MAX];
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+extern const char *pixfmt_get_extern_str(pixfmt_e fmt);
+extern const char *pixfmt_get_layout_str(pixfmt_layout_e layout);
+extern const char *pixfmt_get_padding_str(pixfmt_padding_pos_e padpos);
 
 /* ========== Format query functions ========== */
 extern const pixfmt_attr_s *pixfmt_get_attr(pixfmt_e fmt);
@@ -199,6 +205,8 @@ extern bool pixfmt_is_rgb(pixfmt_e fmt);
 extern bool pixfmt_is_bgr_order(pixfmt_e fmt);
 extern bool pixfmt_has_alpha(pixfmt_e fmt);
 extern int pixfmt_get_channel_bits(pixfmt_e fmt, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *a);
+
+extern void pixfmt_dump_attr(const pixfmt_attr_s *attr);
 
 /* ========== Conversion capability query ========== */
 extern pixfmt_e pixfmt_init_common_fmt_rgb(int depth, bool has_alpha);

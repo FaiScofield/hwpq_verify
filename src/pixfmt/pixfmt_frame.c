@@ -32,7 +32,7 @@ bool pixfmt_fill_frame_attr(pixfmt_frame_s *frame)
     frame->vwid = pixfmt_get_min_align_width(frame->fmt, frame->wid, NULL);
     frame->vhgt = pixfmt_get_min_align_height(frame->fmt, frame->hgt, NULL);
     frame->pitch = row_pitches[0];
-    frame->size = pixfmt_get_frame_size(frame->fmt, frame->vwid, frame->vhgt, frame->pitch);
+    frame->size = pixfmt_get_frame_size(frame->fmt, frame->vwid, frame->vhgt, frame->pitch, NULL);
 
     return true;
 }
@@ -67,7 +67,7 @@ bool pixfmt_check_frame_valid(const pixfmt_frame_s *frame)
         return false;
     }
 
-    size_t size = pixfmt_get_frame_size(frame->fmt, frame->vwid, frame->vhgt, frame->pitch);
+    size_t size = pixfmt_get_frame_size(frame->fmt, frame->vwid, frame->vhgt, frame->pitch, NULL);
     if (frame->size < size) {
         LOGW("invalid frame since frame size=%zu shoule >= %zu for current size!\n", frame->size, size);
         return false;

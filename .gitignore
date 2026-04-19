@@ -1,7 +1,8 @@
-.vscode
+.vscode/
+.trae/
 __pycache__
-*.lnk
 output/
 project/build_*/
 rockchip/
 prebuilt/
+*.lnk

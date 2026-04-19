@@ -131,20 +131,18 @@ extern const pixfmt_yuv_desc_s g_yuv_desc_yuv422sp_tile4x4;
 extern const pixfmt_yuv_desc_s g_yuv_desc_yuv420sp_tile4x4;
 
 /* forward declaration */
-typedef struct pixfmt_attr pixfmt_attr_s;
+struct pixfmt_attr;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/**
- * YUV format name strings */
+
+/** YUV format name strings */
 extern const char *pixfmt_yuv_sampling_name(pixfmt_yuv_sampling_e sampling);
 extern const char *pixfmt_uv_order_name(pixfmt_uv_order_e order);
 
-/**
- * YUV format information query functions
- */
+/** YUV format information query functions */
 extern bool pixfmt_yuv_desc_is_valid(const pixfmt_yuv_desc_s *desc);
 extern bool pixfmt_yuv_desc_is_uv_order(const pixfmt_yuv_desc_s *desc);
 extern bool pixfmt_yuv_desc_is_tile(const pixfmt_yuv_desc_s *desc);
@@ -153,26 +151,20 @@ extern bool pixfmt_yuv_desc_is_line_variant(const pixfmt_yuv_desc_s *desc);
 extern int pixfmt_yuv_desc_get_tile_size(const pixfmt_yuv_desc_s *desc, int *tile_w, int *tile_h);
 extern int pixfmt_yuv_desc_get_chroma_subsampling(const pixfmt_yuv_desc_s *desc, int *h_sub, int *v_sub);
 
-/**
- * YUV format calculation helper functions
- */
-extern int pixfmt_yuv_get_min_align_width(const pixfmt_attr_s *attr, int wid, int *retAlign);
-extern int pixfmt_yuv_get_min_align_height(const pixfmt_attr_s *attr, int hgt, int *retAlign);
-extern int pixfmt_yuv_get_min_pitches(const pixfmt_attr_s *attr, int wid, int *retPitchesx3);
-extern size_t pixfmt_yuv_get_framesize(const pixfmt_attr_s *attr, int w, int h, int rowpitch, size_t *retPlaneSizesx3);
+/** YUV format calculation helper functions */
+extern int pixfmt_yuv_get_min_align_width(const struct pixfmt_attr *attr, int wid, int *retAlign);
+extern int pixfmt_yuv_get_min_align_height(const struct pixfmt_attr *attr, int hgt, int *retAlign);
+extern int pixfmt_yuv_get_min_pitches(const struct pixfmt_attr *attr, int wid, int *retPitchesx3);
+extern size_t pixfmt_yuv_get_framesize(const struct pixfmt_attr *attr, int w, int h, int rowpitch, size_t *retPlaneSizesx3);
 extern uint8_t pixfmt_yuv_desc_calc_tile_bytes(const pixfmt_yuv_desc_s *desc);
 
 extern size_t pixfmt_yuv_desc_calc_framesize(const pixfmt_yuv_desc_s *desc, int w, int h, int stride);
 extern size_t pixfmt_yuv_desc_calc_planesize(const pixfmt_yuv_desc_s *desc, int plane_idx, int w, int h, int stride);
 
-/**
- * YUV format comparison function
- */
+/** YUV format comparison function */
 extern bool pixfmt_yuv_desc_equal(const pixfmt_yuv_desc_s *desc1, const pixfmt_yuv_desc_s *desc2);
 
-/**
- * YUV format information print function (for debugging)
- */
+/** YUV format information print function (for debugging) */
 extern void pixfmt_yuv_desc_print(const pixfmt_yuv_desc_s *desc);
 
 #ifdef __cplusplus

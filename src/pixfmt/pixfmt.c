@@ -15,7 +15,7 @@
 
 /**
  * Format description table */
-static const pixfmt_attr_s g_pixfmt_attr_table[] =
+const pixfmt_attr_s g_pixfmt_attr_table[PIXFMT_MAX] =
     {
         /* RGB format - 8bit */
         [PIXFMT_RGB888] =
@@ -292,7 +292,7 @@ static const pixfmt_attr_s g_pixfmt_attr_table[] =
                              .bpp = 64,
                              .depth = 10,
                              .nb_comps = 4,
-                             .full_name = "rgba10lsb",
+                             .full_name = "rgba10l",
                              .short_name = "rgba10l",
                              .alias = NULL,
                              },
@@ -1051,6 +1051,38 @@ static const pixfmt_attr_s g_pixfmt_attr_table[] =
 
 #define PIXFMT_ATTR_TABLE_SIZE (sizeof(g_pixfmt_attr_table) / sizeof(pixfmt_attr_s))
 
+
+const char *pixfmt_get_extern_str(pixfmt_e fmt)
+{
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    if (attr->base_type == PIXFMT_TYPE_RGB)
+        return "rgb";
+    if (attr->base_type == PIXFMT_TYPE_YUV)
+        return "yuv";
+    return "InvalidFmt";
+}
+
+const char *pixfmt_get_layout_str(pixfmt_layout_e layout)
+{
+    switch (layout) {
+    case PIXFMT_LAYOUT_INTERLEAVED: return "Interleaved";
+    case PIXFMT_LAYOUT_PLANAR:      return "Planar";
+    case PIXFMT_LAYOUT_SEMIPLANAR:  return "Semi-Planar";
+    case PIXFMT_LAYOUT_TILE:        return "Sp-Tile";
+    case PIXFMT_LAYOUT_IRREGULAR:   return "Irregular";
+    default:                        return "InvalidLayout";
+    }
+}
+const char *pixfmt_get_padding_str(pixfmt_padding_pos_e padpos)
+{
+    switch (padpos) {
+    case PIXFMT_NO_PADDING:     return "NoPadding";
+    case PIXFMT_PADDING_AT_MSB: return "PaddingAtMSB";
+    case PIXFMT_PADDING_AT_LSB: return "PaddingAtLSB";
+    }
+}
+
+
 const pixfmt_attr_s *pixfmt_get_attr(pixfmt_e fmt)
 {
     if (fmt >= 0 && fmt < PIXFMT_MAX) {
@@ -1073,54 +1105,54 @@ const pixfmt_attr_s *pixfmt_get_attr_by_name(const char *name)
             return &g_pixfmt_attr_table[i];
         }
     }
-    LOGE("pixfmt_get_attr_by_name: name %s not found!", name);
+    LOGE("pixfmt_get_attr_by_name: name %s not found!\n", name);
     return NULL;
 }
 
 const char *pixfmt_full_name(pixfmt_e fmt)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    return desc ? desc->full_name : "InvalidFmt";
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    return attr ? attr->full_name : "InvalidFmt";
 }
 
 const char *pixfmt_short_name(pixfmt_e fmt)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    return desc ? desc->short_name : "InvalidFmt";
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    return attr ? attr->short_name : "InvalidFmt";
 }
 
 const char *pixfmt_alias(pixfmt_e fmt)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    return desc ? desc->alias : "InvalidFmt";
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    return attr ? attr->alias : "InvalidFmt";
 }
 
 int pixfmt_bpp(pixfmt_e fmt)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    return desc ? desc->bpp : 0;
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    return attr ? attr->bpp : 0;
 }
 
 int pixfmt_depth(pixfmt_e fmt)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    return desc ? desc->depth : 0;
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    return attr ? attr->depth : 0;
 }
 
 int pixfmt_nb_comps(pixfmt_e fmt)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    return desc ? desc->nb_comps : 0;
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    return attr ? attr->nb_comps : 0;
 }
 
 int pixfmt_nb_planes(pixfmt_e fmt)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    if (!desc)
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    if (!attr)
         return 0;
 
-    switch (desc->layout) {
-    case PIXFMT_LAYOUT_PLANAR:      return desc->nb_comps;
+    switch (attr->layout) {
+    case PIXFMT_LAYOUT_PLANAR:      return attr->nb_comps;
     case PIXFMT_LAYOUT_SEMIPLANAR:  return 2;
     case PIXFMT_LAYOUT_INTERLEAVED:
     case PIXFMT_LAYOUT_TILE:
@@ -1183,70 +1215,85 @@ size_t pixfmt_get_frame_size(pixfmt_e fmt, int wid, int hgt, int rowpitch, size_
 
 bool pixfmt_is_yuv(pixfmt_e fmt)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    return desc ? desc->base_type == PIXFMT_TYPE_YUV : false;
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    return attr ? attr->base_type == PIXFMT_TYPE_YUV : false;
 }
 
 bool pixfmt_is_rgb(pixfmt_e fmt)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    return desc ? desc->base_type == PIXFMT_TYPE_RGB : false;
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    return attr ? attr->base_type == PIXFMT_TYPE_RGB : false;
 }
 
 bool pixfmt_is_uv_order(pixfmt_e fmt)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    if (!desc || desc->base_type != PIXFMT_TYPE_YUV)
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    if (!attr || attr->base_type != PIXFMT_TYPE_YUV)
         return false;
-    return pixfmt_yuv_desc_is_uv_order(desc->desc.yuv);
+    return pixfmt_yuv_desc_is_uv_order(attr->desc.yuv);
 }
 
 bool pixfmt_is_tile(pixfmt_e fmt)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    if (!desc || desc->base_type != PIXFMT_TYPE_YUV)
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    if (!attr || attr->base_type != PIXFMT_TYPE_YUV)
         return false;
-    return pixfmt_yuv_desc_is_tile(desc->desc.yuv);
+    return pixfmt_yuv_desc_is_tile(attr->desc.yuv);
 }
 
 bool pixfmt_is_bgr_order(pixfmt_e fmt)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    if (!desc || desc->base_type != PIXFMT_TYPE_RGB)
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    if (!attr || attr->base_type != PIXFMT_TYPE_RGB)
         return false;
-    return pixfmt_rgb_desc_is_bgr_order(desc->desc.rgb);
+    return pixfmt_rgb_desc_is_bgr_order(attr->desc.rgb);
 }
 
 bool pixfmt_has_alpha(pixfmt_e fmt)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    if (!desc || desc->base_type != PIXFMT_TYPE_RGB)
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    if (!attr || attr->base_type != PIXFMT_TYPE_RGB)
         return false;
-    return pixfmt_rgb_desc_has_alpha(desc->desc.rgb);
+    return pixfmt_rgb_desc_has_alpha(attr->desc.rgb);
 }
 
 int pixfmt_get_channel_bits(pixfmt_e fmt, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *a)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    if (!desc || desc->base_type != PIXFMT_TYPE_RGB)
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    if (!attr || attr->base_type != PIXFMT_TYPE_RGB)
         return 0;
-    return pixfmt_rgb_desc_get_channel_bits(desc->desc.rgb, r, g, b, a);
+    return pixfmt_rgb_desc_get_channel_bits(attr->desc.rgb, r, g, b, a);
+}
+
+void pixfmt_dump_attr(const pixfmt_attr_s *attr)
+{
+    LOGI("dump format %d attr below:\n", attr->fmt_id);
+    LOGI(" - name: %s / %s / %s\n", attr->full_name, attr->short_name, attr->alias);
+    LOGI(" - base_type: %d(%s), layout: %s, padding: %s\n", attr->base_type, pixfmt_get_extern_str(attr->fmt_id),
+        pixfmt_get_layout_str(attr->layout), pixfmt_get_padding_str(attr->padding_pos));
+    LOGI(" - bpp: %d, depth: %d, nb_comps: %d, is_bitpacked: %d\n", attr->bpp, attr->depth, attr->nb_comps, attr->is_bitpacked);
+    if (attr->base_type == PIXFMT_TYPE_RGB) {
+        pixfmt_rgb_desc_print(attr->desc.rgb);
+    }
+    else if (attr->base_type == PIXFMT_TYPE_YUV) {
+        pixfmt_yuv_desc_print(attr->desc.yuv);
+    }
 }
 
 int pixfmt_get_tile_size(pixfmt_e fmt, int *tile_w, int *tile_h)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    if (!desc || desc->base_type != PIXFMT_TYPE_YUV)
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    if (!attr || attr->base_type != PIXFMT_TYPE_YUV)
         return -1;
-    return pixfmt_yuv_desc_get_tile_size(desc->desc.yuv, tile_w, tile_h);
+    return pixfmt_yuv_desc_get_tile_size(attr->desc.yuv, tile_w, tile_h);
 }
 
 int pixfmt_get_chroma_subsampling(pixfmt_e fmt, int *h_sub, int *v_sub)
 {
-    const pixfmt_attr_s *desc = pixfmt_get_attr(fmt);
-    if (!desc || desc->base_type != PIXFMT_TYPE_YUV)
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    if (!attr || attr->base_type != PIXFMT_TYPE_YUV)
         return -1;
-    return pixfmt_yuv_desc_get_chroma_subsampling(desc->desc.yuv, h_sub, v_sub);
+    return pixfmt_yuv_desc_get_chroma_subsampling(attr->desc.yuv, h_sub, v_sub);
 }
 
 pixfmt_e pixfmt_init_common_fmt_rgb(int depth, bool has_alpha)
