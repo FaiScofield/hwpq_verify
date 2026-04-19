@@ -27,97 +27,91 @@ const pixfmt_rgb_desc_s g_rgb_desc_bgr888 = {
 
 const pixfmt_rgb_desc_s g_rgb_desc_rgba8888 = {
     .order = PIXFMT_RGB_ORDER_RGB,
-    .alpha_pos = PIXFMT_ALPHA_LSB,
+    .alpha_pos = PIXFMT_ALPHA_AT_LSB,
     .comp_bits = {8, 8, 8, 8},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_bgra8888 = {
     .order = PIXFMT_RGB_ORDER_BGR,
-    .alpha_pos = PIXFMT_ALPHA_LSB,
+    .alpha_pos = PIXFMT_ALPHA_AT_LSB,
     .comp_bits = {8, 8, 8, 8},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_argb8888 = {
     .order = PIXFMT_RGB_ORDER_RGB,
-    .alpha_pos = PIXFMT_ALPHA_MSB,
+    .alpha_pos = PIXFMT_ALPHA_AT_MSB,
     .comp_bits = {8, 8, 8, 8},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_abgr8888 = {
     .order = PIXFMT_RGB_ORDER_BGR,
-    .alpha_pos = PIXFMT_ALPHA_MSB,
+    .alpha_pos = PIXFMT_ALPHA_AT_MSB,
     .comp_bits = {8, 8, 8, 8},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_rgb332 = {
-    .order = PIXFMT_RGB_ORDER_RGB,
+    .order = PIXFMT_RGB_ORDER_BGR,
     .alpha_pos = PIXFMT_ALPHA_NONE,
     .comp_bits = {3, 3, 2, 0},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_bgr233 = {
-    .order = PIXFMT_RGB_ORDER_BGR,
+    .order = PIXFMT_RGB_ORDER_RGB,
     .alpha_pos = PIXFMT_ALPHA_NONE,
-    .comp_bits = {2, 3, 3, 0},
+    .comp_bits = {3, 3, 2, 0},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_rgb565 = {
-    .order = PIXFMT_RGB_ORDER_RGB,
+    .order = PIXFMT_RGB_ORDER_BGR,
     .alpha_pos = PIXFMT_ALPHA_NONE,
     .comp_bits = {5, 6, 5, 0},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_bgr565 = {
-    .order = PIXFMT_RGB_ORDER_BGR,
+    .order = PIXFMT_RGB_ORDER_RGB,
     .alpha_pos = PIXFMT_ALPHA_NONE,
     .comp_bits = {5, 6, 5, 0},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_rgba5551 = {
-    .order = PIXFMT_RGB_ORDER_RGB,
-    .alpha_pos = PIXFMT_ALPHA_LSB,
+    .order = PIXFMT_RGB_ORDER_BGR,
+    .alpha_pos = PIXFMT_ALPHA_AT_LSB,
     .comp_bits = {5, 5, 5, 1},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_abgr1555 = {
-    .order = PIXFMT_RGB_ORDER_BGR,
-    .alpha_pos = PIXFMT_ALPHA_MSB,
+    .order = PIXFMT_RGB_ORDER_RGB,
+    .alpha_pos = PIXFMT_ALPHA_AT_MSB,
     .comp_bits = {5, 5, 5, 1},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_rgba4444 = {
-    .order = PIXFMT_RGB_ORDER_RGB,
-    .alpha_pos = PIXFMT_ALPHA_LSB,
+    .order = PIXFMT_RGB_ORDER_BGR,
+    .alpha_pos = PIXFMT_ALPHA_AT_LSB,
     .comp_bits = {4, 4, 4, 4},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_abgr4444 = {
-    .order = PIXFMT_RGB_ORDER_BGR,
-    .alpha_pos = PIXFMT_ALPHA_MSB,
+    .order = PIXFMT_RGB_ORDER_RGB,
+    .alpha_pos = PIXFMT_ALPHA_AT_MSB,
     .comp_bits = {4, 4, 4, 4},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_rgba1010102 = {
-    .order = PIXFMT_RGB_ORDER_RGB,
-    .alpha_pos = PIXFMT_ALPHA_LSB,
-    .comp_bits = {10, 10, 10, 2},
-};
-
-const pixfmt_rgb_desc_s g_rgb_desc_abgr1010102 = {
     .order = PIXFMT_RGB_ORDER_BGR,
-    .alpha_pos = PIXFMT_ALPHA_MSB,
+    .alpha_pos = PIXFMT_ALPHA_AT_LSB,
     .comp_bits = {10, 10, 10, 2},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_abgr2101010 = {
-    .order = PIXFMT_RGB_ORDER_BGR,
-    .alpha_pos = PIXFMT_ALPHA_MSB,
+    .order = PIXFMT_RGB_ORDER_RGB,
+    .alpha_pos = PIXFMT_ALPHA_AT_MSB,
     .comp_bits = {10, 10, 10, 2},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_rgba10lsb = {
     .order = PIXFMT_RGB_ORDER_RGB,
-    .alpha_pos = PIXFMT_ALPHA_MSB,
+    .alpha_pos = PIXFMT_ALPHA_AT_MSB,
     .comp_bits = {10, 10, 10, 10},
 };
 
@@ -134,8 +128,8 @@ const char *pixfmt_alpha_pos_name(pixfmt_alpha_pos_e pos)
 {
     switch (pos) {
     case PIXFMT_ALPHA_NONE: return "NoAlpha";
-    case PIXFMT_ALPHA_LSB:  return "AlphaInLSM";
-    case PIXFMT_ALPHA_MSB:  return "AlphaInMSB";
+    case PIXFMT_ALPHA_AT_LSB:  return "AlphaInLSM";
+    case PIXFMT_ALPHA_AT_MSB:  return "AlphaInMSB";
     default:                return "UnknownAlphaPos";
     }
 }

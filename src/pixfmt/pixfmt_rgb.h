@@ -25,8 +25,8 @@ typedef enum pixfmt_rgb_order {
  */
 typedef enum pixfmt_alpha_pos {
     PIXFMT_ALPHA_NONE,
-    PIXFMT_ALPHA_LSB,
-    PIXFMT_ALPHA_MSB,
+    PIXFMT_ALPHA_AT_LSB,
+    PIXFMT_ALPHA_AT_MSB,
 } pixfmt_alpha_pos_e;
 
 /**
