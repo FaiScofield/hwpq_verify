@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 
-#define COMMON_VERIFY_IMG_FMT_MASK 0x0000030F
+#define PQVF_IMG_FMT_MASK 0x003F
 
 /* image format definition */
 enum common_verify_imgfmt {
