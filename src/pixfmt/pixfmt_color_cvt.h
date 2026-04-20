@@ -20,5 +20,6 @@ typedef enum pixfmt_colorspcae {
     PIXFMT_CLRSPC_YUV_2020F,
 } pixfmt_colorspcae_e;
 
+extern const char *pixfmt_colorspcae_name(pixfmt_colorspcae_e clrspc);
 
 #endif /* _PIXFMT_COLOR_H_ */

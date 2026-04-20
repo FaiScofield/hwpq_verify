@@ -96,7 +96,7 @@ extern bool pixfmt_rgb_desc_equal(const pixfmt_rgb_desc_s *desc1, const pixfmt_r
 /**
  * RGB format information print function (for debugging)
  */
-extern void pixfmt_rgb_desc_print(const pixfmt_rgb_desc_s *desc);
+extern void pixfmt_rgb_dump_desc(const pixfmt_rgb_desc_s *desc);
 
 #ifdef __cplusplus
 }

@@ -44,5 +44,7 @@ extern bool pixfmt_check_frame_valid(const pixfmt_frame_s *frame);
 extern void *pixfmt_get_plane_addr(const pixfmt_frame_s *frame, int plane_idx, void **retPlaneAddrsx3);
 extern size_t pixfmt_get_plane_size(const pixfmt_frame_s *frame, int plane_idx, size_t *retPlaneSizesx3);
 
+/// @brief: Dump the frame attributes
+extern void pixfmt_dump_frame_attr(const pixfmt_frame_s *frame);
 
 #endif /* _PIXFMT_FRAME_H_ */

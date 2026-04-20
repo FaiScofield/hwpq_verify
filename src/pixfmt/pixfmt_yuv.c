@@ -14,7 +14,7 @@
 #include <assert.h>
 // #include <math.h>
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv444i_vu24 = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv444_yuv = {
     .sampling = PIXFMT_YUV_SAMPLING_444,
     .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
@@ -27,11 +27,11 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv444i_vu24 = {
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv444i_vu30 = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv444_yvu = {
     .sampling = PIXFMT_YUV_SAMPLING_444,
     .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
+    .order = PIXFMT_ORDER_YVU,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -40,7 +40,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv444i_vu30 = {
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv444i_xv30 = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv444_uyv = {
     .sampling = PIXFMT_YUV_SAMPLING_444,
     .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
@@ -53,115 +53,10 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv444i_xv30 = {
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv444p_yu24 = {
-    .sampling = PIXFMT_YUV_SAMPLING_444,
-    .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv444p_yv24 = {
-    .sampling = PIXFMT_YUV_SAMPLING_444,
-    .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YVU,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv444sp_nv24 = {
-    .sampling = PIXFMT_YUV_SAMPLING_444,
-    .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv444sp_nv42 = {
-    .sampling = PIXFMT_YUV_SAMPLING_444,
-    .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YVU,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv444sp_nv30 = {
-    .sampling = PIXFMT_YUV_SAMPLING_444,
-    .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv444i_10lsb = {
-    .sampling = PIXFMT_YUV_SAMPLING_444,
-    .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv444p_10lsb = {
-    .sampling = PIXFMT_YUV_SAMPLING_444,
-    .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv444sp_10lsb = {
-    .sampling = PIXFMT_YUV_SAMPLING_444,
-    .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_yuyv = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv422_yuyv = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-
     .order = PIXFMT_ORDER_YUYV,
     .is_tile = false,
     .tile_wid = 0,
@@ -171,11 +66,10 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_yuyv = {
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_yvyu = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv422_yvyu = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-
     .order = PIXFMT_ORDER_YVYU,
     .is_tile = false,
     .tile_wid = 0,
@@ -185,11 +79,10 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_yvyu = {
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_uyvy = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv422_uyvy = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-
     .order = PIXFMT_ORDER_UYVY,
     .is_tile = false,
     .tile_wid = 0,
@@ -199,11 +92,10 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_uyvy = {
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_vyuy = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv422_vyuy = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-
     .order = PIXFMT_ORDER_VYUY,
     .is_tile = false,
     .tile_wid = 0,
@@ -213,11 +105,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_vyuy = {
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_y210 = g_yuv_desc_yuv422i_yuyv;
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_y212 = g_yuv_desc_yuv422i_yuyv;
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422i_y216 = g_yuv_desc_yuv422i_yuyv;
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422p_yu16 = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv422_yuv = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
@@ -230,7 +118,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422p_yu16 = {
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422p_yv16 = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv422_yvu = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
@@ -243,72 +131,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422p_yv16 = {
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422sp_nv16 = {
-    .sampling = PIXFMT_YUV_SAMPLING_422,
-    .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422sp_nv61 = {
-    .sampling = PIXFMT_YUV_SAMPLING_422,
-    .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YVU,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422sp_nv20 = {
-    .sampling = PIXFMT_YUV_SAMPLING_422,
-    .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422p_10lsb = {
-    .sampling = PIXFMT_YUV_SAMPLING_422,
-    .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422sp_10lsb = {
-    .sampling = PIXFMT_YUV_SAMPLING_422,
-    .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv420p_yu12 = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv420_yuv = {
     .sampling = PIXFMT_YUV_SAMPLING_420,
     .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV420_SAMPLE_RATIO_HOR,
@@ -321,7 +144,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv420p_yu12 = {
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv420p_yv12 = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv420_yvu = {
     .sampling = PIXFMT_YUV_SAMPLING_420,
     .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV420_SAMPLE_RATIO_HOR,
@@ -334,98 +157,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv420p_yv12 = {
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv420sp_nv12 = {
-    .sampling = PIXFMT_YUV_SAMPLING_420,
-    .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV420_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv420sp_nv21 = {
-    .sampling = PIXFMT_YUV_SAMPLING_420,
-    .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV420_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YVU,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv420sp_nv15 = {
-    .sampling = PIXFMT_YUV_SAMPLING_420,
-    .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV420_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv420p_10lsb = {
-    .sampling = PIXFMT_YUV_SAMPLING_420,
-    .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV420_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv420sp_10lsb = {
-    .sampling = PIXFMT_YUV_SAMPLING_420,
-    .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV420_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv410p_yuv9 = {
-    .sampling = PIXFMT_YUV_SAMPLING_410,
-    .uv_sample_ratio_ver = PIXFMT_YUV410_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV410_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv410p_yvu9 = {
-    .sampling = PIXFMT_YUV_SAMPLING_410,
-    .uv_sample_ratio_ver = PIXFMT_YUV410_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV410_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YVU,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv411p_yu11 = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv411_yuv = {
     .sampling = PIXFMT_YUV_SAMPLING_411,
     .uv_sample_ratio_ver = PIXFMT_YUV411_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV411_SAMPLE_RATIO_HOR,
@@ -438,7 +170,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv411p_yu11 = {
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv411p_yv11 = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv411_yvu = {
     .sampling = PIXFMT_YUV_SAMPLING_411,
     .uv_sample_ratio_ver = PIXFMT_YUV411_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV411_SAMPLE_RATIO_HOR,
@@ -451,7 +183,33 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv411p_yv11 = {
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv400_r1 = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv410_yuv = {
+    .sampling = PIXFMT_YUV_SAMPLING_410,
+    .uv_sample_ratio_ver = PIXFMT_YUV410_SAMPLE_RATIO_VER,
+    .uv_sample_ratio_hor = PIXFMT_YUV410_SAMPLE_RATIO_HOR,
+    .order = PIXFMT_ORDER_YUV,
+    .is_tile = false,
+    .tile_wid = 0,
+    .tile_hgt = 0,
+    .tile_bytes = 0,
+    .tile_offset_uv = 0,
+    .is_line_variant = false,
+};
+
+const pixfmt_yuv_desc_s g_yuv_desc_yuv410_yvu = {
+    .sampling = PIXFMT_YUV_SAMPLING_410,
+    .uv_sample_ratio_ver = PIXFMT_YUV410_SAMPLE_RATIO_VER,
+    .uv_sample_ratio_hor = PIXFMT_YUV410_SAMPLE_RATIO_HOR,
+    .order = PIXFMT_ORDER_YVU,
+    .is_tile = false,
+    .tile_wid = 0,
+    .tile_hgt = 0,
+    .tile_bytes = 0,
+    .tile_offset_uv = 0,
+    .is_line_variant = false,
+};
+
+const pixfmt_yuv_desc_s g_yuv_desc_yuv400 = {
     .sampling = PIXFMT_YUV_SAMPLING_400,
     .uv_sample_ratio_ver = PIXFMT_YUV400_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV400_SAMPLE_RATIO_HOR,
@@ -464,85 +222,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv400_r1 = {
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv400_r2 = {
-    .sampling = PIXFMT_YUV_SAMPLING_400,
-    .uv_sample_ratio_ver = PIXFMT_YUV400_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV400_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv400_r4 = {
-    .sampling = PIXFMT_YUV_SAMPLING_400,
-    .uv_sample_ratio_ver = PIXFMT_YUV400_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV400_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv400_r8 = {
-    .sampling = PIXFMT_YUV_SAMPLING_400,
-    .uv_sample_ratio_ver = PIXFMT_YUV400_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV400_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv400_r10 = {
-    .sampling = PIXFMT_YUV_SAMPLING_400,
-    .uv_sample_ratio_ver = PIXFMT_YUV400_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV400_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv400_r12 = {
-    .sampling = PIXFMT_YUV_SAMPLING_400,
-    .uv_sample_ratio_ver = PIXFMT_YUV400_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV400_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv400_r16 = {
-    .sampling = PIXFMT_YUV_SAMPLING_400,
-    .uv_sample_ratio_ver = PIXFMT_YUV400_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV400_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv444sp_tile4x4 = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv444_tile4x4 = {
     .sampling = PIXFMT_YUV_SAMPLING_444,
     .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
@@ -551,11 +231,11 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv444sp_tile4x4 = {
     .tile_wid = 4,
     .tile_hgt = 4,
     .tile_bytes = 48,
-    .tile_offset_uv = 0,
+    .tile_offset_uv = 16,
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422sp_tile4x4 = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv422_tile4x4 = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
@@ -564,37 +244,11 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422sp_tile4x4 = {
     .tile_wid = 4,
     .tile_hgt = 4,
     .tile_bytes = 32,
-    .tile_offset_uv = 0,
+    .tile_offset_uv = 16,
     .is_line_variant = false,
 };
 
-const pixfmt_yuv_desc_s g_yuv_desc_yuv420p = {
-    .sampling = PIXFMT_YUV_SAMPLING_420,
-    .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV420_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv422p = {
-    .sampling = PIXFMT_YUV_SAMPLING_422,
-    .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
-    .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
-    .is_tile = false,
-    .tile_wid = 0,
-    .tile_hgt = 0,
-    .tile_bytes = 0,
-    .tile_offset_uv = 0,
-    .is_line_variant = false,
-};
-
-const pixfmt_yuv_desc_s g_yuv_desc_yuv420sp_tile4x4 = {
+const pixfmt_yuv_desc_s g_yuv_desc_yuv420_tile4x4 = {
     .sampling = PIXFMT_YUV_SAMPLING_420,
     .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV420_SAMPLE_RATIO_HOR,
@@ -603,9 +257,10 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv420sp_tile4x4 = {
     .tile_wid = 4,
     .tile_hgt = 4,
     .tile_bytes = 24,
-    .tile_offset_uv = 0,
+    .tile_offset_uv = 16,
     .is_line_variant = false,
 };
+
 
 const char *pixfmt_yuv_sampling_name(pixfmt_yuv_sampling_e sampling)
 {
@@ -889,7 +544,7 @@ bool pixfmt_yuv_desc_equal(const pixfmt_yuv_desc_s *desc1, const pixfmt_yuv_desc
            desc1->is_line_variant == desc2->is_line_variant;
 }
 
-void pixfmt_yuv_desc_print(const pixfmt_yuv_desc_s *desc)
+void pixfmt_yuv_dump_desc(const pixfmt_yuv_desc_s *desc)
 {
     LOGI(" - Sampling: %s, sample ratios: %d/%d\n", pixfmt_yuv_sampling_name(desc->sampling), desc->uv_sample_ratio_ver,
         desc->uv_sample_ratio_hor);

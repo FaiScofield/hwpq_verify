@@ -212,7 +212,7 @@ bool pixfmt_rgb_desc_equal(const pixfmt_rgb_desc_s *desc1, const pixfmt_rgb_desc
            memcmp(desc1->comp_bits, desc2->comp_bits, 4) == 0;
 }
 
-void pixfmt_rgb_desc_print(const pixfmt_rgb_desc_s *desc)
+void pixfmt_rgb_dump_desc(const pixfmt_rgb_desc_s *desc)
 {
     LOGI(" - order: %d %s%s%s\n", desc->order, desc->alpha_pos == PIXFMT_ALPHA_AT_LSB ? "A" : "", pixfmt_rgb_order_name(desc->order),
         desc->alpha_pos == PIXFMT_ALPHA_AT_MSB ? "A" : "");

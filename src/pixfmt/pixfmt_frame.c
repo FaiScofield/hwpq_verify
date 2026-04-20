@@ -135,3 +135,14 @@ size_t pixfmt_get_plane_size(const pixfmt_frame_s *frame, int plane_idx, size_t 
 
     return plane_sizes[plane_idx];
 }
+
+void pixfmt_dump_frame_attr(const pixfmt_frame_s *frame)
+{
+    LOGI(" - pixel format: %d (%s)\n", frame->fmt, pixfmt_full_name(frame->fmt));
+    LOGI(" - colorspace:   %d (%s)\n", frame->clrspc, pixfmt_colorspcae_name(frame->clrspc));
+    LOGI(" - real size:    %dx%d [pixel]\n", frame->wid, frame->hgt);
+    LOGI(" - virtual size: %dx%d [pixel]\n", frame->vwid, frame->vhgt);
+    LOGI(" - row pitch:    %d [byte]\n", frame->pitch);
+    LOGI(" - mem address:  %p, mem size: %zu [byte]\n", frame->addr, frame->size);
+    LOGI(" - mem fd:       %d, mem offset: %d [byte]\n", frame->fd, frame->offset);
+}
