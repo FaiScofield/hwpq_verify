@@ -15,61 +15,73 @@
 
 const pixfmt_rgb_desc_s g_rgb_desc_rgb888 = {
     .order = PIXFMT_RGB_ORDER_RGB,
-    .alpha_pos = PIXFMT_ALPHA_NONE,
+    .alpha_pos = PIXFMT_NO_ALPHA,
     .comp_bits = {8, 8, 8, 0},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_bgr888 = {
     .order = PIXFMT_RGB_ORDER_BGR,
-    .alpha_pos = PIXFMT_ALPHA_NONE,
+    .alpha_pos = PIXFMT_NO_ALPHA,
     .comp_bits = {8, 8, 8, 0},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_rgba8888 = {
     .order = PIXFMT_RGB_ORDER_RGB,
-    .alpha_pos = PIXFMT_ALPHA_AT_LSB,
+    .alpha_pos = PIXFMT_ALPHA_AT_MSB,
     .comp_bits = {8, 8, 8, 8},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_bgra8888 = {
     .order = PIXFMT_RGB_ORDER_BGR,
-    .alpha_pos = PIXFMT_ALPHA_AT_LSB,
+    .alpha_pos = PIXFMT_ALPHA_AT_MSB,
     .comp_bits = {8, 8, 8, 8},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_argb8888 = {
     .order = PIXFMT_RGB_ORDER_RGB,
-    .alpha_pos = PIXFMT_ALPHA_AT_MSB,
+    .alpha_pos = PIXFMT_ALPHA_AT_LSB,
     .comp_bits = {8, 8, 8, 8},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_abgr8888 = {
     .order = PIXFMT_RGB_ORDER_BGR,
-    .alpha_pos = PIXFMT_ALPHA_AT_MSB,
+    .alpha_pos = PIXFMT_ALPHA_AT_LSB,
     .comp_bits = {8, 8, 8, 8},
+};
+
+const pixfmt_rgb_desc_s g_rgb_desc_rgb10lsb = {
+    .order = PIXFMT_RGB_ORDER_RGB,
+    .alpha_pos = PIXFMT_NO_ALPHA,
+    .comp_bits = {10, 10, 10, 0},
+};
+
+const pixfmt_rgb_desc_s g_rgb_desc_rgba10lsb = {
+    .order = PIXFMT_RGB_ORDER_RGB,
+    .alpha_pos = PIXFMT_NO_ALPHA,
+    .comp_bits = {10, 10, 10, 10},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_rgb332 = {
     .order = PIXFMT_RGB_ORDER_BGR,
-    .alpha_pos = PIXFMT_ALPHA_NONE,
+    .alpha_pos = PIXFMT_NO_ALPHA,
     .comp_bits = {3, 3, 2, 0},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_bgr233 = {
     .order = PIXFMT_RGB_ORDER_RGB,
-    .alpha_pos = PIXFMT_ALPHA_NONE,
+    .alpha_pos = PIXFMT_NO_ALPHA,
     .comp_bits = {3, 3, 2, 0},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_rgb565 = {
     .order = PIXFMT_RGB_ORDER_BGR,
-    .alpha_pos = PIXFMT_ALPHA_NONE,
+    .alpha_pos = PIXFMT_NO_ALPHA,
     .comp_bits = {5, 6, 5, 0},
 };
 
 const pixfmt_rgb_desc_s g_rgb_desc_bgr565 = {
     .order = PIXFMT_RGB_ORDER_RGB,
-    .alpha_pos = PIXFMT_ALPHA_NONE,
+    .alpha_pos = PIXFMT_NO_ALPHA,
     .comp_bits = {5, 6, 5, 0},
 };
 
@@ -109,11 +121,6 @@ const pixfmt_rgb_desc_s g_rgb_desc_abgr2101010 = {
     .comp_bits = {10, 10, 10, 2},
 };
 
-const pixfmt_rgb_desc_s g_rgb_desc_rgba10lsb = {
-    .order = PIXFMT_RGB_ORDER_RGB,
-    .alpha_pos = PIXFMT_ALPHA_AT_MSB,
-    .comp_bits = {10, 10, 10, 10},
-};
 
 const char *pixfmt_rgb_order_name(pixfmt_rgb_order_e order)
 {
@@ -127,7 +134,7 @@ const char *pixfmt_rgb_order_name(pixfmt_rgb_order_e order)
 const char *pixfmt_alpha_pos_name(pixfmt_alpha_pos_e pos)
 {
     switch (pos) {
-    case PIXFMT_ALPHA_NONE:   return "NoAlpha";
+    case PIXFMT_NO_ALPHA:   return "NoAlpha";
     case PIXFMT_ALPHA_AT_LSB: return "AlphaInLSM";
     case PIXFMT_ALPHA_AT_MSB: return "AlphaInMSB";
     default:                  return "UnknownAlphaPos";

@@ -29,6 +29,7 @@ typedef enum pixfmt {
     PIXFMT_BGRA8888,  // DRM_FORMAT_ARGB8888, 32bpp, [31:0] A:R:G:B 8:8:8:8, unpacked
     PIXFMT_ARGB8888,  // DRM_FORMAT_BGRA8888, 32bpp, [31:0] B:G:R:A 8:8:8:8, unpacked
     PIXFMT_ABGR8888,  // DRM_FORMAT_RGBA8888, 32bpp, [31:0] R:G:B:A 8:8:8:8, unpacked
+    PIXFMT_RGB10Lsb,  // no DRM_FORMAT, 48bpp, [47:0] x-B:x-G:x-R 6-10:6-10:6-10:6-10, unpacked + paddingAtMsb
     PIXFMT_RGBA10Lsb, // no DRM_FORMAT, 64bpp, [63:0] x-A:x-B:x-G:x-R 6-10:6-10:6-10:6-10, unpacked + paddingAtMsb
 
     /* RGB bitpacked formats */
@@ -109,7 +110,7 @@ typedef enum pixfmt {
     PIXFMT_YUV420SP_TILE4x4, // no DRM_FORMAT, tile for PIXFMT_YUV420SP_NV12, 12bpp, 16+ 8=24 tile bytes
 
     /* Reserved for maximum value */
-    PIXFMT_MAX
+    PIXFMT_NB_COUNT
 } pixfmt_e;
 
 /**
@@ -152,18 +153,18 @@ typedef struct pixfmt_attr {
 
     pixfmt_layout_e layout;
     pixfmt_padding_pos_e padding_pos; // padding_pos is valid only when (depth % 8 != 0)
-    bool is_bitpacked; // is_bitpacked is valid only when (depth % 8 != 0)
+    bool is_bitpacked;                // is_bitpacked is valid only when (depth % 8 != 0)
 
-    uint8_t bpp;       // bits-per-pixe;
-    uint8_t depth;     // bit-depth of the main channel
-    uint8_t nb_comps;  // number of components (channels)
+    uint8_t bpp;      // bits-per-pixe;
+    uint8_t depth;    // bit-depth of the main channel
+    uint8_t nb_comps; // number of components (channels)
 
-    const char *full_name;
-    const char *short_name;
-    const char *alias;
+    const char *full_name;  // not NULL
+    const char *short_name; // not NULL
+    const char *alias;      // might be NULL
 } pixfmt_attr_s;
 
-extern const pixfmt_attr_s g_pixfmt_attr_table[PIXFMT_MAX];
+extern const pixfmt_attr_s g_pixfmt_attr_table[PIXFMT_NB_COUNT];
 
 #ifdef __cplusplus
 extern "C" {
@@ -186,13 +187,6 @@ extern int pixfmt_depth(pixfmt_e fmt);
 extern int pixfmt_nb_comps(pixfmt_e fmt);
 extern int pixfmt_nb_planes(pixfmt_e fmt);
 
-/* ========== Size calculation ========== */
-extern int pixfmt_get_min_align_width(pixfmt_e fmt, int wid, int *retAlign);
-extern int pixfmt_get_min_align_height(pixfmt_e fmt, int hgt, int *retAlign);
-extern int pixfmt_get_min_pitches(pixfmt_e fmt, int wid, int *retPitchesx3);
-extern size_t pixfmt_get_frame_size(pixfmt_e fmt, int wid, int hgt, int rowpitch, size_t *retPlaneSizesx3);
-// extern size_t pixfmt_planesize(pixfmt_e fmt, int plane_idx, int w, int h, int ws, int hs);
-
 /* ========== YUV specific functions ========== */
 extern bool pixfmt_is_yuv(pixfmt_e fmt);
 extern bool pixfmt_is_uv_order(pixfmt_e fmt);
@@ -209,9 +203,9 @@ extern int pixfmt_get_channel_bits(pixfmt_e fmt, uint8_t *r, uint8_t *g, uint8_t
 extern void pixfmt_dump_attr(const pixfmt_attr_s *attr);
 
 /* ========== Conversion capability query ========== */
-extern pixfmt_e pixfmt_init_common_fmt_rgb(int depth, bool has_alpha);
+extern pixfmt_e pixfmt_init_common_fmt_rgb(int depth, bool need_alpha);
 extern pixfmt_e pixfmt_init_common_fmt_yuv(int depth, pixfmt_layout_e layout, pixfmt_yuv_sampling_e sampling);
-extern pixfmt_e pixfmt_get_common_fmt(pixfmt_e src_fmt, pixfmt_layout_e target_layout);
+extern pixfmt_e pixfmt_get_common_fmt(pixfmt_e src_fmt, pixfmt_layout_e target_layout, bool need_alpha);
 extern pixfmt_e *pixfmt_get_supported_input_fmts(int *count);
 extern pixfmt_e *pixfmt_get_supported_output_fmts(int *count);
 

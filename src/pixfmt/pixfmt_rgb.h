@@ -24,7 +24,7 @@ typedef enum pixfmt_rgb_order {
  * Alpha position enumeration
  */
 typedef enum pixfmt_alpha_pos {
-    PIXFMT_ALPHA_NONE,
+    PIXFMT_NO_ALPHA,
     PIXFMT_ALPHA_AT_LSB,
     PIXFMT_ALPHA_AT_MSB,
 } pixfmt_alpha_pos_e;
@@ -47,6 +47,8 @@ extern const pixfmt_rgb_desc_s g_rgb_desc_rgba8888;
 extern const pixfmt_rgb_desc_s g_rgb_desc_bgra8888;
 extern const pixfmt_rgb_desc_s g_rgb_desc_argb8888;
 extern const pixfmt_rgb_desc_s g_rgb_desc_abgr8888;
+extern const pixfmt_rgb_desc_s g_rgb_desc_rgb10lsb;
+extern const pixfmt_rgb_desc_s g_rgb_desc_rgba10lsb;
 extern const pixfmt_rgb_desc_s g_rgb_desc_rgb332;
 extern const pixfmt_rgb_desc_s g_rgb_desc_bgr233;
 extern const pixfmt_rgb_desc_s g_rgb_desc_rgb565;
@@ -56,12 +58,10 @@ extern const pixfmt_rgb_desc_s g_rgb_desc_abgr1555;
 extern const pixfmt_rgb_desc_s g_rgb_desc_rgba4444;
 extern const pixfmt_rgb_desc_s g_rgb_desc_abgr4444;
 extern const pixfmt_rgb_desc_s g_rgb_desc_rgba1010102;
-extern const pixfmt_rgb_desc_s g_rgb_desc_abgr1010102;
 extern const pixfmt_rgb_desc_s g_rgb_desc_abgr2101010;
-extern const pixfmt_rgb_desc_s g_rgb_desc_rgba10lsb;
 
 /* forward declaration */
-typedef struct pixfmt_attr pixfmt_attr_s;
+struct pixfmt_attr;
 
 #ifdef __cplusplus
 extern "C" {
@@ -84,9 +84,9 @@ extern uint8_t pixfmt_rgb_desc_get_channel_bits(const pixfmt_rgb_desc_s *desc, u
 /**
  * RGB format conversion helper functions
  */
-extern int pixfmt_rgb_get_min_align_width(const pixfmt_attr_s *attr, int wid, int *retAlign);
-extern int pixfmt_rgb_get_min_pitches(const pixfmt_attr_s *attr, int wid, int *retPitch);
-extern size_t pixfmt_rgb_get_framesize(const pixfmt_attr_s *attr, int w, int h, int rowpitch, size_t *retPlaneSize);
+extern int pixfmt_rgb_get_min_align_width(const struct pixfmt_attr *attr, int wid, int *retAlign);
+extern int pixfmt_rgb_get_min_pitches(const struct pixfmt_attr *attr, int wid, int *retPitch);
+extern size_t pixfmt_rgb_get_framesize(const struct pixfmt_attr *attr, int w, int h, int rowpitch, size_t *retPlaneSize);
 
 /**
  * RGB format comparison function

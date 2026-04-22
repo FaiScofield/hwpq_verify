@@ -15,7 +15,7 @@
 
 /**
  * Format description table */
-const pixfmt_attr_s g_pixfmt_attr_table[PIXFMT_MAX] =
+const pixfmt_attr_s g_pixfmt_attr_table[PIXFMT_NB_COUNT] =
     {
         /* RGB format - 8bit */
         [PIXFMT_RGB888] =
@@ -112,6 +112,39 @@ const pixfmt_attr_s g_pixfmt_attr_table[PIXFMT_MAX] =
                              .full_name = "abgr8888",
                              .short_name = "abgr32",
                              .alias = "abgr",
+                             },
+
+        [PIXFMT_RGB10Lsb] =
+            {
+                             .fmt_id = PIXFMT_RGB10Lsb,
+                             .base_type = PIXFMT_TYPE_RGB,
+                             .desc = &g_rgb_desc_rgb10lsb,
+                             .layout = PIXFMT_LAYOUT_INTERLEAVED,
+                             .padding_pos = PIXFMT_PADDING_AT_MSB,
+                             .is_bitpacked = false,
+                             .bpp = 48,
+                             .depth = 10,
+                             .nb_comps = 3,
+                             .full_name = "rgb10l",
+                             .short_name = "rgb10l",
+                             .alias = NULL,
+                             },
+
+        [PIXFMT_RGBA10Lsb] =
+            {
+                             .fmt_id = PIXFMT_RGBA10Lsb,
+
+                             .base_type = PIXFMT_TYPE_RGB,
+                             .desc = &g_rgb_desc_rgba10lsb,
+                             .layout = PIXFMT_LAYOUT_INTERLEAVED,
+                             .padding_pos = PIXFMT_PADDING_AT_MSB,
+                             .is_bitpacked = false,
+                             .bpp = 64,
+                             .depth = 10,
+                             .nb_comps = 4,
+                             .full_name = "rgba10l",
+                             .short_name = "rgba10l",
+                             .alias = NULL,
                              },
 
         /* RGB bit-packed format */
@@ -280,22 +313,6 @@ const pixfmt_attr_s g_pixfmt_attr_table[PIXFMT_MAX] =
                              .alias = NULL,
                              },
 
-        [PIXFMT_RGBA10Lsb] =
-            {
-                             .fmt_id = PIXFMT_RGBA10Lsb,
-
-                             .base_type = PIXFMT_TYPE_RGB,
-                             .desc = &g_rgb_desc_rgba10lsb,
-                             .layout = PIXFMT_LAYOUT_INTERLEAVED,
-                             .padding_pos = PIXFMT_PADDING_AT_MSB,
-                             .is_bitpacked = false,
-                             .bpp = 64,
-                             .depth = 10,
-                             .nb_comps = 4,
-                             .full_name = "rgba10l",
-                             .short_name = "rgba10l",
-                             .alias = NULL,
-                             },
 
         /* YUV Raster format */
         [PIXFMT_YUV444I_VU24] =
@@ -1060,7 +1077,7 @@ const char *pixfmt_get_padding_str(pixfmt_padding_pos_e padpos)
 
 const pixfmt_attr_s *pixfmt_get_attr(pixfmt_e fmt)
 {
-    if (fmt >= 0 && fmt < PIXFMT_MAX) {
+    if (fmt >= 0 && fmt < PIXFMT_NB_COUNT) {
         return &g_pixfmt_attr_table[fmt];
     }
     LOGE("pixfmt_get_attr: no attr found! invalid fmt %d", fmt);
@@ -1080,7 +1097,7 @@ const pixfmt_attr_s *pixfmt_get_attr_by_name(const char *name)
             return &g_pixfmt_attr_table[i];
         }
     }
-    LOGE("pixfmt_get_attr_by_name: name %s not found!\n", name);
+    LOGE("pixfmt_get_attr_by_name: name '%s' not found!\n", name);
     return NULL;
 }
 
@@ -1134,58 +1151,6 @@ int pixfmt_nb_planes(pixfmt_e fmt)
     case PIXFMT_LAYOUT_IRREGULAR:   return 1;
     default:                        return 0;
     }
-}
-
-int pixfmt_get_min_align_width(pixfmt_e fmt, int wid, int *retAlign)
-{
-    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
-    assert(attr != NULL);
-
-    if (attr->base_type == PIXFMT_TYPE_RGB)
-        return pixfmt_rgb_get_min_align_width(attr, wid, retAlign);
-    if (attr->base_type == PIXFMT_TYPE_YUV)
-        return pixfmt_yuv_get_min_align_width(attr, wid, retAlign);
-
-    return PIXFMT_INVALID;
-}
-
-int pixfmt_get_min_align_height(pixfmt_e fmt, int hgt, int *retAlign)
-{
-    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
-    assert(attr != NULL);
-
-    if (attr->base_type == PIXFMT_TYPE_RGB)
-        return hgt;
-    if (attr->base_type == PIXFMT_TYPE_YUV)
-        return pixfmt_yuv_get_min_align_height(attr, hgt, retAlign);
-
-    return PIXFMT_INVALID;
-}
-
-int pixfmt_get_min_pitches(pixfmt_e fmt, int wid, int *retPitchesx3)
-{
-    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
-    assert(attr != NULL);
-
-    if (attr->base_type == PIXFMT_TYPE_RGB)
-        return pixfmt_rgb_get_min_pitches(attr, wid, retPitchesx3);
-    if (attr->base_type == PIXFMT_TYPE_YUV)
-        return pixfmt_yuv_get_min_pitches(attr, wid, retPitchesx3);
-
-    return PIXFMT_INVALID;
-}
-
-size_t pixfmt_get_frame_size(pixfmt_e fmt, int wid, int hgt, int rowpitch, size_t *retPlaneSizesx3)
-{
-    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
-    assert(attr != NULL);
-
-    if (attr->base_type == PIXFMT_TYPE_RGB)
-        return pixfmt_rgb_get_framesize(attr, wid, hgt, rowpitch, retPlaneSizesx3);
-    if (attr->base_type == PIXFMT_TYPE_YUV)
-        return pixfmt_yuv_get_framesize(attr, wid, hgt, rowpitch, retPlaneSizesx3);
-
-    return 0;
 }
 
 bool pixfmt_is_yuv(pixfmt_e fmt)
@@ -1271,12 +1236,13 @@ int pixfmt_get_chroma_subsampling(pixfmt_e fmt, int *h_sub, int *v_sub)
     return pixfmt_yuv_desc_get_chroma_subsampling(attr->desc.yuv, h_sub, v_sub);
 }
 
-pixfmt_e pixfmt_init_common_fmt_rgb(int depth, bool has_alpha)
+pixfmt_e pixfmt_init_common_fmt_rgb(int depth, bool need_alpha)
 {
     if (depth <= 8)
-        return has_alpha ? PIXFMT_RGBA8888 : PIXFMT_RGB888;
+        return need_alpha ? PIXFMT_RGBA8888 : PIXFMT_RGB888;
     else if (depth == 10)
-        return PIXFMT_RGBA10Lsb; // only PIXFMT_RGBA1010102 / PIXFMT_ABGR2101010
+        // only PIXFMT_RGBA1010102 / PIXFMT_ABGR2101010
+        return need_alpha ? PIXFMT_RGBA10Lsb : PIXFMT_RGB10Lsb;
     return PIXFMT_INVALID;
 }
 
@@ -1312,7 +1278,9 @@ pixfmt_e pixfmt_init_common_fmt_yuv(int depth, pixfmt_layout_e layout, pixfmt_yu
                 com_fmt = PIXFMT_YUV422SP_NV16;
         }
         else if (depth == 10) {
-            if (layout == PIXFMT_LAYOUT_PLANAR)
+            if (layout == PIXFMT_LAYOUT_INTERLEAVED)
+                com_fmt = PIXFMT_YUV422I_Y210;
+            else if (layout == PIXFMT_LAYOUT_PLANAR)
                 com_fmt = PIXFMT_YUV422P_10LSB;
             else if (layout == PIXFMT_LAYOUT_SEMIPLANAR)
                 com_fmt = PIXFMT_YUV422SP_10LSB;
@@ -1356,7 +1324,7 @@ pixfmt_e pixfmt_init_common_fmt_yuv(int depth, pixfmt_layout_e layout, pixfmt_yu
     return com_fmt;
 }
 
-pixfmt_e pixfmt_get_common_fmt(pixfmt_e fmt, pixfmt_layout_e target_layout)
+pixfmt_e pixfmt_get_common_fmt(pixfmt_e fmt, pixfmt_layout_e target_layout, bool need_alpha)
 {
     const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
     assert(attr != NULL);
@@ -1365,19 +1333,18 @@ pixfmt_e pixfmt_get_common_fmt(pixfmt_e fmt, pixfmt_layout_e target_layout)
 
     if (pixfmt_is_rgb(fmt)) {
         /* convert to 8/10bit rgb[a], ignore target_layout */
-        const pixfmt_rgb_desc_s *desc = attr->desc.rgb;
-        com_fmt = pixfmt_init_common_fmt_rgb(attr->depth, desc->alpha_pos != PIXFMT_ALPHA_NONE);
+        com_fmt = pixfmt_init_common_fmt_rgb(attr->depth, need_alpha);
     }
     else if (pixfmt_is_yuv(fmt)) {
         /* convert to 8/10bit planar yuv in common */
         const pixfmt_yuv_desc_s *desc = attr->desc.yuv;
-        if (desc->is_tile)
+        if (desc->is_tile && target_layout == PIXFMT_LAYOUT_SEMIPLANAR)
             com_fmt = pixfmt_init_common_fmt_yuv(attr->depth, PIXFMT_LAYOUT_SEMIPLANAR, desc->sampling);
-        else
+        else if (!desc->is_tile)
             com_fmt = pixfmt_init_common_fmt_yuv(attr->depth, target_layout, desc->sampling);
     }
 
-    return fmt;
+    return com_fmt;
 }
 
 pixfmt_e *pixfmt_get_supported_input_fmts(int *count)

@@ -35,16 +35,20 @@ typedef struct pixfmt_frame {
 
 
 /// @brief: Fill vwid/vhgt/pitch/size when given fmt/wid/hgt
-extern bool pixfmt_fill_frame_attr(pixfmt_frame_s *frame);
+extern bool pixfmt_frame_fill(pixfmt_frame_s *frame);
 
 /// @brief: Check if the frame attributes are valid
-extern bool pixfmt_check_frame_valid(const pixfmt_frame_s *frame);
+extern bool pixfmt_frame_check(const pixfmt_frame_s *frame);
 
 /// @brief: Get the plane address/size from given plane index
-extern void *pixfmt_get_plane_addr(const pixfmt_frame_s *frame, int plane_idx, void **retPlaneAddrsx3);
-extern size_t pixfmt_get_plane_size(const pixfmt_frame_s *frame, int plane_idx, size_t *retPlaneSizesx3);
+extern void *pixfmt_frame_get_addr(const pixfmt_frame_s *frame, int plane_idx, void **retPlaneAddrsx3);
+extern size_t pixfmt_frame_get_size(const pixfmt_frame_s *frame, int plane_idx, size_t *retPlaneSizesx3);
+extern int pixfmt_frame_get_align_width(pixfmt_e fmt, int wid, int *retAlign);
+extern int pixfmt_frame_get_align_height(pixfmt_e fmt, int hgt, int *retAlign);
+extern int pixfmt_frame_get_min_pitches(pixfmt_e fmt, int wid, int *retPitchesx3);
 
 /// @brief: Dump the frame attributes
-extern void pixfmt_dump_frame_attr(const pixfmt_frame_s *frame);
+extern void pixfmt_frame_dump_info(const pixfmt_frame_s *frame);
+extern void pixfmt_frame_dump_data(const pixfmt_frame_s *frame, const char *filename);
 
 #endif /* _PIXFMT_FRAME_H_ */

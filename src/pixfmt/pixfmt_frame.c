@@ -21,7 +21,7 @@ bool pixfmt_fill_frame_attr(pixfmt_frame_s *frame)
     }
 
     int row_pitches[3] = {0};
-    int ret = pixfmt_get_min_pitches(frame->fmt, frame->wid, row_pitches);
+    int ret = pixfmt_frame_get_min_pitches(frame->fmt, frame->wid, row_pitches);
     if (ret != 0) {
         return false;
     }
@@ -29,10 +29,10 @@ bool pixfmt_fill_frame_attr(pixfmt_frame_s *frame)
     frame->clrspc = pixfmt_is_rgb(frame->fmt)
                       ? PIXFMT_CLRSPC_RGB_FULL
                       : (pixfmt_is_yuv(frame->fmt) ? PIXFMT_CLRSPC_YUV_709F : PIXFMT_CLRSPC_UNKNOWN);
-    frame->vwid = pixfmt_get_min_align_width(frame->fmt, frame->wid, NULL);
-    frame->vhgt = pixfmt_get_min_align_height(frame->fmt, frame->hgt, NULL);
+    frame->vwid = pixfmt_frame_get_align_width(frame->fmt, frame->wid, NULL);
+    frame->vhgt = pixfmt_frame_get_align_height(frame->fmt, frame->hgt, NULL);
     frame->pitch = row_pitches[0];
-    frame->size = pixfmt_get_frame_size(frame->fmt, frame->vwid, frame->vhgt, frame->pitch, NULL);
+    frame->size = pixfmt_frame_get_size(frame, -1, NULL);
 
     return true;
 }
@@ -48,14 +48,14 @@ bool pixfmt_check_frame_valid(const pixfmt_frame_s *frame)
     }
 
     int align_wid = 0;
-    const int vwid = pixfmt_get_min_align_width(frame->fmt, frame->wid, &align_wid);
+    const int vwid = pixfmt_frame_get_align_width(frame->fmt, frame->wid, &align_wid);
     if (frame->vwid < vwid || (frame->vwid & align_wid) > 0) {
         LOGW("invalid frame since vwid=%d invalid, it should be >= %d and align to %d\n", frame->vwid, vwid, align_wid);
         return false;
     }
 
     int align_hgt = 0;
-    const int vhgt = pixfmt_get_min_align_height(frame->fmt, frame->hgt, &align_hgt);
+    const int vhgt = pixfmt_frame_get_align_height(frame->fmt, frame->hgt, &align_hgt);
     if (frame->vhgt < vhgt || (frame->vhgt & align_hgt) > 0) {
         LOGW("invalid frame since vhgt=%d invalid, it should be >= %d and align to %d\n", frame->vhgt, vhgt, align_hgt);
         return false;
@@ -67,7 +67,7 @@ bool pixfmt_check_frame_valid(const pixfmt_frame_s *frame)
         return false;
     }
 
-    size_t size = pixfmt_get_frame_size(frame->fmt, frame->vwid, frame->vhgt, frame->pitch, NULL);
+    const size_t size = pixfmt_frame_get_size(frame, -1, NULL);
     if (frame->size < size) {
         LOGW("invalid frame since frame size=%zu shoule >= %zu for current size!\n", frame->size, size);
         return false;
@@ -95,7 +95,7 @@ void *pixfmt_get_plane_addr(const pixfmt_frame_s *frame, int plane_idx, void **r
         return frame->addr;
 
     size_t plane_sizes[3] = {0};
-    pixfmt_get_plane_size(frame, -1, plane_sizes);
+    pixfmt_frame_get_size(frame, -1, plane_sizes);
 
     size_t offset = 0;
     for (int i = 0; i < plane_idx; i++) {
@@ -111,29 +111,70 @@ void *pixfmt_get_plane_addr(const pixfmt_frame_s *frame, int plane_idx, void **r
     return (uint8_t *)frame->addr + offset;
 }
 
-size_t pixfmt_get_plane_size(const pixfmt_frame_s *frame, int plane_idx, size_t *retPlaneSizesx3)
+size_t pixfmt_frame_get_size(const pixfmt_frame_s *frame, int plane_idx, size_t *retPlaneSizesx3)
 {
-    if (frame == NULL) {
+    if (frame == NULL)
         return 0;
-    }
 
-    if (plane_idx < 0 && !retPlaneSizesx3) {
-        LOGW();
-        return 0;
-    }
-
-    int nb_planes = pixfmt_nb_planes(frame->fmt);
-    if (plane_idx >= nb_planes) {
-        return 0;
-    }
+    const pixfmt_attr_s *attr = pixfmt_get_attr(frame->fmt);
 
     size_t plane_sizes[3] = {0};
-    pixfmt_get_frame_size(frame->fmt, frame->vwid, frame->vhgt, frame->pitch, plane_sizes);
+    if (attr->base_type == PIXFMT_TYPE_RGB)
+        return pixfmt_rgb_get_framesize(attr, frame->vwid, frame->vhgt, frame->pitch, plane_sizes);
+    if (attr->base_type == PIXFMT_TYPE_YUV)
+        return pixfmt_yuv_get_framesize(attr, frame->vwid, frame->vhgt, frame->pitch, plane_sizes);
 
     if (retPlaneSizesx3)
         memcpy(retPlaneSizesx3, plane_sizes, sizeof(plane_sizes));
 
+
+    int nb_planes = pixfmt_nb_planes(frame->fmt);
+    if (plane_idx >= nb_planes)
+        return 0;
+
+    if (plane_idx < 0 && !retPlaneSizesx3)
+        return plane_sizes[0] + plane_sizes[1] + plane_sizes[2];
+
     return plane_sizes[plane_idx];
+}
+
+int pixfmt_frame_get_align_width(pixfmt_e fmt, int wid, int *retAlign)
+{
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    assert(attr != NULL);
+
+    if (attr->base_type == PIXFMT_TYPE_RGB)
+        return pixfmt_rgb_get_min_align_width(attr, wid, retAlign);
+    if (attr->base_type == PIXFMT_TYPE_YUV)
+        return pixfmt_yuv_get_min_align_width(attr, wid, retAlign);
+
+    return PIXFMT_INVALID;
+}
+
+int pixfmt_frame_get_align_height(pixfmt_e fmt, int hgt, int *retAlign)
+{
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    assert(attr != NULL);
+
+    if (attr->base_type == PIXFMT_TYPE_RGB)
+        return hgt;
+    if (attr->base_type == PIXFMT_TYPE_YUV)
+        return pixfmt_yuv_get_min_align_height(attr, hgt, retAlign);
+
+    return PIXFMT_INVALID;
+}
+
+int pixfmt_frame_get_min_pitches(pixfmt_e fmt, int wid, int *retPitchesx3)
+{
+    const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
+    assert(attr != NULL);
+
+    if (attr->base_type == PIXFMT_TYPE_RGB)
+        return pixfmt_rgb_get_min_pitches(attr, wid, retPitchesx3);
+    if (attr->base_type == PIXFMT_TYPE_YUV)
+        return pixfmt_yuv_get_min_pitches(attr, wid, retPitchesx3);
+
+    return PIXFMT_INVALID;
 }
 
 void pixfmt_dump_frame_attr(const pixfmt_frame_s *frame)
