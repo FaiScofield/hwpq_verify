@@ -206,8 +206,8 @@ extern void pixfmt_dump_attr(const pixfmt_attr_s *attr);
 extern pixfmt_e pixfmt_init_common_fmt_rgb(int depth, bool need_alpha);
 extern pixfmt_e pixfmt_init_common_fmt_yuv(int depth, pixfmt_layout_e layout, pixfmt_yuv_sampling_e sampling);
 extern pixfmt_e pixfmt_get_common_fmt(pixfmt_e src_fmt, pixfmt_layout_e target_layout, bool need_alpha);
-extern pixfmt_e *pixfmt_get_supported_input_fmts(int *count);
-extern pixfmt_e *pixfmt_get_supported_output_fmts(int *count);
+// extern pixfmt_e *pixfmt_get_supported_input_fmts(int *count);
+// extern pixfmt_e *pixfmt_get_supported_output_fmts(int *count);
 
 /* ========== DRM FourCC mapping ========== */
 extern pixfmt_e pixfmt_from_drm_fourcc(uint32_t fourcc);

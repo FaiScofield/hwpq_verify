@@ -1347,6 +1347,7 @@ pixfmt_e pixfmt_get_common_fmt(pixfmt_e fmt, pixfmt_layout_e target_layout, bool
     return com_fmt;
 }
 
+#if 0
 pixfmt_e *pixfmt_get_supported_input_fmts(int *count)
 {
     *count = PIXFMT_ATTR_TABLE_SIZE;
@@ -1369,4 +1370,207 @@ pixfmt_e *pixfmt_get_supported_output_fmts(int *count)
         }
     }
     return fmts;
+}
+#endif
+
+/* ========== DRM FourCC mapping ========== */
+#ifndef fourcc_code
+#define fourcc_code(a, b, c, d) ((uint32_t)(a) | ((uint32_t)(b) << 8) | ((uint32_t)(c) << 16) | ((uint32_t)(d) << 24))
+
+#define DRM_FORMAT_RGB888       fourcc_code('R', 'G', '2', '4') /* [23:0] R:G:B little endian */
+#define DRM_FORMAT_BGR888       fourcc_code('B', 'G', '2', '4') /* [23:0] B:G:R little endian */
+#define DRM_FORMAT_ARGB8888     fourcc_code('A', 'R', '2', '4') /* [31:0] A:R:G:B 8:8:8:8 little endian */
+#define DRM_FORMAT_ABGR8888     fourcc_code('A', 'B', '2', '4') /* [31:0] A:B:G:R 8:8:8:8 little endian */
+#define DRM_FORMAT_RGBA8888     fourcc_code('R', 'A', '2', '4') /* [31:0] R:G:B:A 8:8:8:8 little endian */
+#define DRM_FORMAT_BGRA8888     fourcc_code('B', 'A', '2', '4') /* [31:0] B:G:R:A 8:8:8:8 little endian */
+#define DRM_FORMAT_RGB332       fourcc_code('R', 'G', 'B', '8') /* [7:0] R:G:B 3:3:2 */
+#define DRM_FORMAT_BGR233       fourcc_code('B', 'G', 'R', '8') /* [7:0] B:G:R 2:3:3 */
+#define DRM_FORMAT_RGB565       fourcc_code('R', 'G', '1', '6') /* [15:0] R:G:B 5:6:5 little endian */
+#define DRM_FORMAT_BGR565       fourcc_code('B', 'G', '1', '6') /* [15:0] B:G:R 5:6:5 little endian */
+#define DRM_FORMAT_ABGR1555     fourcc_code('A', 'B', '1', '5') /* [15:0] A:B:G:R 1:5:5:5 little endian */
+#define DRM_FORMAT_RGBA5551     fourcc_code('R', 'A', '1', '5') /* [15:0] R:G:B:A 5:5:5:1 little endian */
+#define DRM_FORMAT_ABGR4444     fourcc_code('A', 'B', '1', '2') /* [15:0] A:B:G:R 4:4:4:4 little endian */
+#define DRM_FORMAT_RGBA4444     fourcc_code('R', 'A', '1', '2') /* [15:0] R:G:B:A 4:4:4:4 little endian */
+#define DRM_FORMAT_ABGR2101010  fourcc_code('A', 'B', '3', '0') /* [31:0] A:B:G:R 2:10:10:10 little endian */
+#define DRM_FORMAT_RGBA1010102  fourcc_code('R', 'A', '3', '0') /* [31:0] R:G:B:A 10:10:10:2 little endian */
+
+#define DRM_FORMAT_VUY888       fourcc_code('V', 'U', '2', '4') /* [23:0] Cr:Cb:Y 8:8:8 little endian */
+#define DRM_FORMAT_VUY101010    fourcc_code('V', 'U', '3', '0') /* Y followed by U then V, 10:10:10 */
+#define DRM_FORMAT_XVYU2101010  fourcc_code('X', 'V', '3', '0') /* [31:0] X:Cr:Y:Cb 2:10:10:10 little endian */
+#define DRM_FORMAT_YUV410       fourcc_code('Y', 'U', 'V', '9') /* 4x4 subsampled Cb (1) and Cr (2) planes */
+#define DRM_FORMAT_YVU410       fourcc_code('Y', 'V', 'U', '9') /* 4x4 subsampled Cr (1) and Cb (2) planes */
+#define DRM_FORMAT_YUV411       fourcc_code('Y', 'U', '1', '1') /* 4x1 subsampled Cb (1) and Cr (2) planes */
+#define DRM_FORMAT_YVU411       fourcc_code('Y', 'V', '1', '1') /* 4x1 subsampled Cr (1) and Cb (2) planes */
+#define DRM_FORMAT_YUV420       fourcc_code('Y', 'U', '1', '2') /* 2x2 subsampled Cb (1) and Cr (2) planes */
+#define DRM_FORMAT_YVU420       fourcc_code('Y', 'V', '1', '2') /* 2x2 subsampled Cr (1) and Cb (2) planes */
+#define DRM_FORMAT_YUV422       fourcc_code('Y', 'U', '1', '6') /* 2x1 subsampled Cb (1) and Cr (2) planes */
+#define DRM_FORMAT_YVU422       fourcc_code('Y', 'V', '1', '6') /* 2x1 subsampled Cr (1) and Cb (2) planes */
+#define DRM_FORMAT_YUV444       fourcc_code('Y', 'U', '2', '4') /* non-subsampled Cb (1) and Cr (2) planes */
+#define DRM_FORMAT_YVU444       fourcc_code('Y', 'V', '2', '4') /* non-subsampled Cr (1) and Cb (2) planes */
+#define DRM_FORMAT_NV12         fourcc_code('N', 'V', '1', '2') /* 2x2 subsampled Cr:Cb plane */
+#define DRM_FORMAT_NV21         fourcc_code('N', 'V', '2', '1') /* 2x2 subsampled Cb:Cr plane */
+#define DRM_FORMAT_NV16         fourcc_code('N', 'V', '1', '6') /* 2x1 subsampled Cr:Cb plane */
+#define DRM_FORMAT_NV61         fourcc_code('N', 'V', '6', '1') /* 2x1 subsampled Cb:Cr plane */
+#define DRM_FORMAT_NV24         fourcc_code('N', 'V', '2', '4') /* non-subsampled Cr:Cb plane */
+#define DRM_FORMAT_NV42         fourcc_code('N', 'V', '4', '2') /* non-subsampled Cb:Cr plane */
+#define DRM_FORMAT_YUYV         fourcc_code('Y', 'U', 'Y', 'V') /* [31:0] V0:Y1:U0:Y0 8:8:8:8 little endian */
+#define DRM_FORMAT_YVYU         fourcc_code('Y', 'V', 'Y', 'U') /* [31:0] U0:Y1:V0:Y0 8:8:8:8 little endian */
+#define DRM_FORMAT_UYVY         fourcc_code('U', 'Y', 'V', 'Y') /* [31:0] Y1:V0:Y0:U0 8:8:8:8 little endian */
+#define DRM_FORMAT_VYUY         fourcc_code('V', 'Y', 'U', 'Y') /* [31:0] Y1:U0:Y0:V0 8:8:8:8 little endian */
+#define DRM_FORMAT_Y210         fourcc_code('Y', '2', '1', '0') /* [63:0] V:X 10:6 little endian per 2 Y pixels */
+#define DRM_FORMAT_Y212         fourcc_code('Y', '2', '1', '2') /* [63:0] V:X 12:4 little endian per 2 Y pixels */
+#define DRM_FORMAT_Y216         fourcc_code('Y', '2', '1', '6') /* [63:0] V0:Y1:U0:Y0 16:16:16:16 */
+#define DRM_FORMAT_NV15         fourcc_code('N', 'V', '1', '5') /* 2x2 subsampled Cr:Cb plane */
+#define DRM_FORMAT_NV20         fourcc_code('N', 'V', '2', '0') /* 2x1 subsampled Cr:Cb plane */
+#define DRM_FORMAT_NV30         fourcc_code('N', 'V', '3', '0') /* non-subsampled Cr:Cb plane */
+#define DRM_FORMAT_R1           fourcc_code('R', '1', ' ', ' ') /* [7:0] 1:1:1:1:1:1:1:1 eight pixels/byte */
+#define DRM_FORMAT_R2           fourcc_code('R', '2', ' ', ' ') /* [7:0] R0:R1:R2:R3 2:2:2:2 four pixels/byte */
+#define DRM_FORMAT_R4           fourcc_code('R', '4', ' ', ' ') /* [7:0] R0:R1 4:4 two pixels/byte */
+#define DRM_FORMAT_R8           fourcc_code('R', '8', ' ', ' ') /* [7:0] R */
+#define DRM_FORMAT_R10          fourcc_code('R', '1', '0', ' ') /* [15:0] x:R 6:10 little endian */
+#define DRM_FORMAT_R12          fourcc_code('R', '1', '2', ' ') /* [15:0] x:R 4:12 little endian */
+#define DRM_FORMAT_R16          fourcc_code('R', '1', '6', ' ') /* [15:0] R little endian */
+#endif
+
+pixfmt_e pixfmt_from_drm_fourcc(uint32_t fourcc)
+{
+    switch (fourcc) {
+    /* RGB formats */
+    case DRM_FORMAT_RGB888:      return PIXFMT_BGR888;
+    case DRM_FORMAT_BGR888:      return PIXFMT_RGB888;
+    case DRM_FORMAT_ARGB8888:    return PIXFMT_BGRA8888;
+    case DRM_FORMAT_ABGR8888:    return PIXFMT_RGBA8888;
+    case DRM_FORMAT_RGBA8888:    return PIXFMT_ABGR8888;
+    case DRM_FORMAT_BGRA8888:    return PIXFMT_ARGB8888;
+    case DRM_FORMAT_RGB332:      return PIXFMT_RGB332;
+    case DRM_FORMAT_BGR233:      return PIXFMT_BGR233;
+    case DRM_FORMAT_RGB565:      return PIXFMT_RGB565;
+    case DRM_FORMAT_BGR565:      return PIXFMT_BGR565;
+    case DRM_FORMAT_ABGR1555:    return PIXFMT_ABGR1555;
+    case DRM_FORMAT_RGBA5551:    return PIXFMT_RGBA5551;
+    case DRM_FORMAT_ABGR4444:    return PIXFMT_ABGR4444;
+    case DRM_FORMAT_RGBA4444:    return PIXFMT_RGBA4444;
+    case DRM_FORMAT_ABGR2101010: return PIXFMT_ABGR2101010;
+    case DRM_FORMAT_RGBA1010102: return PIXFMT_RGBA1010102;
+
+    /* YUV interleaved/planar/semiplanar formats */
+    case DRM_FORMAT_VUY888:      return PIXFMT_YUV444I_VU24;
+    case DRM_FORMAT_VUY101010:   return PIXFMT_YUV444I_VU30;
+    case DRM_FORMAT_XVYU2101010: return PIXFMT_YUV444I_XV30;
+    case DRM_FORMAT_YUV444:      return PIXFMT_YUV444P_YU24;
+    case DRM_FORMAT_YVU444:      return PIXFMT_YUV444P_YV24;
+    case DRM_FORMAT_NV24:        return PIXFMT_YUV444SP_NV24;
+    case DRM_FORMAT_NV42:        return PIXFMT_YUV444SP_NV42;
+    case DRM_FORMAT_NV30:        return PIXFMT_YUV444SP_NV30;
+    case DRM_FORMAT_YUYV:        return PIXFMT_YUV422I_YUYV;
+    case DRM_FORMAT_YVYU:        return PIXFMT_YUV422I_YVYU;
+    case DRM_FORMAT_UYVY:        return PIXFMT_YUV422I_UYVY;
+    case DRM_FORMAT_VYUY:        return PIXFMT_YUV422I_VYUY;
+    case DRM_FORMAT_Y210:        return PIXFMT_YUV422I_Y210;
+    case DRM_FORMAT_Y212:        return PIXFMT_YUV422I_Y212;
+    case DRM_FORMAT_Y216:        return PIXFMT_YUV422I_Y216;
+    case DRM_FORMAT_YUV422:      return PIXFMT_YUV422P_YU16;
+    case DRM_FORMAT_YVU422:      return PIXFMT_YUV422P_YV16;
+    case DRM_FORMAT_NV16:        return PIXFMT_YUV422SP_NV16;
+    case DRM_FORMAT_NV61:        return PIXFMT_YUV422SP_NV61;
+    case DRM_FORMAT_NV20:        return PIXFMT_YUV422SP_NV20;
+    case DRM_FORMAT_YUV420:      return PIXFMT_YUV420P_YU12;
+    case DRM_FORMAT_YVU420:      return PIXFMT_YUV420P_YV12;
+    case DRM_FORMAT_NV12:        return PIXFMT_YUV420SP_NV12;
+    case DRM_FORMAT_NV21:        return PIXFMT_YUV420SP_NV21;
+    case DRM_FORMAT_NV15:        return PIXFMT_YUV420SP_NV15;
+    case DRM_FORMAT_YUV411:      return PIXFMT_YUV411P_YU11;
+    case DRM_FORMAT_YVU411:      return PIXFMT_YUV411P_YV11;
+    case DRM_FORMAT_YUV410:      return PIXFMT_YUV410P_YUV9;
+    case DRM_FORMAT_YVU410:      return PIXFMT_YUV410P_YVU9;
+
+    /* YUV400 (grayscale) formats */
+    case DRM_FORMAT_R1:          return PIXFMT_YUV400_R1;
+    case DRM_FORMAT_R2:          return PIXFMT_YUV400_R2;
+    case DRM_FORMAT_R4:          return PIXFMT_YUV400_R4;
+    case DRM_FORMAT_R8:          return PIXFMT_YUV400_R8;
+    case DRM_FORMAT_R10:         return PIXFMT_YUV400_R10;
+    case DRM_FORMAT_R12:         return PIXFMT_YUV400_R12;
+    case DRM_FORMAT_R16:         return PIXFMT_YUV400_R16;
+
+    default:                     return PIXFMT_INVALID;
+    }
+}
+
+uint32_t pixfmt_to_drm_fourcc(pixfmt_e fmt)
+{
+    switch (fmt) {
+    /* RGB formats */
+    case PIXFMT_RGB888:           return DRM_FORMAT_BGR888;
+    case PIXFMT_BGR888:           return DRM_FORMAT_RGB888;
+    case PIXFMT_RGBA8888:         return DRM_FORMAT_ABGR8888;
+    case PIXFMT_BGRA8888:         return DRM_FORMAT_ARGB8888;
+    case PIXFMT_ARGB8888:         return DRM_FORMAT_BGRA8888;
+    case PIXFMT_ABGR8888:         return DRM_FORMAT_RGBA8888;
+    case PIXFMT_RGB332:           return DRM_FORMAT_RGB332;
+    case PIXFMT_BGR233:           return DRM_FORMAT_BGR233;
+    case PIXFMT_RGB565:           return DRM_FORMAT_RGB565;
+    case PIXFMT_BGR565:           return DRM_FORMAT_BGR565;
+    case PIXFMT_ABGR1555:         return DRM_FORMAT_ABGR1555;
+    case PIXFMT_RGBA5551:         return DRM_FORMAT_RGBA5551;
+    case PIXFMT_ABGR4444:         return DRM_FORMAT_ABGR4444;
+    case PIXFMT_RGBA4444:         return DRM_FORMAT_RGBA4444;
+    case PIXFMT_ABGR2101010:      return DRM_FORMAT_ABGR2101010;
+    case PIXFMT_RGBA1010102:      return DRM_FORMAT_RGBA1010102;
+
+    /* YUV interleaved/planar/semiplanar formats */
+    case PIXFMT_YUV444I_VU24:     return DRM_FORMAT_VUY888;
+    case PIXFMT_YUV444I_VU30:     return DRM_FORMAT_VUY101010;
+    case PIXFMT_YUV444I_XV30:     return DRM_FORMAT_XVYU2101010;
+    case PIXFMT_YUV444P_YU24:     return DRM_FORMAT_YUV444;
+    case PIXFMT_YUV444P_YV24:     return DRM_FORMAT_YVU444;
+    case PIXFMT_YUV444SP_NV24:    return DRM_FORMAT_NV24;
+    case PIXFMT_YUV444SP_NV42:    return DRM_FORMAT_NV42;
+    case PIXFMT_YUV444SP_NV30:    return DRM_FORMAT_NV30;
+    case PIXFMT_YUV422I_YUYV:     return DRM_FORMAT_YUYV;
+    case PIXFMT_YUV422I_YVYU:     return DRM_FORMAT_YVYU;
+    case PIXFMT_YUV422I_UYVY:     return DRM_FORMAT_UYVY;
+    case PIXFMT_YUV422I_VYUY:     return DRM_FORMAT_VYUY;
+    case PIXFMT_YUV422I_Y210:     return DRM_FORMAT_Y210;
+    case PIXFMT_YUV422I_Y212:     return DRM_FORMAT_Y212;
+    case PIXFMT_YUV422I_Y216:     return DRM_FORMAT_Y216;
+    case PIXFMT_YUV422P_YU16:     return DRM_FORMAT_YUV422;
+    case PIXFMT_YUV422P_YV16:     return DRM_FORMAT_YVU422;
+    case PIXFMT_YUV422SP_NV16:    return DRM_FORMAT_NV16;
+    case PIXFMT_YUV422SP_NV61:    return DRM_FORMAT_NV61;
+    case PIXFMT_YUV422SP_NV20:    return DRM_FORMAT_NV20;
+    case PIXFMT_YUV420P_YU12:     return DRM_FORMAT_YUV420;
+    case PIXFMT_YUV420P_YV12:     return DRM_FORMAT_YVU420;
+    case PIXFMT_YUV420SP_NV12:    return DRM_FORMAT_NV12;
+    case PIXFMT_YUV420SP_NV21:    return DRM_FORMAT_NV21;
+    case PIXFMT_YUV420SP_NV15:    return DRM_FORMAT_NV15;
+    case PIXFMT_YUV411P_YU11:     return DRM_FORMAT_YUV411;
+    case PIXFMT_YUV411P_YV11:     return DRM_FORMAT_YVU411;
+    case PIXFMT_YUV410P_YUV9:     return DRM_FORMAT_YUV410;
+    case PIXFMT_YUV410P_YVU9:     return DRM_FORMAT_YVU410;
+
+    /* YUV400 (grayscale) formats */
+    case PIXFMT_YUV400_R1:        return DRM_FORMAT_R1;
+    case PIXFMT_YUV400_R2:        return DRM_FORMAT_R2;
+    case PIXFMT_YUV400_R4:        return DRM_FORMAT_R4;
+    case PIXFMT_YUV400_R8:        return DRM_FORMAT_R8;
+    case PIXFMT_YUV400_R10:       return DRM_FORMAT_R10;
+    case PIXFMT_YUV400_R12:       return DRM_FORMAT_R12;
+    case PIXFMT_YUV400_R16:       return DRM_FORMAT_R16;
+
+    /* No DRM format for these */
+    case PIXFMT_RGB10Lsb:
+    case PIXFMT_RGBA10Lsb:
+    case PIXFMT_YUV444I_10LSB:
+    case PIXFMT_YUV444P_10LSB:
+    case PIXFMT_YUV444SP_10LSB:
+    case PIXFMT_YUV422P_10LSB:
+    case PIXFMT_YUV422SP_10LSB:
+    case PIXFMT_YUV420P_10LSB:
+    case PIXFMT_YUV420SP_10LSB:
+    case PIXFMT_YUV444SP_TILE4x4:
+    case PIXFMT_YUV422SP_TILE4x4:
+    case PIXFMT_YUV420SP_TILE4x4:
+    default:                      return 0;
+    }
 }

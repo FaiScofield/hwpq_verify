@@ -17,18 +17,17 @@ extern "C" {
 /**
  * Check if format conversion is supported
  */
-extern bool pixfmt_cvt_is_supported(pixfmt_e src_fmt, pixfmt_e dst_fmt);
+extern bool pixfmt_cvt_is_supported(pixfmt_e src_fmt, pixfmt_e dst_fmt, pixfmt_e *retSrcBaseFmt, pixfmt_e *retDstBaseFmt);
 
 /**
  * Format conversion initialization
  */
-extern int pixfmt_cvt_check(const pixfmt_frame_s *frame0, const pixfmt_frame_s *frame1);
+extern bool pixfmt_cvt_check(const pixfmt_frame_s *frame0, const pixfmt_frame_s *frame1);
 
 /**
  * Format conversion execution
  */
 extern int pixfmt_cvt_exec(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1);
-
 
 
 

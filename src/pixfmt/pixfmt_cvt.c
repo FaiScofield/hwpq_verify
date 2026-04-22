@@ -8,87 +8,215 @@
 #include "pixfmt_cvt.h"
 #include "pixfmt.h"
 #include "verify_com.h"
+
 #include <string.h>
 #include <math.h>
+#include <assert.h>
 
-#ifndef fourcc_code
-#define fourcc_code(a, b, c, d) ((uint32_t)(a) | ((uint32_t)(b) << 8) | ((uint32_t)(c) << 16) | ((uint32_t)(d) << 24))
 
-#define DRM_FORMAT_RGB888       fourcc_code('R', 'G', '2', '4') /* [23:0] R:G:B little endian */
-#define DRM_FORMAT_BGR888       fourcc_code('B', 'G', '2', '4') /* [23:0] B:G:R little endian */
-#define DRM_FORMAT_ARGB8888     fourcc_code('A', 'R', '2', '4') /* [31:0] A:R:G:B 8:8:8:8 little endian */
-#define DRM_FORMAT_ABGR8888     fourcc_code('A', 'B', '2', '4') /* [31:0] A:B:G:R 8:8:8:8 little endian */
-#define DRM_FORMAT_RGBA8888     fourcc_code('R', 'A', '2', '4') /* [31:0] R:G:B:A 8:8:8:8 little endian */
-#define DRM_FORMAT_BGRA8888     fourcc_code('B', 'A', '2', '4') /* [31:0] B:G:R:A 8:8:8:8 little endian */
-#define DRM_FORMAT_RGB332       fourcc_code('R', 'G', 'B', '8') /* [7:0] R:G:B 3:3:2 */
-#define DRM_FORMAT_BGR233       fourcc_code('B', 'G', 'R', '8') /* [7:0] B:G:R 2:3:3 */
-#define DRM_FORMAT_RGB565       fourcc_code('R', 'G', '1', '6') /* [15:0] R:G:B 5:6:5 little endian */
-#define DRM_FORMAT_BGR565       fourcc_code('B', 'G', '1', '6') /* [15:0] B:G:R 5:6:5 little endian */
-#define DRM_FORMAT_ABGR1555     fourcc_code('A', 'B', '1', '5') /* [15:0] A:B:G:R 1:5:5:5 little endian */
-#define DRM_FORMAT_RGBA5551     fourcc_code('R', 'A', '1', '5') /* [15:0] R:G:B:A 5:5:5:1 little endian */
-#define DRM_FORMAT_ABGR4444     fourcc_code('A', 'B', '1', '2') /* [15:0] A:B:G:R 4:4:4:4 little endian */
-#define DRM_FORMAT_RGBA4444     fourcc_code('R', 'A', '1', '2') /* [15:0] R:G:B:A 4:4:4:4 little endian */
-#define DRM_FORMAT_ABGR2101010  fourcc_code('A', 'B', '3', '0') /* [31:0] A:B:G:R 2:10:10:10 little endian */
-#define DRM_FORMAT_RGBA1010102  fourcc_code('R', 'A', '3', '0') /* [31:0] R:G:B:A 10:10:10:2 little endian */
-
-#define DRM_FORMAT_VUY888       fourcc_code('V', 'U', '2', '4') /* [23:0] Cr:Cb:Y 8:8:8 little endian */
-#define DRM_FORMAT_VUY101010    fourcc_code('V', 'U', '3', '0') /* Y followed by U then V, 10:10:10 */
-#define DRM_FORMAT_XVYU2101010  fourcc_code('X', 'V', '3', '0') /* [31:0] X:Cr:Y:Cb 2:10:10:10 little endian */
-#define DRM_FORMAT_YUV410       fourcc_code('Y', 'U', 'V', '9') /* 4x4 subsampled Cb (1) and Cr (2) planes */
-#define DRM_FORMAT_YVU410       fourcc_code('Y', 'V', 'U', '9') /* 4x4 subsampled Cr (1) and Cb (2) planes */
-#define DRM_FORMAT_YUV411       fourcc_code('Y', 'U', '1', '1') /* 4x1 subsampled Cb (1) and Cr (2) planes */
-#define DRM_FORMAT_YVU411       fourcc_code('Y', 'V', '1', '1') /* 4x1 subsampled Cr (1) and Cb (2) planes */
-#define DRM_FORMAT_YUV420       fourcc_code('Y', 'U', '1', '2') /* 2x2 subsampled Cb (1) and Cr (2) planes */
-#define DRM_FORMAT_YVU420       fourcc_code('Y', 'V', '1', '2') /* 2x2 subsampled Cr (1) and Cb (2) planes */
-#define DRM_FORMAT_YUV422       fourcc_code('Y', 'U', '1', '6') /* 2x1 subsampled Cb (1) and Cr (2) planes */
-#define DRM_FORMAT_YVU422       fourcc_code('Y', 'V', '1', '6') /* 2x1 subsampled Cr (1) and Cb (2) planes */
-#define DRM_FORMAT_YUV444       fourcc_code('Y', 'U', '2', '4') /* non-subsampled Cb (1) and Cr (2) planes */
-#define DRM_FORMAT_YVU444       fourcc_code('Y', 'V', '2', '4') /* non-subsampled Cr (1) and Cb (2) planes */
-#define DRM_FORMAT_NV12         fourcc_code('N', 'V', '1', '2') /* 2x2 subsampled Cr:Cb plane */
-#define DRM_FORMAT_NV21         fourcc_code('N', 'V', '2', '1') /* 2x2 subsampled Cb:Cr plane */
-#define DRM_FORMAT_NV16         fourcc_code('N', 'V', '1', '6') /* 2x1 subsampled Cr:Cb plane */
-#define DRM_FORMAT_NV61         fourcc_code('N', 'V', '6', '1') /* 2x1 subsampled Cb:Cr plane */
-#define DRM_FORMAT_NV24         fourcc_code('N', 'V', '2', '4') /* non-subsampled Cr:Cb plane */
-#define DRM_FORMAT_NV42         fourcc_code('N', 'V', '4', '2') /* non-subsampled Cb:Cr plane */
-#define DRM_FORMAT_YUYV         fourcc_code('Y', 'U', 'Y', 'V') /* [31:0] V0:Y1:U0:Y0 8:8:8:8 little endian */
-#define DRM_FORMAT_YVYU         fourcc_code('Y', 'V', 'Y', 'U') /* [31:0] U0:Y1:V0:Y0 8:8:8:8 little endian */
-#define DRM_FORMAT_UYVY         fourcc_code('U', 'Y', 'V', 'Y') /* [31:0] Y1:V0:Y0:U0 8:8:8:8 little endian */
-#define DRM_FORMAT_VYUY         fourcc_code('V', 'Y', 'U', 'Y') /* [31:0] Y1:U0:Y0:V0 8:8:8:8 little endian */
-#define DRM_FORMAT_Y210         fourcc_code('Y', '2', '1', '0') /* [63:0] V:X 10:6 little endian per 2 Y pixels */
-#define DRM_FORMAT_Y212         fourcc_code('Y', '2', '1', '2') /* [63:0] V:X 12:4 little endian per 2 Y pixels */
-#define DRM_FORMAT_Y216         fourcc_code('Y', '2', '1', '6') /* [63:0] V0:Y1:U0:Y0 16:16:16:16 */
-#define DRM_FORMAT_NV15         fourcc_code('N', 'V', '1', '5') /* 2x2 subsampled Cr:Cb plane */
-#define DRM_FORMAT_NV20         fourcc_code('N', 'V', '2', '0') /* 2x1 subsampled Cr:Cb plane */
-#define DRM_FORMAT_NV30         fourcc_code('N', 'V', '3', '0') /* non-subsampled Cr:Cb plane */
-#define DRM_FORMAT_R1           fourcc_code('R', '1', ' ', ' ') /* [7:0] 1:1:1:1:1:1:1:1 eight pixels/byte */
-#define DRM_FORMAT_R2           fourcc_code('R', '2', ' ', ' ') /* [7:0] R0:R1:R2:R3 2:2:2:2 four pixels/byte */
-#define DRM_FORMAT_R4           fourcc_code('R', '4', ' ', ' ') /* [7:0] R0:R1 4:4 two pixels/byte */
-#define DRM_FORMAT_R8           fourcc_code('R', '8', ' ', ' ') /* [7:0] R */
-#define DRM_FORMAT_R10          fourcc_code('R', '1', '0', ' ') /* [15:0] x:R 6:10 little endian */
-#define DRM_FORMAT_R12          fourcc_code('R', '1', '2', ' ') /* [15:0] x:R 4:12 little endian */
-#define DRM_FORMAT_R16          fourcc_code('R', '1', '6', ' ') /* [15:0] R little endian */
-#endif
-
-bool pixfmt_cvt_is_supported(pixfmt_e src_fmt, pixfmt_e dst_fmt)
+static int pixfmt_cvt_impl_r2r(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1)
 {
-    if (src_fmt == dst_fmt)
+    // todo
+    return -1;
+}
+
+static int pixfmt_cvt_impl_y2y(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1)
+{
+    // todo
+    return -1;
+}
+
+static int pixfmt_cvt_range_r2r(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1)
+{
+    // todo
+    return -1;
+}
+
+static int pixfmt_cvt_range_y2y(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1)
+{
+    // todo
+    return -1;
+}
+
+bool pixfmt_cvt_is_supported(pixfmt_e src_fmt, pixfmt_e dst_fmt, pixfmt_e *retSrcBaseFmt, pixfmt_e *retDstBaseFmt)
+{
+    pixfmt_e src_base = src_fmt;
+    pixfmt_e dst_base = dst_fmt;
+
+    do {
+        if (src_fmt == dst_fmt)
+            break;
+
+        const pixfmt_attr_s *src_attr = pixfmt_get_attr(src_fmt);
+        const pixfmt_attr_s *dst_attr = pixfmt_get_attr(dst_fmt);
+        assert(src_attr && dst_attr);
+
+        const bool need_alpha = pixfmt_has_alpha(dst_fmt);
+        src_base = pixfmt_get_common_fmt(src_fmt, src_attr->layout, need_alpha);
+        dst_base = pixfmt_get_common_fmt(src_fmt, src_attr->layout, need_alpha);
+        if (src_base != PIXFMT_INVALID && dst_base != PIXFMT_INVALID)
+            break;
+
+        src_base = pixfmt_get_common_fmt(src_fmt, dst_attr->layout, need_alpha);
+        dst_base = pixfmt_get_common_fmt(src_fmt, dst_attr->layout, need_alpha);
+    } while (0);
+
+    if (src_base != PIXFMT_INVALID && dst_base != PIXFMT_INVALID) {
+        if (retSrcBaseFmt)
+            *retSrcBaseFmt = src_base;
+        if (retDstBaseFmt)
+            *retDstBaseFmt = dst_base;
         return true;
-
-    // if (!pixfmt_can_input(src_fmt))
-    //     return false;
-    // if (!pixfmt_can_output(dst_fmt))
-    //     return false;
-
-    // pixfmt_e src_canonical = pixfmt_get_common_fmt(src_fmt, PIXFMT_LAYOUT_PLANAR);
-    // pixfmt_e dst_canonical = pixfmt_get_common_fmt(dst_fmt, PIXFMT_LAYOUT_PLANAR);
+    }
 
     return false;
 }
 
+bool pixfmt_cvt_check(const pixfmt_frame_s *frame0, const pixfmt_frame_s *frame1)
+{
+    // check if same resolution
+    if (frame0->wid != frame1->wid || frame0->hgt != frame1->hgt)
+        return false;
+
+    /* check if same color space */
+    if (!pixfmt_colorspcae_check_same(frame0->clrspc, frame1->clrspc))
+        return false;
+
+    /* check if memory valid */
+    if (!frame0->addr || !frame1->addr)
+        return false;
+    if (frame0->fd > 0 && frame1->fd > 0 && frame0->fd == frame1->fd)
+        return false;
+
+    return true;
+}
 
 int pixfmt_cvt_exec(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1)
 {
-    return 0;
+    assert(frame0 && frame1);
+
+    bool ok = pixfmt_cvt_check(frame0, frame1);
+    if (!ok)
+        return -1;
+
+    pixfmt_frame_s src_base_frame = {0};
+    pixfmt_frame_s dst_base_frame = {0};
+    pixfmt_e src_base_fmt = PIXFMT_INVALID;
+    pixfmt_e dst_base_fmt = PIXFMT_INVALID;
+    bool src_base_frame_reuse = true;
+    bool dst_base_frame_reuse = true;
+    int ret = 0;
+
+    do {
+        ok = pixfmt_cvt_is_supported(frame0->fmt, frame1->fmt, &src_base_fmt, &dst_base_fmt);
+        if (!ok) {
+            ret = -1;
+            break;
+        }
+        /* do conversion directly from frame0 to frame1 */
+        if (frame0->fmt == frame1->fmt) {
+            if (frame0->clrspc == frame1->clrspc) {
+                if (frame0->pitch == frame1->pitch) {
+                    assert(frame0->size == frame1->size);
+                    memcpy(frame1->addr, frame0->addr, frame0->size);
+                }
+                else {
+                    int copy_row_size = MIN(frame0->pitch, frame1->pitch);
+                    for (int i = 0; i < frame0->hgt; i++) {
+                        memcpy((uchar *)frame1->addr + i * frame1->pitch, (uchar *)frame0->addr + i * frame0->pitch,
+                            copy_row_size);
+                    }
+                }
+            }
+            else {
+                assert(pixfmt_colorspcae_check_same(frame0->clrspc, frame1->clrspc) == true);
+                if (pixfmt_is_rgb(frame0->fmt)) {
+                    ret = pixfmt_cvt_range_r2r(frame0, frame1);
+                    break;
+                }
+                else if (pixfmt_is_yuv(frame0->fmt)) {
+                    ret = pixfmt_cvt_range_y2y(frame0, frame1);
+                    break;
+                }
+                else {
+                    ret = -1;
+                    break;
+                }
+            }
+        }
+
+        /* do conversion from frame0 to src_base_frame, malloc memory if need */
+        if (src_base_fmt == frame0->fmt)
+            memcpy(&src_base_frame, frame0, sizeof(src_base_frame));
+        else {
+            // malloc memory for src_base_frame
+            src_base_frame.fmt = src_base_fmt;
+            src_base_frame.clrspc = frame0->clrspc;
+            src_base_frame.wid = frame0->wid;
+            src_base_frame.hgt = frame0->hgt;
+            pixfmt_frame_fill(&src_base_frame);
+            src_base_frame.addr = malloc(src_base_frame.size);
+            src_base_frame_reuse = false;
+
+            // src to src_base
+            if (pixfmt_is_rgb(frame0->fmt))
+                ret = pixfmt_cvt_impl_r2r(frame0, &src_base_frame);
+            else if (pixfmt_is_yuv(frame0->fmt))
+                ret = pixfmt_cvt_impl_y2y(frame0, &src_base_frame);
+            else {
+                ret = -1;
+                break;
+            }
+        }
+
+        /* malloc memory for dst_base_frame if need */
+        if (dst_base_fmt == frame1->fmt)
+            memcpy(&dst_base_frame, frame1, sizeof(dst_base_frame));
+        else {
+            dst_base_frame.fmt = dst_base_fmt;
+            dst_base_frame.clrspc = frame1->clrspc;
+            dst_base_frame.wid = frame1->wid;
+            dst_base_frame.hgt = frame1->hgt;
+            pixfmt_frame_fill(&dst_base_frame);
+            dst_base_frame.addr = malloc(dst_base_frame.size);
+            dst_base_frame_reuse = false;
+        }
+
+        /* do conversion from src_base_frame to dst_base_frame */
+        if (src_base_fmt == dst_base_fmt) {
+            memcpy(dst_base_frame.addr, src_base_frame.addr, src_base_frame.size);
+        }
+        else {
+            if (pixfmt_is_rgb(src_base_fmt))
+                ret = pixfmt_cvt_impl_r2r(&src_base_frame, &dst_base_frame);
+            else if (pixfmt_is_yuv(src_base_fmt))
+                ret = pixfmt_cvt_impl_y2y(&src_base_frame, &dst_base_frame);
+            else {
+                ret = -1;
+                break;
+            }
+        }
+
+        /* do conversion from dst_base_frame to frame1 */
+        if (dst_base_fmt != frame1->fmt) {
+            if (pixfmt_is_rgb(dst_base_fmt))
+                ret = pixfmt_cvt_impl_r2r(&dst_base_frame, frame1);
+            else if (pixfmt_is_yuv(dst_base_fmt))
+                ret = pixfmt_cvt_impl_y2y(&dst_base_frame, frame1);
+            else {
+                ret = -1;
+                break;
+            }
+        }
+    } while (0);
+
+    /* release the base frames */
+    if (!src_base_frame_reuse && src_base_frame.addr)
+        free(src_base_frame.addr);
+    if (!dst_base_frame_reuse && dst_base_frame.addr)
+        free(dst_base_frame.addr);
+
+    return ret;
 }
 
 #if 0
