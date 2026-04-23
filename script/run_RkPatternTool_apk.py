@@ -4,59 +4,65 @@ import time
 import argparse
 import threading
 import keyboard
+from tqdm import tqdm  # todo
 import pyautogui as pg  # for host PC screen click
 import utils as utl
 
 
 def run_RkPatternTool_apk(step, click_point):
     """
-    运行RkPatternTool APK, 遍历RGB颜色空间并执行点击操作
-    支持ESC按键中断执行
+    运行RkPatternTool APK, 遍历 RGB 颜色空间并执行点击操作
+    支持 ESC 按键中断执行，使用 tqdm 显示进度条
     """
 
     exit_flag = threading.Event()
 
     def listen_for_esc():
-        """监听ESC按键，设置退出标志"""
+        """监听 ESC 按键，设置退出标志"""
         keyboard.wait('esc')
+        print("\n检测到ESC按键，正在退出...")
         exit_flag.set()
 
     listener_thread = threading.Thread(target=listen_for_esc, daemon=True)
     listener_thread.start()
 
-    print("按ESC键可随时终止程序...")
+    point_num = len(range(0, 257, step)) ** 3
+    point_cnt = 0
 
     utl.run_cmd("adb shell settings put system screen_off_timeout 2147483647")  # 设置永不息屏
     curr_point = pg.position()  # 记录当前鼠标位置,点击后还原到当前位置
-    cost_time_guess = (256 // step + 1) ** 3 * 1.5 / 60
-    print(f"预计耗时: {cost_time_guess:.2f} 分钟")
-
-    start_time = time.time()
+    cost_time_guess = point_num ** 3 * 2 / 60
+    print(f"step={step}, 预计耗时: {cost_time_guess:.2f} 分钟, 按ESC键可随时终止程序...")
 
     cmd = 'adb shell am start -n com.rk.patterntool/com.rk.patterntool.Display'
-    for r in range(0, 256, step):
-        rs = min(r, 255)
-        for g in range(0, 256, step):
-            gs = min(g, 255)
-            for b in range(0, 256, step):
-                bs = min(b, 255)
-                option = f'--ei red {rs} --ei green {gs} --ei blue {bs}'
-                utl.run_cmd(f"{cmd} {option}")
-                time.sleep(0.5)
+    start_time = time.time()
+    with tqdm(total=point_num, desc="采样进度", unit="次") as pbar:
+        for r in range(0, 257, step):
+            rs = min(r, 255)
+            for g in range(0, 257, step):
+                gs = min(g, 255)
+                for b in range(0, 257, step):
+                    bs = min(b, 255)
+                    option = f'--ei red {rs} --ei green {gs} --ei blue {bs}'
+                    utl.run_cmd(f"{cmd} {option}", showOutput=False, showCmd=False)
+                    time.sleep(0.5)
 
-                pg.click(x=click_point[0], y=click_point[1], duration=0.2)
-                time.sleep(0.5)
-                pg.moveTo(x=curr_point[0], y=curr_point[1], duration=0.2)
+                    pg.click(x=click_point[0], y=click_point[1], duration=0.2)
+                    time.sleep(0.5)
+                    pg.moveTo(x=curr_point[0], y=curr_point[1], duration=0.2)
 
-                if exit_flag.is_set():
-                    print("\n检测到ESC按键，正在退出...")
-                    return
-                else:
-                    print(f"当前显示颜色: ({rs}, {gs}, {bs}), 按ESC键可随时终止程序...")
+                    point_cnt += 1
+                    pbar.update(1)
+
+                    if exit_flag.is_set():
+                        # print("\n检测到ESC按键，正在退出...")
+                        return
+                    else:
+                        tqdm.write(f"当前显示颜色 #{point_cnt:02d}: ({rs:03d}, {gs:03d}, {bs:03d}), 按ESC键可随时终止程序...")
 
     end_time = time.time()
     cost_time_real = (end_time - start_time) / 60
-    print(f"预计耗时: {cost_time_guess:.2f}, 实际耗时: {cost_time_real:.2f} 分钟")
+    print(f"实际耗时: {cost_time_real:.2f} 分钟")
 
 
 def parse_args():

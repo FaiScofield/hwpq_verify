@@ -121,20 +121,21 @@ def setup_logger(name: str = None, output: str = None, loglevel: str = "DEBUG"):
     return logger
 
 
-def run_cmd(cmd, showOutput=True, logger: logging.Logger = None):
+def run_cmd(cmd, showOutput=True, showCmd=True, logger: logging.Logger = None):
     # return os.system(cmd)
-    if logger is not None:
-        logger.info('cmd to run: %s' % cmd)
-    else:
-        logging.info('cmd to run: %s' % cmd)
+    if showCmd:
+        if logger is not None:
+            logger.info('cmd to run: %s' % cmd)
+        else:
+            logging.info('cmd to run: %s' % cmd)
 
     if showOutput:
         ret = subprocess.call(cmd, shell=True)
     else:
-        r = os.popen(cmd)
-        text = r.read()
-        r.close()
-        ret = 0
+        ret = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # r = os.popen(cmd)
+        # text = r.read()
+        # r.close()
     return ret
 
 
