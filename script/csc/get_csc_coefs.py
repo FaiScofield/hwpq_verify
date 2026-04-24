@@ -537,4 +537,9 @@ if __name__ == '__main__':
             if precision > 0:
                 out_color = (out_color.astype(np.int32) +  (1 << (precision - 1))) >> precision
                 out_color = np.clip(out_color, 0, 2**depth - 1)
-            print(f"do conversion: {args.color} -> {out_color}")
+
+            # 格式化 numpy 数组，保留 6 位小数
+            def format_array(arr):
+                return '[' + ', '.join(f'{x:.4f}' for x in arr) + ']'
+
+            print(f"do conversion: {format_array(args.color)} -> {format_array(out_color)}")

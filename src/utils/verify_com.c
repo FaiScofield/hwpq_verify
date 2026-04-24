@@ -1181,6 +1181,36 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
     LOGT_f("src u/v offset: %td / %td\n", (uint8_t *)p_src_ug - (uint8_t *)p_src_yr, (uint8_t *)p_src_vb - (uint8_t *)p_src_yr);
 
     switch (dst_fmt) {
+    /* dither down to 8bit formats */
+    case RGB888:
+    case RGBA8888: {
+        const int nb_comps = dst_fmt == RGBA8888 ? 4 : 3;
+        assert(dw_strd >= w * nb_comps);
+        for (int y = 0; y < h; y++) {
+            uint8_t *p_dst_row = (uint8_t *)p_dst + y * dw_strd;
+            for (int x = 0, j = 0; x < w; x++, j += nb_comps) {
+                const int src_ofs = y * sw_strd / 2 + x;
+                uint16_t yr = p_src_yr[src_ofs];
+                uint16_t ug = p_src_ug[src_ofs];
+                uint16_t vb = p_src_vb[src_ofs];
+                uint16_t a = p_src_a ? p_src_a[src_ofs] : 1023;
+                if (DITHER_SCALE == dither) {
+                    p_dst_row[j + 0] = ROUND_S32(yr / 1023.f * 255.f);
+                    p_dst_row[j + 1] = ROUND_S32(ug / 1023.f * 255.f);
+                    p_dst_row[j + 2] = ROUND_S32(vb / 1023.f * 255.f);
+                    if (nb_comps == 4)
+                        p_dst_row[j + 3] = ROUND_S32(a / 1023.f * 255.f);
+                }
+                else {
+                    p_dst_row[j + 0] = MIN((yr + 2) >> 2, 255);
+                    p_dst_row[j + 1] = MIN((ug + 2) >> 2, 255);
+                    p_dst_row[j + 2] = MIN((vb + 2) >> 2, 255);
+                    if (nb_comps == 4)
+                        p_dst_row[j + 3] =  MIN((a + 2) >> 2, 255);
+                }
+            }
+        }
+    } break;
     /* 10bit plannar to 10bit lsb data */
     case RGB_101010LSB:
     case YUV444I_10LSB: {

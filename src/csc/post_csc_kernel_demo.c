@@ -106,28 +106,28 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
         switch (opt) {
         case 0: {
             switch (idx) {
-            case 0: config->bcsh_cfg.brightness = atoi(optarg); break;
-            case 1: config->bcsh_cfg.contrast = atoi(optarg); break;
-            case 2: config->bcsh_cfg.saturation = atoi(optarg); break;
-            case 3: config->bcsh_cfg.hue = atoi(optarg); break;
-            case 4: config->bcsh_cfg.r_gain = atoi(optarg); break;
-            case 5: config->bcsh_cfg.g_gain = atoi(optarg); break;
-            case 6: config->bcsh_cfg.b_gain = atoi(optarg); break;
-            case 7: config->bcsh_cfg.r_offset = atoi(optarg); break;
-            case 8: config->bcsh_cfg.g_offset = atoi(optarg); break;
-            case 9: config->bcsh_cfg.b_offset = atoi(optarg); break;
+            case 0: config->bcsh_cfg.brightness = strtol(optarg, NULL, 10); break;
+            case 1: config->bcsh_cfg.contrast = strtol(optarg, NULL, 10); break;
+            case 2: config->bcsh_cfg.saturation = strtol(optarg, NULL, 10); break;
+            case 3: config->bcsh_cfg.hue = strtol(optarg, NULL, 10); break;
+            case 4: config->bcsh_cfg.r_gain = strtol(optarg, NULL, 10); break;
+            case 5: config->bcsh_cfg.g_gain = strtol(optarg, NULL, 10); break;
+            case 6: config->bcsh_cfg.b_gain = strtol(optarg, NULL, 10); break;
+            case 7: config->bcsh_cfg.r_offset = strtol(optarg, NULL, 10); break;
+            case 8: config->bcsh_cfg.g_offset = strtol(optarg, NULL, 10); break;
+            case 9: config->bcsh_cfg.b_offset = strtol(optarg, NULL, 10); break;
             }
             if (idx >= 0 && idx <= 9) {
                 config->bcsh_cfg.csc_enable = 1;
             }
         } break;
         case 'M': parse_csc_mode_str(optarg, &config->convert_mode); break;
-        case 'D': config->convert_mode.pixel_depth = atoi(optarg); break;
-        case 'P': config->convert_mode.coef_precision = atoi(optarg); break;
-        case 's': config->convert_mode.swap_channels = atoi(optarg); break;
+        case 'D': config->convert_mode.pixel_depth = strtol(optarg, NULL, 10); break;
+        case 'P': config->convert_mode.coef_precision = strtol(optarg, NULL, 10); break;
+        case 's': config->convert_mode.swap_channels = strtol(optarg, NULL, 10); break;
         case 'o': strncpy(config->output_file, optarg, 1024); break;
         case 'p': strncpy(config->platform_name, optarg, 32); break;
-        case 'd': config->reg_dump_type = atoi(optarg); break;
+        case 'd': config->reg_dump_type = strtol(optarg, NULL, 10); break;
         case 'a': config->b_print_all = 1; break;
         case 'O': config->b_use_old_method = 1; break;
         case 'h':

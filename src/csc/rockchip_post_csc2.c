@@ -239,6 +239,17 @@ union csc_matrix_f32
     float val[3][3];
 };
 
+union csc_vector_f32
+{
+    struct
+    {
+        float csc_offset0;
+        float csc_offset1;
+        float csc_offset2;
+    };
+    float val[3];
+};
+
 static const union csc_matrix_f32 g_identity_mat_f32 = {1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f};
 
 /* matrix from Rec ITU-R BT.601-7 / BT.709-6 / BT.2020-2 */
@@ -263,6 +274,14 @@ static inline void csc_matrix_mul_f32(union csc_matrix_f32 *dst, const union csc
     dst->val[2][0] = m0->val[2][0] * m1->val[0][0] + m0->val[2][1] * m1->val[1][0] + m0->val[2][2] * m1->val[2][0];
     dst->val[2][1] = m0->val[2][0] * m1->val[0][1] + m0->val[2][1] * m1->val[1][1] + m0->val[2][2] * m1->val[2][1];
     dst->val[2][2] = m0->val[2][0] * m1->val[0][2] + m0->val[2][1] * m1->val[1][2] + m0->val[2][2] * m1->val[2][2];
+}
+
+static inline void csc_matrix_vector_mul_f32(union csc_vector_f32 *dst, const union csc_matrix_f32 *m0, const union csc_vector_f32 *v0)
+{
+    assert(dst != v0);
+    dst->val[0] = m0->val[0][0] * v0->val[0] + m0->val[0][1] * v0->val[1] + m0->val[0][2] * v0->val[2];
+    dst->val[1] = m0->val[1][0] * v0->val[0] + m0->val[1][1] * v0->val[1] + m0->val[1][2] * v0->val[2];
+    dst->val[2] = m0->val[2][0] * v0->val[0] + m0->val[2][1] * v0->val[1] + m0->val[2][2] * v0->val[2];
 }
 
 static void csc_get_range_conversion_matrix_offset(const struct post_csc_convert_mode *mode, union csc_matrix_f32 *range_mat_i,
@@ -1045,6 +1064,56 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *bcsh_cfg, // [I] CSC con
     csc_simple_coef->range_type = convert_mode->is_output_full_range;
 
     return ret;
+}
+
+int get_csc_coefs_float(const struct post_csc *bcsh_cfg, // [I] CSC config
+    const struct post_csc_convert_mode *convert_mode,   // [I] CSC convert mode
+    float *ret_csc_coef_x12                             // [O] return CSC coefs float
+)
+{
+#if ENABLE_POST_CSC_FLOATING_POINT
+    int ret = 0;
+    union csc_matrix_f32 out_matrix = {0};
+    union csc_vector_s32 range_ofs_i = {0}, range_ofs_o = {0}, out_dc = {0};
+
+    assert(convert_mode->pixel_depth >= 8 && convert_mode->pixel_depth <= 16);
+    assert(0 == convert_mode->coef_precision);
+
+    union csc_matrix_f32 range_mat_i = {0}, range_mat_o = {0};
+    union csc_matrix_f32 color_convert_mat = {0}, tmp_mat = {0}, final_mat = {0};
+
+    // get convert mat & vec first
+    csc_get_range_conversion_matrix_offset(convert_mode, &range_mat_i, &range_mat_o, &range_ofs_i, &range_ofs_o);
+    csc_get_space_conversion_matrix(convert_mode, &color_convert_mat);
+    csc_matrix_mul_f32(&tmp_mat, &range_mat_o, &color_convert_mat);
+    csc_matrix_mul_f32(&final_mat, &tmp_mat, &range_mat_i);
+
+    // adjust final_mat with bsch configs
+    if (bcsh_cfg && bcsh_cfg->csc_enable) {
+        csc_adjust_convert_matrix(convert_mode, bcsh_cfg, &final_mat, &range_ofs_o);
+    }
+
+    ret_csc_coef_x12[0] = final_mat.val[0][0];
+    ret_csc_coef_x12[1] = final_mat.val[0][1];
+    ret_csc_coef_x12[2] = final_mat.val[0][2];
+    ret_csc_coef_x12[3] = final_mat.val[1][0];
+    ret_csc_coef_x12[4] = final_mat.val[1][1];
+    ret_csc_coef_x12[5] = final_mat.val[1][2];
+    ret_csc_coef_x12[6] = final_mat.val[2][0];
+    ret_csc_coef_x12[7] = final_mat.val[2][1];
+    ret_csc_coef_x12[8] = final_mat.val[2][2];
+
+    union csc_vector_f32 tmp_ofs_i = {range_ofs_i.val[0], range_ofs_i.val[1], range_ofs_i.val[2]};
+    union csc_vector_f32 tmp_vec = {0};
+    csc_matrix_vector_mul_f32(&tmp_vec, &final_mat, &tmp_ofs_i);
+    ret_csc_coef_x12[9]  = tmp_vec.val[0] + (float)range_ofs_o.val[0];
+    ret_csc_coef_x12[10] = tmp_vec.val[1] + (float)range_ofs_o.val[1];
+    ret_csc_coef_x12[11] = tmp_vec.val[2] + (float)range_ofs_o.val[2];
+
+    return ret;
+#else
+    return -1;
+#endif
 }
 
 int parse_csc_mode_str(const char *mode_str, struct post_csc_convert_mode *mode)

@@ -31,6 +31,11 @@ struct cmd_config_addition_csc {
     int reg_dump_type;     // [0, 2]
 };
 
+struct csc_coef_float {
+    float mat[9];
+    float vec[3];
+};
+
 void print_usage_addition()
 {
     LOGI("CSC Aditional Options:\n");
@@ -98,23 +103,23 @@ int get_cmd_config_addition(int argc, char *const argv[], struct cmd_config_addi
         switch (opt) {
         case 0: {
             switch (idx) {
-            case 0: config->bcsh_cfg.brightness = atoi(optarg); break;
-            case 1: config->bcsh_cfg.contrast = atoi(optarg); break;
-            case 2: config->bcsh_cfg.saturation = atoi(optarg); break;
-            case 3: config->bcsh_cfg.hue = atoi(optarg); break;
-            case 4: config->bcsh_cfg.r_gain = atoi(optarg); break;
-            case 5: config->bcsh_cfg.g_gain = atoi(optarg); break;
-            case 6: config->bcsh_cfg.b_gain = atoi(optarg); break;
-            case 7: config->bcsh_cfg.r_offset = atoi(optarg); break;
-            case 8: config->bcsh_cfg.g_offset = atoi(optarg); break;
-            case 9: config->bcsh_cfg.b_offset = atoi(optarg); break;
+            case 0: config->bcsh_cfg.brightness = strtol(optarg, NULL, 10); break;
+            case 1: config->bcsh_cfg.contrast = strtol(optarg, NULL, 10); break;
+            case 2: config->bcsh_cfg.saturation = strtol(optarg, NULL, 10); break;
+            case 3: config->bcsh_cfg.hue = strtol(optarg, NULL, 10); break;
+            case 4: config->bcsh_cfg.r_gain = strtol(optarg, NULL, 10); break;
+            case 5: config->bcsh_cfg.g_gain = strtol(optarg, NULL, 10); break;
+            case 6: config->bcsh_cfg.b_gain = strtol(optarg, NULL, 10); break;
+            case 7: config->bcsh_cfg.r_offset = strtol(optarg, NULL, 10); break;
+            case 8: config->bcsh_cfg.g_offset = strtol(optarg, NULL, 10); break;
+            case 9: config->bcsh_cfg.b_offset = strtol(optarg, NULL, 10); break;
             }
             LOGI(" - get %dth option: %s = %s\n", idx, g_cmd_args_options_csc[idx].name, optarg);
         } break;
         case 'M': strncpy(config->mode_str, optarg, 32); break;
-        case 'D': config->convert_mode.pixel_depth = atoi(optarg); break;
-        case 'P': config->convert_mode.coef_precision = atoi(optarg); break;
-        case 'd': config->reg_dump_type = atoi(optarg); break;
+        case 'D': config->convert_mode.pixel_depth = strtol(optarg, NULL, 10); break;
+        case 'P': config->convert_mode.coef_precision = strtol(optarg, NULL, 10); break;
+        case 'd': config->reg_dump_type = strtol(optarg, NULL, 10); break;
         case 'O': config->b_use_old_method = 1; break;
         default:  break;
         }
@@ -567,6 +572,187 @@ void run_csc_with_coef(const void *p_src, void *p_dst, int img_w, int img_h, int
     }
 }
 
+void run_csc_with_coef_float(const void *p_src, void *p_dst, int img_w, int img_h, int planar_fmt,
+    const struct csc_coef_float *csc_coefs_fp, const struct post_csc_convert_mode *mode)
+{
+    const int csc_min_vl_1 = mode->is_output_full_range ? 0 : (16 << (mode->pixel_depth - 8));
+    const int csc_max_vl_1 = mode->is_output_full_range ? ((1 << mode->pixel_depth) - 1) : (235 << (mode->pixel_depth - 8));
+    const int csc_min_vl_2 = csc_min_vl_1;
+    const int csc_max_vl_2 = mode->is_output_yuv && !mode->is_output_full_range ? (240 << (mode->pixel_depth - 8)) : csc_max_vl_1;
+
+    const float offset0 = csc_coefs_fp->vec[0];
+    const float offset1 = csc_coefs_fp->vec[1];
+    const float offset2 = csc_coefs_fp->vec[2];
+
+    int src_color[3] = {0};
+    int dst_color[3] = {0};
+
+    if (planar_fmt == RGB_PLANAR10LSB || planar_fmt == YUV444P_10LSB) {
+        ushort *p_src_y = (ushort *)p_src;
+        ushort *p_src_u = (ushort *)p_src + img_w * img_h;
+        ushort *p_src_v = (ushort *)p_src + img_w * img_h * 2;
+        ushort *p_dst_y = (ushort *)p_dst;
+        ushort *p_dst_u = (ushort *)p_dst + img_w * img_h;
+        ushort *p_dst_v = (ushort *)p_dst + img_w * img_h * 2;
+        for (int i = 0; i < img_h; i++) {
+            for (int j = 0; j < img_w; j++) {
+                src_color[0] = *p_src_y++;
+                src_color[1] = *p_src_u++;
+                src_color[2] = *p_src_v++;
+
+                float a0 = csc_coefs_fp->mat[0] * src_color[0];
+                float a1 = csc_coefs_fp->mat[1] * src_color[1];
+                float a2 = csc_coefs_fp->mat[2] * src_color[2];
+                float a3 = csc_coefs_fp->mat[3] * src_color[0];
+                float a4 = csc_coefs_fp->mat[4] * src_color[1];
+                float a5 = csc_coefs_fp->mat[5] * src_color[2];
+                float a6 = csc_coefs_fp->mat[6] * src_color[0];
+                float a7 = csc_coefs_fp->mat[7] * src_color[1];
+                float a8 = csc_coefs_fp->mat[8] * src_color[2];
+                float csc_chl0 = a0 + a1 + a2 + offset0;
+                float csc_chl1 = a3 + a4 + a5 + offset1;
+                float csc_chl2 = a6 + a7 + a8 + offset2;
+                dst_color[0] = ROUND_F(csc_chl0);
+                dst_color[1] = ROUND_F(csc_chl1);
+                dst_color[2] = ROUND_F(csc_chl2);
+                dst_color[0] = CLIP(dst_color[0], csc_min_vl_1, csc_max_vl_1);
+                dst_color[1] = CLIP(dst_color[1], csc_min_vl_2, csc_max_vl_2);
+                dst_color[2] = CLIP(dst_color[2], csc_min_vl_2, csc_max_vl_2);
+                *p_dst_y++ = dst_color[0];
+                *p_dst_u++ = dst_color[1];
+                *p_dst_v++ = dst_color[2];
+            }
+        }
+    }
+    else if (planar_fmt == RGB_PLANAR || planar_fmt == YUV444P) {
+        uchar *p_src_y = (uchar *)p_src;
+        uchar *p_src_u = (uchar *)p_src + img_w * img_h;
+        uchar *p_src_v = (uchar *)p_src + img_w * img_h * 2;
+        uchar *p_dst_y = (uchar *)p_dst;
+        uchar *p_dst_u = (uchar *)p_dst + img_w * img_h;
+        uchar *p_dst_v = (uchar *)p_dst + img_w * img_h * 2;
+        for (int i = 0; i < img_h; i++) {
+            for (int j = 0; j < img_w; j++) {
+                src_color[0] = *p_src_y++;
+                src_color[1] = *p_src_u++;
+                src_color[2] = *p_src_v++;
+
+                float a0 = csc_coefs_fp->mat[0] * src_color[0];
+                float a1 = csc_coefs_fp->mat[1] * src_color[1];
+                float a2 = csc_coefs_fp->mat[2] * src_color[2];
+                float a3 = csc_coefs_fp->mat[3] * src_color[0];
+                float a4 = csc_coefs_fp->mat[4] * src_color[1];
+                float a5 = csc_coefs_fp->mat[5] * src_color[2];
+                float a6 = csc_coefs_fp->mat[6] * src_color[0];
+                float a7 = csc_coefs_fp->mat[7] * src_color[1];
+                float a8 = csc_coefs_fp->mat[8] * src_color[2];
+                float csc_chl0 = a0 + a1 + a2 + offset0;
+                float csc_chl1 = a3 + a4 + a5 + offset1;
+                float csc_chl2 = a6 + a7 + a8 + offset2;
+                dst_color[0] = ROUND_F(csc_chl0);
+                dst_color[1] = ROUND_F(csc_chl1);
+                dst_color[2] = ROUND_F(csc_chl2);
+                dst_color[0] = CLIP(dst_color[0], csc_min_vl_1, csc_max_vl_1);
+                dst_color[1] = CLIP(dst_color[1], csc_min_vl_2, csc_max_vl_2);
+                dst_color[2] = CLIP(dst_color[2], csc_min_vl_2, csc_max_vl_2);
+                *p_dst_y++ = dst_color[0];
+                *p_dst_u++ = dst_color[1];
+                *p_dst_v++ = dst_color[2];
+            }
+        }
+    }
+    else if (mode->is_input_yuv && mode->is_input_yuv && planar_fmt == YUV422P) {
+        uchar *p_src_y = (uchar *)p_src;
+        uchar *p_src_u = (uchar *)p_src + img_w * img_h;
+        uchar *p_src_v = (uchar *)p_src + img_w * img_h * 3 / 2;
+        uchar *p_dst_y = (uchar *)p_dst;
+        uchar *p_dst_u = (uchar *)p_dst + img_w * img_h;
+        uchar *p_dst_v = (uchar *)p_dst + img_w * img_h * 3 / 2;
+
+        int src_luma[2] = {0};
+        for (int i = 0; i < img_h; i++) {
+            for (int j = 0; j < img_w / 2; j++) {
+                const int idx_y = i * img_w + j * 2;
+                const int idx_c = i * img_w / 2 + j;
+                src_luma[0] = p_src_y[idx_y + 0];
+                src_luma[1] = p_src_y[idx_y + 1];
+                src_color[0] = (src_luma[0] + src_luma[1] + 1) >> 1;
+                src_color[1] = p_src_u[idx_c];
+                src_color[2] = p_src_v[idx_c];
+
+                float dy0 = csc_coefs_fp->mat[0] * src_luma[0] + csc_coefs_fp->mat[1] * src_color[1] +
+                            csc_coefs_fp->mat[2] * src_color[2] + offset0;
+                float dy1 = csc_coefs_fp->mat[0] * src_luma[1] + csc_coefs_fp->mat[1] * src_color[1] +
+                            csc_coefs_fp->mat[2] * src_color[2] + offset0;
+                float du = csc_coefs_fp->mat[3] * src_color[0] + csc_coefs_fp->mat[4] * src_color[1] +
+                           csc_coefs_fp->mat[5] * src_color[2] + offset1;
+                float dv = csc_coefs_fp->mat[6] * src_color[0] + csc_coefs_fp->mat[7] * src_color[1] +
+                           csc_coefs_fp->mat[8] * src_color[2] + offset2;
+                dy0 = ROUND_F(dy0);
+                dy1 = ROUND_F(dy1);
+                du = ROUND_F(du);
+                dv = ROUND_F(dv);
+                p_dst_y[idx_y + 0] = CLIP((int)dy0, csc_min_vl_1, csc_max_vl_1);
+                p_dst_y[idx_y + 1] = CLIP((int)dy1, csc_min_vl_1, csc_max_vl_1);
+                p_dst_u[idx_c] = CLIP((int)du, csc_min_vl_2, csc_max_vl_2);
+                p_dst_v[idx_c] = CLIP((int)dv, csc_min_vl_2, csc_max_vl_2);
+            }
+        }
+    }
+    else if (mode->is_input_yuv && mode->is_input_yuv && planar_fmt == YUV420P) {
+        uchar *p_src_y = (uchar *)p_src;
+        uchar *p_src_u = (uchar *)p_src + img_w * img_h;
+        uchar *p_src_v = (uchar *)p_src + img_w * img_h * 5 / 4;
+        uchar *p_dst_y = (uchar *)p_dst;
+        uchar *p_dst_u = (uchar *)p_dst + img_w * img_h;
+        uchar *p_dst_v = (uchar *)p_dst + img_w * img_h * 5 / 4;
+
+        int src_luma[4] = {0};
+        for (int i = 0; i < img_h / 2; i++) {
+            for (int j = 0; j < img_w / 2; j++) {
+                const int idx_y0 = i * 2 * img_w + j * 2;
+                const int idx_y1 = idx_y0 + img_w;
+                const int idx_uv = i * img_w / 2 + j;
+                src_luma[0] = p_src_y[idx_y0 + 0];
+                src_luma[1] = p_src_y[idx_y0 + 1];
+                src_luma[2] = p_src_y[idx_y1 + 0];
+                src_luma[3] = p_src_y[idx_y1 + 1];
+                src_color[0] = (src_luma[0] + src_luma[1] + src_luma[2] + src_luma[3] + 2) >> 2;
+                src_color[1] = p_src_u[idx_uv];
+                src_color[2] = p_src_v[idx_uv];
+
+                float dy0 = csc_coefs_fp->mat[0] * src_luma[0] + csc_coefs_fp->mat[1] * src_color[1] +
+                            csc_coefs_fp->mat[2] * src_color[2] + offset0;
+                float dy1 = csc_coefs_fp->mat[0] * src_luma[1] + csc_coefs_fp->mat[1] * src_color[1] +
+                            csc_coefs_fp->mat[2] * src_color[2] + offset0;
+                float dy2 = csc_coefs_fp->mat[0] * src_luma[2] + csc_coefs_fp->mat[1] * src_color[1] +
+                            csc_coefs_fp->mat[2] * src_color[2] + offset0;
+                float dy3 = csc_coefs_fp->mat[0] * src_luma[3] + csc_coefs_fp->mat[1] * src_color[1] +
+                            csc_coefs_fp->mat[2] * src_color[2] + offset0;
+                float du = csc_coefs_fp->mat[3] * src_color[0] + csc_coefs_fp->mat[4] * src_color[1] +
+                           csc_coefs_fp->mat[5] * src_color[2] + offset1;
+                float dv = csc_coefs_fp->mat[6] * src_color[0] + csc_coefs_fp->mat[7] * src_color[1] +
+                           csc_coefs_fp->mat[8] * src_color[2] + offset2;
+                dy0 = ROUND_F(dy0);
+                dy1 = ROUND_F(dy1);
+                dy2 = ROUND_F(dy2);
+                dy3 = ROUND_F(dy3);
+                du = ROUND_F(du);
+                dv = ROUND_F(dv);
+                p_dst_y[idx_y0 + 0] = CLIP((int)dy0, csc_min_vl_1, csc_max_vl_1);
+                p_dst_y[idx_y0 + 1] = CLIP((int)dy1, csc_min_vl_1, csc_max_vl_1);
+                p_dst_y[idx_y1 + 0] = CLIP((int)dy2, csc_min_vl_1, csc_max_vl_1);
+                p_dst_y[idx_y1 + 1] = CLIP((int)dy3, csc_min_vl_1, csc_max_vl_1);
+                p_dst_u[idx_uv] = CLIP((int)du, csc_min_vl_2, csc_max_vl_2);
+                p_dst_v[idx_uv] = CLIP((int)dv, csc_min_vl_2, csc_max_vl_2);
+            }
+        }
+    }
+    else {
+        LOGE("%s: unsupported planar format %d!\n", __func__, planar_fmt);
+    }
+}
+
 void dump_csc_regs(const char *filename, unsigned int base_addr, const struct post_csc_coef *csc_coefs, int is_post_csc)
 {
     FILE *fp = stdout;
@@ -637,10 +823,8 @@ int main(int argc, char *const argv[])
 
     struct post_csc_convert_mode *p_mode = &cmd_config2.convert_mode;
     struct post_csc *p_bcsh = &cmd_config2.bcsh_cfg;
-    const int depth = (cmd_config.src_fmt < 10 && cmd_config.dst_fmt < 10) ? 8 : 10;
-    if (8 == depth) {
-        p_mode->pixel_depth = 8;
-    }
+    const int src_depth = (cmd_config.src_fmt < 10 && cmd_config.dst_fmt < 10) ? 8 : 10;
+    p_mode->pixel_depth = MAX(cmd_config2.convert_mode.pixel_depth, src_depth);
     LOGI("dump CSC mode info from cmd line:\n");
     LOGI(" - pixel_depth/coef_precision: %d/%dbit\n", p_mode->pixel_depth, p_mode->coef_precision);
     LOGI(" - b/c/s/h: %d/%d/%d/%d\n", p_bcsh->brightness, p_bcsh->contrast, p_bcsh->saturation, p_bcsh->hue);
@@ -657,6 +841,7 @@ int main(int argc, char *const argv[])
 
     struct post_csc_convert_mode csc_mode = {0}; // final csc mode
     struct post_csc_coef csc_coefs = {0};        // final csc coefs
+    struct csc_coef_float csc_coefs_fp = {0};    // final csc coefs with float precision
     int mode_idx = cmd_config.mode;
     const int pixel_depth = p_mode->pixel_depth;
     const int precision = p_mode->coef_precision;
@@ -670,12 +855,12 @@ int main(int argc, char *const argv[])
         csc_mode.swap_channels = 0;
         csc_mode.pixel_depth = p_mode->pixel_depth;
         csc_mode.coef_precision = p_mode->coef_precision;
-        if (b_use_old_method) {
+        if (0 == csc_mode.coef_precision) /* float coefs */
+            ret = get_csc_coefs_float(NULL, &csc_mode, (float *)&csc_coefs_fp);
+        else if (b_use_old_method)
             ret = rockchip_calc_post_csc(NULL, &csc_coefs, &csc_mode);
-        }
-        else {
+        else
             ret = rockchip_calc_post_csc_coefs(NULL, &csc_coefs, &csc_mode);
-        }
     }
     // parse csc coefs from 'cmd_config2.mode_str'
     else if (cmd_config2.mode_str[0] != '\0') {
@@ -687,12 +872,12 @@ int main(int argc, char *const argv[])
         csc_mode.swap_channels = 0;
         csc_mode.pixel_depth = p_mode->pixel_depth;
         csc_mode.coef_precision = p_mode->coef_precision;
-        if (b_use_old_method) {
+        if (0 == csc_mode.coef_precision) /* float coefs */
+            ret = get_csc_coefs_float(p_bcsh, &csc_mode, (float *)&csc_coefs_fp);
+        else if (b_use_old_method)
             ret = rockchip_calc_post_csc(p_bcsh, &csc_coefs, &csc_mode);
-        }
-        else {
+        else
             ret = rockchip_calc_post_csc_coefs(p_bcsh, &csc_coefs, &csc_mode);
-        }
         mode_idx = csc_get_mode_index(&csc_mode);
         LOGI(" - mode_string: %s -> mode_index: %d\n", cmd_config2.mode_str, mode_idx);
         if (ret || mode_idx < 0 || mode_idx >= CSC_MODE_MAX) {
@@ -702,9 +887,8 @@ int main(int argc, char *const argv[])
     // parse csc coefs from 'cmd_config.config_file'
     else if (cmd_config.config_file[0] != '\0') {
         ret = parse_csc_config(cmd_config.config_file, &csc_coefs, p_bcsh, &csc_mode);
-        if (ret) {
+        if (ret)
             return ret;
-        }
     }
     else {
         csc_mode.plat = p_mode->plat;
@@ -717,35 +901,40 @@ int main(int argc, char *const argv[])
         csc_mode.is_output_full_range = common_verify_clrspc_is_full_range(cmd_config.dst_clrspc);
         int src_encoding = common_verify_clrspc_to_kernel_encoding(cmd_config.src_clrspc);
         int dst_encoding = common_verify_clrspc_to_kernel_encoding(cmd_config.dst_clrspc);
-        if (csc_mode.is_input_yuv && !csc_mode.is_output_yuv) {
+        if (csc_mode.is_input_yuv && !csc_mode.is_output_yuv)
             dst_encoding = src_encoding;
-        }
-        else if (!csc_mode.is_input_yuv && csc_mode.is_output_yuv) {
+        else if (!csc_mode.is_input_yuv && csc_mode.is_output_yuv)
             src_encoding = dst_encoding;
-        }
-        else if (!csc_mode.is_input_yuv && !csc_mode.is_output_yuv) {
+        else if (!csc_mode.is_input_yuv && !csc_mode.is_output_yuv)
             src_encoding = dst_encoding = 1; // 709
-        }
+
         csc_mode.intput_color_encoding = src_encoding;
         csc_mode.output_color_encoding = dst_encoding;
-        if (b_use_old_method) {
+        if (0 == csc_mode.coef_precision) /* float coefs */
+            ret = get_csc_coefs_float(p_bcsh, &csc_mode, (float *)&csc_coefs_fp);
+        if (b_use_old_method)
             ret = rockchip_calc_post_csc(p_bcsh, &csc_coefs, &csc_mode);
-        }
-        else {
+        else
             ret = rockchip_calc_post_csc_coefs(p_bcsh, &csc_coefs, &csc_mode);
-        }
         mode_idx = csc_get_mode_index(&csc_mode);
         LOGI(" - get mode_index: %d(%s) from IO formats.\n", mode_idx, g_supported_csc_mode_str[mode_idx]);
-        if (ret || mode_idx < 0 || mode_idx >= CSC_MODE_MAX) {
+        if (ret || mode_idx < 0 || mode_idx >= CSC_MODE_MAX)
             return ret;
-        }
     }
 
-    LOGI(" - get csc_coef matrix: [%d, %d, %d; %d, %d, %d; %d, %d, %d]\n", csc_coefs.csc_coef00, csc_coefs.csc_coef01,
-        csc_coefs.csc_coef02, csc_coefs.csc_coef10, csc_coefs.csc_coef11, csc_coefs.csc_coef12, csc_coefs.csc_coef20,
-        csc_coefs.csc_coef21, csc_coefs.csc_coef22);
-    LOGI(" - get csc_coef offset: [%d, %d, %d], bFullRangeOut: %d\n", csc_coefs.csc_dc0, csc_coefs.csc_dc1,
-        csc_coefs.csc_dc2, csc_coefs.range_type);
+    if (0 == csc_mode.coef_precision) {
+        LOGI(" - get csc_coef_fp matrix: [%.4f, %.4f, %.4f; %.4f, %.4f, %.4f; %.4f, %.4f, %.4f]\n", csc_coefs_fp.mat[0],
+            csc_coefs_fp.mat[1], csc_coefs_fp.mat[2], csc_coefs_fp.mat[3], csc_coefs_fp.mat[4], csc_coefs_fp.mat[5],
+            csc_coefs_fp.mat[6], csc_coefs_fp.mat[7], csc_coefs_fp.mat[8]);
+        LOGI(" - get csc_coef_fp offset: [%.4f, %.4f, %.4f]\n", csc_coefs_fp.vec[0], csc_coefs_fp.vec[1], csc_coefs_fp.vec[2]);
+    }
+    else {
+        LOGI(" - get csc_coef matrix: [%d, %d, %d; %d, %d, %d; %d, %d, %d]\n", csc_coefs.csc_coef00,
+            csc_coefs.csc_coef01, csc_coefs.csc_coef02, csc_coefs.csc_coef10, csc_coefs.csc_coef11,
+            csc_coefs.csc_coef12, csc_coefs.csc_coef20, csc_coefs.csc_coef21, csc_coefs.csc_coef22);
+        LOGI(" - get csc_coef offset: [%d, %d, %d], bFullRangeOut: %d\n", csc_coefs.csc_dc0, csc_coefs.csc_dc1,
+            csc_coefs.csc_dc2, csc_coefs.range_type);
+    }
     const int bCscEnable = 1; //csc_coefs[12] > 0;
     const int bIsInputYuv = csc_mode.is_input_yuv;
     const int bIsOutputYuv = bCscEnable ? csc_mode.is_output_yuv : bIsInputYuv;
@@ -777,33 +966,37 @@ int main(int argc, char *const argv[])
     }
 
     int crc_val = -1;
-    const int mid_fmt = common_verify_imgfmt_get_def_planar(cmd_config.src_fmt, depth);
-    LOGI("mid_fmt: %d (%s)\n", mid_fmt, common_verify_imgfmt_name(mid_fmt));
+    const int mid_fmt = common_verify_imgfmt_get_def_planar(cmd_config.src_fmt, pixel_depth);
+    LOGI("mid_fmt: %#x (%s)\n", mid_fmt, common_verify_imgfmt_name(mid_fmt));
 
     for (int k = 0; k < cmd_config.nb_frame; k++) {
         ret = image_read_to_planar(fp_src, p_src, k, cmd_config.src_wid, cmd_config.src_hgt, cmd_config.src_wid_vir,
-            cmd_config.src_hgt_vir, cmd_config.src_fmt, depth, cmd_config.dither_up);
+            cmd_config.src_hgt_vir, cmd_config.src_fmt, pixel_depth, cmd_config.dither_up);
         if (ret) {
             LOGE("Failed to read frame #%d from input file '%s'! %s\n", k, cmd_config.input_file, strerror(errno));
             break;
         }
 
-        if (depth == 10) {
+        if (pixel_depth == 10) {
             crc_val = get_crc_for_planar_frame_10bit(p_src, cmd_config.src_wid, cmd_config.src_hgt, bIsInputYuv);
             LOGI("src CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsInputYuv ? "VYU" : "RGB", k, crc_val);
         }
 
-        run_csc_with_coef(p_src, p_dst, cmd_config.src_wid, cmd_config.src_hgt, mid_fmt, &csc_coefs, &csc_mode);
-        dump_csc_regs(NULL, 0x0, &csc_coefs, bIsPostCsc);
+        if (0 == csc_mode.coef_precision)
+            run_csc_with_coef_float(p_src, p_dst, cmd_config.src_wid, cmd_config.src_hgt, mid_fmt, &csc_coefs_fp, &csc_mode);
+        else {
+            run_csc_with_coef(p_src, p_dst, cmd_config.src_wid, cmd_config.src_hgt, mid_fmt, &csc_coefs, &csc_mode);
+            dump_csc_regs(NULL, 0x0, &csc_coefs, bIsPostCsc);
+        }
         ret = image_write_from_plannar(fp_dst, (ushort *)p_dst, k, cmd_config.dst_wid, cmd_config.dst_hgt,
-            cmd_config.dst_wid_vir, cmd_config.dst_hgt_vir, cmd_config.dst_fmt, depth, cmd_config.dither_dn);
+            cmd_config.dst_wid_vir, cmd_config.dst_hgt_vir, cmd_config.dst_fmt, pixel_depth, cmd_config.dither_dn);
         if (ret) {
             break;
         }
         // fwrite(p_src, 2, cmd_config.src_wid * cmd_config.src_hgt * 3, fp_dst); // write src after dst
 
         // get CRC
-        if (depth == 10) {
+        if (pixel_depth == 10) {
             crc_val = get_crc_for_planar_frame_10bit(p_dst, cmd_config.src_wid, cmd_config.src_hgt, bIsOutputYuv);
             LOGI("dst CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
             if (fp_crc) {
