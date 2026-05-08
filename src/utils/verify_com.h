@@ -179,6 +179,13 @@ int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int
 // dump regisers data to a file or stdout, with 4 registers in each row
 void dump_regs_to_dat(const char *filename, uint const *regs, int nb_regs, uint start_addr);
 
+
+/********** STB image IO functions **********/
+bool ends_with(const char *str, const char *suffix, bool case_sensitive);
+bool is_stb_image(const char *filename);
+uint8_t *read_stb_image_auto(const char *filename, int *width, int *height, int *channel, int reqChannel); // memory allocated!
+void free_stb_image_auto(uint8_t *data); // free memory allocated by read_stb_image_auto()
+
 #ifdef __cplusplus
 }
 #endif

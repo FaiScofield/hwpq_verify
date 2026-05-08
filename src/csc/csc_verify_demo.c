@@ -806,6 +806,10 @@ void dump_csc_regs(const char *filename, unsigned int base_addr, const struct po
 
 int main(int argc, char *const argv[])
 {
+    void *p_src = NULL, *p_dst = NULL, *p_src_raw = NULL;
+    FILE *fp_src = NULL, *fp_dst = NULL, *fp_crc = NULL;
+    int crc_val = -1;
+    int mid_fmt = YUV444P;
     int ret = 0;
 
     /* parse cmd parameters */
@@ -941,40 +945,71 @@ int main(int argc, char *const argv[])
     const int bIsPostCsc = 0;
     LOGI(" - bCscEnable: %d, bIsOutputYuv: %d, bIsPostCsc: %d\n", bCscEnable, bIsOutputYuv, bIsPostCsc);
 
+
     /* alloc i/o/t memories */
     const size_t frame_size_max = cmd_config.src_wid * cmd_config.src_hgt * 4 * 2; // 4 channels x 16bpp
-    void *p_src = calloc(frame_size_max, 1);
-    void *p_dst = calloc(frame_size_max, 1);
-    if (!p_src || !p_dst) {
-        return -1;
+    if (is_stb_image(cmd_config.input_file)) {
+        int nb_channels = 0;
+        p_src_raw = read_stb_image_auto(cmd_config.input_file, &cmd_config.src_wid, &cmd_config.src_hgt, &nb_channels, 3);
+        if (p_src_raw) {
+            cmd_config.nb_frame = 1;
+            cmd_config.src_fmt = RGB888;
+            cmd_config.src_wid_vir = cmd_config.src_wid * 3;
+            cmd_config.src_hgt_vir = cmd_config.src_hgt;
+            LOGW("stb image read success, src size: %dx%d, fmt: RGB888\n", cmd_config.src_wid, cmd_config.src_hgt);
+        }
+        else
+            goto EXIT;
+    }
+    else {
+        fp_src = fopen(cmd_config.input_file, "rb");
+        if (!fp_src) {
+            LOGE("Failed to open the input file '%s'! %s\n", cmd_config.input_file, strerror(errno));
+            goto EXIT;
+        }
     }
 
-    FILE *fp_src = fopen(cmd_config.input_file, "rb");
-    FILE *fp_dst = fopen(cmd_config.output_file, "wb");
-    if (!fp_src) {
-        LOGE("Failed to open the input file '%s'! %s\n", cmd_config.input_file, strerror(errno));
-        return -1;
+    p_src = calloc(frame_size_max, 1);
+    p_dst = calloc(frame_size_max, 1);
+    if (!p_src || !p_dst) {
+        goto EXIT;
     }
+    fp_dst = fopen(cmd_config.output_file, "wb");
     if (!fp_dst) {
         LOGE("Failed to open the output file '%s'! %s\n", cmd_config.output_file, strerror(errno));
-        return -1;
+        goto EXIT;
     }
-    FILE *fp_crc = fopen(cmd_config.crc_file, "a");
+    fp_crc = fopen(cmd_config.crc_file, "a");
     if (!fp_crc) {
         LOGW("Failed to open the crc output file '%s'! %s. CRC value will not be written!\n", cmd_config.crc_file,
             strerror(errno));
     }
 
-    int crc_val = -1;
-    const int mid_fmt = common_verify_imgfmt_get_def_planar(cmd_config.src_fmt, pixel_depth);
+    ret = 0;
+    crc_val = -1;
+    mid_fmt = common_verify_imgfmt_get_def_planar(cmd_config.src_fmt, pixel_depth);
     LOGI("mid_fmt: %#x (%s)\n", mid_fmt, common_verify_imgfmt_name(mid_fmt));
 
     for (int k = 0; k < cmd_config.nb_frame; k++) {
-        ret = image_read_to_planar(fp_src, p_src, k, cmd_config.src_wid, cmd_config.src_hgt, cmd_config.src_wid_vir,
-            cmd_config.src_hgt_vir, cmd_config.src_fmt, pixel_depth, cmd_config.dither_up);
-        if (ret) {
-            LOGE("Failed to read frame #%d from input file '%s'! %s\n", k, cmd_config.input_file, strerror(errno));
-            break;
+        if (is_stb_image(cmd_config.input_file)) {
+            if (pixel_depth == 8) { // to RGB_planar
+                ret = imgcvt_to_planar_8bit_lsb((uint8_t *)p_src_raw, (uint8_t *)p_src, cmd_config.src_wid,
+                    cmd_config.src_hgt, cmd_config.src_wid_vir, cmd_config.src_hgt_vir, cmd_config.src_wid,
+                    cmd_config.src_hgt, cmd_config.src_fmt, false, 0);
+            }
+            else if (pixel_depth == 10) { // to RGB10l_planar
+                ret = imgcvt_to_planar_10bit_lsb((uint8_t *)p_src_raw, (uint16_t *)p_src, cmd_config.src_wid,
+                    cmd_config.src_hgt, cmd_config.src_wid_vir, cmd_config.src_hgt_vir, cmd_config.src_wid * 2,
+                    cmd_config.src_hgt, cmd_config.src_fmt, false, 0);
+            }
+        }
+        else {
+            ret = image_read_to_planar(fp_src, p_src, k, cmd_config.src_wid, cmd_config.src_hgt, cmd_config.src_wid_vir,
+                cmd_config.src_hgt_vir, cmd_config.src_fmt, pixel_depth, cmd_config.dither_up);
+            if (ret) {
+                LOGE("Failed to read frame #%d from input file '%s'! %s\n", k, cmd_config.input_file, strerror(errno));
+                break;
+            }
         }
 
         if (pixel_depth == 10) {
@@ -988,6 +1023,7 @@ int main(int argc, char *const argv[])
             run_csc_with_coef(p_src, p_dst, cmd_config.src_wid, cmd_config.src_hgt, mid_fmt, &csc_coefs, &csc_mode);
             dump_csc_regs(NULL, 0x0, &csc_coefs, bIsPostCsc);
         }
+
         ret = image_write_from_plannar(fp_dst, (ushort *)p_dst, k, cmd_config.dst_wid, cmd_config.dst_hgt,
             cmd_config.dst_wid_vir, cmd_config.dst_hgt_vir, cmd_config.dst_fmt, pixel_depth, cmd_config.dither_dn);
         if (ret) {
@@ -1021,12 +1057,21 @@ int main(int argc, char *const argv[])
         LOGE("error happened, please have a check!\n");
     }
 
-    fclose(fp_src);
-    fclose(fp_dst);
+EXIT:
+    if (fp_src)
+        fclose(fp_src);
+    if (fp_dst)
+        fclose(fp_dst);
     if (fp_crc)
         fclose(fp_crc);
-    free(p_src);
-    free(p_dst);
+    if (p_src) {
+        if (is_stb_image(cmd_config.input_file))
+            free_stb_image_auto(p_src);
+        else
+            free(p_src);
+    }
+    if (p_dst)
+        free(p_dst);
 
     return ret;
 }
