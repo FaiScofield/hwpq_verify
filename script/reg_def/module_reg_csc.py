@@ -250,6 +250,8 @@ if __name__ == "__main__":
 
     if args.interface == "load":
         register.load(args.file, index=args.module)
+        # if register.regs2config():
+        #     register.config.dump()
     elif args.interface == "dump":
         register.dump(args.file, index=args.module)
     elif args.interface == "gen":
