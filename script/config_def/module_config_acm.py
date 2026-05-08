@@ -37,6 +37,7 @@ class AcmConfig(ModuleConfigCore):
         self.lumGain = 256  # [0, (256), 1023]
         self.hueGain = 256  # [0, (256), 1023]
         self.satGain = 256  # [0, (256), 1023]
+        self.rgbOffset4W = [256, 256, 256],
         self.lutLengthY = 9
         self.lutLengthS = 13
         self.lutLengthH = 65
@@ -62,6 +63,7 @@ class AcmConfig(ModuleConfigCore):
             "lumGain": self.lumGain,
             "hueGain": self.hueGain,
             "satGain": self.satGain,
+            "rgbOffset4W": self.rgbOffset4W,
             "lutLengthY": self.lutLengthY,
             "lutLengthS": self.lutLengthS,
             "lutLengthH": self.lutLengthH,
