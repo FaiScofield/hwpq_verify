@@ -34,12 +34,7 @@ extern int pixfmt_cvt_exec(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1)
 /**
  * RGB conversion functions
  */
-extern int pixfmt_cvt_rgb565_to_rgb888(const void *src, void *dst, int w, int h,
-    int src_stride, int dst_stride);
-extern int pixfmt_cvt_rgb332_to_rgb888(const void *src, void *dst, int w, int h, int src_stride, int dst_stride);
 
-extern int pixfmt_cvt_rgb888_to_rgb565(const void *src, void *dst, int w, int h, int src_stride, int dst_stride);
-extern int pixfmt_cvt_rgb888_to_rgb332(const void *src, void *dst, int w, int h, int src_stride, int dst_stride);
 
 /**
  * YUV conversion functions
