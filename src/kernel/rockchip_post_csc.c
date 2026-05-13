@@ -46,7 +46,7 @@
 #define	MIN(a, b)				((a) < (b) ? (a) : (b))
 #define	CLIP(x, min_v, max_v)			MIN(MAX(x, min_v), max_v)
 
-#define ENABLE_DEBUG_LOG		1
+#define ENABLE_DEBUG_LOG		0
 #if ENABLE_DEBUG_LOG
 #define DBG_LOG(fmt, ...)	printf("[DEBUG] " fmt, ##__VA_ARGS__)
 #else
