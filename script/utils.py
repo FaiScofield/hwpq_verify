@@ -241,7 +241,7 @@ def extras_args_to_dict(extras: list[str]) -> dict:
     return kwargs
 
 
-def calc_crc32(data):
+def calc_crc32(data, data_len=None):
     """
     计算CRC32校验值，查找表只初始化一次以提高性能
     
@@ -263,6 +263,13 @@ def calc_crc32(data):
 
     # 初始化CRC值
     crc = 0xFFFFFFFF
+
+    if data_len is not None:
+        if len(data) < data_len:
+            logging.warning(f"input data size({data_len(data)}) is less than len({data_len})!")
+            data_len = len(data)
+        else:
+            data = data[:data_len]
 
     # 遍历数据计算CRC
     for byte in data:
