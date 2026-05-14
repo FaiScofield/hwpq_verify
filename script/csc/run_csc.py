@@ -21,6 +21,7 @@ from get_csc_coefs import (
     parse_csc_mode_str,
     ColorSpace,
 )
+from get_csc_coef_hsv import apply_bcsh_hsv
 
 FORMAT_NAMES = {
     0x0: "RGB888",
@@ -371,6 +372,7 @@ def run_cli(args):
     csc_config = CscCoefConfig()
     csc_config.pixel_depth = pixel_depth
     csc_config.coef_precision = coef_precision
+    csc_config.algo_type = args.algo_type
     csc_config.csc_mode = parse_csc_mode_str(mode_str)
 
     bcsh = CscBcshConfig()
@@ -395,11 +397,26 @@ def run_cli(args):
     if args.b_offset is not None:
         bcsh.b_offset = args.b_offset
 
-    coefs, offset = get_csc_coefs(csc_config, bcsh)
+    if args.algo_type == 'RGB_on_HSV':
+        output_is_rgb = is_rgb_format(output_fmt)
+        input_is_rgb = is_rgb_format(input_fmt)
+        if output_is_rgb:
+            coefs, offset = get_csc_coefs(csc_config, None)
+            planar_out = apply_csc(planar_in, coefs, offset, coef_precision, pixel_depth)
+            planar_out = apply_bcsh_hsv(planar_out, bcsh, pixel_depth)
+        elif input_is_rgb:
+            planar_in = apply_bcsh_hsv(planar_in, bcsh, pixel_depth)
+            coefs, offset = get_csc_coefs(csc_config, None)
+            planar_out = apply_csc(planar_in, coefs, offset, coef_precision, pixel_depth)
+        else:
+            coefs, offset = get_csc_coefs(csc_config, bcsh)
+            planar_out = apply_csc(planar_in, coefs, offset, coef_precision, pixel_depth)
+    else:
+        coefs, offset = get_csc_coefs(csc_config, bcsh)
+        planar_out = apply_csc(planar_in, coefs, offset, coef_precision, pixel_depth)
+
     print(f"CSC matrix:\n{coefs}")
     print(f"CSC offset: {offset}")
-
-    planar_out = apply_csc(planar_in, coefs, offset, coef_precision, pixel_depth)
 
     out_width = args.outwid if args.outwid is not None else width
     out_height = args.outhgt if args.outhgt is not None else height
@@ -463,9 +480,14 @@ def open_csc_ui(args):
             sg.Text('256', key=f'-BCSH-{k2}-VAL-', size=(4, 1)),
         ])
 
+    algo_type_options = ['RK CSC', 'RK CSC (fix contrast)', 'RGB_on_HSV']
     bcsh_tab_layout = [
         *bcsh_layout,
-        [sg.Button('Reset BCSH', key='-RESET-BCSH-')]
+        [sg.Text('AlgoType:', size=(8, 1)),
+         sg.Combo(algo_type_options, default_value='RK CSC', key='-BCSH-ALGO-TYPE-',
+                  readonly=True, size=(22, 1), enable_events=True),
+         sg.Push(),
+         sg.Button('Reset BCSH', key='-RESET-BCSH-')]
     ]
 
     input_output_layout = [
@@ -568,9 +590,12 @@ def open_csc_ui(args):
 
         try:
             planar_in = read_raw_to_planar(input_file, w, h, ifmt)
+            algo_type = values.get('-BCSH-ALGO-TYPE-', 'RK CSC')
+
             csc_config = CscCoefConfig()
             csc_config.pixel_depth = depth
             csc_config.coef_precision = precision
+            csc_config.algo_type = algo_type
             mode_str = build_csc_mode_str(iclr, oclr)
             csc_config.csc_mode = parse_csc_mode_str(mode_str)
 
@@ -586,8 +611,24 @@ def open_csc_ui(args):
             bcsh.g_offset = int(values['-BCSH-g_offset-'])
             bcsh.b_offset = int(values['-BCSH-b_offset-'])
 
-            coefs, offset = get_csc_coefs(csc_config, bcsh)
-            planar_out = apply_csc(planar_in, coefs, offset, precision, depth)
+            if algo_type == 'RGB_on_HSV':
+                output_is_rgb = is_rgb_format(ofmt)
+                input_is_rgb = is_rgb_format(ifmt)
+
+                if output_is_rgb:
+                    coefs, offset = get_csc_coefs(csc_config, None)
+                    planar_out = apply_csc(planar_in, coefs, offset, precision, depth)
+                    planar_out = apply_bcsh_hsv(planar_out, bcsh, depth)
+                elif input_is_rgb:
+                    planar_in_proc = apply_bcsh_hsv(planar_in, bcsh, depth)
+                    coefs, offset = get_csc_coefs(csc_config, None)
+                    planar_out = apply_csc(planar_in_proc, coefs, offset, precision, depth)
+                else:
+                    coefs, offset = get_csc_coefs(csc_config, bcsh)
+                    planar_out = apply_csc(planar_in, coefs, offset, precision, depth)
+            else:
+                coefs, offset = get_csc_coefs(csc_config, bcsh)
+                planar_out = apply_csc(planar_in, coefs, offset, precision, depth)
 
             current_planar_in = planar_in
             current_planar_out = planar_out
@@ -699,7 +740,7 @@ def open_csc_ui(args):
 
     bcsh_keys = {f'-BCSH-{k}-' for _, k, _, _ in bcsh_names}.union({f'-BCSH-{k}-' for _, _, _, k in bcsh_names})
     convert_keys = {'-IN-FMT-', '-OUT-FMT-', '-IN-CLR-', '-OUT-CLR-',
-                    '-PRECISION-', '-WIDTH-', '-HEIGHT-'}
+                    '-PRECISION-', '-WIDTH-', '-HEIGHT-', '-BCSH-ALGO-TYPE-'}
 
     last_window_size = window.size
 
@@ -707,7 +748,7 @@ def open_csc_ui(args):
         event, values = window.read()
         if event in (sg.WIN_CLOSED, None):
             break
-            
+
         if event == '-WINDOW-RESIZE-':
             # Only redraw if the size actually changed significantly to prevent infinite loop
             if last_window_size != window.size:
@@ -804,6 +845,8 @@ def main():
     parser.add_argument("--r_offset", type=int, default=None, help="BCSH R offset [0, 511], default: 256")
     parser.add_argument("--g_offset", type=int, default=None, help="BCSH G offset [0, 511], default: 256")
     parser.add_argument("--b_offset", type=int, default=None, help="BCSH B offset [0, 511], default: 256")
+    parser.add_argument("--algo-type", type=str, default="RK CSC",
+                        help="BCSH algorithm type: 'RK CSC', 'RK CSC (fix contrast)', 'RGB_on_HSV'")
 
     args, _ = parser.parse_known_args()
 

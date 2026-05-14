@@ -45,6 +45,7 @@ class CscCoefConfig:
     coef_precision = 0
     tune_fix_coefs = 0  # 0-no tuning, >0 means a diagonal ratio (float), no need to set this value
     platform = "rk3572"
+    algo_type = "RK CSC"  # "RK CSC", "RK CSC (fix contrast)", "RGB_on_HSV"
 
 
 class CscBcshConfig:
@@ -355,6 +356,10 @@ def get_csc_coefs(config: CscCoefConfig, bcsh_cfg: Optional[CscBcshConfig]) -> t
 
     ## adjust final_mat with bsch configs
     if bcsh_cfg is not None:
+        if config.algo_type == 'RK CSC (fix contrast)':
+            # TODO: modify contrast coefficient application method here
+            # Currently falls through to the default RK CSC path
+            pass
         final_mat, range_ofs_o, diagonal_ratio = adjust_convert_mat(config, bcsh_cfg, final_mat, range_ofs_o)
         if config.tune_fix_coefs:
             config.tune_fix_coefs = diagonal_ratio  # >0 means the BCSH matrixes are diagonal
