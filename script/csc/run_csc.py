@@ -481,7 +481,7 @@ def open_csc_ui(args):
          sg.Combo(clrspc_display, default_value=clrspc_display[1], key='-IN-CLR-',
                   readonly=True, size=(22, 1), enable_events=True)],
         [sg.Text('Output Format:', size=(12, 1)),
-         sg.Combo(fmt_display, default_value=fmt_display[10], key='-OUT-FMT-',
+         sg.Combo(fmt_display, default_value=fmt_display[0], key='-OUT-FMT-',
                   readonly=True, size=(28, 1), enable_events=True),
          sg.Text('Output Colorspace:', size=(14, 1)),
          sg.Combo(clrspc_display, default_value=clrspc_display[1], key='-OUT-CLR-',
@@ -501,16 +501,17 @@ def open_csc_ui(args):
             ])]
         ]),
          sg.Column([
-             [sg.Button('Convert', key='-CONVERT-', size=(12, 2))],
-             [sg.Radio('Show Input', 'RADIO1', default=True, key='-SHOW-IN-', enable_events=True, size=(12, 1))],
-             [sg.Radio('Show Output', 'RADIO1', key='-SHOW-OUT-', enable_events=True, size=(12, 1))]
+             [sg.Button('Save Output', key='-SAVE-OUT-', size=(12, 2))],
+             [sg.Radio('Show Input', 'RADIO1', key='-SHOW-IN-', enable_events=True, size=(12, 1))],
+             [sg.Radio('Show Output', 'RADIO1', default=True, key='-SHOW-OUT-', enable_events=True, size=(12, 1))]
          ], element_justification='l', vertical_alignment='top', pad=(10, 30))],
         [sg.HorizontalSeparator()],
-        [sg.Text('Preview (no image loaded)', key='-PREVIEW-LABEL-')],
-        [sg.Image(key='-IMAGE-', size=(640, 360), background_color='gray')],
+        [sg.Text('Preview (no image loaded)', key='-PREVIEW-LABEL-', size=(80, 5))],
+        [sg.Column([[sg.Image(key='-IMAGE-', background_color='gray')]], key='-IMAGE-COL-', expand_x=True, expand_y=True, element_justification='l', vertical_alignment='top')],
     ]
 
     window = sg.Window('CSC Image Converter', layout, resizable=True, finalize=True)
+    window.bind('<Configure>', '-WINDOW-RESIZE-')
 
     current_planar_in = None
     current_planar_out = None
@@ -522,6 +523,8 @@ def open_csc_ui(args):
     current_input_full_range = True
     current_output_color = ColorSpace.BT709
     current_input_color = ColorSpace.BT709
+    current_csc_coefs = None
+    current_csc_offset = None
 
     def trigger_convert(values, update_display=True):
         nonlocal current_planar_in, current_planar_out
@@ -529,6 +532,7 @@ def open_csc_ui(args):
         nonlocal current_output_is_yuv, current_input_is_yuv
         nonlocal current_output_full_range, current_input_full_range
         nonlocal current_output_color, current_input_color
+        nonlocal current_csc_coefs, current_csc_offset
 
         input_file = values['-INPUT-FILE-']
         if not input_file or not os.path.isfile(input_file):
@@ -553,6 +557,13 @@ def open_csc_ui(args):
             return
 
         if h <= 0 or w <= 0:
+            return
+
+        expected_size = get_frame_size(w, h, ifmt)
+        actual_size = os.path.getsize(input_file)
+        if actual_size < expected_size:
+            window['-PREVIEW-LABEL-'].update(f"Error: Input file size ({actual_size} bytes) is smaller than the expected frame size ({expected_size} bytes)!")
+            window['-IMAGE-'].update(data=b'')
             return
 
         try:
@@ -580,6 +591,8 @@ def open_csc_ui(args):
 
             current_planar_in = planar_in
             current_planar_out = planar_out
+            current_csc_coefs = coefs
+            current_csc_offset = offset
             current_output_pixel_depth = out_depth
             current_input_pixel_depth = in_depth
             current_output_is_yuv = is_yuv_format(ofmt)
@@ -605,9 +618,11 @@ def open_csc_ui(args):
                 display_result(window, values)
         except Exception as e:
             window['-PREVIEW-LABEL-'].update(f"Error: {e}")
+            window['-IMAGE-'].update(data=b'')
 
     def display_result(window, values):
         nonlocal current_planar_in, current_planar_out
+        nonlocal current_csc_coefs, current_csc_offset
 
         show_output = values.get('-SHOW-OUT-', False)
 
@@ -650,8 +665,12 @@ def open_csc_ui(args):
 
             rgb_interleaved = np.stack([rgb_8bit[0], rgb_8bit[1], rgb_8bit[2]], axis=-1)
 
-            max_display_w = 640
-            max_display_h = 480
+            # Get available size from the column containing the image
+            col_widget = window['-IMAGE-COL-'].Widget
+            # Provide some default size before window is fully rendered
+            max_display_w = max(col_widget.winfo_width() - 20, 640)
+            max_display_h = max(col_widget.winfo_height() - 20, 360)
+
             scale_factor = min(max_display_w / w, max_display_h / h, 1.0)
             disp_w = max(int(w * scale_factor), 1)
             disp_h = max(int(h * scale_factor), 1)
@@ -669,7 +688,12 @@ def open_csc_ui(args):
                 get_clrspc_from_display(iclr_disp),
                 get_clrspc_from_display(oclr_disp),
             )
-            window['-PREVIEW-LABEL-'].update(f"Preview ({w}x{h}, CSC: {mode_desc})")
+            coef_str = str(current_csc_coefs).replace('\n', ' ') if current_csc_coefs is not None else "None"
+            offset_str = str(current_csc_offset) if current_csc_offset is not None else "None"
+            preview_text = f"Preview ({w}x{h}, CSC: {mode_desc})\n"
+            preview_text += f"Coefs: {coef_str}\n"
+            preview_text += f"Offset: {offset_str}"
+            window['-PREVIEW-LABEL-'].update(preview_text)
         except Exception as e:
             window['-PREVIEW-LABEL-'].update(f"Display error: {e}")
 
@@ -677,10 +701,24 @@ def open_csc_ui(args):
     convert_keys = {'-IN-FMT-', '-OUT-FMT-', '-IN-CLR-', '-OUT-CLR-',
                     '-PRECISION-', '-WIDTH-', '-HEIGHT-'}
 
+    last_window_size = window.size
+
     while True:
         event, values = window.read()
         if event in (sg.WIN_CLOSED, None):
             break
+            
+        if event == '-WINDOW-RESIZE-':
+            # Only redraw if the size actually changed significantly to prevent infinite loop
+            if last_window_size != window.size:
+                last_window_size = window.size
+                if current_planar_in is not None:
+                    # Delay slightly to allow the UI layout to settle before re-calculating dimensions
+                    window.perform_long_operation(lambda: None, '-REDRAW-IMAGE-')
+            continue
+        elif event == '-REDRAW-IMAGE-':
+            display_result(window, values)
+            continue
 
         if event in bcsh_keys:
             val_label_key = event + 'VAL-'
@@ -695,25 +733,28 @@ def open_csc_ui(args):
                 window[f'-BCSH-{k2}-VAL-'].update('256')
                 values[f'-BCSH-{k2}-'] = 256
             trigger_convert(values)
-        elif event == '-CONVERT-':
-            # Check file size here
+        elif event == '-SAVE-OUT-':
             try:
                 input_file = values['-INPUT-FILE-']
                 w = int(values['-WIDTH-'])
                 h = int(values['-HEIGHT-'])
                 ifmt = get_fmt_from_display(values['-IN-FMT-'])
-                if input_file and os.path.isfile(input_file):
-                    expected_size = get_frame_size(w, h, ifmt)
-                    actual_size = os.path.getsize(input_file)
-                    if actual_size < expected_size:
-                        sg.popup_error(f"Input file size ({actual_size} bytes) is smaller than the expected frame size ({expected_size} bytes)!\nPlease check your width, height and format settings.", title="File Size Warning")
-                        continue
-            except (ValueError, IndexError):
-                pass
-                
-            window['-SHOW-OUT-'].update(True)
-            values['-SHOW-OUT-'] = True
-            trigger_convert(values)
+                ofmt = get_fmt_from_display(values['-OUT-FMT-'])
+                if not input_file or not os.path.isfile(input_file):
+                    sg.popup_error("Please select a valid input file first!")
+                    continue
+
+                if current_planar_out is None:
+                    sg.popup_error("No output image generated yet. Check parameters.")
+                    continue
+
+                default_output = _get_default_output_path(input_file)
+                save_path = sg.popup_get_file('Save output image as', save_as=True, default_path=default_output)
+                if save_path:
+                    write_planar_to_raw(current_planar_out, save_path, w, h, ofmt)
+                    sg.popup(f"Saved successfully to:\n{save_path}", title="Success")
+            except Exception as e:
+                sg.popup_error(f"Failed to save output:\n{e}")
         elif event in convert_keys:
             trigger_convert(values)
         elif event in ['-SHOW-IN-', '-SHOW-OUT-']:
