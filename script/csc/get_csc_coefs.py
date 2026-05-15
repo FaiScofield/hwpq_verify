@@ -216,6 +216,20 @@ def get_space_convert_mat(mode: CscMode) -> Optional[np.ndarray]:
     return mat_r2y @ mat_y2r
 
 
+def _make_homogeneous_mat(mat3: np.ndarray, ofs3: Optional[np.ndarray] = None) -> np.ndarray:
+    """Build a 4x4 homogeneous matrix from a 3x3 matrix and optional offset."""
+    quad = np.eye(4, dtype=np.float32)
+    quad[:3, :3] = mat3
+    if ofs3 is not None:
+        quad[:3, 3] = ofs3
+    return quad
+
+
+def _split_homogeneous_mat(quad: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Split a 4x4 homogeneous matrix into a 3x3 matrix and a 3x1 offset."""
+    return quad[:3, :3], quad[:3, 3]
+
+
 def adjust_convert_mat(
     config: CscCoefConfig, bcsh_cfg: CscBcshConfig, out_mat: np.ndarray, out_vec: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, float]:
@@ -248,10 +262,19 @@ def adjust_convert_mat(
 
     gain_matrix = np.array([[r_gain, 0, 0], [0, g_gain, 0], [0, 0, b_gain]], dtype=np.float32)
     contrast_matrix = np.array([[contrast, 0, 0], [0, contrast, 0], [0, 0, contrast]], dtype=np.float32)
+    contrast_mat_rgb = np.array([[contrast, 0, 0], [0, contrast, 0], [0, 0, contrast]], dtype=np.float32) # todo
+    contrast_mat_yuv = np.array([[contrast, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=np.float32) # todo
+    contrast_ofs_rgb = np.array([0.5, 0.5, 0.5], dtype=np.float32) * (1 - contrast) # todo
+    contrast_ofs_yuv = np.array([0.5, 0, 0], dtype=np.float32) * (1 - contrast) # todo
     hue_matrix = np.array([[1, 0, 0], [0, cos_hue, -sin_hue], [0, sin_hue, cos_hue]], dtype=np.float32)
     saturation_matrix = np.array([[1, 0, 0], [0, saturation, 0], [0, 0, saturation]], dtype=np.float32)
     b_diagonal_m0 = hue_rad == 0 and saturation == 1
     b_diagonal_m1 = r_gain == g_gain and g_gain == b_gain
+
+    quad_mat_yuv = np.array([[contrast, 0, 0, (1-contrast)*0.5+brightness],
+                             [0, saturation*cos_hue, -saturation*sin_hue, 0],
+                             [0, saturation*sin_hue, saturation*cos_hue, 0],
+                             [0, 0, 0, 1]], dtype=np.float32)
 
     ## M0 = hue_matrix * saturation_matrix, which is applied on YUV space. It will be a DIAGONAL matrix ONLY if the hue_matrix is identity
     ## M1 = gain_matrix * contrast_matrix, which is applied on RGB space. It will be a DIAGONAL matrix ONLY if the gain_matrix is identity
@@ -260,27 +283,33 @@ def adjust_convert_mat(
     r2y_matrix = g_r2y_mat_bt709
     y2r_matrix = g_y2r_mat_bt709
     mode = config.csc_mode
+    quad_t = _make_homogeneous_mat(out_mat, out_vec)
+    quad_m0 = _make_homogeneous_mat(M0)
+    quad_m1 = _make_homogeneous_mat(M1)
+    quad_r2y = _make_homogeneous_mat(r2y_matrix)
+    quad_y2r = _make_homogeneous_mat(y2r_matrix)
+    quad_y_brightness = _make_homogeneous_mat(
+        np.eye(3, dtype=np.float32), np.array([brightness, 0, 0], dtype=np.float32)
+    )
+    quad_rgb_offset = _make_homogeneous_mat(
+        np.eye(3, dtype=np.float32),
+        np.array([brightness + r_offset, brightness + g_offset, brightness + b_offset], dtype=np.float32),
+    )
 
     ## Y2Y: output = T * M0 * N_r2y * M1 * N_y2r
     if mode.is_input_yuv and mode.is_output_yuv:
-        out_mat = out_mat @ M0 @ r2y_matrix @ M1 @ y2r_matrix
-        out_vec[0] += brightness
+        quad_out = quad_y_brightness @ quad_t @ quad_m0 @ quad_r2y @ quad_m1 @ quad_y2r
     ## Y2R: output = M1 * T * M0
     elif mode.is_input_yuv and not mode.is_output_yuv:
-        out_mat = M1 @ out_mat @ M0
-        out_vec[0] += brightness + r_offset
-        out_vec[1] += brightness + g_offset
-        out_vec[2] += brightness + b_offset
+        quad_out = quad_rgb_offset @ quad_m1 @ quad_t @ quad_m0
     ## R2Y: output = M0 * T * M1
     elif not mode.is_input_yuv and mode.is_output_yuv:
-        out_mat = M0 @ out_mat @ M1
-        out_vec[0] += brightness
+        quad_out = quad_y_brightness @ quad_m0 @ quad_t @ quad_m1
     ## R2R: output = T * M1 * N_y2r * M0 * N_r2y
     else:
-        out_mat = out_mat @ M1 @ y2r_matrix @ M0 @ r2y_matrix
-        out_vec[0] += brightness + r_offset
-        out_vec[1] += brightness + g_offset
-        out_vec[2] += brightness + b_offset
+        quad_out = quad_rgb_offset @ quad_t @ quad_m1 @ quad_y2r @ quad_m0 @ quad_r2y
+
+    out_mat, out_vec = _split_homogeneous_mat(quad_out)
 
     ## count diagonal ratio for later fixed-point calcuation
     if b_diagonal_m0 and b_diagonal_m1:
