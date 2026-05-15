@@ -8,6 +8,8 @@ Description : HSV-based BCSH implementation
 
 import numpy as np
 
+from get_csc_coefs import get_bcsh_param_pack
+
 
 def _rgb_to_hsv(rgb):
     """
@@ -73,84 +75,87 @@ def _hsv_to_rgb(hsv):
     return np.stack([r, g, b], axis=-1)
 
 
-def apply_bcsh_hsv(planar_rgb, bcsh_cfg, pixel_depth):
+def apply_rgb_gain_offset(planar_rgb, bcsh_cfg, pixel_depth, algo_type):
     """
-    Apply BCSH parameters in HSV color space.
+    Apply per-channel RGB gain and offset in normalized RGB space.
     planar_rgb: numpy array (3, H, W) in RGB
     bcsh_cfg: CscBcshConfig object
     pixel_depth: int (8 or 10)
     """
     h, w = planar_rgb.shape[1], planar_rgb.shape[2]
     max_val = (1 << pixel_depth) - 1
+    rgb_normalized = planar_rgb.reshape(3, -1).T.astype(np.float64) / max_val
+    params = get_bcsh_param_pack(algo_type, bcsh_cfg, pixel_depth)
+
+    rgb_new = rgb_normalized.copy()
+    rgb_new *= params["rgb_gains"].astype(np.float64)
+    rgb_new += params["rgb_offset_units"].astype(np.float64)
+    rgb_new = np.clip(rgb_new, 0.0, 1.0)
+
+    planar_out = (rgb_new.T * max_val)
+    planar_out = np.clip(planar_out + 0.5, 0, max_val).astype(planar_rgb.dtype)
+
+    return planar_out.reshape(3, h, w)
+
+
+def apply_bcsh_hsv(planar_rgb, bcsh_cfg, pixel_depth, algo_type):
+    """
+    Apply BCSH parameters in HSV color space, then apply RGB gain/offset.
+    planar_rgb: numpy array (3, H, W) in RGB
+    bcsh_cfg: CscBcshConfig object
+    pixel_depth: int (8 or 10)
+    """
+    h, w = planar_rgb.shape[1], planar_rgb.shape[2]
+    max_val = (1 << pixel_depth) - 1
+    params = get_bcsh_param_pack(algo_type, bcsh_cfg, pixel_depth)
 
     rgb_normalized = planar_rgb.reshape(3, -1).T.astype(np.float64) / max_val
-
     hsv = _rgb_to_hsv(rgb_normalized)
 
     H = hsv[:, 0]
     S = hsv[:, 1]
     V = hsv[:, 2]
 
-    # Hue: [0, 511] -> [-30°, 30°] -> [-1/12, 1/12] in H [0,1]
-    hue_delta = (bcsh_cfg.hue - 256) * 30 / 256.0 / 360.0
-    H = (H + hue_delta) % 1.0
-
-    # Saturation: [0, 511] -> [0, 2) gain
-    sat_gain = bcsh_cfg.saturation / 256.0
-    S = np.clip(S * sat_gain, 0.0, 1.0)
-
-    # Contrast: [0, 511] -> [0, 2) gain, applied around mid-point 0.5
-    contrast_gain = bcsh_cfg.contrast / 256.0
-    V = (V - 0.5) * contrast_gain + 0.5
-
-    # Brightness: [0, 511] -> raw [-256, 255], bit-shifted per pixel_depth,
-    # then normalized to [0,1] of V
-    # matches get_csc_coefs.py L234-247: brightness = bcsh_cfg.brightness - 256
-    #   if pixel_depth <= 10: brightness >>= 10 - pixel_depth
-    #   else: brightness <<= pixel_depth - 10
-    bright_raw = bcsh_cfg.brightness - 256
-    if pixel_depth <= 10:
-        bright_raw >>= 10 - pixel_depth
-    else:
-        bright_raw <<= pixel_depth - 10
-    V = V + bright_raw / max_val
-
-    V = np.clip(V, 0.0, 1.0)
+    H = (H + params["hue_turn"]) % 1.0
+    S = np.clip(S * params["saturation"], 0.0, 1.0)
+    V = np.clip((V - 0.5) * params["contrast"] + 0.5 + params["brightness_unit"], 0.0, 1.0)
 
     hsv_new = np.stack([H, S, V], axis=-1)
-
     rgb_new = _hsv_to_rgb(hsv_new)
-
-    # Per-channel RGB gains: [0, 511] -> [0, 2)
-    # matches get_csc_coefs.py L225-227: gain = bcsh_cfg.x_gain / 256.0
-    r_gain = bcsh_cfg.r_gain / 256.0
-    g_gain = bcsh_cfg.g_gain / 256.0
-    b_gain = bcsh_cfg.b_gain / 256.0
-    rgb_new[:, 0] *= r_gain
-    rgb_new[:, 1] *= g_gain
-    rgb_new[:, 2] *= b_gain
-    rgb_new = np.clip(rgb_new, 0.0, 1.0)
-
-    # Per-channel RGB offsets: [0, 511] -> [-256, 255], bit-shifted per pixel_depth
-    # matches get_csc_coefs.py L230-242
-    r_off = bcsh_cfg.r_offset - 256
-    g_off = bcsh_cfg.g_offset - 256
-    b_off = bcsh_cfg.b_offset - 256
-    offset_shift_bits = 3 - (pixel_depth - 8)
-    if offset_shift_bits >= 0:
-        r_off >>= offset_shift_bits
-        g_off >>= offset_shift_bits
-        b_off >>= offset_shift_bits
-    else:
-        r_off <<= -offset_shift_bits
-        g_off <<= -offset_shift_bits
-        b_off <<= -offset_shift_bits
-    rgb_new[:, 0] += r_off / max_val
-    rgb_new[:, 1] += g_off / max_val
-    rgb_new[:, 2] += b_off / max_val
+    rgb_new *= params["rgb_gains"].astype(np.float64)
+    rgb_new += params["rgb_offset_units"].astype(np.float64)
     rgb_new = np.clip(rgb_new, 0.0, 1.0)
 
     planar_out = (rgb_new.T * max_val)
     planar_out = np.clip(planar_out + 0.5, 0, max_val).astype(planar_rgb.dtype)
+    return planar_out.reshape(3, h, w)
 
+
+def apply_bcsh_yuv(planar_yuv, bcsh_cfg, pixel_depth, algo_type):
+    """
+    Apply BCSH parameters directly in YUV space and ignore RGB gain/offset.
+    planar_yuv: numpy array (3, H, W) in YUV
+    bcsh_cfg: CscBcshConfig object
+    pixel_depth: int (8 or 10)
+    """
+    h, w = planar_yuv.shape[1], planar_yuv.shape[2]
+    max_val = (1 << pixel_depth) - 1
+    params = get_bcsh_param_pack(algo_type, bcsh_cfg, pixel_depth)
+
+    yuv_normalized = planar_yuv.reshape(3, -1).T.astype(np.float64) / max_val
+    y = yuv_normalized[:, 0]
+    u = yuv_normalized[:, 1] - 0.5
+    v = yuv_normalized[:, 2] - 0.5
+
+    y = np.clip((y - 0.5) * params["contrast"] + 0.5 + params["brightness_unit"], 0.0, 1.0)
+    cos_hue = np.cos(params["hue_rad"])
+    sin_hue = np.sin(params["hue_rad"])
+    u_new = (u * cos_hue - v * sin_hue) * params["saturation"]
+    v_new = (u * sin_hue + v * cos_hue) * params["saturation"]
+
+    yuv_new = np.stack([y, u_new + 0.5, v_new + 0.5], axis=-1)
+    yuv_new = np.clip(yuv_new, 0.0, 1.0)
+
+    planar_out = (yuv_new.T * max_val)
+    planar_out = np.clip(planar_out + 0.5, 0, max_val).astype(planar_yuv.dtype)
     return planar_out.reshape(3, h, w)
