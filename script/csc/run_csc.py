@@ -492,7 +492,7 @@ def open_csc_ui(args):
 
     input_output_layout = [
         [sg.Text('Input File:', size=(12, 1)),
-         sg.Input(key='-INPUT-FILE-', size=(52, 1), enable_events=True),
+         sg.Input(key='-INPUT-FILE-', size=(52, 1), enable_events=True, readonly=True),
          sg.FileBrowse('Browse...')],
         [sg.Text('Width:', size=(6, 1)), sg.Input('1920', key='-WIDTH-', size=(8, 1), enable_events=True),
          sg.Text('Height:', size=(6, 1)), sg.Input('1080', key='-HEIGHT-', size=(8, 1), enable_events=True)],
@@ -528,12 +528,17 @@ def open_csc_ui(args):
              [sg.Radio('Show Output', 'RADIO1', default=True, key='-SHOW-OUT-', enable_events=True, size=(12, 1))]
          ], element_justification='l', vertical_alignment='top', pad=(10, 30))],
         [sg.HorizontalSeparator()],
-        [sg.Text('Preview (no image loaded)', key='-PREVIEW-LABEL-', size=(80, 5))],
-        [sg.Column([[sg.Image(key='-IMAGE-', background_color='gray')]], key='-IMAGE-COL-', expand_x=True, expand_y=True, element_justification='l', vertical_alignment='top')],
+        [sg.Input('Coefs: ...\tOffset: ...', key='-PREVIEW-LABEL-', expand_x=True, font=('Consolas', 10), readonly=True, border_width=0, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color())],
+        [sg.Input('Position: (----,----) Input Pixel (---): (----, ----, ----) Output Pixel (---): (----, ----, ----) [Press Space to freeze]', key='-PIXEL-INFO-', expand_x=True, font=('Consolas', 10), readonly=True, border_width=0, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color())],
+        [sg.Column([[sg.Image(key='-IMAGE-', background_color='gray')]], key='-IMAGE-COL-', expand_x=True, expand_y=True, element_justification='l', vertical_alignment='top')]
     ]
 
-    window = sg.Window('CSC Image Converter', layout, resizable=True, finalize=True)
+    window = sg.Window('CSC Image Converter', layout, resizable=True, finalize=True, return_keyboard_events=True)
+
     window.bind('<Configure>', '-WINDOW-RESIZE-')
+    window['-IMAGE-'].bind('<Motion>', '+MOTION')
+    window['-IMAGE-'].bind('<Enter>', '+ENTER')
+    window['-IMAGE-'].bind('<Leave>', '+LEAVE')
 
     current_planar_in = None
     current_planar_out = None
@@ -547,6 +552,47 @@ def open_csc_ui(args):
     current_input_color = ColorSpace.BT709
     current_csc_coefs = None
     current_csc_offset = None
+    current_scale_factor = 1.0
+    current_mouse_pos = None
+    is_pixel_info_frozen = False
+    is_mouse_in_image = False
+
+    def update_pixel_info(window, orig_x, orig_y):
+        nonlocal current_planar_in, current_planar_out
+        nonlocal current_input_is_yuv, current_output_is_yuv
+
+        if current_planar_in is not None:
+            h, w = current_planar_in.shape[1], current_planar_in.shape[2]
+
+            if 0 <= orig_x < w and 0 <= orig_y < h:
+                in_p0 = current_planar_in[0, orig_y, orig_x]
+                in_p1 = current_planar_in[1, orig_y, orig_x]
+                in_p2 = current_planar_in[2, orig_y, orig_x]
+                in_str = f"({in_p0:04d}, {in_p1:04d}, {in_p2:04d})"
+            else:
+                in_str = "(----, ----, ----)"
+
+            out_str = "(----, ----, ----)"
+            if current_planar_out is not None:
+                out_h, out_w = current_planar_out.shape[1], current_planar_out.shape[2]
+                if 0 <= orig_x < out_w and 0 <= orig_y < out_h:
+                    out_p0 = current_planar_out[0, orig_y, orig_x]
+                    out_p1 = current_planar_out[1, orig_y, orig_x]
+                    out_p2 = current_planar_out[2, orig_y, orig_x]
+                    out_str = f"({out_p0:04d}, {out_p1:04d}, {out_p2:04d})"
+
+            in_format = "yuv" if current_input_is_yuv else "rgb"
+            out_format = "yuv" if current_output_is_yuv else "rgb"
+
+            freeze_status = "[Frozen]" if is_pixel_info_frozen else "[Press Space to freeze]"
+            info_text = f"Position: ({orig_x:04d},{orig_y:04d}) Input Pixel ({in_format}): {in_str} Output Pixel ({out_format}): {out_str} {freeze_status}"
+            window['-PIXEL-INFO-'].update(info_text)
+
+    def update_multiline_readonly(window, key, value):
+        widget = window[key].Widget
+        widget.configure(state='normal')
+        window[key].update(value=value)
+        # We don't set it back to 'disabled' because we handle readonly via binding '<Key>' to 'break'
 
     def trigger_convert(values, update_display=True):
         nonlocal current_planar_in, current_planar_out
@@ -584,7 +630,7 @@ def open_csc_ui(args):
         expected_size = get_frame_size(w, h, ifmt)
         actual_size = os.path.getsize(input_file)
         if actual_size < expected_size:
-            window['-PREVIEW-LABEL-'].update(f"Error: Input file size ({actual_size} bytes) is smaller than the expected frame size ({expected_size} bytes)!")
+            window['-PREVIEW-LABEL-'].update(value=f"Error: Input file size ({actual_size} bytes) is smaller than the expected frame size ({expected_size} bytes)!")
             window['-IMAGE-'].update(data=b'')
             return
 
@@ -657,19 +703,22 @@ def open_csc_ui(args):
 
             if update_display:
                 display_result(window, values)
+                if current_mouse_pos is not None:
+                    update_pixel_info(window, current_mouse_pos[0], current_mouse_pos[1])
         except Exception as e:
-            window['-PREVIEW-LABEL-'].update(f"Error: {e}")
+            window['-PREVIEW-LABEL-'].update(value=f"Error: {e}")
             window['-IMAGE-'].update(data=b'')
 
     def display_result(window, values):
         nonlocal current_planar_in, current_planar_out
         nonlocal current_csc_coefs, current_csc_offset
+        nonlocal current_scale_factor
 
         show_output = values.get('-SHOW-OUT-', False)
 
         target_planar = current_planar_out if show_output else current_planar_in
         if target_planar is None:
-            window['-PREVIEW-LABEL-'].update("No conversion result")
+            window['-PREVIEW-LABEL-'].update(value="No conversion result")
             return
 
         target_is_yuv = current_output_is_yuv if show_output else current_input_is_yuv
@@ -713,6 +762,7 @@ def open_csc_ui(args):
             max_display_h = max(col_widget.winfo_height() - 20, 360)
 
             scale_factor = min(max_display_w / w, max_display_h / h, 1.0)
+            current_scale_factor = scale_factor
             disp_w = max(int(w * scale_factor), 1)
             disp_h = max(int(h * scale_factor), 1)
 
@@ -731,12 +781,10 @@ def open_csc_ui(args):
             )
             coef_str = str(current_csc_coefs).replace('\n', ' ') if current_csc_coefs is not None else "None"
             offset_str = str(current_csc_offset) if current_csc_offset is not None else "None"
-            preview_text = f"Preview ({w}x{h}, CSC: {mode_desc})\n"
-            preview_text += f"Coefs: {coef_str}\n"
-            preview_text += f"Offset: {offset_str}"
-            window['-PREVIEW-LABEL-'].update(preview_text)
+            preview_text = f"Coefs: {coef_str}    Offset: {offset_str}"
+            window['-PREVIEW-LABEL-'].update(value=preview_text)
         except Exception as e:
-            window['-PREVIEW-LABEL-'].update(f"Display error: {e}")
+            window['-PREVIEW-LABEL-'].update(value=f"Display error: {e}")
 
     bcsh_keys = {f'-BCSH-{k}-' for _, k, _, _ in bcsh_names}.union({f'-BCSH-{k}-' for _, _, _, k in bcsh_names})
     convert_keys = {'-IN-FMT-', '-OUT-FMT-', '-IN-CLR-', '-OUT-CLR-',
@@ -802,7 +850,74 @@ def open_csc_ui(args):
             display_result(window, values)
         elif event == '-INPUT-FILE-':
             if values['-INPUT-FILE-'] and os.path.isfile(values['-INPUT-FILE-']):
+                import re
+                filepath = values['-INPUT-FILE-']
+                basename = os.path.basename(filepath).lower()
+                ext = os.path.splitext(basename)[1]
+
+                updates = False
+                # 1. Guess by extension
+                if ext == '.yuv':
+                    # YUV420SP_NV12 is 0x9. fmt_display has format: "0x9 - YUV420SP_NV12"
+                    # BT709_Limited is 4. clrspc_display has format: "4 - BT709_Limited"
+                    yuv_fmt = next((f for f in fmt_display if f.startswith('0x9 ')), None)
+                    if yuv_fmt:
+                        window['-IN-FMT-'].update(value=yuv_fmt)
+                        values['-IN-FMT-'] = yuv_fmt
+                        updates = True
+                    bt709_l = next((c for c in clrspc_display if c.startswith('4 ')), None)
+                    if bt709_l:
+                        window['-IN-CLR-'].update(value=bt709_l)
+                        values['-IN-CLR-'] = bt709_l
+                        updates = True
+                elif ext == '.rgb':
+                    # RGB888 is 0x0. fmt_display has format: "0x0 - RGB888"
+                    # RGB_Full is 1. clrspc_display has format: "1 - RGB_Full"
+                    rgb_fmt = next((f for f in fmt_display if f.startswith('0x0 ')), None)
+                    if rgb_fmt:
+                        window['-IN-FMT-'].update(value=rgb_fmt)
+                        values['-IN-FMT-'] = rgb_fmt
+                        updates = True
+                    rgb_f = next((c for c in clrspc_display if c.startswith('1 ')), None)
+                    if rgb_f:
+                        window['-IN-CLR-'].update(value=rgb_f)
+                        values['-IN-CLR-'] = rgb_f
+                        updates = True
+
+                # 2. Guess by resolution in basename
+                m_res = re.search(r'(\d+)x(\d+)', basename)
+                if m_res:
+                    w_str, h_str = m_res.group(1), m_res.group(2)
+                    window['-WIDTH-'].update(value=w_str)
+                    values['-WIDTH-'] = w_str
+                    window['-HEIGHT-'].update(value=h_str)
+                    values['-HEIGHT-'] = h_str
+                    updates = True
+
                 trigger_convert(values)
+        elif event == '-IMAGE-+ENTER':
+            is_mouse_in_image = True
+        elif event == '-IMAGE-+LEAVE':
+            is_mouse_in_image = False
+        elif event == '-IMAGE-+MOTION':
+            if current_planar_in is not None and not is_pixel_info_frozen:
+                e = window['-IMAGE-'].user_bind_event
+                # tkinter event coordinates are relative to the widget
+                widget_x, widget_y = e.x, e.y
+
+                # Image widget padding/border is small but we use coordinates directly
+                # Map to original image coordinates using current_scale_factor
+                orig_x = int(widget_x / current_scale_factor)
+                orig_y = int(widget_y / current_scale_factor)
+
+                current_mouse_pos = (orig_x, orig_y)
+                update_pixel_info(window, orig_x, orig_y)
+
+        elif event == ' ':  # Space key
+            if is_mouse_in_image:
+                is_pixel_info_frozen = not is_pixel_info_frozen
+                if current_mouse_pos is not None:
+                    update_pixel_info(window, current_mouse_pos[0], current_mouse_pos[1])
 
     window.close()
 
