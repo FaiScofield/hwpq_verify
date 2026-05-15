@@ -528,8 +528,8 @@ def open_csc_ui(args):
              [sg.Radio('Show Output', 'RADIO1', default=True, key='-SHOW-OUT-', enable_events=True, size=(12, 1))]
          ], element_justification='l', vertical_alignment='top', pad=(10, 30))],
         [sg.HorizontalSeparator()],
-        [sg.Input('Coefs: ...\tOffset: ...', key='-PREVIEW-LABEL-', expand_x=True, font=('Consolas', 10), readonly=True, border_width=0, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color())],
-        [sg.Input('Position: (----,----) Input Pixel (---): (----, ----, ----) Output Pixel (---): (----, ----, ----) [Press Space to freeze]', key='-PIXEL-INFO-', expand_x=True, font=('Consolas', 10), readonly=True, border_width=0, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color())],
+        [sg.Input('Display Size: ...\tCoefs: ...\tOffset: ...', key='-PREVIEW-LABEL-', expand_x=True, font=('Consolas', 10), readonly=True, border_width=0, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color())],
+        [sg.Input('Position: ... Input Pixel: ... Output Pixel: ... [Press Space to freeze]', key='-PIXEL-INFO-', expand_x=True, font=('Consolas', 10), readonly=True, border_width=0, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color())],
         [sg.Column([[sg.Image(key='-IMAGE-', background_color='gray')]], key='-IMAGE-COL-', expand_x=True, expand_y=True, element_justification='l', vertical_alignment='top')]
     ]
 
@@ -557,17 +557,66 @@ def open_csc_ui(args):
     is_pixel_info_frozen = False
     is_mouse_in_image = False
 
+    planar_in_full = None
+    current_input_file_params = None  # (input_file, w, h, ifmt)
+
+    def do_conversion(planar_in, values, depth, precision, algo_type, iclr, oclr, ifmt, ofmt):
+        csc_config = CscCoefConfig()
+        csc_config.pixel_depth = depth
+        csc_config.coef_precision = precision
+        csc_config.algo_type = algo_type
+        mode_str = build_csc_mode_str(iclr, oclr)
+        csc_config.csc_mode = parse_csc_mode_str(mode_str)
+
+        bcsh = CscBcshConfig()
+        bcsh.hue = int(values['-BCSH-hue-'])
+        bcsh.saturation = int(values['-BCSH-sat-'])
+        bcsh.contrast = int(values['-BCSH-contrast-'])
+        bcsh.brightness = int(values['-BCSH-bright-'])
+        bcsh.r_gain = int(values['-BCSH-r_gain-'])
+        bcsh.g_gain = int(values['-BCSH-g_gain-'])
+        bcsh.b_gain = int(values['-BCSH-b_gain-'])
+        bcsh.r_offset = int(values['-BCSH-r_offset-'])
+        bcsh.g_offset = int(values['-BCSH-g_offset-'])
+        bcsh.b_offset = int(values['-BCSH-b_offset-'])
+
+        if algo_type == 'RGB_on_HSV':
+            output_is_rgb = is_rgb_format(ofmt)
+            input_is_rgb = is_rgb_format(ifmt)
+
+            if output_is_rgb:
+                coefs, offset = get_csc_coefs(csc_config, None)
+                planar_out = apply_csc(planar_in, coefs, offset, precision, depth)
+                planar_out = apply_bcsh_hsv(planar_out, bcsh, depth)
+            elif input_is_rgb:
+                planar_in_proc = apply_bcsh_hsv(planar_in, bcsh, depth)
+                coefs, offset = get_csc_coefs(csc_config, None)
+                planar_out = apply_csc(planar_in_proc, coefs, offset, precision, depth)
+            else:
+                coefs, offset = get_csc_coefs(csc_config, bcsh)
+                planar_out = apply_csc(planar_in, coefs, offset, precision, depth)
+        else:
+            coefs, offset = get_csc_coefs(csc_config, bcsh)
+            planar_out = apply_csc(planar_in, coefs, offset, precision, depth)
+
+        return planar_out, coefs, offset
+
     def update_pixel_info(window, orig_x, orig_y):
         nonlocal current_planar_in, current_planar_out
         nonlocal current_input_is_yuv, current_output_is_yuv
+        nonlocal current_scale_factor
 
         if current_planar_in is not None:
+            # Map original coordinates to downsampled array coordinates
+            ds_x = int(orig_x * current_scale_factor)
+            ds_y = int(orig_y * current_scale_factor)
+
             h, w = current_planar_in.shape[1], current_planar_in.shape[2]
 
-            if 0 <= orig_x < w and 0 <= orig_y < h:
-                in_p0 = current_planar_in[0, orig_y, orig_x]
-                in_p1 = current_planar_in[1, orig_y, orig_x]
-                in_p2 = current_planar_in[2, orig_y, orig_x]
+            if 0 <= ds_x < w and 0 <= ds_y < h:
+                in_p0 = current_planar_in[0, ds_y, ds_x]
+                in_p1 = current_planar_in[1, ds_y, ds_x]
+                in_p2 = current_planar_in[2, ds_y, ds_x]
                 in_str = f"({in_p0:04d}, {in_p1:04d}, {in_p2:04d})"
             else:
                 in_str = "(----, ----, ----)"
@@ -575,10 +624,10 @@ def open_csc_ui(args):
             out_str = "(----, ----, ----)"
             if current_planar_out is not None:
                 out_h, out_w = current_planar_out.shape[1], current_planar_out.shape[2]
-                if 0 <= orig_x < out_w and 0 <= orig_y < out_h:
-                    out_p0 = current_planar_out[0, orig_y, orig_x]
-                    out_p1 = current_planar_out[1, orig_y, orig_x]
-                    out_p2 = current_planar_out[2, orig_y, orig_x]
+                if 0 <= ds_x < out_w and 0 <= ds_y < out_h:
+                    out_p0 = current_planar_out[0, ds_y, ds_x]
+                    out_p1 = current_planar_out[1, ds_y, ds_x]
+                    out_p2 = current_planar_out[2, ds_y, ds_x]
                     out_str = f"({out_p0:04d}, {out_p1:04d}, {out_p2:04d})"
 
             in_format = "yuv" if current_input_is_yuv else "rgb"
@@ -601,6 +650,8 @@ def open_csc_ui(args):
         nonlocal current_output_full_range, current_input_full_range
         nonlocal current_output_color, current_input_color
         nonlocal current_csc_coefs, current_csc_offset
+        nonlocal planar_in_full, current_input_file_params
+        nonlocal current_scale_factor
 
         input_file = values['-INPUT-FILE-']
         if not input_file or not os.path.isfile(input_file):
@@ -635,46 +686,32 @@ def open_csc_ui(args):
             return
 
         try:
-            planar_in = read_raw_to_planar(input_file, w, h, ifmt)
+            file_params = (input_file, w, h, ifmt)
+            if planar_in_full is None or current_input_file_params != file_params:
+                planar_in_full = read_raw_to_planar(input_file, w, h, ifmt)
+                current_input_file_params = file_params
+
+            # Calculate downsampling factors
+            col_widget = window['-IMAGE-COL-'].Widget
+            # Provide some default size before window is fully rendered
+            max_display_w = max(col_widget.winfo_width() - 20, 640)
+            max_display_h = max(col_widget.winfo_height() - 20, 360)
+
+            scale_factor = min(max_display_w / w, max_display_h / h, 1.0)
+            current_scale_factor = scale_factor
+            disp_w = max(int(w * scale_factor), 1)
+            disp_h = max(int(h * scale_factor), 1)
+
+            # Downsample the full resolution input
+            y_indices = np.linspace(0, h - 1, disp_h).astype(int)
+            x_indices = np.linspace(0, w - 1, disp_w).astype(int)
+            planar_in = planar_in_full[:, y_indices[:, None], x_indices]
+
             algo_type = values.get('-BCSH-ALGO-TYPE-', 'RK CSC')
 
-            csc_config = CscCoefConfig()
-            csc_config.pixel_depth = depth
-            csc_config.coef_precision = precision
-            csc_config.algo_type = algo_type
-            mode_str = build_csc_mode_str(iclr, oclr)
-            csc_config.csc_mode = parse_csc_mode_str(mode_str)
-
-            bcsh = CscBcshConfig()
-            bcsh.hue = int(values['-BCSH-hue-'])
-            bcsh.saturation = int(values['-BCSH-sat-'])
-            bcsh.contrast = int(values['-BCSH-contrast-'])
-            bcsh.brightness = int(values['-BCSH-bright-'])
-            bcsh.r_gain = int(values['-BCSH-r_gain-'])
-            bcsh.g_gain = int(values['-BCSH-g_gain-'])
-            bcsh.b_gain = int(values['-BCSH-b_gain-'])
-            bcsh.r_offset = int(values['-BCSH-r_offset-'])
-            bcsh.g_offset = int(values['-BCSH-g_offset-'])
-            bcsh.b_offset = int(values['-BCSH-b_offset-'])
-
-            if algo_type == 'RGB_on_HSV':
-                output_is_rgb = is_rgb_format(ofmt)
-                input_is_rgb = is_rgb_format(ifmt)
-
-                if output_is_rgb:
-                    coefs, offset = get_csc_coefs(csc_config, None)
-                    planar_out = apply_csc(planar_in, coefs, offset, precision, depth)
-                    planar_out = apply_bcsh_hsv(planar_out, bcsh, depth)
-                elif input_is_rgb:
-                    planar_in_proc = apply_bcsh_hsv(planar_in, bcsh, depth)
-                    coefs, offset = get_csc_coefs(csc_config, None)
-                    planar_out = apply_csc(planar_in_proc, coefs, offset, precision, depth)
-                else:
-                    coefs, offset = get_csc_coefs(csc_config, bcsh)
-                    planar_out = apply_csc(planar_in, coefs, offset, precision, depth)
-            else:
-                coefs, offset = get_csc_coefs(csc_config, bcsh)
-                planar_out = apply_csc(planar_in, coefs, offset, precision, depth)
+            planar_out, coefs, offset = do_conversion(
+                planar_in, values, depth, precision, algo_type, iclr, oclr, ifmt, ofmt
+            )
 
             current_planar_in = planar_in
             current_planar_out = planar_out
@@ -755,23 +792,12 @@ def open_csc_ui(args):
 
             rgb_interleaved = np.stack([rgb_8bit[0], rgb_8bit[1], rgb_8bit[2]], axis=-1)
 
-            # Get available size from the column containing the image
-            col_widget = window['-IMAGE-COL-'].Widget
-            # Provide some default size before window is fully rendered
-            max_display_w = max(col_widget.winfo_width() - 20, 640)
-            max_display_h = max(col_widget.winfo_height() - 20, 360)
-
-            scale_factor = min(max_display_w / w, max_display_h / h, 1.0)
-            current_scale_factor = scale_factor
-            disp_w = max(int(w * scale_factor), 1)
-            disp_h = max(int(h * scale_factor), 1)
-
+            # target_planar is already downsampled to disp_w x disp_h
             img = Image.fromarray(rgb_interleaved, 'RGB')
-            img = img.resize((disp_w, disp_h), Image.NEAREST)
 
             bio = io.BytesIO()
             img.save(bio, format='PNG')
-            window['-IMAGE-'].update(data=bio.getvalue(), size=(disp_w, disp_h))
+            window['-IMAGE-'].update(data=bio.getvalue(), size=(w, h))
 
             iclr_disp = values['-IN-CLR-']
             oclr_disp = values['-OUT-CLR-']
@@ -781,7 +807,7 @@ def open_csc_ui(args):
             )
             coef_str = str(current_csc_coefs).replace('\n', ' ') if current_csc_coefs is not None else "None"
             offset_str = str(current_csc_offset) if current_csc_offset is not None else "None"
-            preview_text = f"Coefs: {coef_str}    Offset: {offset_str}"
+            preview_text = f"Display Size: {w}x{h}\tCoefs: {coef_str}\tOffset: {offset_str}"
             window['-PREVIEW-LABEL-'].update(value=preview_text)
         except Exception as e:
             window['-PREVIEW-LABEL-'].update(value=f"Display error: {e}")
@@ -803,10 +829,11 @@ def open_csc_ui(args):
                 last_window_size = window.size
                 if current_planar_in is not None:
                     # Delay slightly to allow the UI layout to settle before re-calculating dimensions
+                    # We call trigger_convert to re-downsample the image with the new size
                     window.perform_long_operation(lambda: None, '-REDRAW-IMAGE-')
             continue
         elif event == '-REDRAW-IMAGE-':
-            display_result(window, values)
+            trigger_convert(values)
             continue
 
         if event in bcsh_keys:
@@ -828,19 +855,32 @@ def open_csc_ui(args):
                 w = int(values['-WIDTH-'])
                 h = int(values['-HEIGHT-'])
                 ifmt = get_fmt_from_display(values['-IN-FMT-'])
+                iclr = get_clrspc_from_display(values['-IN-CLR-'])
                 ofmt = get_fmt_from_display(values['-OUT-FMT-'])
+                oclr = get_clrspc_from_display(values['-OUT-CLR-'])
+                precision = int(values['-PRECISION-'])
                 if not input_file or not os.path.isfile(input_file):
                     sg.popup_error("Please select a valid input file first!")
                     continue
 
-                if current_planar_out is None:
+                if current_planar_out is None or planar_in_full is None:
                     sg.popup_error("No output image generated yet. Check parameters.")
                     continue
 
                 default_output = _get_default_output_path(input_file)
                 save_path = sg.popup_get_file('Save output image as', save_as=True, default_path=default_output)
                 if save_path:
-                    write_planar_to_raw(current_planar_out, save_path, w, h, ofmt)
+                    # Calculate full resolution output
+                    algo_type = values.get('-BCSH-ALGO-TYPE-', 'RK CSC')
+                    in_depth = get_pixel_depth(ifmt)
+                    out_depth = get_pixel_depth(ofmt)
+                    depth = max(in_depth, out_depth)
+
+                    full_planar_out, _, _ = do_conversion(
+                        planar_in_full, values, depth, precision, algo_type, iclr, oclr, ifmt, ofmt
+                    )
+
+                    write_planar_to_raw(full_planar_out, save_path, w, h, ofmt)
                     sg.popup(f"Saved successfully to:\n{save_path}", title="Success")
             except Exception as e:
                 sg.popup_error(f"Failed to save output:\n{e}")
