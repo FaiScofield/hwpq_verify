@@ -503,7 +503,7 @@ size_t pixfmt_yuv_get_framesize(const pixfmt_attr_s *attr, int w, int h, int row
     if (retPlaneSizesx3) {
         int chroma_ratio = desc->uv_sample_ratio_ver * desc->uv_sample_ratio_hor + 2;
         size_t chroma_size = size / chroma_ratio;
-        size_t luma_size = size - chroma_size;
+        size_t luma_size = chroma_size * desc->uv_sample_ratio_ver * desc->uv_sample_ratio_hor;
 
         if (PIXFMT_LAYOUT_INTERLEAVED == attr->layout || PIXFMT_LAYOUT_TILE == attr->layout ||
             PIXFMT_YUV_SAMPLING_400 == desc->sampling)

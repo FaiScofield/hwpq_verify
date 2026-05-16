@@ -232,6 +232,7 @@ static void test_get_common_fmt()
 }
 
 #include "test_pixfmt_rgb.c"
+#include "test_pixfmt_yuv.c"
 
 int main(void)
 {
@@ -248,6 +249,12 @@ int main(void)
 
     test_pixfmt_rgb_desc_all();
     test_pixfmt_rgb_cvt();
+
+    test_pixfmt_yuv_desc_all();
+    test_pixfmt_yuv_queries();
+    test_pixfmt_yuv_framesize();
+    test_pixfmt_yuv_drm();
+    test_pixfmt_yuv_common_fmt();
 
     printf("\n===========================================\n");
     printf("       Test Results\n");

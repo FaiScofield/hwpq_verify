@@ -1035,6 +1035,7 @@ const pixfmt_attr_s g_pixfmt_attr_table[PIXFMT_NB_COUNT] =
                              .is_bitpacked = false,
                              .bpp = 12,
                              .depth = 8,
+                             .nb_comps = 3,
                              .full_name = "yuv420sp_tile4x4",
                              .short_name = "yuv420sp_tile4x4",
                              .alias = NULL,
