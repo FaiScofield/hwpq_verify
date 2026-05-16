@@ -1,0 +1,4 @@
+- 本路径下的驱动代码来自于 `rk/kernel` 内核代码 `develop-6.1-fpga`分支，主要服务于 RK3538/3539/3572 VOP
+- 具体路径`drivers/gpu/drm/rockchip/`
+- 部分文件只截取了和 PQ IP 有关的代码
+- 最后更新日期 2025-12-30

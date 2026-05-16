@@ -131,6 +131,14 @@ static char g_logbuf[2048];
 #define IS_POWER_OF_2(x)   (((x) & -(x)) == (x)).
 
 
+/********** cJSON loading **********/
+#include "cJSON.h"
+
+#define CHECK_GET_JSON_ITEM(node, key_str, var, type) \
+    if (cJSON_HasObjectItem(node, key_str))           \
+        var = cJSON_GetObjectItem(node, key_str)->type;
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -148,7 +156,8 @@ const char *get_basename(const char *path);
 // read image data from fp, then convert to U8/U10bit YUV444P or planar RGB
 int image_read_to_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth, int dither);
 // write 8/10bit image data to fp from U8/U10bit YUV444P or planar RGB
-int image_write_from_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth, int dither);
+int image_write_from_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth,
+    int dither);
 // read image data from fp (then shift) to U10bit YUV444P or planar RGB
 int image_read_to_10bit_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int dither);
 // write 10bit image data to fp from U10bit YUV444P or planar RGB
@@ -178,6 +187,13 @@ int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int
 
 // dump regisers data to a file or stdout, with 4 registers in each row
 void dump_regs_to_dat(const char *filename, uint const *regs, int nb_regs, uint start_addr);
+
+
+/********** STB image IO functions **********/
+bool ends_with(const char *str, const char *suffix, bool case_sensitive);
+bool is_stb_image(const char *filename);
+uint8_t *read_stb_image_auto(const char *filename, int *width, int *height, int *channel, int reqChannel); // memory allocated!
+void free_stb_image_auto(uint8_t *data); // free memory allocated by read_stb_image_auto()
 
 #ifdef __cplusplus
 }

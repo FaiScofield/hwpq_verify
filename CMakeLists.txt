@@ -80,7 +80,7 @@ if(DEFINED RK_SOC)
         message(STATUS "\tAdd definition: RK356X")
     endif()
 else()
-    message(WARNING "Target RK_SOC not set!")
+    message(STATUS "Target RK_SOC not set!")
 endif()
 
 ## install path

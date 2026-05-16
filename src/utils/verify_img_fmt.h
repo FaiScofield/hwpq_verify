@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 
-#define PQVF_IMG_FMT_MASK 0x003F
+#define PQVF_IMG_FMT_MAX_CODE 0x003F
 
 /* image format definition */
 enum common_verify_imgfmt {
@@ -111,9 +111,9 @@ int common_verify_clrspc_to_kernel_encoding(int clrspc);
 
 /* dither type definition */
 enum common_verify_dither_type {
-    DITHER_NONE = 0,
-    DITHER_SCALE = 1,
-    DITHER_FILL_MSB = 2,
+    DITHER_NONE = 0,     // roud + shift
+    DITHER_SCALE = 1,    // up/down
+    DITHER_FILL_MSB = 2, // up
 };
 
 #ifdef __cplusplus

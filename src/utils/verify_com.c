@@ -510,7 +510,10 @@ int imgcvt_to_planar_10bit_lsb(uint8_t const *p_src, uint16_t *p_dst, int w, int
     ushort *p_dst_ug = (ushort *)((uint8_t *)p_dst + dw_strd * dh_strd);
     ushort *p_dst_vb = (ushort *)((uint8_t *)p_dst_ug + dwc_strd * dhc_strd);
     ushort *p_dst_a = keep_alpha ? (ushort *)((uint8_t *)p_dst_vb + dwc_strd * dhc_strd) : NULL;
-    LOGT_f("dst u/v offset: %td / %td\n", (uint8_t *)p_dst_ug - (uint8_t *)p_dst_yr, (uint8_t *)p_dst_vb - (uint8_t *)p_dst_yr);
+    if (common_verify_imgfmt_is_yuv(src_fmt)) {
+        LOGT_f("dst u/v offset: %td / %td\n", (uint8_t *)p_dst_ug - (uint8_t *)p_dst_yr,
+            (uint8_t *)p_dst_vb - (uint8_t *)p_dst_yr);
+    }
 
     switch (src_fmt) {
     /* 8bit normal data to 10bit planar lsb data */
@@ -1178,9 +1181,42 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
     const ushort *p_src_ug = (ushort *)((uint8_t *)p_src + sw_strd * sh_strd);
     const ushort *p_src_vb = (ushort *)((uint8_t *)p_src_ug + swc_strd * shc_strd);
     const ushort *p_src_a = has_alpha ? (ushort *)((uint8_t *)p_src_vb + swc_strd * shc_strd) : NULL;
-    LOGT_f("src u/v offset: %td / %td\n", (uint8_t *)p_src_ug - (uint8_t *)p_src_yr, (uint8_t *)p_src_vb - (uint8_t *)p_src_yr);
+    if (common_verify_imgfmt_is_yuv(dst_fmt)) {
+        LOGT_f("src u/v offset: %td / %td\n", (uint8_t *)p_src_ug - (uint8_t *)p_src_yr,
+            (uint8_t *)p_src_vb - (uint8_t *)p_src_yr);
+    }
 
     switch (dst_fmt) {
+    /* dither down to 8bit formats */
+    case RGB888:
+    case RGBA8888: {
+        const int nb_comps = dst_fmt == RGBA8888 ? 4 : 3;
+        assert(dw_strd >= w * nb_comps);
+        for (int y = 0; y < h; y++) {
+            uint8_t *p_dst_row = (uint8_t *)p_dst + y * dw_strd;
+            for (int x = 0, j = 0; x < w; x++, j += nb_comps) {
+                const int src_ofs = y * sw_strd / 2 + x;
+                uint16_t yr = p_src_yr[src_ofs];
+                uint16_t ug = p_src_ug[src_ofs];
+                uint16_t vb = p_src_vb[src_ofs];
+                uint16_t a = p_src_a ? p_src_a[src_ofs] : 1023;
+                if (DITHER_SCALE == dither) {
+                    p_dst_row[j + 0] = ROUND_S32(yr / 1023.f * 255.f);
+                    p_dst_row[j + 1] = ROUND_S32(ug / 1023.f * 255.f);
+                    p_dst_row[j + 2] = ROUND_S32(vb / 1023.f * 255.f);
+                    if (nb_comps == 4)
+                        p_dst_row[j + 3] = ROUND_S32(a / 1023.f * 255.f);
+                }
+                else {
+                    p_dst_row[j + 0] = MIN((yr + 2) >> 2, 255);
+                    p_dst_row[j + 1] = MIN((ug + 2) >> 2, 255);
+                    p_dst_row[j + 2] = MIN((vb + 2) >> 2, 255);
+                    if (nb_comps == 4)
+                        p_dst_row[j + 3] =  MIN((a + 2) >> 2, 255);
+                }
+            }
+        }
+    } break;
     /* 10bit plannar to 10bit lsb data */
     case RGB_101010LSB:
     case YUV444I_10LSB: {
@@ -1434,7 +1470,6 @@ int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h
     assert(dw_strd >= w * 1);
 
     // src format info
-    int ret = 0;
     const int bpp = common_verify_imgfmt_bpp(src_fmt);
     const float ratio = common_verify_imgfmt_framesize_ratio(src_fmt);
     // const int frame_size = (w * h * bpp + 7) / 8;
@@ -1454,7 +1489,10 @@ int imgcvt_to_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int h
     uint8_t *p_dst_ug = p_dst + dw_strd * dh_strd;
     uint8_t *p_dst_vb = p_dst_ug + dwc_strd * dhc_strd;
     uint8_t *p_dst_a = keep_alpha ? (p_dst_vb + dwc_strd * dhc_strd) : NULL;
-    LOGT_f("dst u/v offset: %td / %td\n", (uint8_t *)p_dst_ug - (uint8_t *)p_dst_yr, (uint8_t *)p_dst_vb - (uint8_t *)p_dst_yr);
+    if (common_verify_imgfmt_is_yuv(src_fmt)) {
+        LOGT_f("dst u/v offset: %td / %td\n", (uint8_t *)p_dst_ug - (uint8_t *)p_dst_yr,
+            (uint8_t *)p_dst_vb - (uint8_t *)p_dst_yr);
+    }
 
     switch (src_fmt) {
     /* 8bit normal data to 8bit planar lsb data */
@@ -1644,7 +1682,6 @@ int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int
     assert(dw_strd >= w * 1);
 
     // src format info
-    int ret = 0;
     const int bpp = common_verify_imgfmt_bpp(dst_fmt);
     // const int frame_size = (w * h * bpp + 7) / 8;
     const int frame_size = dw_strd * h * common_verify_imgfmt_framesize_ratio(dst_fmt);
@@ -1665,7 +1702,10 @@ int imgcvt_from_planar_8bit_lsb(uint8_t const *p_src, uint8_t *p_dst, int w, int
     const uint8_t *p_src_ug = p_src + sw_strd * sh_strd;
     const uint8_t *p_src_vb = p_src_ug + swc_strd * shc_strd;
     const uint8_t *p_src_a = has_alpha ? (p_src_vb + swc_strd * shc_strd) : NULL;
-    LOGT_f("src u/v offset: %td / %td\n", (uint8_t *)p_src_ug - (uint8_t *)p_src_yr, (uint8_t *)p_src_vb - (uint8_t *)p_src_yr);
+    if (common_verify_imgfmt_is_yuv(dst_fmt)) {
+        LOGT_f("src u/v offset: %td / %td\n", (uint8_t *)p_src_ug - (uint8_t *)p_src_yr,
+            (uint8_t *)p_src_vb - (uint8_t *)p_src_yr);
+    }
 
     switch (dst_fmt) {
     /* 8bit planar lsb data to 8bit normal data */
@@ -1883,4 +1923,83 @@ void dump_regs_to_dat(const char *filename, uint const *regs, int nb_regs, unsig
         fclose(fp);
         LOGI("write reg data(length=%d) to file: %s\n", nb_regs, filename);
     }
+}
+
+
+/********** STB image IO functions **********/
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_NO_PSD
+#define STBI_NO_TGA
+#define STBI_NO_GIF
+#define STBI_NO_HDR
+#define STBI_NO_PIC
+#define STBI_NO_PNM
+#include "stb_image.h" // only jpeg//png/bmp support
+
+bool ends_with(const char *str, const char *suffix, bool case_sensitive)
+{
+    if (str == NULL || suffix == NULL) {
+        return false;
+    }
+
+    size_t str_len = strlen(str);
+    size_t suffix_len = strlen(suffix);
+
+    if (suffix_len > str_len) {
+        return false;
+    }
+
+    const char *str_end = str + str_len - suffix_len;
+
+    if (case_sensitive) {
+        return strcmp(str_end, suffix) == 0;
+    }
+    else {
+#if defined(_WIN32)
+        return _stricmp(str_end, suffix) == 0;
+#else
+        return strcasecmp(str_end, suffix) == 0;
+#endif
+    }
+}
+
+bool is_stb_image(const char *filename)
+{
+    if (ends_with(filename, ".jpg", true) || ends_with(filename, ".jpeg", true) ||
+        ends_with(filename, ".png", true) || ends_with(filename, ".bmp", true)) {
+        return true;
+    }
+    return false;
+}
+
+/** @note: stbi_load() will allocate memory for the image data, caller should call stbi_image_free() to free the memory */
+uint8_t *read_stb_image_auto(const char *filename, int *width, int *height, int *channel, int reqChannel)
+{
+    assert(filename != NULL);
+
+    if (2 == reqChannel) {
+        LOGE("reqChannel=2 is unsupported here!\n");
+        return NULL;
+    }
+
+    uint8_t *data = NULL;
+    if (is_stb_image(filename)) {
+        data = stbi_load(filename, width, height, channel, reqChannel);
+        if (!data) {
+            LOGE("failed to read image file '%s' with reqChannel=%d, %s\n", filename, reqChannel, stbi_failure_reason());
+        }
+        else {
+            LOGI("get stb image info: width=%d, height=%d, channel=%d(reqChannel=%d)\n", *width, *height, *channel, reqChannel);
+        }
+    }
+    else {
+        LOGW("input file '%s' is not a stb image!\n", filename);
+    }
+    return data;
+}
+
+void free_stb_image_auto(uint8_t *data)
+{
+    if (data)
+        stbi_image_free(data);
 }

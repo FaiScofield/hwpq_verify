@@ -204,7 +204,9 @@
 				0,20,40,56,76,90,74,52,30,2,0,0,0],
         "lumGain":	256,
         "hueGain":	256,
-        "satGain":	256
+        "satGain":	256,
+        "rgbOffset4W": [256, 256, 256],
+        "colorspace": "yuv"
     },
     "sharp_lite": {
         "i_sharp_lite_en": 1,

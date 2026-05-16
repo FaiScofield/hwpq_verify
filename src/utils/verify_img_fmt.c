@@ -55,10 +55,10 @@ const char *common_verify_imgfmt_name(int fmt)
 const char *common_verify_imgfmt_exten_str(int fmt)
 {
     // valid range now: [0, 29]
-    if (fmt & PQVF_IMG_FMT_MASK) {
+    if (fmt <= PQVF_IMG_FMT_MAX_CODE) {
         return common_verify_imgfmt_is_rgb(fmt) ? "rgb" : "yuv";
     }
-    LOGE("%s: UnknownImgFmt=%d!\n", __func__, fmt);
+    LOGE("%s: UnknownImgFmt: %#x!\n", __func__, fmt);
     return "bin";
 }
 
@@ -113,7 +113,7 @@ int common_verify_imgfmt_bpp(int fmt)
     case YUV420SP_TILE4X4:   return 12; // 4x4 tile: 16B Y + 8B UV = 24B for 16 pixels
     case YUV422SP_TILE4X4:   return 16; // 4x4 tile: 16B Y + 16B UV = 32B for 16 pixels
     case YUV444SP_TILE4X4:   return 24; // 4x4 tile: 16B Y + 32B UV = 48B for 16 pixels
-    default:                 LOGE("%s: UnknownImgFmt=%d!\n", __func__, fmt); return 0;
+    default:                 LOGE("%s: UnknownImgFmt: %#x!\n", __func__, fmt); return 0;
     }
 }
 
@@ -155,7 +155,7 @@ float common_verify_imgfmt_pitch_ratio(int fmt)
     case YUV420SP_TILE4X4:
     case YUV422SP_TILE4X4:
     case YUV444SP_TILE4X4:   return 1.0f; // TODO: not pitch support!
-    default:                 LOGE("%s: unsupported image format %d for now!\n", __func__, fmt); return 0.f;
+    default:                 LOGE("%s: unsupported image format %#x for now!\n", __func__, fmt); return 0.f;
     }
 }
 
@@ -197,7 +197,7 @@ float common_verify_imgfmt_framesize_ratio(int fmt)
     case YUV420SP_TILE4X4:   return 1.5f; // 24 bytes for 16 pixels = 1.0 bytes per pixel
     case YUV422SP_TILE4X4:   return 2.0f; // 32 bytes for 16 pixels = 2.0 bytes per pixel
     case YUV444SP_TILE4X4:   return 3.0f; // 48 bytes for 16 pixels = 3.0 bytes per pixel
-    default:                 LOGE("%s: unsupported image format %d for now!\n", __func__, fmt); return 0.f;
+    default:                 LOGE("%s: unsupported image format %#x for now!\n", __func__, fmt); return 0.f;
     }
 }
 
@@ -242,7 +242,7 @@ int common_verify_imgfmt_get_def_planar(int fmt, int depth)
     case YUV420SP_TILE4X4:   return YUV420P;
     case YUV422SP_TILE4X4:   return YUV422P;
     case YUV444SP_TILE4X4:   return YUV444P;
-    default:                 LOGE("%s: unsupported image format %d for now!\n", __func__, fmt); return -1;
+    default:                 LOGE("%s: unsupported image format %#x for now!\n", __func__, fmt); return -1;
     }
 }
 

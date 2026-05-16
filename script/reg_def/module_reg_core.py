@@ -130,7 +130,7 @@ class ModuleRegisterCore(ABC):
                 pos_ok = False
                 for i in range(len(self.regs)):
                     if pos == self.regs[i].offset or pos == self.regs[i].offset + self.base_addr:
-                        self.regs[i].value = val
+                        self.regs[i].value = np.uint32(val) if val >= 0 else np.uint32(2**32 + val)
                         pos_ok = True
                         break
                 if not pos_ok:
@@ -144,7 +144,7 @@ class ModuleRegisterCore(ABC):
                 )
                 return False
             for i in range(len(self.regs)):
-                self.regs[i].value = np.uint32(data[i])
+                self.regs[i].value = np.uint32(data[i]) if data[i] >= 0 else np.uint32(2**32 + data[i])
             # if self.config is not None:
             #     self.regs2config()
             #     self.config.dump()
@@ -264,7 +264,7 @@ class ModuleRegisterCore(ABC):
         if line_str.strip() == "" or line_str.startswith("#"):
             return None
         parts = re.split(r"[: \t]+", line_str.strip())
-        hex_pattern = re.compile(r"^0[xX][0-9a-fA-F]{1,8}$")
+        hex_pattern = re.compile(r"^(0[xX][0-9a-fA-F]{1,8}|[0-9a-fA-F]{1,8})$")
 
         if hex_pattern.match(parts[0]):
             start_pos = int(parts[0], 16)

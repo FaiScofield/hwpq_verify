@@ -43,14 +43,14 @@ void main(int argc, const char *argv[])
     char dst_path[512];
     sprintf(dst_path, "%s", argv[1]);
 
-    int seed = atoi(argv[2]);
-    int img_w = atoi(argv[3]);
-    int img_h = atoi(argv[4]);
-    int dci_en = atoi(argv[5]);
-    int csc_range = atoi(argv[6]);
-    int ca_en = atoi(argv[7]);
-    int hsd_mode = atoi(argv[8]);
-    int vsd_mode = atoi(argv[9]);
+    int seed = strtol(argv[2], NULL, 10);
+    int img_w = strtol(argv[3], NULL, 10);
+    int img_h = strtol(argv[4], NULL, 10);
+    int dci_en = strtol(argv[5], NULL, 10);
+    int csc_range = strtol(argv[6], NULL, 10);
+    int ca_en = strtol(argv[7], NULL, 10);
+    int hsd_mode = strtol(argv[8], NULL, 10);
+    int vsd_mode = strtol(argv[9], NULL, 10);
 
     srand(seed);
 

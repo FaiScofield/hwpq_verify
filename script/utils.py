@@ -121,20 +121,21 @@ def setup_logger(name: str = None, output: str = None, loglevel: str = "DEBUG"):
     return logger
 
 
-def run_cmd(cmd, showOutput=True, logger: logging.Logger = None):
+def run_cmd(cmd, showOutput=True, showCmd=True, logger: logging.Logger = None):
     # return os.system(cmd)
-    if logger is not None:
-        logger.info('cmd to run: %s' % cmd)
-    else:
-        logging.info('cmd to run: %s' % cmd)
+    if showCmd:
+        if logger is not None:
+            logger.info('cmd to run: %s' % cmd)
+        else:
+            logging.info('cmd to run: %s' % cmd)
 
     if showOutput:
         ret = subprocess.call(cmd, shell=True)
     else:
-        r = os.popen(cmd)
-        text = r.read()
-        r.close()
-        ret = 0
+        ret = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # r = os.popen(cmd)
+        # text = r.read()
+        # r.close()
     return ret
 
 
@@ -240,7 +241,7 @@ def extras_args_to_dict(extras: list[str]) -> dict:
     return kwargs
 
 
-def calc_crc32(data):
+def calc_crc32(data, data_len=None):
     """
     计算CRC32校验值，查找表只初始化一次以提高性能
     
@@ -262,6 +263,13 @@ def calc_crc32(data):
 
     # 初始化CRC值
     crc = 0xFFFFFFFF
+
+    if data_len is not None:
+        if len(data) < data_len:
+            logging.warning(f"input data size({data_len(data)}) is less than len({data_len})!")
+            data_len = len(data)
+        else:
+            data = data[:data_len]
 
     # 遍历数据计算CRC
     for byte in data:

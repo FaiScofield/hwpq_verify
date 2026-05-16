@@ -31,6 +31,10 @@ int rockchip_calc_post_csc_coefs(const struct post_csc *csc_cfg, // [I] CSC conf
     const struct post_csc_convert_mode *convert_mode             // [I] CSC convert mode
 );
 
+int get_csc_coefs_float(const struct post_csc *bcsh_cfg, // [I] CSC config
+    const struct post_csc_convert_mode *convert_mode,    // [I] CSC convert mode
+    float *ret_csc_coef_x12                              // [O] return CSC coefs float
+);
 
 int csc_get_mode_index(const struct post_csc_convert_mode *convert_mode);
 

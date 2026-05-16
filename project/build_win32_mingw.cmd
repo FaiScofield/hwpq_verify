@@ -19,15 +19,14 @@ set BUILD_DIR=%~dp0\build_win32_%BUILD_TYPE%
 echo PROJECT_DIR: %PROJECT_DIR%
 echo BUILD_DIR: %BUILD_DIR%
 
-cmake -G "MinGW Makefiles" -H%PROJECT_DIR% -B%BUILD_DIR% ^
-    -DCMAKE_MAKE_PROGRAM="%MINGW_DIR%/bin/mingw32-make.exe" ^
+cmake -G "Ninja" -H%PROJECT_DIR% -B%BUILD_DIR% ^
     -DCMAKE_C_COMPILER="%MINGW_DIR%/bin/gcc.exe" ^
     -DCMAKE_CXX_COMPILER="%MINGW_DIR%/bin/g++.exe" ^
     -DCMAKE_VERBOSE_MAKEFILE=OFF ^
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ^
     -DCMAKE_BUILD_TYPE="%BUILD_TYPE%"
 
-cmake --build %BUILD_DIR% --target install -j 6 --
+cmake --build %BUILD_DIR% --config %BUILD_TYPE% --target install -j 4 -- -d explain
 
 :: copy compile_commands.json to project root
 copy /Y %BUILD_DIR%\compile_commands.json %PROJECT_DIR%\.vscode\
