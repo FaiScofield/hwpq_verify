@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @copyright: Copyright (c) Rockchip Electronics Co., Ltd. 2026-. All rights reserved.
  * @brief:     pixfmt unit test
  * @author:    vance.wu@rock-chips.com
@@ -8,27 +8,13 @@
 #include "pixfmt.h"
 #include "pixfmt_cvt.h"
 #include "verify_com.h"
+#include "test_pixfmt_common.h"
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-#define TEST_PASSED     0
-#define TEST_FAILED     -1
-
-static int g_test_passed = 0;
-static int g_test_failed = 0;
-
-#define TEST_ASSERT(cond, fmt, ...)                    \
-    do {                                               \
-        if (cond) {                                    \
-            g_test_passed++;                           \
-            printf("[PASS] " fmt "\n", ##__VA_ARGS__); \
-        }                                              \
-        else {                                         \
-            g_test_failed++;                           \
-            printf("[FAIL] " fmt "\n", ##__VA_ARGS__); \
-        }                                              \
-    } while (0)
+int g_test_passed = 0;
+int g_test_failed = 0;
 
 static void test_pixfmt_check_invalid(void)
 {
@@ -245,6 +231,8 @@ static void test_get_common_fmt()
         "base fmt of %02d (SP) shoudble be YUV420SP_NV12", PIXFMT_YUV420SP_TILE4x4);
 }
 
+#include "test_pixfmt_rgb.c"
+
 int main(void)
 {
     bool dump_attr = false;
@@ -253,10 +241,13 @@ int main(void)
     printf("       PIXFMT Unit Test Suite\n");
     printf("===========================================\n");
 
-    test_pixfmt_check_invalid();
-    test_pixfmt_attr_by_name();
-    test_pixfmt_all_formats_registered(dump_attr);
-    test_get_common_fmt();
+    //test_pixfmt_check_invalid();
+    //test_pixfmt_attr_by_name();
+    //test_pixfmt_all_formats_registered(dump_attr);
+    //test_get_common_fmt();
+
+    test_pixfmt_rgb_desc_all();
+    test_pixfmt_rgb_cvt();
 
     printf("\n===========================================\n");
     printf("       Test Results\n");

@@ -1080,7 +1080,7 @@ const pixfmt_attr_s *pixfmt_get_attr(pixfmt_e fmt)
     if (fmt >= 0 && fmt < PIXFMT_NB_COUNT) {
         return &g_pixfmt_attr_table[fmt];
     }
-    LOGE("pixfmt_get_attr: no attr found! invalid fmt %d", fmt);
+    LOGE("pixfmt_get_attr: no attr found! invalid fmt %d\n", fmt);
     return NULL;
 }
 

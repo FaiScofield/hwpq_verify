@@ -13,8 +13,8 @@
 #include <math.h>
 #include <assert.h>
 
-static void pixfmt_cvt_rgb_calc_param(const pixfmt_attr_s *attr, int comp_seq[4], int *seq_len_out,
-                                      int comp_offset[4], int comp_shift[4], int comp_mask[4], int *pixel_bytes)
+static void pixfmt_cvt_rgb_calc_param(const pixfmt_attr_s *attr, int comp_seq[4], int *seq_len_out, int comp_offset[4],
+    int comp_shift[4], int comp_mask[4], int *pixel_bytes)
 {
     const pixfmt_rgb_desc_s *desc = attr->desc.rgb;
     bool has_alpha = (desc->comp_bits[3] > 0);
@@ -22,21 +22,36 @@ static void pixfmt_cvt_rgb_calc_param(const pixfmt_attr_s *attr, int comp_seq[4]
 
     int rgb_seq[3];
     if (desc->order == PIXFMT_RGB_ORDER_RGB) {
-        rgb_seq[0] = 0; rgb_seq[1] = 1; rgb_seq[2] = 2;
-    } else {
-        rgb_seq[0] = 2; rgb_seq[1] = 1; rgb_seq[2] = 0;
+        rgb_seq[0] = 0;
+        rgb_seq[1] = 1;
+        rgb_seq[2] = 2;
+    }
+    else {
+        rgb_seq[0] = 2;
+        rgb_seq[1] = 1;
+        rgb_seq[2] = 0;
     }
 
     if (has_alpha) {
         slen = 4;
         if (desc->alpha_pos == PIXFMT_ALPHA_AT_LSB) {
-            comp_seq[0] = 3; comp_seq[1] = rgb_seq[0]; comp_seq[2] = rgb_seq[1]; comp_seq[3] = rgb_seq[2];
-        } else {
-            comp_seq[0] = rgb_seq[0]; comp_seq[1] = rgb_seq[1]; comp_seq[2] = rgb_seq[2]; comp_seq[3] = 3;
+            comp_seq[0] = 3;
+            comp_seq[1] = rgb_seq[0];
+            comp_seq[2] = rgb_seq[1];
+            comp_seq[3] = rgb_seq[2];
         }
-    } else {
+        else {
+            comp_seq[0] = rgb_seq[0];
+            comp_seq[1] = rgb_seq[1];
+            comp_seq[2] = rgb_seq[2];
+            comp_seq[3] = 3;
+        }
+    }
+    else {
         slen = 3;
-        comp_seq[0] = rgb_seq[0]; comp_seq[1] = rgb_seq[1]; comp_seq[2] = rgb_seq[2];
+        comp_seq[0] = rgb_seq[0];
+        comp_seq[1] = rgb_seq[1];
+        comp_seq[2] = rgb_seq[2];
     }
 
     if (attr->is_bitpacked) {
@@ -49,7 +64,8 @@ static void pixfmt_cvt_rgb_calc_param(const pixfmt_attr_s *attr, int comp_seq[4]
             bit_pos += desc->comp_bits[ci];
         }
         *pixel_bytes = ALIGN_N_DIV(bit_pos, 8) / 8;
-    } else {
+    }
+    else {
         int byte_pos = 0;
         for (int i = 0; i < slen; i++) {
             int ci = comp_seq[i];
@@ -65,18 +81,22 @@ static void pixfmt_cvt_rgb_calc_param(const pixfmt_attr_s *attr, int comp_seq[4]
     *seq_len_out = slen;
 }
 
-static uint32_t pixfmt_cvt_rgb_read_comp(const uint8_t *pixel, int byte_offset, int bit_shift, int mask, bool is_bitpacked)
+static uint32_t pixfmt_cvt_rgb_read_comp(const uint8_t *pixel, int byte_offset, int bit_shift, int mask,
+    bool is_bitpacked, int pixel_bytes)
 {
-    if (mask == 0) return 0;
+    if (mask == 0)
+        return 0;
     if (is_bitpacked) {
         uint64_t val = 0;
-        memcpy(&val, pixel, sizeof(val));
+        memcpy(&val, pixel, pixel_bytes);
         return (uint32_t)((val >> bit_shift) & mask);
-    } else {
+    }
+    else {
         const uint8_t *ptr = pixel + byte_offset;
         if (mask <= 0xFF) {
             return *ptr & mask;
-        } else {
+        }
+        else {
             uint16_t val = 0;
             memcpy(&val, ptr, sizeof(val));
             return val & mask;
@@ -84,21 +104,24 @@ static uint32_t pixfmt_cvt_rgb_read_comp(const uint8_t *pixel, int byte_offset, 
     }
 }
 
-static void pixfmt_cvt_rgb_write_comp(uint8_t *pixel, int byte_offset, int bit_shift, int mask,
-                                      uint32_t value, bool is_bitpacked)
+static void pixfmt_cvt_rgb_write_comp(uint8_t *pixel, int byte_offset, int bit_shift, int mask, uint32_t value,
+    bool is_bitpacked, int pixel_bytes)
 {
-    if (mask == 0) return;
+    if (mask == 0)
+        return;
     if (is_bitpacked) {
         uint64_t val = 0;
-        memcpy(&val, pixel, sizeof(val));
+        memcpy(&val, pixel, pixel_bytes);
         val &= ~((uint64_t)mask << bit_shift);
         val |= ((uint64_t)(value & mask) << bit_shift);
-        memcpy(pixel, &val, sizeof(val));
-    } else {
+        memcpy(pixel, &val, pixel_bytes);
+    }
+    else {
         uint8_t *ptr = pixel + byte_offset;
         if (mask <= 0xFF) {
             *ptr = (uint8_t)(value & mask);
-        } else {
+        }
+        else {
             uint16_t val = 0;
             memcpy(&val, ptr, sizeof(val));
             val = (val & ~mask) | (value & mask);
@@ -114,7 +137,8 @@ static uint32_t pixfmt_cvt_scale_comp(uint32_t val, int src_bits, int dst_bits)
     if (dst_bits > src_bits) {
         int shift = dst_bits - src_bits;
         return (val << shift) | (val >> (src_bits - shift > 0 ? src_bits - shift : 0));
-    } else {
+    }
+    else {
         int src_max = (1 << src_bits) - 1;
         int dst_max = (1 << dst_bits) - 1;
         return (val * dst_max + src_max / 2) / src_max;
@@ -131,22 +155,24 @@ static int pixfmt_cvt_impl_r2r(const pixfmt_frame_s *frame0, pixfmt_frame_s *fra
     const pixfmt_attr_s *dst_attr = pixfmt_get_attr(frame1->fmt);
     const pixfmt_rgb_desc_s *src_desc = src_attr->desc.rgb;
     const pixfmt_rgb_desc_s *dst_desc = dst_attr->desc.rgb;
+    const bool src_has_alpha = (src_desc->comp_bits[3] > 0);
+    const bool dst_has_alpha = (dst_desc->comp_bits[3] > 0);
+    const int max_alpha_val = (1 << dst_desc->comp_bits[3]) - 1;
     assert(src_attr && dst_attr);
 
     /* if same format, just copy */
     if (frame0->fmt == frame1->fmt) {
         int copy_row_size = MIN(frame0->pitch, frame1->pitch);
         for (int i = 0; i < frame0->hgt; i++) {
-            memcpy((uint8_t *)frame1->addr + i * frame1->pitch,
-                   (uint8_t *)frame0->addr + i * frame0->pitch, copy_row_size);
+            memcpy((uint8_t *)frame1->addr + i * frame1->pitch, (uint8_t *)frame0->addr + i * frame0->pitch, copy_row_size);
         }
         return 0;
     }
 
     /* do R2R */
-    int src_seq[4], src_offset[4], src_shift[4], src_mask[4], src_pbytes;
-    int dst_seq[4], dst_offset[4], dst_shift[4], dst_mask[4], dst_pbytes;
-    int src_slen, dst_slen;
+    int src_seq[4] = {0}, src_offset[4] = {0}, src_shift[4] = {0}, src_mask[4] = {0}, src_pbytes = 0;
+    int dst_seq[4] = {0}, dst_offset[4] = {0}, dst_shift[4] = {0}, dst_mask[4] = {0}, dst_pbytes = 0;
+    int src_slen = 0, dst_slen = 0;
 
     pixfmt_cvt_rgb_calc_param(src_attr, src_seq, &src_slen, src_offset, src_shift, src_mask, &src_pbytes);
     pixfmt_cvt_rgb_calc_param(dst_attr, dst_seq, &dst_slen, dst_offset, dst_shift, dst_mask, &dst_pbytes);
@@ -156,20 +182,27 @@ static int pixfmt_cvt_impl_r2r(const pixfmt_frame_s *frame0, pixfmt_frame_s *fra
         uint8_t *pdst = (uint8_t *)frame1->addr + i * frame1->pitch;
 
         for (int j = 0; j < frame0->wid; j++) {
-            uint32_t r = pixfmt_cvt_rgb_read_comp(psrc, src_offset[0], src_shift[0], src_mask[0], src_attr->is_bitpacked);
-            uint32_t g = pixfmt_cvt_rgb_read_comp(psrc, src_offset[1], src_shift[1], src_mask[1], src_attr->is_bitpacked);
-            uint32_t b = pixfmt_cvt_rgb_read_comp(psrc, src_offset[2], src_shift[2], src_mask[2], src_attr->is_bitpacked);
-            uint32_t a = pixfmt_cvt_rgb_read_comp(psrc, src_offset[3], src_shift[3], src_mask[3], src_attr->is_bitpacked);
+            uint32_t r = pixfmt_cvt_rgb_read_comp(psrc, src_offset[0], src_shift[0], src_mask[0],
+                src_attr->is_bitpacked, src_pbytes);
+            uint32_t g = pixfmt_cvt_rgb_read_comp(psrc, src_offset[1], src_shift[1], src_mask[1],
+                src_attr->is_bitpacked, src_pbytes);
+            uint32_t b = pixfmt_cvt_rgb_read_comp(psrc, src_offset[2], src_shift[2], src_mask[2],
+                src_attr->is_bitpacked, src_pbytes);
+            uint32_t a = dst_has_alpha ? max_alpha_val : 0;
 
             r = pixfmt_cvt_scale_comp(r, src_desc->comp_bits[0], dst_desc->comp_bits[0]);
             g = pixfmt_cvt_scale_comp(g, src_desc->comp_bits[1], dst_desc->comp_bits[1]);
             b = pixfmt_cvt_scale_comp(b, src_desc->comp_bits[2], dst_desc->comp_bits[2]);
-            a = pixfmt_cvt_scale_comp(a, src_desc->comp_bits[3], dst_desc->comp_bits[3]);
+            if (src_has_alpha) {
+                a = pixfmt_cvt_rgb_read_comp(psrc, src_offset[3], src_shift[3], src_mask[3], src_attr->is_bitpacked, src_pbytes);
+                a = pixfmt_cvt_scale_comp(a, src_desc->comp_bits[3], dst_desc->comp_bits[3]);
+            }
 
-            pixfmt_cvt_rgb_write_comp(pdst, dst_offset[0], dst_shift[0], dst_mask[0], r, dst_attr->is_bitpacked);
-            pixfmt_cvt_rgb_write_comp(pdst, dst_offset[1], dst_shift[1], dst_mask[1], g, dst_attr->is_bitpacked);
-            pixfmt_cvt_rgb_write_comp(pdst, dst_offset[2], dst_shift[2], dst_mask[2], b, dst_attr->is_bitpacked);
-            pixfmt_cvt_rgb_write_comp(pdst, dst_offset[3], dst_shift[3], dst_mask[3], a, dst_attr->is_bitpacked);
+            pixfmt_cvt_rgb_write_comp(pdst, dst_offset[0], dst_shift[0], dst_mask[0], r, dst_attr->is_bitpacked, dst_pbytes);
+            pixfmt_cvt_rgb_write_comp(pdst, dst_offset[1], dst_shift[1], dst_mask[1], g, dst_attr->is_bitpacked, dst_pbytes);
+            pixfmt_cvt_rgb_write_comp(pdst, dst_offset[2], dst_shift[2], dst_mask[2], b, dst_attr->is_bitpacked, dst_pbytes);
+            if (dst_has_alpha)
+                pixfmt_cvt_rgb_write_comp(pdst, dst_offset[3], dst_shift[3], dst_mask[3], a, dst_attr->is_bitpacked, dst_pbytes);
 
             psrc += src_pbytes;
             pdst += dst_pbytes;
@@ -272,20 +305,15 @@ int pixfmt_cvt_exec(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1)
             ret = -1;
             break;
         }
+
         /* do conversion directly from frame0 to frame1 */
         if (frame0->fmt == frame1->fmt) {
             if (frame0->clrspc == frame1->clrspc) {
-                if (frame0->pitch == frame1->pitch) {
-                    assert(frame0->size == frame1->size);
-                    memcpy(frame1->addr, frame0->addr, frame0->size);
+                int copy_row_size = MIN(frame0->pitch, frame1->pitch);
+                for (int i = 0; i < frame0->hgt; i++) {
+                    memcpy((uchar *)frame1->addr + i * frame1->pitch, (uchar *)frame0->addr + i * frame0->pitch, copy_row_size);
                 }
-                else {
-                    int copy_row_size = MIN(frame0->pitch, frame1->pitch);
-                    for (int i = 0; i < frame0->hgt; i++) {
-                        memcpy((uchar *)frame1->addr + i * frame1->pitch, (uchar *)frame0->addr + i * frame0->pitch,
-                            copy_row_size);
-                    }
-                }
+                break;
             }
             else {
                 assert(pixfmt_colorspcae_check_same(frame0->clrspc, frame1->clrspc) == true);
@@ -343,7 +371,8 @@ int pixfmt_cvt_exec(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1)
 
         /* do conversion from src_base_frame to dst_base_frame via CSC */
         if (src_base_fmt == dst_base_fmt) {
-            memcpy(dst_base_frame.addr, src_base_frame.addr, src_base_frame.size);
+            size_t copy_sz = MIN(src_base_frame.size, dst_base_frame.size);
+            memcpy(dst_base_frame.addr, src_base_frame.addr, copy_sz);
         }
         else {
             ret = pixfmt_csc_exec(&src_base_frame, &dst_base_frame);
