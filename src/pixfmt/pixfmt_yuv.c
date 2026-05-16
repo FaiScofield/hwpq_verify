@@ -18,7 +18,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv444_yuv = {
     .sampling = PIXFMT_YUV_SAMPLING_444,
     .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
+    .order = PIXFMT_YUV_ORDER_YUV,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -31,7 +31,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv444_yvu = {
     .sampling = PIXFMT_YUV_SAMPLING_444,
     .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YVU,
+    .order = PIXFMT_YUV_ORDER_YVU,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -44,7 +44,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv444_uyv = {
     .sampling = PIXFMT_YUV_SAMPLING_444,
     .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_UYV,
+    .order = PIXFMT_YUV_ORDER_UYV,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -57,7 +57,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422_yuyv = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUYV,
+    .order = PIXFMT_YUV_ORDER_YUYV,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -70,7 +70,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422_yvyu = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YVYU,
+    .order = PIXFMT_YUV_ORDER_YVYU,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -83,7 +83,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422_uyvy = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_UYVY,
+    .order = PIXFMT_YUV_ORDER_UYVY,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -96,7 +96,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422_vyuy = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_VYUY,
+    .order = PIXFMT_YUV_ORDER_VYUY,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -109,7 +109,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422_yuv = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
+    .order = PIXFMT_YUV_ORDER_YUV,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -122,7 +122,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422_yvu = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YVU,
+    .order = PIXFMT_YUV_ORDER_YVU,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -135,7 +135,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv420_yuv = {
     .sampling = PIXFMT_YUV_SAMPLING_420,
     .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV420_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
+    .order = PIXFMT_YUV_ORDER_YUV,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -148,7 +148,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv420_yvu = {
     .sampling = PIXFMT_YUV_SAMPLING_420,
     .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV420_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YVU,
+    .order = PIXFMT_YUV_ORDER_YVU,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -161,7 +161,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv411_yuv = {
     .sampling = PIXFMT_YUV_SAMPLING_411,
     .uv_sample_ratio_ver = PIXFMT_YUV411_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV411_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
+    .order = PIXFMT_YUV_ORDER_YUV,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -174,7 +174,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv411_yvu = {
     .sampling = PIXFMT_YUV_SAMPLING_411,
     .uv_sample_ratio_ver = PIXFMT_YUV411_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV411_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YVU,
+    .order = PIXFMT_YUV_ORDER_YVU,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -187,7 +187,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv410_yuv = {
     .sampling = PIXFMT_YUV_SAMPLING_410,
     .uv_sample_ratio_ver = PIXFMT_YUV410_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV410_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
+    .order = PIXFMT_YUV_ORDER_YUV,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -200,7 +200,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv410_yvu = {
     .sampling = PIXFMT_YUV_SAMPLING_410,
     .uv_sample_ratio_ver = PIXFMT_YUV410_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV410_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YVU,
+    .order = PIXFMT_YUV_ORDER_YVU,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -213,7 +213,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv400 = {
     .sampling = PIXFMT_YUV_SAMPLING_400,
     .uv_sample_ratio_ver = PIXFMT_YUV400_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV400_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
+    .order = PIXFMT_YUV_ORDER_YUV,
     .is_tile = false,
     .tile_wid = 0,
     .tile_hgt = 0,
@@ -226,7 +226,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv444_tile4x4 = {
     .sampling = PIXFMT_YUV_SAMPLING_444,
     .uv_sample_ratio_ver = PIXFMT_YUV444_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV444_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
+    .order = PIXFMT_YUV_ORDER_YUV,
     .is_tile = true,
     .tile_wid = 4,
     .tile_hgt = 4,
@@ -239,7 +239,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv422_tile4x4 = {
     .sampling = PIXFMT_YUV_SAMPLING_422,
     .uv_sample_ratio_ver = PIXFMT_YUV422_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV422_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
+    .order = PIXFMT_YUV_ORDER_YUV,
     .is_tile = true,
     .tile_wid = 4,
     .tile_hgt = 4,
@@ -252,7 +252,7 @@ const pixfmt_yuv_desc_s g_yuv_desc_yuv420_tile4x4 = {
     .sampling = PIXFMT_YUV_SAMPLING_420,
     .uv_sample_ratio_ver = PIXFMT_YUV420_SAMPLE_RATIO_VER,
     .uv_sample_ratio_hor = PIXFMT_YUV420_SAMPLE_RATIO_HOR,
-    .order = PIXFMT_ORDER_YUV,
+    .order = PIXFMT_YUV_ORDER_YUV,
     .is_tile = true,
     .tile_wid = 4,
     .tile_hgt = 4,
@@ -272,22 +272,22 @@ const char *pixfmt_yuv_sampling_name(pixfmt_yuv_sampling_e sampling)
     case PIXFMT_YUV_SAMPLING_410: return "410";
     case PIXFMT_YUV_SAMPLING_411: return "411";
     case PIXFMT_YUV_SAMPLING_400: return "400";
-    default:                      return "UnknownSampling";
+    default:                      return "UnknownYuvSampling";
     }
 }
 
-const char *pixfmt_uv_order_name(pixfmt_uv_order_e order)
+const char *pixfmt_yuv_order_name(pixfmt_yuv_order_e order)
 {
     switch (order) {
-    case PIXFMT_ORDER_YUV:  return "YUV";
-    case PIXFMT_ORDER_YVU:  return "YVU";
-    case PIXFMT_ORDER_UYV:  return "UYV";
-    case PIXFMT_ORDER_VYU:  return "VYU";
-    case PIXFMT_ORDER_YUYV: return "YUYV";
-    case PIXFMT_ORDER_YVYU: return "YVYU";
-    case PIXFMT_ORDER_UYVY: return "UYVY";
-    case PIXFMT_ORDER_VYUY: return "VYUY";
-    default:                return "Unknown";
+    case PIXFMT_YUV_ORDER_YUV:  return "YUV";
+    case PIXFMT_YUV_ORDER_YVU:  return "YVU";
+    case PIXFMT_YUV_ORDER_UYV:  return "UYV";
+    case PIXFMT_YUV_ORDER_VYU:  return "VYU";
+    case PIXFMT_YUV_ORDER_YUYV: return "YUYV";
+    case PIXFMT_YUV_ORDER_YVYU: return "YVYU";
+    case PIXFMT_YUV_ORDER_UYVY: return "UYVY";
+    case PIXFMT_YUV_ORDER_VYUY: return "VYUY";
+    default:                    return "UnknownYuvOrder";
     }
 }
 
@@ -298,9 +298,9 @@ bool pixfmt_yuv_desc_is_valid(const pixfmt_yuv_desc_s *desc)
     return desc->sampling >= PIXFMT_YUV_SAMPLING_444 && desc->sampling <= PIXFMT_YUV_SAMPLING_400;
 }
 
-bool pixfmt_yuv_desc_is_uv_order(const pixfmt_yuv_desc_s *desc)
+bool pixfmt_yuv_desc_is_yuv_order(const pixfmt_yuv_desc_s *desc)
 {
-    return desc ? desc->order == PIXFMT_ORDER_YUV : false;
+    return desc ? desc->order == PIXFMT_YUV_ORDER_YUV : false;
 }
 
 bool pixfmt_yuv_desc_is_tile(const pixfmt_yuv_desc_s *desc) { return desc ? desc->is_tile : false; }
@@ -548,7 +548,7 @@ void pixfmt_yuv_dump_desc(const pixfmt_yuv_desc_s *desc)
 {
     LOGI(" - Sampling: %s, sample ratios: %d/%d\n", pixfmt_yuv_sampling_name(desc->sampling), desc->uv_sample_ratio_ver,
         desc->uv_sample_ratio_hor);
-    LOGI(" - Order: %s\n", pixfmt_uv_order_name(desc->order));
+    LOGI(" - Order: %s\n", pixfmt_yuv_order_name(desc->order));
     LOGI(" - Tile: %s\n", desc->is_tile ? "Yes" : "No");
     if (desc->is_tile) {
         LOGI(" - TileSize: %dx%d, Bytes: %d, Offset: %d\n", desc->tile_wid, desc->tile_hgt, desc->tile_bytes,

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @copyright: Copyright (c) Rockchip Electronics Co., Ltd. 2025-. All rights reserved.
  * @brief:     Image format management module implementation
  * @author:    vance.wu@rock-chips.com
@@ -1170,7 +1170,7 @@ bool pixfmt_is_uv_order(pixfmt_e fmt)
     const pixfmt_attr_s *attr = pixfmt_get_attr(fmt);
     if (!attr || attr->base_type != PIXFMT_TYPE_YUV)
         return false;
-    return pixfmt_yuv_desc_is_uv_order(attr->desc.yuv);
+    return pixfmt_yuv_desc_is_yuv_order(attr->desc.yuv);
 }
 
 bool pixfmt_is_tile(pixfmt_e fmt)

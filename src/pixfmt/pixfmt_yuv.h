@@ -41,18 +41,18 @@ typedef enum pixfmt_yuv_sampling {
 } pixfmt_yuv_sampling_e;
 
 /**
- * UV/VU order from LSB to MSB
+ * YUV component order from LSB to MSB (low address to high address in memory)
  */
-typedef enum pixfmt_uv_order {
-    PIXFMT_ORDER_YUV,
-    PIXFMT_ORDER_YVU,
-    PIXFMT_ORDER_UYV,
-    PIXFMT_ORDER_VYU,
-    PIXFMT_ORDER_YUYV,
-    PIXFMT_ORDER_YVYU,
-    PIXFMT_ORDER_UYVY,
-    PIXFMT_ORDER_VYUY,
-} pixfmt_uv_order_e;
+typedef enum pixfmt_yuv_order {
+    PIXFMT_YUV_ORDER_YUV,
+    PIXFMT_YUV_ORDER_YVU,
+    PIXFMT_YUV_ORDER_UYV,
+    PIXFMT_YUV_ORDER_VYU,
+    PIXFMT_YUV_ORDER_YUYV,
+    PIXFMT_YUV_ORDER_YVYU,
+    PIXFMT_YUV_ORDER_UYVY,
+    PIXFMT_YUV_ORDER_VYUY,
+} pixfmt_yuv_order_e;
 
 
 /**
@@ -63,7 +63,7 @@ typedef struct pixfmt_yuv_desc {
     uint8_t uv_sample_ratio_ver;
     uint8_t uv_sample_ratio_hor;
 
-    pixfmt_uv_order_e order;
+    pixfmt_yuv_order_e order; // always form LSB to MSB
 
     // tile info
     bool is_tile;
@@ -108,11 +108,11 @@ extern "C" {
 
 /** YUV format name strings */
 extern const char *pixfmt_yuv_sampling_name(pixfmt_yuv_sampling_e sampling);
-extern const char *pixfmt_uv_order_name(pixfmt_uv_order_e order);
+extern const char *pixfmt_yuv_order_name(pixfmt_yuv_order_e order);
 
 /** YUV format information query functions */
 extern bool pixfmt_yuv_desc_is_valid(const pixfmt_yuv_desc_s *desc);
-extern bool pixfmt_yuv_desc_is_uv_order(const pixfmt_yuv_desc_s *desc);
+extern bool pixfmt_yuv_desc_is_yuv_order(const pixfmt_yuv_desc_s *desc);
 extern bool pixfmt_yuv_desc_is_tile(const pixfmt_yuv_desc_s *desc);
 extern bool pixfmt_yuv_desc_is_line_variant(const pixfmt_yuv_desc_s *desc);
 

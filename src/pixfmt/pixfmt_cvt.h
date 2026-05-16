@@ -49,6 +49,8 @@ extern int pixfmt_cvt_yuv420sp_tile4x4_to_yuv420p(const void *src, void *dst, in
 /**
  * RGB/YUV cross-format conversion functions
  */
+extern int pixfmt_csc_exec(const pixfmt_frame_s *src, pixfmt_frame_s *dst);
+
 extern int pixfmt_cvt_rgb888_to_yuv420p(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride);
 extern int pixfmt_cvt_yuv420p_to_rgb888(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride);
 extern int pixfmt_cvt_rgb565_to_yuv420p(const uint8_t *src, uint8_t *dst, int w, int h, int src_stride, int dst_stride);

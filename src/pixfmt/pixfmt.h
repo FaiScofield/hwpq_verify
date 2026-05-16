@@ -161,7 +161,7 @@ typedef struct pixfmt_attr {
 
     const char *full_name;  // not NULL
     const char *short_name; // not NULL
-    const char *alias;      // might be NULL
+    const char *alias;      // might be NULL, split by ','
 } pixfmt_attr_s;
 
 extern const pixfmt_attr_s g_pixfmt_attr_table[PIXFMT_NB_COUNT];

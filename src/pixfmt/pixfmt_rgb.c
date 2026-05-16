@@ -57,7 +57,7 @@ const pixfmt_rgb_desc_s g_rgb_desc_rgb10lsb = {
 
 const pixfmt_rgb_desc_s g_rgb_desc_rgba10lsb = {
     .order = PIXFMT_RGB_ORDER_RGB,
-    .alpha_pos = PIXFMT_NO_ALPHA,
+    .alpha_pos = PIXFMT_ALPHA_AT_MSB,
     .comp_bits = {10, 10, 10, 10},
 };
 

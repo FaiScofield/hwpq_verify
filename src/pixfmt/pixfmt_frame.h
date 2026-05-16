@@ -9,7 +9,7 @@
 #define _PIXFMT_FRAME_H_
 
 #include "pixfmt.h"
-#include "pixfmt_color_cvt.h"
+#include "pixfmt_csc.h"
 
 #include <stddef.h>
 

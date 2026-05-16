@@ -11,12 +11,12 @@
 #include <assert.h>
 #include <string.h>
 
-bool pixfmt_fill_frame_attr(pixfmt_frame_s *frame)
+bool pixfmt_frame_fill(pixfmt_frame_s *frame)
 {
     assert(frame != NULL && frame->fmt != PIXFMT_INVALID);
 
     if (frame->wid <= 4 || frame->hgt <= 2) {
-        LOGE("pixfmt_fill_frame_attr: invalid frame size: wid=%d, hgt=%d!\n", frame->wid, frame->hgt);
+        LOGE("pixfmt_frame_fill: invalid frame size: wid=%d, hgt=%d!\n", frame->wid, frame->hgt);
         return false;
     }
 
@@ -37,7 +37,7 @@ bool pixfmt_fill_frame_attr(pixfmt_frame_s *frame)
     return true;
 }
 
-bool pixfmt_check_frame_valid(const pixfmt_frame_s *frame)
+bool pixfmt_frame_check(const pixfmt_frame_s *frame)
 {
     assert(frame != NULL && frame->fmt != PIXFMT_INVALID);
 
@@ -76,7 +76,7 @@ bool pixfmt_check_frame_valid(const pixfmt_frame_s *frame)
     return true;
 }
 
-void *pixfmt_get_plane_addr(const pixfmt_frame_s *frame, int plane_idx, void **retPlaneAddrsx3)
+void *pixfmt_frame_get_addr(const pixfmt_frame_s *frame, int plane_idx, void **retPlaneAddrsx3)
 {
     assert(frame != NULL && frame->fmt != PIXFMT_INVALID);
 
@@ -177,7 +177,7 @@ int pixfmt_frame_get_min_pitches(pixfmt_e fmt, int wid, int *retPitchesx3)
     return PIXFMT_INVALID;
 }
 
-void pixfmt_dump_frame_attr(const pixfmt_frame_s *frame)
+void pixfmt_frame_dump_info(const pixfmt_frame_s *frame)
 {
     LOGI(" - pixel format: %d (%s)\n", frame->fmt, pixfmt_full_name(frame->fmt));
     LOGI(" - colorspace:   %d (%s)\n", frame->clrspc, pixfmt_colorspcae_name(frame->clrspc));

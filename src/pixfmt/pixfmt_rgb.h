@@ -13,7 +13,7 @@
 #include <stddef.h>
 
 /**
- * RGB channel order enumeration
+ * RGB channel order from LSB to MSB
  */
 typedef enum pixfmt_rgb_order {
     PIXFMT_RGB_ORDER_RGB,
@@ -33,9 +33,9 @@ typedef enum pixfmt_alpha_pos {
  * RGB format descriptor
  */
 typedef struct pixfmt_rgb_desc {
-    pixfmt_alpha_pos_e alpha_pos;
-    pixfmt_rgb_order_e order;
-    uint8_t comp_bits[4];
+    pixfmt_alpha_pos_e alpha_pos; // at LSB or MSB
+    pixfmt_rgb_order_e order;     // always form LSB to MSB
+    uint8_t comp_bits[4];         // always in R-G-B-A order
 } pixfmt_rgb_desc_s;
 
 /**

@@ -13,187 +13,112 @@
 #include <math.h>
 #include <assert.h>
 
-extern int pixfmt_cvt_r2r_to_common(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1)
+static void pixfmt_cvt_rgb_calc_param(const pixfmt_attr_s *attr, int comp_seq[4], int *seq_len_out,
+                                      int comp_offset[4], int comp_shift[4], int comp_mask[4], int *pixel_bytes)
 {
-    assert(frame0 && frame1);
-    int ret = 0;
+    const pixfmt_rgb_desc_s *desc = attr->desc.rgb;
+    bool has_alpha = (desc->comp_bits[3] > 0);
+    int slen;
 
-    const pixfmt_attr_s *src_attr = pixfmt_get_attr(frame0->fmt);
-    const pixfmt_attr_s *dst_attr = pixfmt_get_attr(frame1->fmt);
-    const pixfmt_rgb_desc_s *src_desc = src_attr->desc.rgb;
-    const pixfmt_rgb_desc_s *dst_desc = dst_attr->desc.rgb;
-    assert(src_attr && dst_attr);
-
-    int r_shift = 0;
-    int g_shift = 0;
-    int b_shift = 0;
-    int a_shift = 0;
-    if (src_desc->order == PIXFMT_RGB_ORDER_RGB) {
-        if (src_desc->alpha_pos == PIXFMT_ALPHA_AT_MSB) {
-            r_shift = 0;
-            g_shift = src_desc->comp_bits[0];
-            b_shift = g_shift + src_desc->comp_bits[1];
-            a_shift = b_shift + src_desc->comp_bits[2];
-        }
-        else { /* ALPHA_AT_LSB or NO_ALPHA */
-            a_shift = 0;
-            r_shift = src_desc->comp_bits[2];
-            g_shift = r_shift + src_desc->comp_bits[0];
-            b_shift = g_shift + src_desc->comp_bits[1];
-        }
-    }
-    else {
-        if (src_desc->alpha_pos == PIXFMT_ALPHA_AT_MSB) {
-            b_shift = 0;
-            g_shift = src_desc->comp_bits[0];
-            r_shift = g_shift + src_desc->comp_bits[1];
-            a_shift = b_shift + src_desc->comp_bits[2];
-        }
-        else { /* ALPHA_AT_LSB or NO_ALPHA */
-            a_shift = 0;
-            b_shift = src_desc->comp_bits[2];
-            g_shift = r_shift + src_desc->comp_bits[0];
-            r_shift = g_shift + src_desc->comp_bits[1];
-        }
+    int rgb_seq[3];
+    if (desc->order == PIXFMT_RGB_ORDER_RGB) {
+        rgb_seq[0] = 0; rgb_seq[1] = 1; rgb_seq[2] = 2;
+    } else {
+        rgb_seq[0] = 2; rgb_seq[1] = 1; rgb_seq[2] = 0;
     }
 
-    const int r_max = (1 << src_desc->comp_bits[0]) - 1;
-    const int g_max = (1 << src_desc->comp_bits[1]) - 1;
-    const int b_max = (1 << src_desc->comp_bits[2]) - 1;
-    const int a_max = src_desc->comp_bits[3] > 0 ? ((1 << src_desc->comp_bits[3]) - 1) : 0;
-    const int r_mask = r_max << r_shift;
-    const int g_mask = g_max << g_shift;
-    const int b_mask = b_max << b_shift;
-    const int a_mask = a_max << a_shift;
-
-    bool has_alpha_src = pixfmt_has_alpha(frame0->fmt);
-    bool need_alpha_dst = pixfmt_has_alpha(frame1->fmt);
-    const int dst_comps = need_alpha_dst ? 4 : 3;
-
-    switch (frame0->fmt) {
-    // 8bpp RGB
-    case PIXFMT_RGB332:
-    case PIXFMT_BGR233: {
-        for (int i = 0; i < frame0->hgt; i++) {
-            const uint8_t *psrc = (uint8_t *)frame0->addr + i * frame0->pitch;
-            uint8_t *pdst = (uint8_t *)frame1->addr + i * frame1->pitch;
-            for (int j = 0; j < frame0->wid; j++) {
-                const uint8_t val = psrc[j];
-                uint16_t r = (val & r_mask) >> r_shift;
-                uint16_t g = (val & g_mask) >> g_shift;
-                uint16_t b = (val & b_mask) >> b_shift;
-                pdst[j * dst_comps + 0] = (r * 255 + (r_max >> 1)) / r_max;
-                pdst[j * dst_comps + 1] = (g * 255 + (g_max >> 1)) / g_max;
-                pdst[j * dst_comps + 2] = (b * 255 + (b_max >> 1)) / b_max;
-                if (need_alpha_dst)
-                    pdst[j * dst_comps + 3] = 255;
-            }
+    if (has_alpha) {
+        slen = 4;
+        if (desc->alpha_pos == PIXFMT_ALPHA_AT_LSB) {
+            comp_seq[0] = 3; comp_seq[1] = rgb_seq[0]; comp_seq[2] = rgb_seq[1]; comp_seq[3] = rgb_seq[2];
+        } else {
+            comp_seq[0] = rgb_seq[0]; comp_seq[1] = rgb_seq[1]; comp_seq[2] = rgb_seq[2]; comp_seq[3] = 3;
         }
-    } break;
-    // 16bpp RGB
-    case PIXFMT_RGB565:
-    case PIXFMT_BGR565:
-    case PIXFMT_RGBA5551:
-    case PIXFMT_ABGR1555:
-    case PIXFMT_RGBA4444:
-    case PIXFMT_ABGR4444: {
-        for (int i = 0; i < frame0->hgt; i++) {
-            const uint16_t *psrc = (uint16_t *)((uint8_t *)frame0->addr + i * frame0->pitch);
-            uint8_t *pdst = (uint8_t *)frame1->addr + i * frame1->pitch;
-            for (int j = 0; j < frame0->wid; j++) {
-                const uint16_t val = psrc[j];
-                uint16_t r = (val & r_mask) >> r_shift;
-                uint16_t g = (val & g_mask) >> g_shift;
-                uint16_t b = (val & b_mask) >> b_shift;
-                uint16_t a = (val & a_mask) >> a_shift;
-                pdst[j * dst_comps + 0] = (r * 255 + (r_max >> 1)) / r_max;
-                pdst[j * dst_comps + 1] = (g * 255 + (g_max >> 1)) / g_max;
-                pdst[j * dst_comps + 2] = (b * 255 + (b_max >> 1)) / b_max;
-                if (need_alpha_dst)
-                    pdst[j * dst_comps + 3] = has_alpha_src ? (a * 255 + (a_max >> 1)) / a_max : 255;
-            }
-        }
-    } break;
-    // 24bpp RGB
-    case PIXFMT_RGB888:
-    case PIXFMT_BGR888: {
-        const bool same_order = src_desc->order == dst_desc->order;
-        for (int i = 0; i < frame0->hgt; i++) {
-            const uint8_t *psrc = (uint8_t *)frame0->addr + i * frame0->pitch;
-            uint8_t *pdst = (uint8_t *)frame1->addr + i * frame1->pitch;
-            for (int j = 0, k = 0; j < frame0->wid; j++, k += 3) {
-                uint8_t r = psrc[k + 0];
-                uint8_t g = psrc[k + 1];
-                uint8_t b = psrc[k + 2];
-                pdst[j * dst_comps + 0] = same_order ? r : b;
-                pdst[j * dst_comps + 1] = g;
-                pdst[j * dst_comps + 2] = same_order ? b : r;
-                if (need_alpha_dst)
-                    pdst[j * dst_comps + 3] = 255;
-            }
-        }
-    } break;
-    // 32bpp RGB
-    case PIXFMT_RGBA8888:
-    case PIXFMT_BGRA8888:
-    case PIXFMT_ARGB8888:
-    case PIXFMT_ABGR8888: {
-        for (int i = 0; i < frame0->hgt; i++) {
-            const uint32_t *psrc = (uint32_t *)((uint8_t *)frame0->addr + i * frame0->pitch);
-            uint8_t *pdst = (uint8_t *)frame1->addr + i * frame1->pitch;
-            for (int j = 0; j < frame0->wid; j++) {
-                const uint32_t val = psrc[j];
-                uint32_t r = (val & r_mask) >> r_shift;
-                uint32_t g = (val & g_mask) >> g_shift;
-                uint32_t b = (val & b_mask) >> b_shift;
-                uint32_t a = (val & a_mask) >> a_shift;
-                pdst[j * dst_comps + 0] = r;
-                pdst[j * dst_comps + 1] = g;
-                pdst[j * dst_comps + 2] = b;
-                if (need_alpha_dst)
-                    pdst[j * dst_comps + 3] = has_alpha_src ? a : 255;
-            }
-        }
-    } break;
-    // 10bit
-    case PIXFMT_RGBA1010102:
-    case PIXFMT_ABGR2101010: {
-
-    } break;
-    case PIXFMT_RGB10Lsb:
-    case PIXFMT_RGBA10Lsb: {
-
-    } break;
-    default: {
-        LOGE("pixfmt_cvt_r2r_to_common: unsupported format %d!\n", frame0->fmt);
-        ret = -1;
-    } break;
+    } else {
+        slen = 3;
+        comp_seq[0] = rgb_seq[0]; comp_seq[1] = rgb_seq[1]; comp_seq[2] = rgb_seq[2];
     }
 
-    return ret;
+    if (attr->is_bitpacked) {
+        int bit_pos = 0;
+        for (int i = 0; i < slen; i++) {
+            int ci = comp_seq[i];
+            comp_shift[ci] = bit_pos;
+            comp_mask[ci] = (1 << desc->comp_bits[ci]) - 1;
+            comp_offset[ci] = 0;
+            bit_pos += desc->comp_bits[ci];
+        }
+        *pixel_bytes = ALIGN_N_DIV(bit_pos, 8) / 8;
+    } else {
+        int byte_pos = 0;
+        for (int i = 0; i < slen; i++) {
+            int ci = comp_seq[i];
+            int stride = ALIGN_N_DIV(desc->comp_bits[ci], 8) / 8;
+            comp_offset[ci] = byte_pos;
+            comp_shift[ci] = 0;
+            comp_mask[ci] = (1 << desc->comp_bits[ci]) - 1;
+            byte_pos += stride;
+        }
+        *pixel_bytes = byte_pos;
+    }
+
+    *seq_len_out = slen;
 }
 
-extern int pixfmt_cvt_r2r_from_common(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1)
+static uint32_t pixfmt_cvt_rgb_read_comp(const uint8_t *pixel, int byte_offset, int bit_shift, int mask, bool is_bitpacked)
 {
-    assert(frame0 && frame1);
-    assert(pixfmt_is_rgb(frame0->fmt));
-    assert(pixfmt_is_rgb(frame1->fmt));
-
-    /* copy frame info */
-    frame1->clrspc = frame0->clrspc;
-    frame1->wid = frame0->wid;
-    frame1->hgt = frame0->hgt;
-    frame1->vwid = frame0->vwid;
-    frame1->vhgt = frame0->vhgt;
-
-    /* calculate pitch and size for target format */
-    if (!pixfmt_fill_frame_attr(frame1)) {
-        LOGE("pixfmt_cvt_r2r_from_common: failed to fill frame attr!\n");
-        return -1;
+    if (mask == 0) return 0;
+    if (is_bitpacked) {
+        uint64_t val = 0;
+        memcpy(&val, pixel, sizeof(val));
+        return (uint32_t)((val >> bit_shift) & mask);
+    } else {
+        const uint8_t *ptr = pixel + byte_offset;
+        if (mask <= 0xFF) {
+            return *ptr & mask;
+        } else {
+            uint16_t val = 0;
+            memcpy(&val, ptr, sizeof(val));
+            return val & mask;
+        }
     }
+}
 
-    /* perform conversion */
-    return pixfmt_cvt_impl_r2r(frame0, frame1);
+static void pixfmt_cvt_rgb_write_comp(uint8_t *pixel, int byte_offset, int bit_shift, int mask,
+                                      uint32_t value, bool is_bitpacked)
+{
+    if (mask == 0) return;
+    if (is_bitpacked) {
+        uint64_t val = 0;
+        memcpy(&val, pixel, sizeof(val));
+        val &= ~((uint64_t)mask << bit_shift);
+        val |= ((uint64_t)(value & mask) << bit_shift);
+        memcpy(pixel, &val, sizeof(val));
+    } else {
+        uint8_t *ptr = pixel + byte_offset;
+        if (mask <= 0xFF) {
+            *ptr = (uint8_t)(value & mask);
+        } else {
+            uint16_t val = 0;
+            memcpy(&val, ptr, sizeof(val));
+            val = (val & ~mask) | (value & mask);
+            memcpy(ptr, &val, sizeof(val));
+        }
+    }
+}
+
+static uint32_t pixfmt_cvt_scale_comp(uint32_t val, int src_bits, int dst_bits)
+{
+    if (src_bits == dst_bits || src_bits == 0 || dst_bits == 0)
+        return val;
+    if (dst_bits > src_bits) {
+        int shift = dst_bits - src_bits;
+        return (val << shift) | (val >> (src_bits - shift > 0 ? src_bits - shift : 0));
+    } else {
+        int src_max = (1 << src_bits) - 1;
+        int dst_max = (1 << dst_bits) - 1;
+        return (val * dst_max + src_max / 2) / src_max;
+    }
 }
 
 static int pixfmt_cvt_impl_r2r(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1)
@@ -204,28 +129,54 @@ static int pixfmt_cvt_impl_r2r(const pixfmt_frame_s *frame0, pixfmt_frame_s *fra
 
     const pixfmt_attr_s *src_attr = pixfmt_get_attr(frame0->fmt);
     const pixfmt_attr_s *dst_attr = pixfmt_get_attr(frame1->fmt);
+    const pixfmt_rgb_desc_s *src_desc = src_attr->desc.rgb;
+    const pixfmt_rgb_desc_s *dst_desc = dst_attr->desc.rgb;
     assert(src_attr && dst_attr);
 
     /* if same format, just copy */
     if (frame0->fmt == frame1->fmt) {
-        if (frame0->pitch == frame1->pitch) {
-            assert(frame0->size == frame1->size);
-            memcpy(frame1->addr, frame0->addr, frame0->size);
-        }
-        else {
-            int copy_row_size = MIN(frame0->pitch, frame1->pitch);
-            for (int i = 0; i < frame0->hgt; i++) {
-                memcpy((uchar *)frame1->addr + i * frame1->pitch, (uchar *)frame0->addr + i * frame0->pitch, copy_row_size);
-            }
+        int copy_row_size = MIN(frame0->pitch, frame1->pitch);
+        for (int i = 0; i < frame0->hgt; i++) {
+            memcpy((uint8_t *)frame1->addr + i * frame1->pitch,
+                   (uint8_t *)frame0->addr + i * frame0->pitch, copy_row_size);
         }
         return 0;
     }
 
-    /* TODO: implement format conversion for different RGB formats */
-    /* For now, return error for unsupported conversions */
-    LOGE("pixfmt_cvt_impl_r2r: conversion from %s to %s not implemented yet!\n", pixfmt_short_name(frame0->fmt),
-        pixfmt_short_name(frame1->fmt));
-    return -1;
+    /* do R2R */
+    int src_seq[4], src_offset[4], src_shift[4], src_mask[4], src_pbytes;
+    int dst_seq[4], dst_offset[4], dst_shift[4], dst_mask[4], dst_pbytes;
+    int src_slen, dst_slen;
+
+    pixfmt_cvt_rgb_calc_param(src_attr, src_seq, &src_slen, src_offset, src_shift, src_mask, &src_pbytes);
+    pixfmt_cvt_rgb_calc_param(dst_attr, dst_seq, &dst_slen, dst_offset, dst_shift, dst_mask, &dst_pbytes);
+
+    for (int i = 0; i < frame0->hgt; i++) {
+        const uint8_t *psrc = (uint8_t *)frame0->addr + i * frame0->pitch;
+        uint8_t *pdst = (uint8_t *)frame1->addr + i * frame1->pitch;
+
+        for (int j = 0; j < frame0->wid; j++) {
+            uint32_t r = pixfmt_cvt_rgb_read_comp(psrc, src_offset[0], src_shift[0], src_mask[0], src_attr->is_bitpacked);
+            uint32_t g = pixfmt_cvt_rgb_read_comp(psrc, src_offset[1], src_shift[1], src_mask[1], src_attr->is_bitpacked);
+            uint32_t b = pixfmt_cvt_rgb_read_comp(psrc, src_offset[2], src_shift[2], src_mask[2], src_attr->is_bitpacked);
+            uint32_t a = pixfmt_cvt_rgb_read_comp(psrc, src_offset[3], src_shift[3], src_mask[3], src_attr->is_bitpacked);
+
+            r = pixfmt_cvt_scale_comp(r, src_desc->comp_bits[0], dst_desc->comp_bits[0]);
+            g = pixfmt_cvt_scale_comp(g, src_desc->comp_bits[1], dst_desc->comp_bits[1]);
+            b = pixfmt_cvt_scale_comp(b, src_desc->comp_bits[2], dst_desc->comp_bits[2]);
+            a = pixfmt_cvt_scale_comp(a, src_desc->comp_bits[3], dst_desc->comp_bits[3]);
+
+            pixfmt_cvt_rgb_write_comp(pdst, dst_offset[0], dst_shift[0], dst_mask[0], r, dst_attr->is_bitpacked);
+            pixfmt_cvt_rgb_write_comp(pdst, dst_offset[1], dst_shift[1], dst_mask[1], g, dst_attr->is_bitpacked);
+            pixfmt_cvt_rgb_write_comp(pdst, dst_offset[2], dst_shift[2], dst_mask[2], b, dst_attr->is_bitpacked);
+            pixfmt_cvt_rgb_write_comp(pdst, dst_offset[3], dst_shift[3], dst_mask[3], a, dst_attr->is_bitpacked);
+
+            psrc += src_pbytes;
+            pdst += dst_pbytes;
+        }
+    }
+
+    return 0;
 }
 
 static int pixfmt_cvt_impl_y2y(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1)
@@ -261,12 +212,12 @@ bool pixfmt_cvt_is_supported(pixfmt_e src_fmt, pixfmt_e dst_fmt, pixfmt_e *retSr
 
         const bool need_alpha = pixfmt_has_alpha(dst_fmt);
         src_base = pixfmt_get_common_fmt(src_fmt, src_attr->layout, need_alpha);
-        dst_base = pixfmt_get_common_fmt(src_fmt, src_attr->layout, need_alpha);
+        dst_base = pixfmt_get_common_fmt(dst_fmt, src_attr->layout, need_alpha);
         if (src_base != PIXFMT_INVALID && dst_base != PIXFMT_INVALID)
             break;
 
         src_base = pixfmt_get_common_fmt(src_fmt, dst_attr->layout, need_alpha);
-        dst_base = pixfmt_get_common_fmt(src_fmt, dst_attr->layout, need_alpha);
+        dst_base = pixfmt_get_common_fmt(dst_fmt, dst_attr->layout, need_alpha);
     } while (0);
 
     if (src_base != PIXFMT_INVALID && dst_base != PIXFMT_INVALID) {
@@ -390,19 +341,14 @@ int pixfmt_cvt_exec(const pixfmt_frame_s *frame0, pixfmt_frame_s *frame1)
             dst_base_frame_reuse = false;
         }
 
-        /* do conversion from src_base_frame to dst_base_frame */
+        /* do conversion from src_base_frame to dst_base_frame via CSC */
         if (src_base_fmt == dst_base_fmt) {
             memcpy(dst_base_frame.addr, src_base_frame.addr, src_base_frame.size);
         }
         else {
-            if (pixfmt_is_rgb(src_base_fmt))
-                ret = pixfmt_cvt_impl_r2r(&src_base_frame, &dst_base_frame);
-            else if (pixfmt_is_yuv(src_base_fmt))
-                ret = pixfmt_cvt_impl_y2y(&src_base_frame, &dst_base_frame);
-            else {
-                ret = -1;
+            ret = pixfmt_csc_exec(&src_base_frame, &dst_base_frame);
+            if (ret != 0)
                 break;
-            }
         }
 
         /* do conversion from dst_base_frame to frame1 */
