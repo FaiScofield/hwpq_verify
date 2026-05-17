@@ -478,26 +478,7 @@ def run_cli(args):
 
     print(f"CSC matrix:\n{coefs}")
     print(f"CSC offset: {offset}")
-
-    out_width = args.outwid if args.outwid is not None else width
-    out_height = args.outhgt if args.outhgt is not None else height
-    if out_width != width or out_height != height:
-        if out_width == width:
-            planar_out_resized = planar_out.copy()
-        else:
-            planar_out_resized = np.zeros((3, out_height, out_width), dtype=planar_out.dtype)
-            for c in range(3):
-                h_ratio = out_height / height
-                w_ratio = out_width / width
-                y_src = (np.arange(out_height) / h_ratio).astype(np.int32)
-                x_src = (np.arange(out_width) / w_ratio).astype(np.int32)
-                y_src = np.clip(y_src, 0, height - 1)
-                x_src = np.clip(x_src, 0, width - 1)
-                planar_out_resized[c] = planar_out[c][y_src[:, None], x_src[None, :]]
-    else:
-        planar_out_resized = planar_out
-
-    write_planar_to_raw(planar_out_resized, output_file, out_width, out_height, output_fmt)
+    write_planar_to_raw(planar_out, output_file, width, height, output_fmt)
     print(f"Conversion done, output written to: {output_file}")
 
 
@@ -1016,8 +997,6 @@ def main():
                              "support: {0/1(RGBL/F), 2/3(601L/F), 4/5(709L/F), 8/9(2020L/F)}")
     parser.add_argument("-o", "--output", type=str, default=None,
                         help="output filename, default: 'dirname(input)/custom_output_basename'")
-    parser.add_argument("-W", "--outwid", type=int, default=None, help="output image width, default: same to 'width'")
-    parser.add_argument("-G", "--outhgt", type=int, default=None, help="output image height, default: same to 'height'")
     parser.add_argument("-F", "--outfmt", type=lambda x: int(x, 0), default=None,
                         help="output image format, default: mod('format',16)+0x10")
     parser.add_argument("-R", "--outclr", type=int, default=None,
