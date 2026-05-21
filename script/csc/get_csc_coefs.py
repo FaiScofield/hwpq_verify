@@ -272,7 +272,7 @@ def _make_center_scale_quad(scale_mat: np.ndarray, center_vec: np.ndarray) -> np
 
 def _map_centered_unit(raw_value: int) -> float:
     """Map a slider value [0, 511] to [-1, 1] with 256 as the exact zero point."""
-    return float(np.clip((raw_value - 256) / 255.0, -1.0, 1.0))
+    return float(np.clip((raw_value - 256) / 256.0, -1.0, 1.0))
 
 
 def get_bcsh_param_pack(algo_type: str, bcsh_cfg: CscBcshConfig, pixel_depth: int) -> dict:
@@ -351,7 +351,7 @@ def get_bcsh_param_pack(algo_type: str, bcsh_cfg: CscBcshConfig, pixel_depth: in
     }
 
 
-def _get_adjustment_quads(config: CscCoefConfig, bcsh_cfg: CscBcshConfig) -> tuple[dict, dict]:
+def _get_bcsh_quads(config: CscCoefConfig, bcsh_cfg: CscBcshConfig) -> tuple[dict, dict]:
     """Build reusable homogeneous transforms for the current BCSH parameters."""
     params = get_bcsh_param_pack(config.algo_type, bcsh_cfg, config.pixel_depth)
     contrast = params["contrast"]
@@ -359,42 +359,39 @@ def _get_adjustment_quads(config: CscCoefConfig, bcsh_cfg: CscBcshConfig) -> tup
     hue_rad = params["hue_rad"]
     cos_hue = np.cos(hue_rad)
     sin_hue = np.sin(hue_rad)
-    rgb_gains = params["rgb_gains"]
+    rgb_gains = params["rgb_gains"] # normalized
     rgb_offsets = params["rgb_offset_pixels"]
     brightness = params["brightness_pixel"]
     mid_pixel_val = params["mid_pixel_val"]
 
-    gain_matrix = np.diag(rgb_gains).astype(np.float32)
-    contrast_matrix = np.diag([contrast, contrast, contrast]).astype(np.float32)
-    contrast_mat_rgb = np.diag([contrast, contrast, contrast]).astype(np.float32)
-    contrast_mat_yuv = np.diag([contrast, 1.0, 1.0]).astype(np.float32)
+    rgb_mat_rgbgains = np.diag(rgb_gains).astype(np.float32)
+    rgb_mat_contrast = np.diag([contrast, contrast, contrast]).astype(np.float32)
+    yuv_mat_contrast = np.diag([contrast, 1.0, 1.0]).astype(np.float32)
     contrast_center_rgb = np.array([mid_pixel_val, mid_pixel_val, mid_pixel_val], dtype=np.float32)
     contrast_center_yuv = np.array([mid_pixel_val, 0.0, 0.0], dtype=np.float32)
     hue_matrix = np.array([[1, 0, 0], [0, cos_hue, -sin_hue], [0, sin_hue, cos_hue]], dtype=np.float32)
     saturation_matrix = np.array([[1, 0, 0], [0, saturation, 0], [0, 0, saturation]], dtype=np.float32)
 
-    quad_hs_yuv = _make_homogeneous_mat(hue_matrix @ saturation_matrix)
+    quad_yuv_hue = _make_homogeneous_mat(hue_matrix)
+    quad_yuv_sat = _make_homogeneous_mat(saturation_matrix)
     quad_r2y = _make_homogeneous_mat(g_r2y_mat_bt709)
     quad_y2r = _make_homogeneous_mat(g_y2r_mat_bt709)
-    quad_rgb_gain = _make_homogeneous_mat(gain_matrix)
-    quad_rgb_offset = _make_translation_quad(rgb_offsets)
-    quad_y_brightness = _make_translation_quad(np.array([brightness, 0.0, 0.0], dtype=np.float32))
-    quad_legacy_rgb = _make_homogeneous_mat(gain_matrix @ contrast_matrix)
-    quad_contrast_rgb = _make_center_scale_quad(contrast_mat_rgb, contrast_center_rgb)
-    quad_contrast_yuv = _make_center_scale_quad(contrast_mat_yuv, contrast_center_yuv)
-    quad_evideo_yuv = quad_y_brightness @ quad_contrast_yuv @ quad_hs_yuv
+    quad_rgb_rgbGains = _make_homogeneous_mat(rgb_mat_rgbgains)
+    quad_rgb_rgbOffsets = _make_translation_quad(rgb_offsets)
+    quad_yuv_bright = _make_translation_quad(np.array([brightness, 0.0, 0.0], dtype=np.float32))
+    quad_rgb_contrast = _make_center_scale_quad(rgb_mat_contrast, contrast_center_rgb)
+    quad_yuv_contrast = _make_center_scale_quad(yuv_mat_contrast, contrast_center_yuv)
 
     quads = {
-        "quad_hs_yuv": quad_hs_yuv,
+        "quad_yuv_hue": quad_yuv_hue,
+        "quad_yuv_sat": quad_yuv_sat,
         "quad_r2y": quad_r2y,
         "quad_y2r": quad_y2r,
-        "quad_rgb_gain": quad_rgb_gain,
-        "quad_rgb_offset": quad_rgb_offset,
-        "quad_y_brightness": quad_y_brightness,
-        "quad_legacy_rgb": quad_legacy_rgb,
-        "quad_contrast_rgb": quad_contrast_rgb,
-        "quad_contrast_yuv": quad_contrast_yuv,
-        "quad_evideo_yuv": quad_evideo_yuv,
+        "quad_rgb_rgbGains": quad_rgb_rgbGains,
+        "quad_rgb_rgbOffsets": quad_rgb_rgbOffsets,
+        "quad_yuv_bright": quad_yuv_bright,
+        "quad_rgb_contrast": quad_rgb_contrast,
+        "quad_yuv_contrast": quad_yuv_contrast,
     }
     return params, quads
 
@@ -403,39 +400,55 @@ def adjust_convert_mat(
     config: CscCoefConfig, bcsh_cfg: CscBcshConfig, out_mat: np.ndarray, out_vec: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, float]:
     ## get BCSH parameters
-    params, quads = _get_adjustment_quads(config, bcsh_cfg)
+    params, quads = _get_bcsh_quads(config, bcsh_cfg)
     mode = config.csc_mode
     quad_t = _make_homogeneous_mat(out_mat, out_vec)
+    quad_rgb_legacy_contrast = _make_homogeneous_mat(
+        np.diag([params["contrast"], params["contrast"], params["contrast"]]).astype(np.float32)
+    )
 
     ## Y2Y: output = T * M0 * N_r2y * M1 * N_y2r
     if mode.is_input_yuv and mode.is_output_yuv:
         quad_out = (
-            quads["quad_y_brightness"]
+            quads["quad_yuv_bright"]
             @ quad_t
-            @ quads["quad_hs_yuv"]
+            @ quads["quad_yuv_hue"]
+            @ quads["quad_yuv_sat"]
             @ quads["quad_r2y"]
-            @ quads["quad_legacy_rgb"]
+            @ quads["quad_rgb_rgbGains"]
+            @ quad_rgb_legacy_contrast
             @ quads["quad_y2r"]
         )
     ## Y2R: output = M1 * T * M0
     elif mode.is_input_yuv and not mode.is_output_yuv:
         quad_out = (
             _make_translation_quad(params["brightness_pixel"] + params["rgb_offset_pixels"])
-            @ quads["quad_legacy_rgb"]
+            @ quads["quad_rgb_rgbGains"]
+            @ quad_rgb_legacy_contrast
             @ quad_t
-            @ quads["quad_hs_yuv"]
+            @ quads["quad_yuv_hue"]
+            @ quads["quad_yuv_sat"]
         )
     ## R2Y: output = M0 * T * M1
     elif not mode.is_input_yuv and mode.is_output_yuv:
-        quad_out = quads["quad_y_brightness"] @ quads["quad_hs_yuv"] @ quad_t @ quads["quad_legacy_rgb"]
+        quad_out = (
+            quads["quad_yuv_bright"]
+            @ quads["quad_yuv_hue"]
+            @ quads["quad_yuv_sat"]
+            @ quad_t
+            @ quads["quad_rgb_rgbGains"]
+            @ quad_rgb_legacy_contrast
+        )
     ## R2R: output = T * M1 * N_y2r * M0 * N_r2y
     else:
         quad_out = (
             _make_translation_quad(params["brightness_pixel"] + params["rgb_offset_pixels"])
             @ quad_t
-            @ quads["quad_legacy_rgb"]
+            @ quads["quad_rgb_rgbGains"]
+            @ quad_rgb_legacy_contrast
             @ quads["quad_y2r"]
-            @ quads["quad_hs_yuv"]
+            @ quads["quad_yuv_hue"]
+            @ quads["quad_yuv_sat"]
             @ quads["quad_r2y"]
         )
 
@@ -454,37 +467,54 @@ def adjust_convert_quad_evideo(
     config: CscCoefConfig, bcsh_cfg: CscBcshConfig, quad_t: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, float]:
     """Adjust the affine CSC transform with eVideo CSC parameters."""
-    params, quads = _get_adjustment_quads(config, bcsh_cfg)
+    params, quads = _get_bcsh_quads(config, bcsh_cfg)
     mode = config.csc_mode
+    quad_rgb_legacy_contrast = _make_homogeneous_mat(
+        np.diag([params["contrast"], params["contrast"], params["contrast"]]).astype(np.float32)
+    )
 
     if mode.is_input_yuv and mode.is_output_yuv:
         quad_out = (
-            quads["quad_y_brightness"]
+            quads["quad_yuv_bright"]
             @ quad_t
-            @ quads["quad_hs_yuv"]
+            @ quads["quad_yuv_hue"]
+            @ quads["quad_yuv_sat"]
             @ quads["quad_r2y"]
-            @ quads["quad_legacy_rgb"]
+            @ quads["quad_rgb_rgbGains"]
+            @ quad_rgb_legacy_contrast
             @ quads["quad_y2r"]
         )
     elif mode.is_input_yuv and not mode.is_output_yuv:
         quad_out = (
-            quads["quad_rgb_offset"]
-            @ quads["quad_legacy_rgb"]
+            quads["quad_rgb_rgbOffsets"]
+            @ quads["quad_rgb_rgbGains"]
+            @ quad_rgb_legacy_contrast
             @ quad_t
-            @ quads["quad_hs_yuv"]
-            @ quads["quad_y_brightness"]
+            @ quads["quad_yuv_hue"]
+            @ quads["quad_yuv_sat"]
+            @ quads["quad_yuv_bright"]
         )
     elif not mode.is_input_yuv and mode.is_output_yuv:
-        quad_out = quads["quad_y_brightness"] @ quads["quad_hs_yuv"] @ quad_t @ quads["quad_legacy_rgb"] @ quads["quad_rgb_offset"]
+        quad_out = (
+            quads["quad_yuv_bright"]
+            @ quads["quad_yuv_hue"]
+            @ quads["quad_yuv_sat"]
+            @ quad_t
+            @ quads["quad_rgb_rgbGains"]
+            @ quad_rgb_legacy_contrast
+            @ quads["quad_rgb_rgbOffsets"]
+        )
     else:
         quad_out = (
-            quads["quad_rgb_offset"]
+            quads["quad_rgb_rgbOffsets"]
             @ quad_t
-            @ quads["quad_legacy_rgb"]
+            @ quads["quad_rgb_rgbGains"]
+            @ quad_rgb_legacy_contrast
             @ quads["quad_y2r"]
-            @ quads["quad_hs_yuv"]
+            @ quads["quad_yuv_hue"]
+            @ quads["quad_yuv_sat"]
             @ quads["quad_r2y"]
-            @ quads["quad_y_brightness"]
+            @ quads["quad_yuv_bright"]
         )
 
     out_mat, out_vec = _split_homogeneous_mat(quad_out)
@@ -499,25 +529,42 @@ def adjust_convert_quad_evideo_fix(
     config: CscCoefConfig, bcsh_cfg: CscBcshConfig, quad_t: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, float]:
     """Adjust the affine CSC transform with the eVideo CSC fix domain rules."""
-    _, quads = _get_adjustment_quads(config, bcsh_cfg)
+    _, quads = _get_bcsh_quads(config, bcsh_cfg)
     mode = config.csc_mode
 
     if mode.is_input_yuv and mode.is_output_yuv:
-        quad_out = quads["quad_evideo_yuv"] @ quad_t
+        quad_out = quads["quad_yuv_bright"] @ quads["quad_yuv_contrast"] @ quads["quad_yuv_hue"] @ quads["quad_yuv_sat"] @ quad_t
     elif mode.is_input_yuv and not mode.is_output_yuv:
-        quad_out = quads["quad_rgb_offset"] @ quads["quad_rgb_gain"] @ quad_t @ quads["quad_evideo_yuv"]
+        quad_out = (
+            quads["quad_rgb_rgbOffsets"]
+            @ quads["quad_rgb_rgbGains"]
+            @ quad_t
+            @ quads["quad_yuv_bright"]
+            @ quads["quad_yuv_contrast"]
+            @ quads["quad_yuv_hue"]
+            @ quads["quad_yuv_sat"]
+        )
     elif not mode.is_input_yuv and mode.is_output_yuv:
-        quad_out = quads["quad_evideo_yuv"] @ quad_t @ quads["quad_rgb_offset"] @ quads["quad_rgb_gain"]
+        quad_out = (
+            quads["quad_yuv_bright"]
+            @ quads["quad_yuv_contrast"]
+            @ quads["quad_yuv_hue"]
+            @ quads["quad_yuv_sat"]
+            @ quad_t
+            @ quads["quad_rgb_rgbOffsets"]
+            @ quads["quad_rgb_rgbGains"]
+        )
     else:
         quad_out = (
-            quads["quad_rgb_offset"]
+            quads["quad_rgb_rgbOffsets"]
             @ quad_t
-            @ quads["quad_rgb_gain"]
-            @ quads["quad_contrast_rgb"]
+            @ quads["quad_rgb_rgbGains"]
+            @ quads["quad_rgb_contrast"]
             @ quads["quad_y2r"]
-            @ quads["quad_hs_yuv"]
+            @ quads["quad_yuv_hue"]
+            @ quads["quad_yuv_sat"]
             @ quads["quad_r2y"]
-            @ quads["quad_y_brightness"]
+            @ quads["quad_yuv_bright"]
         )
 
     out_mat, out_vec = _split_homogeneous_mat(quad_out)
