@@ -20,13 +20,19 @@ from get_csc_coefs import (
     get_csc_coefs,
     parse_csc_mode_str,
     ColorSpace,
-    ALGO_RK_CSC,
-    ALGO_EVIDEO_CSC,
-    ALGO_EVIDEO_CSC_FIX,
-    ALGO_RGB_ON_HSV_OFF,
-    ALGO_RGB_ON_HSV_ON,
 )
-from get_csc_coef_hsv import apply_bcsh_hsv, apply_bcsh_yuv, apply_rgb_gain_offset
+from get_csc_coef_hsv import (
+    ALGO_RK_HW_CSC,
+    ALGO_RK_SW_CSC,
+    ALGO_EVIDEO_CSC,
+    ALGO_EVIDEO_CSC_PLAN_A,
+    ALGO_EVIDEO_CSC_PLAN_B,
+    normalize_algo_type,
+    apply_bcsh_hsv,
+    apply_bcsh_yuv,
+    apply_rgb_gain_offset,
+    get_evideo_csc_coefs,
+)
 
 FORMAT_NAMES = {
     0x0: "RGB888",
@@ -335,7 +341,7 @@ def build_csc_config(pixel_depth, coef_precision, algo_type, input_clrspc, outpu
     csc_config = CscCoefConfig()
     csc_config.pixel_depth = pixel_depth
     csc_config.coef_precision = coef_precision
-    csc_config.algo_type = algo_type
+    csc_config.algo_type = normalize_algo_type(algo_type)
     mode_str = build_csc_mode_str(input_clrspc, output_clrspc)
     csc_config.csc_mode = parse_csc_mode_str(mode_str)
     return csc_config
@@ -343,7 +349,7 @@ def build_csc_config(pixel_depth, coef_precision, algo_type, input_clrspc, outpu
 
 def is_rgb_on_hsv_algo_type(algo_type):
     """Check whether the algorithm is one of the RGB-on-HSV runtime modes."""
-    return algo_type in {ALGO_RGB_ON_HSV_OFF, ALGO_RGB_ON_HSV_ON}
+    return algo_type == ALGO_EVIDEO_CSC_PLAN_B
 
 
 def get_rgb_gain_default_value(algo_type):
@@ -368,7 +374,7 @@ def get_default_bcsh_raw_values(algo_type):
     }
 
 
-def build_bcsh_config_from_dict(raw_values, algo_type=ALGO_RK_CSC):
+def build_bcsh_config_from_dict(raw_values, algo_type=ALGO_RK_HW_CSC):
     """Build a BCSH config from raw values and algorithm-specific defaults."""
     bcsh = CscBcshConfig()
     for key, value in get_default_bcsh_raw_values(algo_type).items():
@@ -379,15 +385,66 @@ def build_bcsh_config_from_dict(raw_values, algo_type=ALGO_RK_CSC):
     return bcsh
 
 
+def clone_bcsh_config(bcsh):
+    """Create a shallow copy of a BCSH config object."""
+    cloned = CscBcshConfig()
+    for key in ("hue", "saturation", "contrast", "brightness", "r_gain", "g_gain", "b_gain", "r_offset", "g_offset", "b_offset"):
+        setattr(cloned, key, int(getattr(bcsh, key)))
+    return cloned
+
+
+def clear_bcsh_rgb_gains(bcsh):
+    """Return a BCSH config with RGB gains reset to the RK neutral value."""
+    cleared = clone_bcsh_config(bcsh)
+    cleared.r_gain = 256
+    cleared.g_gain = 256
+    cleared.b_gain = 256
+    return cleared
+
+
+def apply_rk_rgb_gain(planar_rgb, bcsh_cfg, pixel_depth, algo_type):
+    """Apply RK-family RGB gain only in RGB space without applying RGB offsets."""
+    h, w = planar_rgb.shape[1], planar_rgb.shape[2]
+    max_val = (1 << pixel_depth) - 1
+    rgb_normalized = planar_rgb.reshape(3, -1).T.astype(np.float64) / max_val
+    algo_type = normalize_algo_type(algo_type)
+    if algo_type not in {ALGO_RK_HW_CSC, ALGO_RK_SW_CSC}:
+        raise ValueError(f"Algorithm '{algo_type}' is not an RK family mode")
+
+    rgb_gains = np.array(
+        [
+            bcsh_cfg.r_gain / 256.0,
+            bcsh_cfg.g_gain / 256.0,
+            bcsh_cfg.b_gain / 256.0,
+        ],
+        dtype=np.float64,
+    )
+
+    rgb_new = rgb_normalized * rgb_gains
+    rgb_new = np.clip(rgb_new, 0.0, 1.0)
+
+    planar_out = (rgb_new.T * max_val)
+    planar_out = np.clip(planar_out + 0.5, 0, max_val).astype(planar_rgb.dtype)
+    return planar_out.reshape(3, h, w)
+
+
+def get_runtime_coef_precision(algo_type, coef_precision):
+    """Return the effective coefficient precision used at runtime."""
+    if algo_type == ALGO_RK_SW_CSC:
+        return 10
+    return coef_precision
+
+
 def remap_rgb_gain_value_for_algo_switch(value, old_algo_type, new_algo_type):
-    """Remap raw RGB gain when switching between RK CSC and eVideo CSC."""
+    """Remap raw RGB gain when switching between RK-family and eVideo CSC."""
     if old_algo_type == new_algo_type:
         return int(value)
 
     remapped = float(value)
-    if old_algo_type == ALGO_RK_CSC and new_algo_type == ALGO_EVIDEO_CSC:
+    rk_algo_types = {ALGO_RK_HW_CSC, ALGO_RK_SW_CSC}
+    if old_algo_type in rk_algo_types and new_algo_type == ALGO_EVIDEO_CSC:
         remapped /= 4.0
-    elif old_algo_type == ALGO_EVIDEO_CSC and new_algo_type == ALGO_RK_CSC:
+    elif old_algo_type == ALGO_EVIDEO_CSC and new_algo_type in rk_algo_types:
         remapped *= 4.0
 
     return int(np.clip(round(remapped), 0, 511))
@@ -400,7 +457,7 @@ def ui_bcsh_key_to_config_key(ui_key):
 
 def convert_planar(planar_in, input_clrspc, output_clrspc, coef_precision, pixel_depth):
     """Convert planar data between two colorspaces using the matrix CSC path only."""
-    csc_config = build_csc_config(pixel_depth, coef_precision, ALGO_RK_CSC, input_clrspc, output_clrspc)
+    csc_config = build_csc_config(pixel_depth, coef_precision, ALGO_RK_HW_CSC, input_clrspc, output_clrspc)
     coefs, offset = get_csc_coefs(csc_config, None)
     planar_out = apply_csc(planar_in, coefs, offset, coef_precision, pixel_depth)
     return planar_out, coefs, offset
@@ -408,39 +465,55 @@ def convert_planar(planar_in, input_clrspc, output_clrspc, coef_precision, pixel
 
 def run_selected_algo(planar_in, bcsh, pixel_depth, coef_precision, algo_type, input_clrspc, output_clrspc, input_fmt, output_fmt):
     """Run the selected CSC/BCSH algorithm and return output plus the primary CSC matrix."""
-    csc_config = build_csc_config(pixel_depth, coef_precision, algo_type, input_clrspc, output_clrspc)
+    runtime_coef_precision = get_runtime_coef_precision(algo_type, coef_precision)
+    csc_config = build_csc_config(pixel_depth, runtime_coef_precision, algo_type, input_clrspc, output_clrspc)
     input_is_rgb = is_rgb_format(input_fmt)
     output_is_rgb = is_rgb_format(output_fmt)
+    evideo_affine_algos = {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_PLAN_A}
+
+    if algo_type in evideo_affine_algos:
+        base_config = build_csc_config(pixel_depth, 0, ALGO_RK_HW_CSC, input_clrspc, output_clrspc)
+        base_mat, base_ofs = get_csc_coefs(base_config, None)
+        coefs, offset = get_evideo_csc_coefs(csc_config, bcsh, base_mat, base_ofs)
+        planar_out = apply_csc(planar_in, coefs, offset, runtime_coef_precision, pixel_depth)
+        return planar_out, coefs, offset
+
+    if algo_type == ALGO_RK_SW_CSC and input_is_rgb and not output_is_rgb:
+        planar_in_proc = apply_rk_rgb_gain(planar_in, bcsh, pixel_depth, algo_type)
+        bcsh_for_csc = clear_bcsh_rgb_gains(bcsh)
+        coefs, offset = get_csc_coefs(csc_config, bcsh_for_csc)
+        planar_out = apply_csc(planar_in_proc, coefs, offset, runtime_coef_precision, pixel_depth)
+        return planar_out, coefs, offset
 
     if not is_rgb_on_hsv_algo_type(algo_type):
         coefs, offset = get_csc_coefs(csc_config, bcsh)
-        planar_out = apply_csc(planar_in, coefs, offset, coef_precision, pixel_depth)
+        planar_out = apply_csc(planar_in, coefs, offset, runtime_coef_precision, pixel_depth)
         return planar_out, coefs, offset
 
     base_coefs, base_offset = get_csc_coefs(csc_config, None)
 
     if not input_is_rgb and not output_is_rgb:
-        planar_out = apply_csc(planar_in, base_coefs, base_offset, coef_precision, pixel_depth)
+        planar_out = apply_csc(planar_in, base_coefs, base_offset, runtime_coef_precision, pixel_depth)
         planar_out = apply_bcsh_yuv(planar_out, bcsh, pixel_depth, algo_type)
-        if algo_type == ALGO_RGB_ON_HSV_ON:
-            rgb_mid, _, _ = convert_planar(planar_out, output_clrspc, 1, coef_precision, pixel_depth)
+        if algo_type == ALGO_EVIDEO_CSC_PLAN_B:
+            rgb_mid, _, _ = convert_planar(planar_out, output_clrspc, 1, runtime_coef_precision, pixel_depth)
             rgb_mid = apply_rgb_gain_offset(rgb_mid, bcsh, pixel_depth, algo_type)
-            planar_out, _, _ = convert_planar(rgb_mid, 1, output_clrspc, coef_precision, pixel_depth)
+            planar_out, _, _ = convert_planar(rgb_mid, 1, output_clrspc, runtime_coef_precision, pixel_depth)
         return planar_out, base_coefs, base_offset
 
     if not input_is_rgb and output_is_rgb:
         planar_in_proc = apply_bcsh_yuv(planar_in, bcsh, pixel_depth, algo_type)
-        planar_out = apply_csc(planar_in_proc, base_coefs, base_offset, coef_precision, pixel_depth)
+        planar_out = apply_csc(planar_in_proc, base_coefs, base_offset, runtime_coef_precision, pixel_depth)
         planar_out = apply_rgb_gain_offset(planar_out, bcsh, pixel_depth, algo_type)
         return planar_out, base_coefs, base_offset
 
     if input_is_rgb and not output_is_rgb:
         planar_in_proc = apply_rgb_gain_offset(planar_in, bcsh, pixel_depth, algo_type)
-        planar_out = apply_csc(planar_in_proc, base_coefs, base_offset, coef_precision, pixel_depth)
+        planar_out = apply_csc(planar_in_proc, base_coefs, base_offset, runtime_coef_precision, pixel_depth)
         planar_out = apply_bcsh_yuv(planar_out, bcsh, pixel_depth, algo_type)
         return planar_out, base_coefs, base_offset
 
-    planar_out = apply_csc(planar_in, base_coefs, base_offset, coef_precision, pixel_depth)
+    planar_out = apply_csc(planar_in, base_coefs, base_offset, runtime_coef_precision, pixel_depth)
     planar_out = apply_bcsh_hsv(planar_out, bcsh, pixel_depth, algo_type)
     return planar_out, base_coefs, base_offset
 
@@ -566,11 +639,17 @@ def open_csc_ui(args):
             sg.Text('256', key=f'-BCSH-{k2}-VAL-', size=(4, 1)),
         ])
 
-    algo_type_options = [ALGO_RK_CSC, ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_FIX, ALGO_RGB_ON_HSV_OFF, ALGO_RGB_ON_HSV_ON]
+    algo_type_options = [
+        ALGO_RK_HW_CSC,
+        ALGO_RK_SW_CSC,
+        ALGO_EVIDEO_CSC,
+        ALGO_EVIDEO_CSC_PLAN_A,
+        ALGO_EVIDEO_CSC_PLAN_B,
+    ]
     bcsh_tab_layout = [
         *bcsh_layout,
         [sg.Text('AlgoType:', size=(8, 1)),
-         sg.Combo(algo_type_options, default_value='RK CSC', key='-BCSH-ALGO-TYPE-',
+         sg.Combo(algo_type_options, default_value=ALGO_RK_HW_CSC, key='-BCSH-ALGO-TYPE-',
                   readonly=True, size=(22, 1), enable_events=True),
          sg.Push(),
          sg.Button('Reset BCSH', key='-RESET-BCSH-')]
@@ -642,7 +721,7 @@ def open_csc_ui(args):
     current_mouse_pos = None
     is_pixel_info_frozen = False
     is_mouse_in_image = False
-    current_algo_type = ALGO_RK_CSC
+    current_algo_type = ALGO_RK_HW_CSC
 
     planar_in_full = None
     current_input_file_params = None  # (input_file, w, h, ifmt)
@@ -666,7 +745,7 @@ def open_csc_ui(args):
         return run_selected_algo(planar_in, bcsh, depth, precision, algo_type, iclr, oclr, ifmt, ofmt)
 
     def update_rgb_gain_controls_for_algo_switch(window, values, old_algo_type, new_algo_type):
-        """Update RGB gain sliders when switching between RK CSC and eVideo CSC."""
+        """Update RGB gain sliders when switching between RK-family and eVideo CSC."""
         for gain_key in RGB_GAIN_KEYS:
             slider_key = f'-BCSH-{gain_key}-'
             value_key = f'{slider_key}VAL-'
@@ -782,7 +861,7 @@ def open_csc_ui(args):
             x_indices = np.linspace(0, w - 1, disp_w).astype(int)
             planar_in = planar_in_full[:, y_indices[:, None], x_indices]
 
-            algo_type = values.get('-BCSH-ALGO-TYPE-', 'RK CSC')
+            algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_HW_CSC)
 
             planar_out, coefs, offset = do_conversion(
                 planar_in, values, depth, precision, algo_type, iclr, oclr, ifmt, ofmt
@@ -916,12 +995,12 @@ def open_csc_ui(args):
             window[val_label_key].update(str(int(values[event])))
             trigger_convert(values)
         elif event == '-BCSH-ALGO-TYPE-':
-            new_algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_CSC)
+            new_algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_HW_CSC)
             update_rgb_gain_controls_for_algo_switch(window, values, current_algo_type, new_algo_type)
             current_algo_type = new_algo_type
             trigger_convert(values)
         elif event == '-RESET-BCSH-':
-            algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_CSC)
+            algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_HW_CSC)
             default_values = get_default_bcsh_raw_values(algo_type)
             for _, k1, _, k2 in bcsh_names:
                 value1 = default_values[ui_bcsh_key_to_config_key(k1)]
@@ -955,7 +1034,7 @@ def open_csc_ui(args):
                 save_path = sg.popup_get_file('Save output image as', save_as=True, default_path=default_output)
                 if save_path:
                     # Calculate full resolution output
-                    algo_type = values.get('-BCSH-ALGO-TYPE-', 'RK CSC')
+                    algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_HW_CSC)
                     in_depth = get_pixel_depth(ifmt)
                     out_depth = get_pixel_depth(ofmt)
                     depth = max(in_depth, out_depth)
@@ -1082,8 +1161,8 @@ def main():
     parser.add_argument("--r_offset", type=int, default=None, help="BCSH R offset [0, 511], default: 256")
     parser.add_argument("--g_offset", type=int, default=None, help="BCSH G offset [0, 511], default: 256")
     parser.add_argument("--b_offset", type=int, default=None, help="BCSH B offset [0, 511], default: 256")
-    parser.add_argument("--algo-type", type=str, default=ALGO_RK_CSC,
-                        help=f"BCSH algorithm type: '{ALGO_RK_CSC}', '{ALGO_EVIDEO_CSC}', '{ALGO_EVIDEO_CSC_FIX}', '{ALGO_RGB_ON_HSV_OFF}', '{ALGO_RGB_ON_HSV_ON}'")
+    parser.add_argument("--algo-type", type=str, default=ALGO_RK_HW_CSC,
+                        help=f"BCSH algorithm type: '{ALGO_RK_HW_CSC}', '{ALGO_RK_SW_CSC}', '{ALGO_EVIDEO_CSC}', '{ALGO_EVIDEO_CSC_PLAN_A}', '{ALGO_EVIDEO_CSC_PLAN_B}'")
 
     args, _ = parser.parse_known_args()
 

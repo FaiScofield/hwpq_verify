@@ -45,7 +45,7 @@ class CscCoefConfig:
     coef_precision = 0
     tune_fix_coefs = 0  # 0-no tuning, >0 means a diagonal ratio (float), no need to set this value
     platform = "rk3572"
-    algo_type = "RK CSC"  # "RK CSC", "eVideo CSC", "eVideo CSC fix", "rgbOnHsv_RgbCfg4YuvOff", "rgbOnHsv_RgbCfg4YuvOn"
+    algo_type = "RK HW CSC"  # "RK HW CSC", "RK SW CSC"
 
 
 class CscBcshConfig:
@@ -59,36 +59,6 @@ class CscBcshConfig:
     r_offset = 256  # range: [0, 511], default: 256
     g_offset = 256  # range: [0, 511], default: 256
     b_offset = 256  # range: [0, 511], default: 256
-
-
-ALGO_RK_CSC = "RK CSC"
-ALGO_EVIDEO_CSC = "eVideo CSC"
-ALGO_EVIDEO_CSC_FIX = "eVideo CSC fix"
-ALGO_RGB_ON_HSV_OFF = "rgbOnHsv_RgbCfg4YuvOff"
-ALGO_RGB_ON_HSV_ON = "rgbOnHsv_RgbCfg4YuvOn"
-ALGO_RK_CSC_FIX_LEGACY = "RK CSC (fix contrast)"
-ALGO_RGB_ON_HSV_LEGACY = "RGB_on_HSV"
-
-
-def normalize_algo_type(algo_type: str) -> str:
-    """Normalize legacy algorithm aliases to the current public names."""
-    if algo_type == ALGO_RK_CSC_FIX_LEGACY:
-        return ALGO_EVIDEO_CSC_FIX
-    if algo_type == ALGO_RGB_ON_HSV_LEGACY:
-        return ALGO_RGB_ON_HSV_OFF
-    return algo_type
-
-
-def is_rgb_on_hsv_algo(algo_type: str) -> bool:
-    """Check whether the selected algorithm uses the HSV/YUV pixel-domain path."""
-    algo_type = normalize_algo_type(algo_type)
-    return algo_type in {ALGO_RGB_ON_HSV_OFF, ALGO_RGB_ON_HSV_ON}
-
-
-def is_evideo_mapping_algo(algo_type: str) -> bool:
-    """Check whether the algorithm uses the eVideo parameter mapping."""
-    algo_type = normalize_algo_type(algo_type)
-    return algo_type in {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_FIX, ALGO_RGB_ON_HSV_OFF, ALGO_RGB_ON_HSV_ON}
 
 
 ## matrixs from Rec ITU-R BT.601-7 / BT.709-6 / BT.2020-2
@@ -246,329 +216,74 @@ def get_space_convert_mat(mode: CscMode) -> Optional[np.ndarray]:
     return mat_r2y @ mat_y2r
 
 
-def _make_homogeneous_mat(mat3: np.ndarray, ofs3: Optional[np.ndarray] = None) -> np.ndarray:
-    """Build a 4x4 homogeneous matrix from a 3x3 matrix and optional offset."""
-    quad = np.eye(4, dtype=np.float32)
-    quad[:3, :3] = mat3
-    if ofs3 is not None:
-        quad[:3, 3] = ofs3
-    return quad
-
-
-def _split_homogeneous_mat(quad: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Split a 4x4 homogeneous matrix into a 3x3 matrix and a 3x1 offset."""
-    return quad[:3, :3], quad[:3, 3]
-
-
-def _make_translation_quad(ofs3: np.ndarray) -> np.ndarray:
-    """Build a pure-translation 4x4 homogeneous matrix."""
-    return _make_homogeneous_mat(np.eye(3, dtype=np.float32), ofs3)
-
-
-def _make_center_scale_quad(scale_mat: np.ndarray, center_vec: np.ndarray) -> np.ndarray:
-    """Build a homogeneous transform that scales around a given center."""
-    return _make_translation_quad(center_vec) @ _make_homogeneous_mat(scale_mat) @ _make_translation_quad(-center_vec)
-
-
-def _map_centered_unit(raw_value: int) -> float:
-    """Map a slider value [0, 511] to [-1, 1] with 256 as the exact zero point."""
-    return float(np.clip((raw_value - 256) / 256.0, -1.0, 1.0))
-
-
-def get_bcsh_param_pack(algo_type: str, bcsh_cfg: CscBcshConfig, pixel_depth: int) -> dict:
-    """Map raw BCSH register values to algorithm-domain parameters."""
-    algo_type = normalize_algo_type(algo_type)
-    max_pixel_val = float((1 << pixel_depth) - 1)
-    mid_pixel_val = max_pixel_val * 0.5
-
-    contrast = bcsh_cfg.contrast / 256.0
-    saturation = bcsh_cfg.saturation / 256.0
-
-    if is_evideo_mapping_algo(algo_type):
-        hue_deg = _map_centered_unit(bcsh_cfg.hue) * 180.0
-        brightness_unit = _map_centered_unit(bcsh_cfg.brightness)
-        rgb_gain_norm = 64.0
-        rgb_offset_units = np.array(
-            [
-                _map_centered_unit(bcsh_cfg.r_offset),
-                _map_centered_unit(bcsh_cfg.g_offset),
-                _map_centered_unit(bcsh_cfg.b_offset),
-            ],
-            dtype=np.float32,
-        )
-        brightness_pixel = brightness_unit * max_pixel_val
-        rgb_offset_pixels = rgb_offset_units * max_pixel_val
-    else:
-        hue_deg = (bcsh_cfg.hue - 256) * 30 / 256.0
-        bright_raw = bcsh_cfg.brightness - 256
-        if pixel_depth <= 10:
-            bright_raw >>= 10 - pixel_depth
-        else:
-            bright_raw <<= pixel_depth - 10
-        brightness_pixel = float(bright_raw)
-        brightness_unit = brightness_pixel / max_pixel_val
-        offset_shift_bits = 3 - (pixel_depth - 8)
-        rgb_offset_pixels = np.array(
-            [
-                bcsh_cfg.r_offset - 256,
-                bcsh_cfg.g_offset - 256,
-                bcsh_cfg.b_offset - 256,
-            ],
-            dtype=np.float32,
-        )
-        if offset_shift_bits >= 0:
-            rgb_offset_pixels /= float(1 << offset_shift_bits)
-            rgb_offset_pixels = np.trunc(rgb_offset_pixels)
-        else:
-            rgb_offset_pixels *= float(1 << (-offset_shift_bits))
-        rgb_offset_units = rgb_offset_pixels / max_pixel_val
-        rgb_gain_norm = 256.0
-
-    rgb_gains = np.array(
-        [
-            bcsh_cfg.r_gain / rgb_gain_norm,
-            bcsh_cfg.g_gain / rgb_gain_norm,
-            bcsh_cfg.b_gain / rgb_gain_norm,
-        ],
-        dtype=np.float32,
-    )
-    hue_rad = hue_deg * np.pi / 180.0
-
-    return {
-        "algo_type": algo_type,
-        "contrast": float(contrast),
-        "saturation": float(saturation),
-        "hue_deg": float(hue_deg),
-        "hue_rad": float(hue_rad),
-        "hue_turn": float(hue_deg / 360.0),
-        "brightness_unit": float(brightness_unit),
-        "brightness_pixel": float(brightness_pixel),
-        "rgb_gains": rgb_gains,
-        "rgb_offset_units": rgb_offset_units.astype(np.float32),
-        "rgb_offset_pixels": rgb_offset_pixels.astype(np.float32),
-        "max_pixel_val": float(max_pixel_val),
-        "mid_pixel_val": float(mid_pixel_val),
-    }
-
-
-def _get_bcsh_quads(config: CscCoefConfig, bcsh_cfg: CscBcshConfig) -> tuple[dict, dict]:
-    """Build reusable homogeneous transforms for the current BCSH parameters."""
-    params = get_bcsh_param_pack(config.algo_type, bcsh_cfg, config.pixel_depth)
-    contrast = params["contrast"]
-    saturation = params["saturation"]
-    hue_rad = params["hue_rad"]
-    cos_hue = np.cos(hue_rad)
-    sin_hue = np.sin(hue_rad)
-    rgb_gains = params["rgb_gains"] # normalized
-    rgb_offsets = params["rgb_offset_pixels"]
-    brightness = params["brightness_pixel"]
-    mid_pixel_val = params["mid_pixel_val"]
-
-    rgb_mat_rgbgains = np.diag(rgb_gains).astype(np.float32)
-    rgb_mat_contrast = np.diag([contrast, contrast, contrast]).astype(np.float32)
-    yuv_mat_contrast = np.diag([contrast, 1.0, 1.0]).astype(np.float32)
-    contrast_center_rgb = np.array([mid_pixel_val, mid_pixel_val, mid_pixel_val], dtype=np.float32)
-    contrast_center_yuv = np.array([mid_pixel_val, 0.0, 0.0], dtype=np.float32)
-    hue_matrix = np.array([[1, 0, 0], [0, cos_hue, -sin_hue], [0, sin_hue, cos_hue]], dtype=np.float32)
-    saturation_matrix = np.array([[1, 0, 0], [0, saturation, 0], [0, 0, saturation]], dtype=np.float32)
-
-    quad_yuv_hue = _make_homogeneous_mat(hue_matrix)
-    quad_yuv_sat = _make_homogeneous_mat(saturation_matrix)
-    quad_r2y = _make_homogeneous_mat(g_r2y_mat_bt709)
-    quad_y2r = _make_homogeneous_mat(g_y2r_mat_bt709)
-    quad_rgb_rgbGains = _make_homogeneous_mat(rgb_mat_rgbgains)
-    quad_rgb_rgbOffsets = _make_translation_quad(rgb_offsets)
-    quad_yuv_bright = _make_translation_quad(np.array([brightness, 0.0, 0.0], dtype=np.float32))
-    quad_rgb_contrast = _make_center_scale_quad(rgb_mat_contrast, contrast_center_rgb)
-    quad_yuv_contrast = _make_center_scale_quad(yuv_mat_contrast, contrast_center_yuv)
-
-    quads = {
-        "quad_yuv_hue": quad_yuv_hue,
-        "quad_yuv_sat": quad_yuv_sat,
-        "quad_r2y": quad_r2y,
-        "quad_y2r": quad_y2r,
-        "quad_rgb_rgbGains": quad_rgb_rgbGains,
-        "quad_rgb_rgbOffsets": quad_rgb_rgbOffsets,
-        "quad_yuv_bright": quad_yuv_bright,
-        "quad_rgb_contrast": quad_rgb_contrast,
-        "quad_yuv_contrast": quad_yuv_contrast,
-    }
-    return params, quads
-
-
 def adjust_convert_mat(
     config: CscCoefConfig, bcsh_cfg: CscBcshConfig, out_mat: np.ndarray, out_vec: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, float]:
     ## get BCSH parameters
-    params, quads = _get_bcsh_quads(config, bcsh_cfg)
+    contrast = bcsh_cfg.contrast / 256.0  # [0, 511] -> [0, 2)
+    saturation = bcsh_cfg.saturation / 256.0  # [0, 511] -> [0, 2)
+    r_gain = bcsh_cfg.r_gain / 256.0  # [0, 511] -> [0, 2)
+    g_gain = bcsh_cfg.g_gain / 256.0  # [0, 511] -> [0, 2)
+    b_gain = bcsh_cfg.b_gain / 256.0  # [0, 511] -> [0, 2)
+    hue_rad = (bcsh_cfg.hue - 256) * 30 / 256.0 * np.pi / 180.0  # [0, 511] -> [-pi/6, pi/6]
+    cos_hue = np.cos(hue_rad)
+    sin_hue = np.sin(hue_rad)
+    r_offset = bcsh_cfg.r_offset - 256
+    g_offset = bcsh_cfg.g_offset - 256
+    b_offset = bcsh_cfg.b_offset - 256
+    brightness = bcsh_cfg.brightness - 256
+    offset_shift_bits = 3 - (config.pixel_depth - 8)
+    if offset_shift_bits >= 0:
+        r_offset >>= offset_shift_bits
+        g_offset >>= offset_shift_bits
+        b_offset >>= offset_shift_bits
+    else:
+        r_offset <<= -offset_shift_bits
+        g_offset <<= -offset_shift_bits
+        b_offset <<= -offset_shift_bits
+    if config.pixel_depth <= 10:
+        brightness >>= 10 - config.pixel_depth
+    else:
+        brightness <<= config.pixel_depth - 10
+
+    gain_matrix = np.array([[r_gain, 0, 0], [0, g_gain, 0], [0, 0, b_gain]], dtype=np.float32)
+    contrast_matrix = np.array([[contrast, 0, 0], [0, contrast, 0], [0, 0, contrast]], dtype=np.float32)
+    hue_matrix = np.array([[1, 0, 0], [0, cos_hue, -sin_hue], [0, sin_hue, cos_hue]], dtype=np.float32)
+    saturation_matrix = np.array([[1, 0, 0], [0, saturation, 0], [0, 0, saturation]], dtype=np.float32)
+    b_diagonal_m0 = hue_rad == 0 and saturation == 1
+    b_diagonal_m1 = r_gain == g_gain and g_gain == b_gain
+    m_yuv = hue_matrix @ saturation_matrix
+    m_rgb = gain_matrix @ contrast_matrix
     mode = config.csc_mode
-    quad_t = _make_homogeneous_mat(out_mat, out_vec)
-    quad_rgb_legacy_contrast = _make_homogeneous_mat(
-        np.diag([params["contrast"], params["contrast"], params["contrast"]]).astype(np.float32)
-    )
 
     ## Y2Y: output = T * M0 * N_r2y * M1 * N_y2r
     if mode.is_input_yuv and mode.is_output_yuv:
-        quad_out = (
-            quads["quad_yuv_bright"]
-            @ quad_t
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
-            @ quads["quad_r2y"]
-            @ quads["quad_rgb_rgbGains"]
-            @ quad_rgb_legacy_contrast
-            @ quads["quad_y2r"]
-        )
+        out_mat = out_mat @ m_yuv @ g_r2y_mat_bt709 @ m_rgb @ g_y2r_mat_bt709
+        out_vec[0] += brightness
     ## Y2R: output = M1 * T * M0
     elif mode.is_input_yuv and not mode.is_output_yuv:
-        quad_out = (
-            _make_translation_quad(params["brightness_pixel"] + params["rgb_offset_pixels"])
-            @ quads["quad_rgb_rgbGains"]
-            @ quad_rgb_legacy_contrast
-            @ quad_t
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
-        )
+        out_mat = m_rgb @ out_mat @ m_yuv
+        out_vec[0] += brightness + r_offset
+        out_vec[1] += brightness + g_offset
+        out_vec[2] += brightness + b_offset
     ## R2Y: output = M0 * T * M1
     elif not mode.is_input_yuv and mode.is_output_yuv:
-        quad_out = (
-            quads["quad_yuv_bright"]
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
-            @ quad_t
-            @ quads["quad_rgb_rgbGains"]
-            @ quad_rgb_legacy_contrast
-        )
+        out_mat = m_yuv @ out_mat @ m_rgb
+        out_vec[0] += brightness
     ## R2R: output = T * M1 * N_y2r * M0 * N_r2y
     else:
-        quad_out = (
-            _make_translation_quad(params["brightness_pixel"] + params["rgb_offset_pixels"])
-            @ quad_t
-            @ quads["quad_rgb_rgbGains"]
-            @ quad_rgb_legacy_contrast
-            @ quads["quad_y2r"]
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
-            @ quads["quad_r2y"]
-        )
-
-    out_mat, out_vec = _split_homogeneous_mat(quad_out)
+        out_mat = out_mat @ m_rgb @ g_y2r_mat_bt709 @ m_yuv @ g_r2y_mat_bt709
+        out_vec[0] += brightness + r_offset
+        out_vec[1] += brightness + g_offset
+        out_vec[2] += brightness + b_offset
 
     ## count diagonal ratio for later fixed-point calcuation
-    if params["hue_rad"] == 0 and params["saturation"] == 1 and np.all(params["rgb_gains"] == params["rgb_gains"][0]):
-        diagonal_ratio = float(params["rgb_gains"][0] * params["contrast"] * params["saturation"])
+    if b_diagonal_m0 and b_diagonal_m1:
+        diagonal_ratio = r_gain * contrast * saturation
     else:
         diagonal_ratio = 0.0
 
     return out_mat, out_vec, diagonal_ratio
-
-
-def adjust_convert_quad_evideo(
-    config: CscCoefConfig, bcsh_cfg: CscBcshConfig, quad_t: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, float]:
-    """Adjust the affine CSC transform with eVideo CSC parameters."""
-    params, quads = _get_bcsh_quads(config, bcsh_cfg)
-    mode = config.csc_mode
-    quad_rgb_legacy_contrast = _make_homogeneous_mat(
-        np.diag([params["contrast"], params["contrast"], params["contrast"]]).astype(np.float32)
-    )
-
-    if mode.is_input_yuv and mode.is_output_yuv:
-        quad_out = (
-            quads["quad_yuv_bright"]
-            @ quad_t
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
-            @ quads["quad_r2y"]
-            @ quads["quad_rgb_rgbGains"]
-            @ quad_rgb_legacy_contrast
-            @ quads["quad_y2r"]
-        )
-    elif mode.is_input_yuv and not mode.is_output_yuv:
-        quad_out = (
-            quads["quad_rgb_rgbOffsets"]
-            @ quads["quad_rgb_rgbGains"]
-            @ quad_rgb_legacy_contrast
-            @ quad_t
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
-            @ quads["quad_yuv_bright"]
-        )
-    elif not mode.is_input_yuv and mode.is_output_yuv:
-        quad_out = (
-            quads["quad_yuv_bright"]
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
-            @ quad_t
-            @ quads["quad_rgb_rgbGains"]
-            @ quad_rgb_legacy_contrast
-            @ quads["quad_rgb_rgbOffsets"]
-        )
-    else:
-        quad_out = (
-            quads["quad_rgb_rgbOffsets"]
-            @ quad_t
-            @ quads["quad_rgb_rgbGains"]
-            @ quad_rgb_legacy_contrast
-            @ quads["quad_y2r"]
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
-            @ quads["quad_r2y"]
-            @ quads["quad_yuv_bright"]
-        )
-
-    out_mat, out_vec = _split_homogeneous_mat(quad_out)
-    if params["hue_rad"] == 0 and params["saturation"] == 1 and np.all(params["rgb_gains"] == params["rgb_gains"][0]):
-        diagonal_ratio = float(params["rgb_gains"][0] * params["contrast"] * params["saturation"])
-    else:
-        diagonal_ratio = 0.0
-    return out_mat, out_vec, diagonal_ratio
-
-
-def adjust_convert_quad_evideo_fix(
-    config: CscCoefConfig, bcsh_cfg: CscBcshConfig, quad_t: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, float]:
-    """Adjust the affine CSC transform with the eVideo CSC fix domain rules."""
-    _, quads = _get_bcsh_quads(config, bcsh_cfg)
-    mode = config.csc_mode
-
-    if mode.is_input_yuv and mode.is_output_yuv:
-        quad_out = quads["quad_yuv_bright"] @ quads["quad_yuv_contrast"] @ quads["quad_yuv_hue"] @ quads["quad_yuv_sat"] @ quad_t
-    elif mode.is_input_yuv and not mode.is_output_yuv:
-        quad_out = (
-            quads["quad_rgb_rgbOffsets"]
-            @ quads["quad_rgb_rgbGains"]
-            @ quad_t
-            @ quads["quad_yuv_bright"]
-            @ quads["quad_yuv_contrast"]
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
-        )
-    elif not mode.is_input_yuv and mode.is_output_yuv:
-        quad_out = (
-            quads["quad_yuv_bright"]
-            @ quads["quad_yuv_contrast"]
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
-            @ quad_t
-            @ quads["quad_rgb_rgbOffsets"]
-            @ quads["quad_rgb_rgbGains"]
-        )
-    else:
-        quad_out = (
-            quads["quad_rgb_rgbOffsets"]
-            @ quad_t
-            @ quads["quad_rgb_rgbGains"]
-            @ quads["quad_rgb_contrast"]
-            @ quads["quad_y2r"]
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
-            @ quads["quad_r2y"]
-            @ quads["quad_yuv_bright"]
-        )
-
-    out_mat, out_vec = _split_homogeneous_mat(quad_out)
-    return out_mat, out_vec, 0.0
 
 
 def get_fixed_coefs_mat(
@@ -628,50 +343,26 @@ def get_fixed_coefs_mat(
     return fix_mat, fix_ofs
 
 
-def get_fixed_coefs_affine(config: CscCoefConfig, float_mat: np.ndarray, float_ofs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Quantize a direct affine transform into fixed-point CSC coefficients."""
-    fix_factor = 2**config.coef_precision
-    scaled_mat = float_mat * fix_factor
-    scaled_ofs = float_ofs * fix_factor
-    fix_mat = (scaled_mat + np.sign(scaled_mat) * 0.5).astype(np.int32)
-    fix_ofs = (scaled_ofs + np.sign(scaled_ofs) * 0.5).astype(np.int32)
-    return fix_mat, fix_ofs
-
-
 def get_csc_coefs(config: CscCoefConfig, bcsh_cfg: Optional[CscBcshConfig]) -> tuple[np.ndarray, np.ndarray]:
     ## get convert mat & vec first
-    config.algo_type = normalize_algo_type(config.algo_type)
     range_mat_i, range_mat_o, range_ofs_i, range_ofs_o = get_range_convert_mat(config.csc_mode, config.pixel_depth)
     color_convert_mat = get_space_convert_mat(config.csc_mode)
     final_mat = range_mat_o @ color_convert_mat @ range_mat_i
     final_ofs = range_ofs_o + final_mat @ range_ofs_i
-    use_direct_affine = False
 
     ## adjust final_mat with bsch configs
     if bcsh_cfg is not None:
-        if config.algo_type == ALGO_RK_CSC:
+        if config.algo_type in {"RK HW CSC", "RK SW CSC"}:
             final_mat, range_ofs_o, diagonal_ratio = adjust_convert_mat(config, bcsh_cfg, final_mat, range_ofs_o)
             final_ofs = range_ofs_o + final_mat @ range_ofs_i
-        elif config.algo_type == ALGO_EVIDEO_CSC:
-            quad_t = _make_homogeneous_mat(final_mat, final_ofs)
-            final_mat, final_ofs, diagonal_ratio = adjust_convert_quad_evideo(config, bcsh_cfg, quad_t)
-            use_direct_affine = True
-        elif config.algo_type == ALGO_EVIDEO_CSC_FIX:
-            quad_t = _make_homogeneous_mat(final_mat, final_ofs)
-            final_mat, final_ofs, diagonal_ratio = adjust_convert_quad_evideo_fix(config, bcsh_cfg, quad_t)
-            use_direct_affine = True
         else:
-            final_mat, range_ofs_o, diagonal_ratio = adjust_convert_mat(config, bcsh_cfg, final_mat, range_ofs_o)
-            final_ofs = range_ofs_o + final_mat @ range_ofs_i
+            raise ValueError(f"Algorithm '{config.algo_type}' is not implemented in get_csc_coefs.py")
         if config.tune_fix_coefs:
             config.tune_fix_coefs = diagonal_ratio  # >0 means the BCSH matrixes are diagonal
 
     ## get fixed mat, dtype=np.int32
     if config.coef_precision > 0:
-        if use_direct_affine:
-            csc_coefs, csc_offset = get_fixed_coefs_affine(config, final_mat, final_ofs)
-        else:
-            csc_coefs, csc_offset = get_fixed_coefs_mat(config, final_mat, range_ofs_i, range_ofs_o)
+        csc_coefs, csc_offset = get_fixed_coefs_mat(config, final_mat, range_ofs_i, range_ofs_o)
         if config.platform.lower() == "rk3576":
             rnd_half = 1 << (config.coef_precision - 1)
             csc_offset = (csc_offset + rnd_half + (csc_offset >> 31)) >> config.coef_precision
@@ -736,7 +427,9 @@ if __name__ == '__main__':
         default="",
         help="dump all csc coefs for all supported modes to a file when '-a' is set",
     )
-    parser.add_argument("-p", "--platform", type=str, default="RK3572", help="the RK soc platform name, like: rk3572/rk3576/rk3538")
+    parser.add_argument(
+        "-p", "--platform", type=str, default="RK3572", help="the RK soc platform name, like: rk3572/rk3576/rk3538"
+    )
     parser.add_argument(
         "-M", "--mode", type=str, default="", help="a single csc mode string, like: '601f_to_rgbl/rgbf_to_2020f' ...)"
     )
@@ -776,7 +469,7 @@ if __name__ == '__main__':
     csc_config.pixel_depth = depth
     csc_config.coef_precision = precision
     csc_config.tune_fix_coefs = args.fix_check
-    csc_config.platform = args.platform.lower() # RK3576/RK3572/RK3538
+    csc_config.platform = args.platform.lower()  # RK3576/RK3572/RK3538
 
     bcsh = CscBcshConfig()
     # bcsh.hue = 256
@@ -845,7 +538,7 @@ if __name__ == '__main__':
         if args.color is not None:
             out_color = mat @ args.color + offset
             if precision > 0:
-                out_color = (out_color.astype(np.int32) +  (1 << (precision - 1))) >> precision
+                out_color = (out_color.astype(np.int32) + (1 << (precision - 1))) >> precision
                 out_color = np.clip(out_color, 0, 2**depth - 1)
 
             # 格式化 numpy 数组，保留 6 位小数
