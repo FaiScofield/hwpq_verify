@@ -15,7 +15,6 @@
 #include "verify_crc32.h"
 #include "rockchip_post_csc.h"
 #include "rockchip_post_csc2.h"
-#include "cJSON.h"
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -150,9 +149,14 @@ int parse_csc_config(const char *cfg_path, struct post_csc_coef *coef, struct po
         return -1;
     }
     cfg_text = (char *)malloc(len + 1);
+    if (!cfg_text) {
+        LOGE("failed to malloc cfg_text with len: %u! %s\n", len + 1, strerror(errno));
+        fclose(fp);
+        return -1;
+    }
     uint read_size = fread(cfg_text, 1, len, fp);
-    if (!cfg_text /* || read_size != len */) {
-        LOGE("read cfg text fail!\n");
+    if (read_size != len) {
+        LOGE("read cfg text fail! %s\n", strerror(errno));
         fclose(fp);
         return -1;
     };
@@ -205,18 +209,18 @@ int parse_csc_config(const char *cfg_path, struct post_csc_coef *coef, struct po
             }
         }
     }
-    bcsh_cfg.csc_enable = cJSON_GetObjectItem(node_csc, "cscEnable")->valueint;
-    // bcsh_cfg.cscCctCtrlEn = cJSON_GetObjectItem(node_csc, "cscCctCtrlEn")->valueint;
-    bcsh_cfg.brightness = cJSON_GetObjectItem(node_csc, "cscBrightness")->valueint;
-    bcsh_cfg.hue = cJSON_GetObjectItem(node_csc, "cscHue")->valueint;
-    bcsh_cfg.contrast = cJSON_GetObjectItem(node_csc, "cscContrast")->valueint;
-    bcsh_cfg.saturation = cJSON_GetObjectItem(node_csc, "cscSaturation")->valueint;
-    bcsh_cfg.r_gain = cJSON_GetObjectItem(node_csc, "cscRGain")->valueint;
-    bcsh_cfg.g_gain = cJSON_GetObjectItem(node_csc, "cscGGain")->valueint;
-    bcsh_cfg.b_gain = cJSON_GetObjectItem(node_csc, "cscBGain")->valueint;
-    bcsh_cfg.r_offset = cJSON_GetObjectItem(node_csc, "cscROffset")->valueint;
-    bcsh_cfg.g_offset = cJSON_GetObjectItem(node_csc, "cscGOffset")->valueint;
-    bcsh_cfg.b_offset = cJSON_GetObjectItem(node_csc, "cscBOffset")->valueint;
+
+    CHECK_GET_JSON_ITEM(node_csc, "cscEnable", bcsh_cfg.csc_enable, valueint);
+    CHECK_GET_JSON_ITEM(node_csc, "cscBrightness", bcsh_cfg.brightness, valueint);
+    CHECK_GET_JSON_ITEM(node_csc, "cscHue", bcsh_cfg.hue, valueint);
+    CHECK_GET_JSON_ITEM(node_csc, "cscContrast", bcsh_cfg.contrast, valueint);
+    CHECK_GET_JSON_ITEM(node_csc, "cscSaturation", bcsh_cfg.saturation, valueint);
+    CHECK_GET_JSON_ITEM(node_csc, "cscRGain", bcsh_cfg.r_gain, valueint);
+    CHECK_GET_JSON_ITEM(node_csc, "cscGGain", bcsh_cfg.g_gain, valueint);
+    CHECK_GET_JSON_ITEM(node_csc, "cscBGain", bcsh_cfg.b_gain, valueint);
+    CHECK_GET_JSON_ITEM(node_csc, "cscROffset", bcsh_cfg.r_offset, valueint);
+    CHECK_GET_JSON_ITEM(node_csc, "cscGOffset", bcsh_cfg.g_offset, valueint);
+    CHECK_GET_JSON_ITEM(node_csc, "cscBOffset", bcsh_cfg.b_offset, valueint);
     if (bcsh) {
         memcpy(bcsh, &bcsh_cfg, sizeof(struct post_csc));
     }
@@ -258,6 +262,8 @@ int parse_csc_config(const char *cfg_path, struct post_csc_coef *coef, struct po
         LOGI("\t- load csc coefs from cscMatrix & cscVector...\n");
     }
 
+    cJSON_Delete(cfg_root);
+    free(cfg_text);
 
     return ret;
 }
@@ -372,7 +378,7 @@ void run_csc_with_coef(const void *p_src, void *p_dst, int img_w, int img_h, int
             }
         }
     }
-    else if (mode->is_input_yuv && mode->is_input_yuv && planar_fmt == YUV422P) {
+    else if (mode->is_input_yuv && mode->is_output_yuv && planar_fmt == YUV422P) {
         // Y2Y for 8bit YUV422P
         uchar *p_src_y = (uchar *)p_src;
         uchar *p_src_u = (uchar *)p_src + img_w * img_h;
@@ -420,50 +426,8 @@ void run_csc_with_coef(const void *p_src, void *p_dst, int img_w, int img_h, int
                 p_dst_v[idx_c] = CLIP(dv, csc_min_vl_2, csc_max_vl_2);
             }
         }
-        for (int i = 0; i < img_h; i++) {
-            for (int j = 0; j < img_w; j++) {
-                src_color[0] = *p_src_y++;
-                src_color[1] = *p_src_u++;
-                src_color[2] = *p_src_v++;
-
-                int a0 = csc_coefs->csc_coef00 * src_color[0];
-                int a1 = csc_coefs->csc_coef01 * src_color[1];
-                int a2 = csc_coefs->csc_coef02 * src_color[2];
-                int a3 = csc_coefs->csc_coef10 * src_color[0];
-                int a4 = csc_coefs->csc_coef11 * src_color[1];
-                int a5 = csc_coefs->csc_coef12 * src_color[2];
-                int a6 = csc_coefs->csc_coef20 * src_color[0];
-                int a7 = csc_coefs->csc_coef21 * src_color[1];
-                int a8 = csc_coefs->csc_coef22 * src_color[2];
-                int csc_chl0 = a0 + a1 + a2;
-                int csc_chl1 = a3 + a4 + a5;
-                int csc_chl2 = a6 + a7 + a8;
-                if (mode->plat == VOP_VERSION_RK3576) {
-                    /* (M * Channel >> nb_shift) + Offset. low precision! */
-                    csc_chl0 = csc_simple_round(csc_chl0, bit_num_0);
-                    csc_chl1 = csc_simple_round(csc_chl1, bit_num_0);
-                    csc_chl2 = csc_simple_round(csc_chl2, bit_num_0);
-                    dst_color[0] = csc_chl0 + offset0;
-                    dst_color[1] = csc_chl1 + offset1;
-                    dst_color[2] = csc_chl2 + offset2;
-                }
-                else {
-                    /* (M * Channel + Offset) >> nb_shift. use this after RK3576! */
-                    dst_color[0] = csc_simple_round(csc_chl0 + offset0, bit_num_0);
-                    dst_color[1] = csc_simple_round(csc_chl1 + offset1, bit_num_0);
-                    dst_color[2] = csc_simple_round(csc_chl2 + offset2, bit_num_0);
-                }
-                dst_color[0] = CLIP(dst_color[0], csc_min_vl_1, csc_max_vl_1);
-                dst_color[1] = CLIP(dst_color[1], csc_min_vl_2, csc_max_vl_2);
-                dst_color[2] = CLIP(dst_color[2], csc_min_vl_2, csc_max_vl_2);
-
-                *p_dst_y++ = dst_color[0];
-                *p_dst_u++ = dst_color[1];
-                *p_dst_v++ = dst_color[2];
-            }
-        }
     }
-    else if (mode->is_input_yuv && mode->is_input_yuv && planar_fmt == YUV420P) {
+    else if (mode->is_input_yuv && mode->is_output_yuv && planar_fmt == YUV420P) {
         // Y2Y for 8bit YUV420P
         uchar *p_src_y = (uchar *)p_src;
         uchar *p_src_u = (uchar *)p_src + img_w * img_h;
@@ -522,48 +486,6 @@ void run_csc_with_coef(const void *p_src, void *p_dst, int img_w, int img_h, int
                 p_dst_y[idx_y1 + 1] = CLIP(dy3, csc_min_vl_1, csc_max_vl_1);
                 p_dst_u[idx_uv] = CLIP(du, csc_min_vl_2, csc_max_vl_2);
                 p_dst_v[idx_uv] = CLIP(dv, csc_min_vl_2, csc_max_vl_2);
-            }
-        }
-        for (int i = 0; i < img_h; i++) {
-            for (int j = 0; j < img_w; j++) {
-                src_color[0] = *p_src_y++;
-                src_color[1] = *p_src_u++;
-                src_color[2] = *p_src_v++;
-
-                int a0 = csc_coefs->csc_coef00 * src_color[0];
-                int a1 = csc_coefs->csc_coef01 * src_color[1];
-                int a2 = csc_coefs->csc_coef02 * src_color[2];
-                int a3 = csc_coefs->csc_coef10 * src_color[0];
-                int a4 = csc_coefs->csc_coef11 * src_color[1];
-                int a5 = csc_coefs->csc_coef12 * src_color[2];
-                int a6 = csc_coefs->csc_coef20 * src_color[0];
-                int a7 = csc_coefs->csc_coef21 * src_color[1];
-                int a8 = csc_coefs->csc_coef22 * src_color[2];
-                int csc_chl0 = a0 + a1 + a2;
-                int csc_chl1 = a3 + a4 + a5;
-                int csc_chl2 = a6 + a7 + a8;
-                if (mode->plat == VOP_VERSION_RK3576) {
-                    /* (M * Channel >> nb_shift) + Offset. low precision! */
-                    csc_chl0 = csc_simple_round(csc_chl0, bit_num_0);
-                    csc_chl1 = csc_simple_round(csc_chl1, bit_num_0);
-                    csc_chl2 = csc_simple_round(csc_chl2, bit_num_0);
-                    dst_color[0] = csc_chl0 + offset0;
-                    dst_color[1] = csc_chl1 + offset1;
-                    dst_color[2] = csc_chl2 + offset2;
-                }
-                else {
-                    /* (M * Channel + Offset) >> nb_shift. use this after RK3576! */
-                    dst_color[0] = csc_simple_round(csc_chl0 + offset0, bit_num_0);
-                    dst_color[1] = csc_simple_round(csc_chl1 + offset1, bit_num_0);
-                    dst_color[2] = csc_simple_round(csc_chl2 + offset2, bit_num_0);
-                }
-                dst_color[0] = CLIP(dst_color[0], csc_min_vl_1, csc_max_vl_1);
-                dst_color[1] = CLIP(dst_color[1], csc_min_vl_2, csc_max_vl_2);
-                dst_color[2] = CLIP(dst_color[2], csc_min_vl_2, csc_max_vl_2);
-
-                *p_dst_y++ = dst_color[0];
-                *p_dst_u++ = dst_color[1];
-                *p_dst_v++ = dst_color[2];
             }
         }
     }
@@ -814,20 +736,20 @@ int main(int argc, char *const argv[])
 
     /* parse cmd parameters */
     opterr = 0; // disable getopt error message
-    struct common_verify_cmd_config cmd_config = {0};
+    struct common_verify_cmd_config config = {0};
     struct cmd_config_addition_csc cmd_config2 = {0};
-    ret = common_verify_arg_get_cmd_config(argc, argv, &cmd_config);
+    ret = common_verify_arg_get_cmd_config(argc, argv, &config);
     if (ret < 0) {
         print_usage_addition();
         return ret;
     }
 
     ret = get_cmd_config_addition(argc, argv, &cmd_config2);
-    common_verify_arg_dump_config(&cmd_config);
+    common_verify_arg_dump_config(&config);
 
     struct post_csc_convert_mode *p_mode = &cmd_config2.convert_mode;
     struct post_csc *p_bcsh = &cmd_config2.bcsh_cfg;
-    const int src_depth = (cmd_config.src_fmt < 10 && cmd_config.dst_fmt < 10) ? 8 : 10;
+    const int src_depth = (config.src_fmt < 10 && config.dst_fmt < 10) ? 8 : 10;
     p_mode->pixel_depth = MAX(cmd_config2.convert_mode.pixel_depth, src_depth);
     LOGI("dump CSC mode info from cmd line:\n");
     LOGI(" - pixel_depth/coef_precision: %d/%dbit\n", p_mode->pixel_depth, p_mode->coef_precision);
@@ -838,15 +760,15 @@ int main(int argc, char *const argv[])
         cmd_config2.b_use_old_method ? "(only 10-10bit coefs supported)" : "");
 
     // check nessary parameters
-    if (cmd_config.crc_file[0] == '\0') {
-        snprintf(cmd_config.crc_file, 1024, "%s/csc_crc_out.dat", cmd_config.output_dir);
-        LOGI(" - crc_file update to: '%s'!\n", cmd_config.crc_file);
+    if (config.crc_file[0] == '\0') {
+        snprintf(config.crc_file, 1024, "%s/csc_crc_out.dat", config.output_dir);
+        LOGI(" - crc_file update to: '%s'!\n", config.crc_file);
     }
 
     struct post_csc_convert_mode csc_mode = {0}; // final csc mode
     struct post_csc_coef csc_coefs = {0};        // final csc coefs
     struct csc_coef_float csc_coefs_fp = {0};    // final csc coefs with float precision
-    int mode_idx = cmd_config.mode;
+    int mode_idx = config.mode;
     const int pixel_depth = p_mode->pixel_depth;
     const int precision = p_mode->coef_precision;
     const bool b_use_old_method = cmd_config2.b_use_old_method;
@@ -889,8 +811,8 @@ int main(int argc, char *const argv[])
         }
     }
     // parse csc coefs from 'cmd_config.config_file'
-    else if (cmd_config.config_file[0] != '\0') {
-        ret = parse_csc_config(cmd_config.config_file, &csc_coefs, p_bcsh, &csc_mode);
+    else if (config.config_file[0] != '\0') {
+        ret = parse_csc_config(config.config_file, &csc_coefs, p_bcsh, &csc_mode);
         if (ret)
             return ret;
     }
@@ -899,12 +821,12 @@ int main(int argc, char *const argv[])
         csc_mode.swap_channels = 0;
         csc_mode.pixel_depth = p_mode->pixel_depth;
         csc_mode.coef_precision = p_mode->coef_precision;
-        csc_mode.is_input_yuv = common_verify_imgfmt_is_yuv(cmd_config.src_fmt);
-        csc_mode.is_input_full_range = common_verify_clrspc_is_full_range(cmd_config.src_clrspc);
-        csc_mode.is_output_yuv = common_verify_imgfmt_is_yuv(cmd_config.dst_fmt);
-        csc_mode.is_output_full_range = common_verify_clrspc_is_full_range(cmd_config.dst_clrspc);
-        int src_encoding = common_verify_clrspc_to_kernel_encoding(cmd_config.src_clrspc);
-        int dst_encoding = common_verify_clrspc_to_kernel_encoding(cmd_config.dst_clrspc);
+        csc_mode.is_input_yuv = common_verify_imgfmt_is_yuv(config.src_fmt);
+        csc_mode.is_input_full_range = common_verify_clrspc_is_full_range(config.src_clrspc);
+        csc_mode.is_output_yuv = common_verify_imgfmt_is_yuv(config.dst_fmt);
+        csc_mode.is_output_full_range = common_verify_clrspc_is_full_range(config.dst_clrspc);
+        int src_encoding = common_verify_clrspc_to_kernel_encoding(config.src_clrspc);
+        int dst_encoding = common_verify_clrspc_to_kernel_encoding(config.dst_clrspc);
         if (csc_mode.is_input_yuv && !csc_mode.is_output_yuv)
             dst_encoding = src_encoding;
         else if (!csc_mode.is_input_yuv && csc_mode.is_output_yuv)
@@ -916,7 +838,7 @@ int main(int argc, char *const argv[])
         csc_mode.output_color_encoding = dst_encoding;
         if (0 == csc_mode.coef_precision) /* float coefs */
             ret = get_csc_coefs_float(p_bcsh, &csc_mode, (float *)&csc_coefs_fp);
-        if (b_use_old_method)
+        else if (b_use_old_method)
             ret = rockchip_calc_post_csc(p_bcsh, &csc_coefs, &csc_mode);
         else
             ret = rockchip_calc_post_csc_coefs(p_bcsh, &csc_coefs, &csc_mode);
@@ -944,88 +866,100 @@ int main(int argc, char *const argv[])
     const int bIsOutputYuv = bCscEnable ? csc_mode.is_output_yuv : bIsInputYuv;
     const int bIsPostCsc = 0;
     LOGI(" - bCscEnable: %d, bIsOutputYuv: %d, bIsPostCsc: %d\n", bCscEnable, bIsOutputYuv, bIsPostCsc);
+    size_t frame_size_max = 0;
 
 
     /* alloc i/o/t memories */
-    const size_t frame_size_max = cmd_config.src_wid * cmd_config.src_hgt * 4 * 2; // 4 channels x 16bpp
-    if (is_stb_image(cmd_config.input_file)) {
+    const bool is_src_stb_img = is_stb_image(config.input_file);
+    if (is_src_stb_img) {
         int nb_channels = 0;
-        p_src_raw = read_stb_image_auto(cmd_config.input_file, &cmd_config.src_wid, &cmd_config.src_hgt, &nb_channels, 3);
+        p_src_raw = read_stb_image_auto(config.input_file, &config.src_wid, &config.src_hgt, &nb_channels, 3);
         if (p_src_raw) {
-            cmd_config.nb_frame = 1;
-            cmd_config.src_fmt = RGB888;
-            cmd_config.src_wid_vir = cmd_config.src_wid * 3;
-            cmd_config.src_hgt_vir = cmd_config.src_hgt;
-            LOGW("stb image read success, src size: %dx%d, fmt: RGB888\n", cmd_config.src_wid, cmd_config.src_hgt);
+            config.nb_frame = 1;
+            config.src_fmt = RGB888;
+            config.src_wid_vir = config.src_wid * 3;
+            config.src_hgt_vir = config.src_hgt;
+            LOGW("stb image read success, src size: %dx%d, fmt: RGB888\n", config.src_wid, config.src_hgt);
+            if (config.dst_hgt != config.src_hgt || config.dst_wid != config.src_wid) {
+                config.dst_hgt = config.src_hgt;
+                config.dst_wid = config.src_wid;
+                config.dst_wid_vir = MAX(config.dst_wid_vir,
+                    ROUND_S32(config.dst_wid * common_verify_imgfmt_pitch_ratio(config.dst_fmt)));
+                config.dst_hgt_vir = MAX(config.dst_hgt_vir, config.dst_hgt);
+                LOGW("dst size updated to: %dx%d, the resolution in dst filename '%s' might not match!\n",
+                    config.dst_wid, config.dst_hgt, config.output_file);
+            }
         }
         else
             goto EXIT;
     }
     else {
-        fp_src = fopen(cmd_config.input_file, "rb");
+        fp_src = fopen(config.input_file, "rb");
         if (!fp_src) {
-            LOGE("Failed to open the input file '%s'! %s\n", cmd_config.input_file, strerror(errno));
+            LOGE("Failed to open the input file '%s'! %s\n", config.input_file, strerror(errno));
             goto EXIT;
         }
     }
 
+    frame_size_max = config.src_wid * config.src_hgt * 4 * 2; // 4 channels x 16bpp
     p_src = calloc(frame_size_max, 1);
     p_dst = calloc(frame_size_max, 1);
     if (!p_src || !p_dst) {
         goto EXIT;
     }
-    fp_dst = fopen(cmd_config.output_file, "wb");
+    fp_dst = fopen(config.output_file, "wb");
     if (!fp_dst) {
-        LOGE("Failed to open the output file '%s'! %s\n", cmd_config.output_file, strerror(errno));
+        LOGE("Failed to open the output file '%s'! %s\n", config.output_file, strerror(errno));
         goto EXIT;
     }
-    fp_crc = fopen(cmd_config.crc_file, "a");
+    fp_crc = fopen(config.crc_file, "a");
     if (!fp_crc) {
-        LOGW("Failed to open the crc output file '%s'! %s. CRC value will not be written!\n", cmd_config.crc_file,
-            strerror(errno));
+        LOGW("Failed to open the crc output file '%s'! %s. CRC value will not be written!\n", config.crc_file, strerror(errno));
     }
 
     ret = 0;
     crc_val = -1;
-    mid_fmt = common_verify_imgfmt_get_def_planar(cmd_config.src_fmt, pixel_depth);
+    mid_fmt = common_verify_imgfmt_get_def_planar(config.src_fmt, pixel_depth);
     LOGI("mid_fmt: %#x (%s)\n", mid_fmt, common_verify_imgfmt_name(mid_fmt));
 
-    for (int k = 0; k < cmd_config.nb_frame; k++) {
-        if (is_stb_image(cmd_config.input_file)) {
+    for (int k = 0; k < config.nb_frame; k++) {
+        if (is_src_stb_img) {
             if (pixel_depth == 8) { // to RGB_planar
-                ret = imgcvt_to_planar_8bit_lsb((uint8_t *)p_src_raw, (uint8_t *)p_src, cmd_config.src_wid,
-                    cmd_config.src_hgt, cmd_config.src_wid_vir, cmd_config.src_hgt_vir, cmd_config.src_wid,
-                    cmd_config.src_hgt, cmd_config.src_fmt, false, 0);
+                ret = imgcvt_to_planar_8bit_lsb((uint8_t *)p_src_raw, (uint8_t *)p_src, config.src_wid, config.src_hgt,
+                    config.src_wid_vir, config.src_hgt_vir, config.src_wid, config.src_hgt, config.src_fmt, false, 0);
             }
             else if (pixel_depth == 10) { // to RGB10l_planar
-                ret = imgcvt_to_planar_10bit_lsb((uint8_t *)p_src_raw, (uint16_t *)p_src, cmd_config.src_wid,
-                    cmd_config.src_hgt, cmd_config.src_wid_vir, cmd_config.src_hgt_vir, cmd_config.src_wid * 2,
-                    cmd_config.src_hgt, cmd_config.src_fmt, false, 0);
+                ret = imgcvt_to_planar_10bit_lsb((uint8_t *)p_src_raw, (uint16_t *)p_src, config.src_wid, config.src_hgt,
+                    config.src_wid_vir, config.src_hgt_vir, config.src_wid * 2, config.src_hgt, config.src_fmt, false, 0);
             }
-        }
-        else {
-            ret = image_read_to_planar(fp_src, p_src, k, cmd_config.src_wid, cmd_config.src_hgt, cmd_config.src_wid_vir,
-                cmd_config.src_hgt_vir, cmd_config.src_fmt, pixel_depth, cmd_config.dither_up);
-            if (ret) {
-                LOGE("Failed to read frame #%d from input file '%s'! %s\n", k, cmd_config.input_file, strerror(errno));
+            else {
+                LOGE("unsupported pixel depth: %d\n", pixel_depth);
                 break;
             }
         }
+        else {
+            ret = image_read_to_planar(fp_src, p_src, k, config.src_wid, config.src_hgt, config.src_wid_vir,
+                config.src_hgt_vir, config.src_fmt, pixel_depth, config.dither_up);
+        }
+        if (ret) {
+            LOGE("Failed to read frame #%d from input file '%s'! %s\n", k, config.input_file, strerror(errno));
+            break;
+        }
 
         if (pixel_depth == 10) {
-            crc_val = get_crc_for_planar_frame_10bit(p_src, cmd_config.src_wid, cmd_config.src_hgt, bIsInputYuv);
+            crc_val = get_crc_for_planar_frame_10bit(p_src, config.src_wid, config.src_hgt, bIsInputYuv);
             LOGI("src CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsInputYuv ? "VYU" : "RGB", k, crc_val);
         }
 
         if (0 == csc_mode.coef_precision)
-            run_csc_with_coef_float(p_src, p_dst, cmd_config.src_wid, cmd_config.src_hgt, mid_fmt, &csc_coefs_fp, &csc_mode);
+            run_csc_with_coef_float(p_src, p_dst, config.src_wid, config.src_hgt, mid_fmt, &csc_coefs_fp, &csc_mode);
         else {
-            run_csc_with_coef(p_src, p_dst, cmd_config.src_wid, cmd_config.src_hgt, mid_fmt, &csc_coefs, &csc_mode);
+            run_csc_with_coef(p_src, p_dst, config.src_wid, config.src_hgt, mid_fmt, &csc_coefs, &csc_mode);
             dump_csc_regs(NULL, 0x0, &csc_coefs, bIsPostCsc);
         }
 
-        ret = image_write_from_plannar(fp_dst, (ushort *)p_dst, k, cmd_config.dst_wid, cmd_config.dst_hgt,
-            cmd_config.dst_wid_vir, cmd_config.dst_hgt_vir, cmd_config.dst_fmt, pixel_depth, cmd_config.dither_dn);
+        ret = image_write_from_plannar(fp_dst, (ushort *)p_dst, k, config.dst_wid, config.dst_hgt, config.dst_wid_vir,
+            config.dst_hgt_vir, config.dst_fmt, pixel_depth, config.dither_dn);
         if (ret) {
             break;
         }
@@ -1033,25 +967,25 @@ int main(int argc, char *const argv[])
 
         // get CRC
         if (pixel_depth == 10) {
-            crc_val = get_crc_for_planar_frame_10bit(p_dst, cmd_config.src_wid, cmd_config.src_hgt, bIsOutputYuv);
+            crc_val = get_crc_for_planar_frame_10bit(p_dst, config.src_wid, config.src_hgt, bIsOutputYuv);
             LOGI("dst CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
             if (fp_crc) {
                 if (mode_idx >= 0 && mode_idx < CSC_MODE_MAX) {
                     fprintf(fp_crc,
                         "input: %s, cmd_config: csc_standard_mode_%02d_%s, crc (%s MSB order) of frame #%04d: 0x%08X\n",
-                        get_basename(cmd_config.input_file), mode_idx, g_supported_csc_mode_str[mode_idx],
+                        get_basename(config.input_file), mode_idx, g_supported_csc_mode_str[mode_idx],
                         bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
                 }
                 else {
                     fprintf(fp_crc, "input: %s, cmd_config: %s, crc (%s MSB order) of frame #%04d: 0x%08X\n",
-                        get_basename(cmd_config.input_file), get_basename(cmd_config.config_file),
-                        bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
+                        get_basename(config.input_file), get_basename(config.config_file), bIsOutputYuv ? "VYU" : "RGB",
+                        k, crc_val);
                 }
             }
         }
     }
     if (0 == ret) {
-        LOGI("done. write output to file: '%s'\n", cmd_config.output_file);
+        LOGI("done. write output to file: '%s'\n", config.output_file);
     }
     else {
         LOGE("error happened, please have a check!\n");
@@ -1064,12 +998,10 @@ EXIT:
         fclose(fp_dst);
     if (fp_crc)
         fclose(fp_crc);
-    if (p_src) {
-        if (is_stb_image(cmd_config.input_file))
-            free_stb_image_auto(p_src);
-        else
-            free(p_src);
-    }
+    if (p_src_raw)
+        free_stb_image_auto(p_src_raw);
+    if (p_src)
+        free(p_src);
     if (p_dst)
         free(p_dst);
 

@@ -1955,7 +1955,11 @@ bool ends_with(const char *str, const char *suffix, bool case_sensitive)
         return strcmp(str_end, suffix) == 0;
     }
     else {
+#if defined(_WIN32)
+        return _stricmp(str_end, suffix) == 0;
+#else
         return strcasecmp(str_end, suffix) == 0;
+#endif
     }
 }
 
@@ -1968,6 +1972,7 @@ bool is_stb_image(const char *filename)
     return false;
 }
 
+/** @note: stbi_load() will allocate memory for the image data, caller should call stbi_image_free() to free the memory */
 uint8_t *read_stb_image_auto(const char *filename, int *width, int *height, int *channel, int reqChannel)
 {
     assert(filename != NULL);

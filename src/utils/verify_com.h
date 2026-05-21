@@ -131,6 +131,14 @@ static char g_logbuf[2048];
 #define IS_POWER_OF_2(x)   (((x) & -(x)) == (x)).
 
 
+/********** cJSON loading **********/
+#include "cJSON.h"
+
+#define CHECK_GET_JSON_ITEM(node, key_str, var, type) \
+    if (cJSON_HasObjectItem(node, key_str))           \
+        var = cJSON_GetObjectItem(node, key_str)->type;
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -148,7 +156,8 @@ const char *get_basename(const char *path);
 // read image data from fp, then convert to U8/U10bit YUV444P or planar RGB
 int image_read_to_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth, int dither);
 // write 8/10bit image data to fp from U8/U10bit YUV444P or planar RGB
-int image_write_from_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth, int dither);
+int image_write_from_plannar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int depth,
+    int dither);
 // read image data from fp (then shift) to U10bit YUV444P or planar RGB
 int image_read_to_10bit_planar(FILE *fp, void *p_buf, int frmidx, int w, int h, int wstrd, int hstrd, int fmt, int dither);
 // write 10bit image data to fp from U10bit YUV444P or planar RGB

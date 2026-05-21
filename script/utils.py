@@ -271,8 +271,24 @@ def calc_crc32(data, data_len=None):
         else:
             data = data[:data_len]
 
+    if isinstance(data, memoryview):
+        data = data.tobytes()
+    elif isinstance(data, np.ndarray):
+        data = data.tobytes()
+    elif not isinstance(data, (bytes, bytearray)):
+        raise TypeError(f"data should be bytes-like, but got {type(data).__name__}")
+
     # 遍历数据计算CRC
     for byte in data:
         crc = calc_crc32._table[(crc ^ byte) & 0xFF] ^ (crc >> 8)
 
     return crc ^ 0xFFFFFFFF
+
+def calc_crc32_all(folder):
+    print(f"calc crc32 for folder: {folder}")
+    for file in os.listdir(folder):
+        with open(os.path.join(folder, file), 'rb') as f:
+            data = f.read()
+            crc = calc_crc32(data)
+            print(f"{file}: \tcrc=0x{crc:08x}, len={len(data)}")
+
