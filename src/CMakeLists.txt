@@ -2,11 +2,12 @@ include_directories(${CMAKE_CURRENT_LIST_DIR}/include)
 include_directories(${CMAKE_CURRENT_LIST_DIR}/include/vop)
 include_directories(${CMAKE_CURRENT_LIST_DIR}/utils)
 include_directories(${CMAKE_CURRENT_LIST_DIR}/kernel)
+include_directories(${CMAKE_CURRENT_LIST_DIR}/../prebuilt/include)
 
 ## set prebuilt libraries for module verification
 set(PREBUILT_LIB_SUFFIX "*.a")
 if(WIN32)
-    set(PREBUILT_DIR ${CMAKE_CURRENT_LIST_DIR}/../prebuilt/x86_win32/lib/)
+    set(PREBUILT_DIR ${CMAKE_CURRENT_LIST_DIR}/../prebuilt/lib/x86_windows)
     if(MSVC)
         set(PREBUILT_LIB_SUFFIX "*.lib")
     endif()
