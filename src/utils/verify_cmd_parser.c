@@ -4,7 +4,7 @@
  * @author:    vance.wu@rock-chips.com
  * @create:    2025-09-05
  * @modifier:  vance.wu@rock-chips.com
- * @modify:    2026-03-03
+ * @modify:    2026-05-25
  */
 
 #include "verify_cmd_parser.h"
@@ -23,6 +23,7 @@ const struct option g_common_verify_arg_supported_options[] = {
     {"dhvir",    ARG_REQ,  NULL, 0  }, // dst height stride
     {"dup",      ARG_REQ,  NULL, 0  }, // dither up
     {"ddn",      ARG_REQ,  NULL, 0  }, // dither down
+    {"dump",     ARG_REQ,  NULL, 0  }, // debug dump bitmask
     {"help",     ARG_NONE, NULL, 'h'}, // print help message
     {"input",    ARG_REQ,  NULL, 'i'}, // input filename
     {"width",    ARG_REQ,  NULL, 'w'}, // input image width, set to '1920' if not specified
@@ -71,8 +72,11 @@ void common_verify_arg_print_usage(const char *program)
     printf("      --shvir    [src_hgt_stride] | src height stride\n");
     printf("      --dwvir    [dst_wid_stride] | dst width  stride\n");
     printf("      --dhvir    [dst_hgt_stride] | dst height stride\n");
-    printf("      --dup           [dither_up] | dither up method, default: 0, support: {1-scale, 2-fillMsb, else-shift}\n");
-    printf("      --ddn         [dither_down] | dither down method, default: 0, support: {1-scale, 2-fillMsb, else-shift}\n");
+    printf("      --dup           [dither_up] | dither up method, default: 0, support: {1-scale, 2-fillMsb, "
+           "else-shift}\n");
+    printf("      --ddn         [dither_down] | dither down method, default: 0, support: {1-scale, 2-fillMsb, "
+           "else-shift}\n");
+    printf("      --dump          [dump_mask] | debug dump flag mask, default: 0x0\n");
     printf("\n");
 }
 
@@ -101,6 +105,7 @@ int common_verify_arg_get_cmd_config(int argc, char *const argv[], struct common
             case 3:  config.dst_hgt_vir = strtol(optarg, NULL, 0); break;
             case 4:  config.dither_up = strtol(optarg, NULL, 0); break;
             case 5:  config.dither_dn = strtol(optarg, NULL, 0); break;
+            case 6:  config.dump_flag = strtol(optarg, NULL, 0); break;
             default: break;
             }
             printf(" - set %dth option: %s = %s\n", idx, g_common_verify_arg_supported_options[idx].name, optarg);
@@ -160,6 +165,8 @@ int common_verify_arg_get_cmd_config(int argc, char *const argv[], struct common
 
     if (config.nb_frame < 0)
         config.nb_frame = 1;
+    if (config.dump_flag < 0)
+        config.dump_flag = VERIFY_DBG_DUMP_NONE;
     if (config.output_file[0] == '\0') {
         strncpy(config.output_dir, get_dirname(config.input_file), 1024);
         snprintf(config.output_file, 1024, "%s/verify_out_%dx%d_%s.%s", config.output_dir, config.dst_wid,
@@ -207,6 +214,7 @@ int common_verify_arg_dump_config(struct common_verify_cmd_config *config)
     LOGI(" - custom mode: %d\n", config->mode);
     LOGI(" - random seed: %d\n", config->seed);
     LOGI(" - dither up/down: %d / %d\n", config->dither_up, config->dither_dn);
+    LOGI(" - dump_flag: 0x%X\n", config->dump_flag);
     LOGI("----------------------------------------\n");
     return 0;
 }

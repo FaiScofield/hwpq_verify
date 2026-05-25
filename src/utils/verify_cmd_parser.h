@@ -4,7 +4,7 @@
  * @author:      vance.wu@rock-chips.com
  * @create:      2025-09-05
  * @modifier:    vance.wu@rock-chips.com
- * @modify:      2026-03-03
+ * @modify:      2026-05-25
  */
 
 #ifndef _VERIFY_CMD_PARSER_
@@ -23,13 +23,24 @@
 #include "getopt_win32.h"
 #endif
 
+/** Macros for debug dump flag */
+#define VERIFY_DBG_DUMP_NONE                (0u)
+#define VERIFY_DBG_DUMP_CFG                 (1u << 0)
+#define VERIFY_DBG_DUMP_REG                 (1u << 1)
+#define VERIFY_DBG_DUMP_BLOB                (1u << 2)
+#define VERIFY_DBG_DUMP_CRC                 (1u << 3)
+#define VERIFY_DBG_DUMP_IO_IMG              (1u << 4)
+#define VERIFY_DBG_DUMP_MED_IMG             (1u << 5)
+#define VERIFY_DBG_DUMP_LUT                 (1u << 6)
+#define VERIFY_DBG_DUMP_ALL                 (~(0u))
+#define VERIFY_DBG_DUMP_ENABLED(flag, mask) (((flag) & (mask)) != 0)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* common verify arguments */
-struct common_verify_cmd_config
-{
+struct common_verify_cmd_config {
     char input_file[1024];  // input raw file
     char output_file[1024]; // output raw file
     char output_dir[1024];  // parsed from 'output_file'
@@ -37,27 +48,28 @@ struct common_verify_cmd_config
     char crc_file[1024];    // '.txt' file to record CRC values. NOTE: opened by mode 'a'
     char platform_name[32]; // RK3576/RK3572/...
 
-    int src_wid;            // defaut: 1920
-    int src_hgt;            // default: 1080
-    int src_wid_vir;        // default: src_wid
-    int src_hgt_vir;        // default: src_hgt
-    int src_fmt;            // {0-yuv444p, 1-nyuv444sp(nv24), 2-yuv444i, 3-rgb888, 4-rgba8888}
-                            //   (+10 for 10bit lsb unpacked; +20 for 10bit packed)
-    int src_clrspc;         // {0/1(RGBL/F), 2/3(601L/F), 4/5(709L/F), 8/9(2020L/F)}
+    int src_wid;     // defaut: 1920
+    int src_hgt;     // default: 1080
+    int src_wid_vir; // default: src_wid
+    int src_hgt_vir; // default: src_hgt
+    int src_fmt;     // {0-yuv444p, 1-nyuv444sp(nv24), 2-yuv444i, 3-rgb888, 4-rgba8888}
+                     //   (+10 for 10bit lsb unpacked; +20 for 10bit packed)
+    int src_clrspc;  // {0/1(RGBL/F), 2/3(601L/F), 4/5(709L/F), 8/9(2020L/F)}
 
-    int dst_wid;            // default: 1920
-    int dst_hgt;            // default: 1080
-    int dst_wid_vir;        // default: dst_wid
-    int dst_hgt_vir;        // default: dst_hgt
-    int dst_fmt;            // same to src_fmt
-    int dst_clrspc;         // same to src_clrspc
+    int dst_wid;     // default: 1920
+    int dst_hgt;     // default: 1080
+    int dst_wid_vir; // default: dst_wid
+    int dst_hgt_vir; // default: dst_hgt
+    int dst_fmt;     // same to src_fmt
+    int dst_clrspc;  // same to src_clrspc
 
-    int dither_up;          // dither up method, default: 0, range: {1-scale, 2-fillMsb, else-shift}
-    int dither_dn;          // dither down method, default: 0
+    int dither_up; // dither up method, default: 0, range: {1-scale, 2-fillMsb, else-shift}
+    int dither_dn; // dither down method, default: 0
 
-    int nb_frame;           // default: 1
-    int mode;               // default: -1, further parsed for some modules needed
-    int seed;               // random seed, default: -1
+    int nb_frame;  // default: 1
+    int mode;      // default: -1, further parsed for some modules needed
+    int seed;      // random seed, default: -1
+    int dump_flag; // debug dump flag, default: 0x0
 };
 
 void common_verify_arg_print_usage(const char *program);
