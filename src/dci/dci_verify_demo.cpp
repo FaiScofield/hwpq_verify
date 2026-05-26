@@ -18,7 +18,6 @@ extern "C" {
 #include "verify_com.h"
 #include "verify_cmd_parser.h"
 #include "verify_crc32.h"
-#include "cJSON.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,11 +43,11 @@ extern "C" {
 
 struct cmd_config_addition_dci {
     int clahe_en;
-    double clahe_clip_value;
+    float clahe_clip_value;
     int clahe_local_ratio;
-    bool has_clahe_en;
-    bool has_clahe_clip_value;
-    bool has_clahe_local_ratio;
+    float clahe_abld_ratio;
+    int clahe_scd_thr_min;
+    int clahe_scd_thr_max;
 };
 
 /**
@@ -60,6 +59,9 @@ static void print_usage_addition(void)
     LOGI("      --clahe_en           [val] | CLAHE enable flag, range: {0,1}\n");
     LOGI("      --clahe_clip_value   [val] | CLAHE clip value, default follows json config\n");
     LOGI("      --clahe_local_ratio  [val] | CLAHE local ratio, default follows json config\n");
+    LOGI("      --clahe_abld_ratio   [val] | CLAHE abld ratio, default follows json config\n");
+    LOGI("      --clahe_scd_thr_min  [val] | CLAHE scd threshold min, default follows json config\n");
+    LOGI("      --clahe_scd_thr_max  [val] | CLAHE scd threshold max, default follows json config\n");
     LOGI("\n");
 }
 
@@ -72,10 +74,18 @@ static int get_cmd_config_addition(int argc, char *const argv[], struct cmd_conf
         {(char *)"clahe_en",          ARG_REQ, 0, 0},
         {(char *)"clahe_clip_value",  ARG_REQ, 0, 0},
         {(char *)"clahe_local_ratio", ARG_REQ, 0, 0},
+        {(char *)"clahe_abld_ratio",  ARG_REQ, 0, 0},
+        {(char *)"clahe_scd_thr_min", ARG_REQ, 0, 0},
+        {(char *)"clahe_scd_thr_max", ARG_REQ, 0, 0},
         {0,                           0,       0, 0}
     };
 
-    memset(config, 0, sizeof(*config));
+    config->clahe_en = DCI_CLAHE_OVERRIDE_INVALID_INT;
+    config->clahe_clip_value = DCI_CLAHE_OVERRIDE_INVALID_F32;
+    config->clahe_local_ratio = DCI_CLAHE_OVERRIDE_INVALID_INT;
+    config->clahe_abld_ratio = DCI_CLAHE_OVERRIDE_INVALID_F32;
+    config->clahe_scd_thr_min = DCI_CLAHE_OVERRIDE_INVALID_INT;
+    config->clahe_scd_thr_max = DCI_CLAHE_OVERRIDE_INVALID_INT;
 
     optind = 1;
     int opt = -1;
@@ -88,156 +98,27 @@ static int get_cmd_config_addition(int argc, char *const argv[], struct cmd_conf
         switch (idx) {
         case 0:
             config->clahe_en = strtol(optarg, NULL, 10);
-            config->has_clahe_en = true;
             break;
         case 1:
             config->clahe_clip_value = strtod(optarg, NULL);
-            config->has_clahe_clip_value = true;
             break;
         case 2:
             config->clahe_local_ratio = strtol(optarg, NULL, 10);
-            config->has_clahe_local_ratio = true;
+            break;
+        case 3:
+            config->clahe_abld_ratio = strtod(optarg, NULL);
+            break;
+        case 4:
+            config->clahe_scd_thr_min = strtol(optarg, NULL, 10);
+            break;
+        case 5:
+            config->clahe_scd_thr_max = strtol(optarg, NULL, 10);
             break;
         default: break;
         }
         LOGI(" - get %dth option: %s = %s\n", idx, g_cmd_args_options_dci[idx].name, optarg);
     }
 
-    return 0;
-}
-
-/**
- * @brief Return whether any DCI runtime override is requested from CLI.
- */
-static bool has_runtime_override(const struct cmd_config_addition_dci *config)
-{
-    return config->has_clahe_en || config->has_clahe_clip_value || config->has_clahe_local_ratio;
-}
-
-/**
- * @brief Get or create a child JSON object.
- */
-static cJSON *get_or_create_object(cJSON *parent, const char *key)
-{
-    cJSON *node = cJSON_GetObjectItem(parent, key);
-    if (node && cJSON_IsObject(node)) {
-        return node;
-    }
-
-    node = cJSON_CreateObject();
-    if (!node) {
-        return NULL;
-    }
-    cJSON_AddItemToObject(parent, key, node);
-    return node;
-}
-
-/**
- * @brief Replace an existing number item or create it if missing.
- */
-static int set_json_number(cJSON *parent, const char *key, double value)
-{
-    cJSON *number = cJSON_CreateNumber(value);
-    if (!number) {
-        return -1;
-    }
-
-    cJSON *old = cJSON_GetObjectItem(parent, key);
-    if (old) {
-        cJSON_ReplaceItemInObject(parent, key, number);
-    }
-    else {
-        cJSON_AddItemToObject(parent, key, number);
-    }
-    return 0;
-}
-
-/**
- * @brief Generate a runtime JSON file with the requested CLI overrides.
- */
-static int generate_runtime_config(const char *src_cfg_path, const char *dst_cfg_path,
-    const struct cmd_config_addition_dci *config)
-{
-    FILE *fp = fopen(src_cfg_path, "rb");
-    if (!fp) {
-        LOGE("failed to open config file '%s'! %s\n", src_cfg_path, strerror(errno));
-        return -1;
-    }
-
-    if (fseek(fp, 0, SEEK_END) != 0) {
-        LOGE("failed to seek config file '%s'! %s\n", src_cfg_path, strerror(errno));
-        fclose(fp);
-        return -1;
-    }
-    long cfg_size = ftell(fp);
-    if (cfg_size <= 0 || fseek(fp, 0, SEEK_SET) != 0) {
-        LOGE("invalid config file length for '%s'! %s\n", src_cfg_path, strerror(errno));
-        fclose(fp);
-        return -1;
-    }
-
-    char *cfg_text = (char *)calloc((size_t)cfg_size + 1, 1);
-    if (!cfg_text) {
-        fclose(fp);
-        return -1;
-    }
-    size_t read_size = fread(cfg_text, 1, (size_t)cfg_size, fp);
-    fclose(fp);
-    if (read_size != (size_t)cfg_size) {
-        LOGE("failed to read config file '%s'! %s\n", src_cfg_path, strerror(errno));
-        free(cfg_text);
-        return -1;
-    }
-
-    cJSON *root = cJSON_Parse(cfg_text);
-    free(cfg_text);
-    if (!root) {
-        LOGE("failed to parse config file '%s'! %s\n", src_cfg_path, cJSON_GetErrorPtr());
-        return -1;
-    }
-
-    cJSON *node_dci = root;
-    if (cJSON_HasObjectItem(node_dci, "pq_tuning_param")) {
-        node_dci = get_or_create_object(node_dci, "pq_tuning_param");
-    }
-    node_dci = get_or_create_object(node_dci, "dci");
-    cJSON *interp_params = get_or_create_object(node_dci, "s_vop_dci_interp_params");
-    cJSON *ctrl_params = get_or_create_object(interp_params, "s_vop_dci_ctrl");
-    cJSON *clahe_params = get_or_create_object(interp_params, "s_clahe_params");
-    if (!node_dci || !interp_params || !ctrl_params || !clahe_params) {
-        LOGE("failed to create runtime json nodes for DCI config\n");
-        cJSON_Delete(root);
-        return -1;
-    }
-
-    if (config->has_clahe_en) {
-        set_json_number(ctrl_params, "i_dciEnable", config->clahe_en ? 1 : 0);
-        set_json_number(clahe_params, "i_dci_CLAHE_en", config->clahe_en ? 1 : 0);
-    }
-    if (config->has_clahe_clip_value) {
-        set_json_number(clahe_params, "i_dci_CLAHE_clip_value", config->clahe_clip_value);
-    }
-    if (config->has_clahe_local_ratio) {
-        set_json_number(clahe_params, "i_dci_CLAHE_LocalRatio", config->clahe_local_ratio);
-    }
-
-    char *out_text = cJSON_Print(root);
-    cJSON_Delete(root);
-    if (!out_text) {
-        return -1;
-    }
-
-    fp = fopen(dst_cfg_path, "wb");
-    if (!fp) {
-        LOGE("failed to create runtime config '%s'! %s\n", dst_cfg_path, strerror(errno));
-        cJSON_free(out_text);
-        return -1;
-    }
-    fwrite(out_text, 1, strlen(out_text), fp);
-    fclose(fp);
-    cJSON_free(out_text);
-
-    LOGI("write DCI runtime config to file: '%s'\n", dst_cfg_path);
     return 0;
 }
 
@@ -425,7 +306,8 @@ static void get_plane_pointers(void *buffer, int width, int height, int fmt, voi
 /**
  * @brief Build a file path for dumping intermediate image data.
  */
-static void build_dump_path(char *path, size_t path_size, const char *output_dir, const char *tag, int frame_idx, int fmt, int width, int height)
+static void build_dump_path(char *path, size_t path_size, const char *output_dir, const char *tag, int frame_idx,
+    int fmt, int width, int height)
 {
     snprintf(path, path_size, "%s/%s_frm%d_%dx%d_%s.%s", output_dir, tag, frame_idx, width, height,
         common_verify_imgfmt_name(fmt), common_verify_imgfmt_exten_str(fmt));
@@ -434,8 +316,8 @@ static void build_dump_path(char *path, size_t path_size, const char *output_dir
 /**
  * @brief Dump a raw image buffer into a standalone file.
  */
-static int dump_image_file(const char *output_dir, const char *tag, int frame_idx, const void *buffer, int width, int height, int width_stride,
-    int height_stride, int fmt, int depth, int dither)
+static int dump_image_file(const char *output_dir, const char *tag, int frame_idx, const void *buffer, int width,
+    int height, int width_stride, int height_stride, int fmt, int depth, int dither)
 {
     char dump_path[1024] = {0};
     build_dump_path(dump_path, sizeof(dump_path), output_dir, tag, frame_idx, fmt, width, height);
@@ -483,8 +365,8 @@ static int dump_rgb888_buffer(const char *output_dir, const char *tag, int frame
 /**
  * @brief Dump a planar 10-bit RGB frame into an stb image file.
  */
-static int write_rgb_stb_image(const char *filename, const void *buffer, int width, int height, int dither, const char *output_dir,
-    int dump_flag, int frame_idx)
+static int write_rgb_stb_image(const char *filename, const void *buffer, int width, int height, int dither,
+    const char *output_dir, int dump_flag, int frame_idx)
 {
     const int rgb_stride = width * 3;
     uint8_t *rgb_data = (uint8_t *)malloc((size_t)rgb_stride * height);
@@ -538,8 +420,6 @@ int main(int argc, char *const argv[])
     int bIsOutputYuv = 0;
     int dci_dst_fmt = YUV444P_10LSB;
     int dci_src_dump_fmt = YUV444P_10LSB;
-    char runtime_cfg_path[1024] = {0};
-    const char *config_path = NULL;
     void *p_final_out = NULL;
     dci_proc_param_t proc_param = {0};
     dci_init_param_t init_param = {0};
@@ -555,12 +435,21 @@ int main(int argc, char *const argv[])
         print_usage_addition();
         return ret;
     }
-    struct cmd_config_addition_dci config2 = {0};
-    ret = get_cmd_config_addition(argc, argv, &config2);
     common_verify_arg_dump_config(&config);
 
+    struct cmd_config_addition_dci config2 = {0};
+    ret = get_cmd_config_addition(argc, argv, &config2);
+    LOGI("dump DCI config from cmd line:\n");
+    LOGI(" - clahe_en: %d\n", config2.clahe_en);
+    LOGI(" - clahe_clip_value: %f\n", config2.clahe_clip_value);
+    LOGI(" - clahe_local_ratio: %d\n", config2.clahe_local_ratio);
+    LOGI(" - clahe_abld_ratio: %f\n", config2.clahe_abld_ratio);
+    LOGI(" - clahe_scd_thr_min: %d\n", config2.clahe_scd_thr_min);
+    LOGI(" - clahe_scd_thr_max: %d\n", config2.clahe_scd_thr_max);
+
     // check necessary parameters
-    if (config.crc_file[0] == '\0') {
+    const bool write_crc = ((config.dump_flag & VERIFY_DBG_DUMP_CRC) != 0) && (config.crc_file[0] != '\0');
+    if (write_crc) {
         snprintf(config.crc_file, 1024, "%s/dci_crc_out.dat", config.output_dir);
         LOGI(" - crc_file update to: '%s'!\n", config.crc_file);
     }
@@ -582,21 +471,6 @@ int main(int argc, char *const argv[])
     }
     need_rgb_output = is_dst_stb_img || common_verify_imgfmt_is_rgb(config.dst_fmt);
     enable_dump_med_img = VERIFY_DBG_DUMP_ENABLED(config.dump_flag, VERIFY_DBG_DUMP_MED_IMG);
-
-    config_path = config.config_file;
-    if (has_runtime_override(&config2)) {
-        if (!ends_with(config.config_file, ".json", false)) {
-            LOGW("CLAHE runtime options only take effect with a json config file. Current config: '%s'\n", config.config_file);
-        }
-        else {
-            snprintf(runtime_cfg_path, sizeof(runtime_cfg_path), "%s/dci_runtime_override.json", config.output_dir);
-            ret = generate_runtime_config(config.config_file, runtime_cfg_path, &config2);
-            if (ret) {
-                return ret;
-            }
-            config_path = runtime_cfg_path;
-        }
-    }
 
     if (is_src_stb_img) {
         p_src_stb = read_stb_image_auto(config.input_file, &config.src_wid, &config.src_hgt, &nb_channels, 3);
@@ -638,9 +512,11 @@ int main(int argc, char *const argv[])
             goto EXIT;
         }
     }
-    fp_crc = fopen(config.crc_file, "a");
-    if (!fp_crc) {
-        LOGW("Failed to open the crc output file '%s'! %s. CRC value will not be written!\n", config.crc_file, strerror(errno));
+    if (write_crc) {
+        fp_crc = fopen(config.crc_file, "a");
+        if (!fp_crc) {
+            LOGW("Failed to open the crc output file '%s'! %s. CRC value will not be written!\n", config.crc_file, strerror(errno));
+        }
     }
 
     frame_size_max = (size_t)config.src_wid * config.src_hgt * 4 * 2; // 4 channels x 16bpp
@@ -662,20 +538,27 @@ int main(int argc, char *const argv[])
     proc_param.dci_mode = config.mode >= 0 ? config.mode : 1;
     proc_param.is_src_fullrange = common_verify_clrspc_is_full_range(config.src_clrspc);
     proc_param.pixel_format = get_dci_pixel_format(config.src_fmt);
+    proc_param.clahe_en = config2.clahe_en;
+    proc_param.clahe_clip_value = config2.clahe_clip_value;
+    proc_param.clahe_local_ratio = config2.clahe_local_ratio;
+    proc_param.clahe_abld_ratio = config2.clahe_abld_ratio;
+    proc_param.clahe_scd_thr_min = config2.clahe_scd_thr_min;
+    proc_param.clahe_scd_thr_max = config2.clahe_scd_thr_max;
     dci_src_dump_fmt = common_verify_imgfmt_get_def_planar(config.src_fmt, 10);
     init_param.platform = get_platform_id(config.platform_name);
+    init_param.debug_dump_mask = (unsigned int)config.dump_flag;
     snprintf(init_param.debug_path, sizeof(init_param.debug_path), "%s", config.output_dir);
 
-    if (ends_with(config_path, ".json", false)) {
-        snprintf(proc_param.config_path, sizeof(proc_param.config_path), "%s", config_path);
+    if (ends_with(config.config_file, ".json", false)) {
+        snprintf(proc_param.config_path, sizeof(proc_param.config_path), "%s", config.config_file);
         if (proc_param.dci_mode >= 1 && proc_param.dci_mode <= 3) {
             LOGE(" - for .json config file, dci_mode(%d) should NOT be in [1, 3]!\n", proc_param.dci_mode);
             ret = -1;
             goto EXIT;
         }
     }
-    else if (ends_with(config_path, ".bin", false)) {
-        snprintf(proc_param.reg_path, sizeof(proc_param.reg_path), "%s", config_path);
+    else if (ends_with(config.config_file, ".bin", false)) {
+        snprintf(proc_param.reg_path, sizeof(proc_param.reg_path), "%s", config.config_file);
         if (proc_param.dci_mode != 1 && proc_param.dci_mode != 2) {
             LOGE(" - for .bin reg file, dci_mode(%d) should be 1 or 2!\n", proc_param.dci_mode);
             ret = -1;
@@ -683,7 +566,7 @@ int main(int argc, char *const argv[])
         }
     }
     else if (config.mode != 4) {
-        LOGE("invalid config file suffix: %s !\n", config_path);
+        LOGE("invalid config file suffix: %s !\n", config.config_file);
         ret = -1;
         goto EXIT;
     }
@@ -733,8 +616,9 @@ int main(int argc, char *const argv[])
         }
 
         if (need_rgb_input_pack) {
-            ret = imgcvt_from_planar_10bit_lsb((uint16_t const *)p_src, (uint8_t *)p_src_dci, config.src_wid, config.src_hgt,
-                config.src_wid * 2, config.src_hgt, config.src_wid * 3 * 2, config.src_hgt, RGB_101010LSB, false, config.dither_up);
+            ret = imgcvt_from_planar_10bit_lsb((uint16_t const *)p_src, (uint8_t *)p_src_dci, config.src_wid,
+                config.src_hgt, config.src_wid * 2, config.src_hgt, config.src_wid * 3 * 2, config.src_hgt,
+                RGB_101010LSB, false, config.dither_up);
             if (ret) {
                 LOGE("failed to convert frame #%d from RGB_PLANAR10LSB to RGB_101010LSB\n", k);
                 break;
@@ -748,8 +632,8 @@ int main(int argc, char *const argv[])
         }
         get_plane_pointers(p_dst, config.dst_wid, config.dst_hgt, dci_dst_fmt, &p_dst_y, &p_dst_u, &p_dst_v);
 
-        fill_img_info(&proc_param.src_info, config.src_wid, config.src_hgt, need_rgb_input_pack ? RGB_101010LSB : config.src_fmt,
-            p_src_y, p_src_u, p_src_v);
+        fill_img_info(&proc_param.src_info, config.src_wid, config.src_hgt,
+            need_rgb_input_pack ? RGB_101010LSB : config.src_fmt, p_src_y, p_src_u, p_src_v);
         fill_img_info(&proc_param.dst_info, config.dst_wid, config.dst_hgt, dci_dst_fmt, p_dst_y, p_dst_u, p_dst_v);
         proc_param.frame_idx = k;
         proc_param.frame_num = config.nb_frame;
@@ -807,7 +691,7 @@ int main(int argc, char *const argv[])
             LOGI("dst CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsOutputYuv ? "VYU" : "RGB", k, dst_crc);
             if (fp_crc) {
                 fprintf(fp_crc, "input: %s, config: %s, crc of frame #%04d: 0x%08X\n", get_basename(config.input_file),
-                    get_basename(config_path[0] ? config_path : "mode_only"), k, dst_crc);
+                    get_basename(config.config_file[0] ? config.config_file : "mode_only"), k, dst_crc);
             }
         }
     }

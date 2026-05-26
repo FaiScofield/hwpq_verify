@@ -76,7 +76,8 @@ void common_verify_arg_print_usage(const char *program)
            "else-shift}\n");
     printf("      --ddn         [dither_down] | dither down method, default: 0, support: {1-scale, 2-fillMsb, "
            "else-shift}\n");
-    printf("      --dump          [dump_mask] | debug dump flag mask, default: 0x0\n");
+    printf("      --dump          [dump_mask] | debug dump flag mask, default: 0x0, support: 0x{1-cfg, 2-reg, 4-blob, "
+           "8-crc, 10-io, 20-med, 40-lut}\n");
     printf("\n");
 }
 
