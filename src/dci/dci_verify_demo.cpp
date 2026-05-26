@@ -455,9 +455,9 @@ int main(int argc, char *const argv[])
     ret = get_cmd_config_addition(argc, argv, &config2);
     LOGI("dump DCI config from cmd line:\n");
     LOGI(" - clahe_en: %d\n", config2.clahe_en);
-    LOGI(" - clahe_clip_value: %f\n", config2.clahe_clip_value);
+    LOGI(" - clahe_clip_value: %.2f\n", config2.clahe_clip_value);
     LOGI(" - clahe_local_ratio: %d\n", config2.clahe_local_ratio);
-    LOGI(" - clahe_abld_ratio: %f\n", config2.clahe_abld_ratio);
+    LOGI(" - clahe_abld_ratio: %.2f\n", config2.clahe_abld_ratio);
     LOGI(" - clahe_scd_thr_min: %d\n", config2.clahe_scd_thr_min);
     LOGI(" - clahe_scd_thr_max: %d\n", config2.clahe_scd_thr_max);
     LOGI(" - shp_type: %d\n", config2.shp_type);

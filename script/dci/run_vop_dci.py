@@ -47,10 +47,10 @@ def do_dci_sim(data_dir, clahe_clip=1.0, clahe_lce=19, peaking_gain=150):
         # 生成输出文件路径
         out_file = os.path.join(output_dir, f"{base_name}_rk_peaking{peaking_gain}_clip{clahe_clip}_lce{clahe_lce}.png")
 
-        # 执行 dci_sim_exe 转换 （注: 实际参数还无法通过命令行传入，仍需要修改json才能生效）
+        # 执行 dci_sim_exe 转换
         cmd = (
             f'{dci_exe} -i "{png_file}" -o "{out_file}" -c "{config_file}" -m 5 '
-            f'--clahe_clip_value {clahe_clip} --shp_type 1 --shp_peaking_gain {peaking_gain} --dump 0xf0'
+            f'--clahe_clip_value {clahe_clip} --clahe_local_ratio {clahe_lce} --shp_type 1 --shp_peaking_gain {peaking_gain} --dump 0xf0'
         )
         # print(f"转换：{file_name} -> {base_name}_lce{lce}.png")
         utl.run_cmd(cmd, showOutput=True, showCmd=True)
