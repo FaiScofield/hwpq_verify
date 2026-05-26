@@ -11,6 +11,7 @@ extern "C" {
 #endif
 #include "dci_api.h"
 #include "sharp_full_api.h"
+#include "sharp_lite_api.h"
 #include "rockchip_post_csc.h"
 #ifdef __cplusplus
 }
@@ -49,7 +50,7 @@ struct cmd_config_addition_dci {
     float clahe_abld_ratio;
     int clahe_scd_thr_min;
     int clahe_scd_thr_max;
-    int shp_en;
+    int shp_type; // 0-off, 1-full, 2-lite
     int shp_peaking_gain;
 };
 
@@ -67,7 +68,7 @@ static void print_usage_addition(void)
     LOGI("      --clahe_abld_ratio   [val] | CLAHE abld ratio, default follows json config\n");
     LOGI("      --clahe_scd_thr_min  [val] | CLAHE scd threshold min, default follows json config\n");
     LOGI("      --clahe_scd_thr_max  [val] | CLAHE scd threshold max, default follows json config\n");
-    LOGI("      --shp_en             [val] | Sharp post-process enable flag, range: {0,1}\n");
+    LOGI("      --shp_type           [val] | Sharp type, range: {0-disable, 1-sharp_full, 2-sharp_lite}\n");
     LOGI("      --shp_peaking_gain   [val] | Sharp peaking gain override, range: [0, 1023]\n");
     LOGI("\n");
 }
@@ -84,7 +85,7 @@ static int get_cmd_config_addition(int argc, char *const argv[], struct cmd_conf
         {(char *)"clahe_abld_ratio",  ARG_REQ, 0, 0},
         {(char *)"clahe_scd_thr_min", ARG_REQ, 0, 0},
         {(char *)"clahe_scd_thr_max", ARG_REQ, 0, 0},
-        {(char *)"shp_en",            ARG_REQ, 0, 0},
+        {(char *)"shp_type",          ARG_REQ, 0, 0},
         {(char *)"shp_peaking_gain",  ARG_REQ, 0, 0},
         {0,                           0,       0, 0}
     };
@@ -95,7 +96,7 @@ static int get_cmd_config_addition(int argc, char *const argv[], struct cmd_conf
     config->clahe_abld_ratio = DCI_CLAHE_OVERRIDE_INVALID_F32;
     config->clahe_scd_thr_min = DCI_CLAHE_OVERRIDE_INVALID_INT;
     config->clahe_scd_thr_max = DCI_CLAHE_OVERRIDE_INVALID_INT;
-    config->shp_en = SHP_OVERRIDE_INVALID_INT;
+    config->shp_type = SHP_OVERRIDE_INVALID_INT;
     config->shp_peaking_gain = SHP_OVERRIDE_INVALID_INT;
 
     optind = 1;
@@ -107,30 +108,14 @@ static int get_cmd_config_addition(int argc, char *const argv[], struct cmd_conf
         }
 
         switch (idx) {
-        case 0:
-            config->clahe_en = strtol(optarg, NULL, 10);
-            break;
-        case 1:
-            config->clahe_clip_value = strtod(optarg, NULL);
-            break;
-        case 2:
-            config->clahe_local_ratio = strtol(optarg, NULL, 10);
-            break;
-        case 3:
-            config->clahe_abld_ratio = strtod(optarg, NULL);
-            break;
-        case 4:
-            config->clahe_scd_thr_min = strtol(optarg, NULL, 10);
-            break;
-        case 5:
-            config->clahe_scd_thr_max = strtol(optarg, NULL, 10);
-            break;
-        case 6:
-            config->shp_en = strtol(optarg, NULL, 10);
-            break;
-        case 7:
-            config->shp_peaking_gain = strtol(optarg, NULL, 10);
-            break;
+        case 0:  config->clahe_en = strtol(optarg, NULL, 10); break;
+        case 1:  config->clahe_clip_value = strtod(optarg, NULL); break;
+        case 2:  config->clahe_local_ratio = strtol(optarg, NULL, 10); break;
+        case 3:  config->clahe_abld_ratio = strtod(optarg, NULL); break;
+        case 4:  config->clahe_scd_thr_min = strtol(optarg, NULL, 10); break;
+        case 5:  config->clahe_scd_thr_max = strtol(optarg, NULL, 10); break;
+        case 6:  config->shp_type = strtol(optarg, NULL, 10); break;
+        case 7:  config->shp_peaking_gain = strtol(optarg, NULL, 10); break;
         default: break;
         }
         LOGI(" - get %dth option: %s = %s\n", idx, g_cmd_args_options_dci[idx].name, optarg);
@@ -393,11 +378,11 @@ static int write_rgb_stb_image(const char *filename, const void *buffer, int wid
 
     int ret = imgcvt_from_planar_10bit_lsb((uint16_t const *)buffer, rgb_data, width, height, width * 2, height,
         rgb_stride, height, RGB888, false, dither);
-    if (ret == 0) {
-        if (VERIFY_DBG_DUMP_ENABLED(dump_flag, VERIFY_DBG_DUMP_MED_IMG)) {
-            ret = dump_rgb888_buffer(output_dir, "dci_dbg_input_stb", frame_idx, rgb_data, width, height);
-        }
-    }
+    // if (ret == 0) {
+    //     if (VERIFY_DBG_DUMP_ENABLED(dump_flag, VERIFY_DBG_DUMP_MED_IMG)) {
+    //         ret = dump_rgb888_buffer(output_dir, "dci_dbg_input_stb", frame_idx, rgb_data, width, height);
+    //     }
+    // }
     if (ret == 0) {
         ret = write_stb_image_auto(filename, width, height, 3, rgb_data, rgb_stride);
     }
@@ -426,7 +411,8 @@ int main(int argc, char *const argv[])
     FILE *fp_dst = NULL;
     FILE *fp_crc = NULL;
     dci_handle_t handle = NULL;
-    sharp_full_handle_t sharp_handle = NULL;
+    sharp_full_handle_t sharp_full_handle = NULL;
+    sharp_lite_handle_t sharp_lite_handle = NULL;
     size_t frame_size_max = 0;
     int ret = 0;
     int nb_channels = 0;
@@ -439,15 +425,18 @@ int main(int argc, char *const argv[])
     bool need_sharp = false;
     bool enable_dump_med_img = false;
     bool can_calc_crc = false;
+    int shp_type = 0;
     int bIsInputYuv = 0;
     int bIsOutputYuv = 0;
     int dci_dst_fmt = YUV444P_10LSB;
     int dci_src_dump_fmt = YUV444P_10LSB;
     void *p_final_out = NULL;
-    dci_proc_param_t proc_param = {0};
-    dci_init_param_t init_param = {0};
-    sharp_full_proc_param_t sharp_proc_param = {0};
-    sharp_full_init_param_t sharp_init_param = {0};
+    dci_proc_param_t dci_proc_param = {0};
+    dci_init_param_t dci_init_param = {0};
+    sharp_full_proc_param_t shpfull_proc_param = {0};
+    sharp_full_init_param_t shpfull_init_param = {0};
+    sharp_lite_proc_param_t shplite_proc_param = {0};
+    sharp_lite_init_param_t shplite_init_param = {0};
     struct post_csc_convert_mode rgb_output_csc_mode {};
     // memset(&rgb_output_csc_mode, 0, sizeof(rgb_output_csc_mode));
     struct post_csc_coef rgb_output_csc_coef;
@@ -471,7 +460,7 @@ int main(int argc, char *const argv[])
     LOGI(" - clahe_abld_ratio: %f\n", config2.clahe_abld_ratio);
     LOGI(" - clahe_scd_thr_min: %d\n", config2.clahe_scd_thr_min);
     LOGI(" - clahe_scd_thr_max: %d\n", config2.clahe_scd_thr_max);
-    LOGI(" - shp_en: %d\n", config2.shp_en);
+    LOGI(" - shp_type: %d\n", config2.shp_type);
     LOGI(" - shp_peaking_gain: %d\n", config2.shp_peaking_gain);
 
     // check necessary parameters
@@ -497,10 +486,15 @@ int main(int argc, char *const argv[])
         return -1;
     }
     need_rgb_output = is_dst_stb_img || common_verify_imgfmt_is_rgb(config.dst_fmt);
-    need_sharp = (config2.shp_en != SHP_OVERRIDE_INVALID_INT) && (config2.shp_en != 0);
+    shp_type = (config2.shp_type == SHP_OVERRIDE_INVALID_INT) ? 0 : config2.shp_type;
+    need_sharp = (shp_type == 1 || shp_type == 2);
     enable_dump_med_img = VERIFY_DBG_DUMP_ENABLED(config.dump_flag, VERIFY_DBG_DUMP_MED_IMG);
+    if (shp_type < 0 || shp_type > 2) {
+        LOGW("invalid --shp_type value: %d, expected 0/1/2\n", shp_type);
+        need_sharp = false;
+    }
     if (need_sharp && config.config_file[0] == '\0') {
-        LOGE("sharp post-process requires config_file when --shp_en is enabled\n");
+        LOGE("sharp post-process requires config_file when --shp_type is enabled\n");
         return -1;
     }
 
@@ -515,7 +509,7 @@ int main(int argc, char *const argv[])
         config.src_hgt_vir = config.src_hgt;
         LOGW("stb image read success, src size: %dx%d, fmt: RGB888\n", config.src_wid, config.src_hgt);
         if (enable_dump_med_img) {
-            dump_rgb888_buffer(config.output_dir, "dci_dbg_intput_stb", 0, p_src_stb, config.src_wid, config.src_hgt);
+            dump_rgb888_buffer(config.output_dir, "dci_dbg1_intput_stb", 0, p_src_stb, config.src_wid, config.src_hgt);
         }
         if (config.dst_wid != config.src_wid || config.dst_hgt != config.src_hgt) {
             config.dst_wid = config.src_wid;
@@ -547,7 +541,8 @@ int main(int argc, char *const argv[])
     if (write_crc) {
         fp_crc = fopen(config.crc_file, "a");
         if (!fp_crc) {
-            LOGW("Failed to open the crc output file '%s'! %s. CRC value will not be written!\n", config.crc_file, strerror(errno));
+            LOGW("Failed to open the crc output file '%s'! %s. CRC value will not be written!\n", config.crc_file,
+                strerror(errno));
         }
     }
 
@@ -563,42 +558,46 @@ int main(int argc, char *const argv[])
     if (need_rgb_output) {
         p_rgb = calloc(frame_size_max, 1);
     }
-    if (!p_src || (need_rgb_input_pack && !p_src_dci) || !p_dst || (need_sharp && !p_shp) || (need_rgb_output && !p_rgb)) {
+    if (!p_src || (need_rgb_input_pack && !p_src_dci) || !p_dst || (need_sharp && !p_shp) || (need_rgb_output && !p_rgb))
+    {
         ret = -1;
         goto EXIT;
     }
 
     /* create handler */
-    proc_param.dci_enable = 1;
-    proc_param.dci_mode = config.mode >= 0 ? config.mode : 1;
-    proc_param.is_src_fullrange = common_verify_clrspc_is_full_range(config.src_clrspc);
-    proc_param.pixel_format = get_dci_pixel_format(config.src_fmt);
-    proc_param.clahe_en = config2.clahe_en;
-    proc_param.clahe_clip_value = config2.clahe_clip_value;
-    proc_param.clahe_local_ratio = config2.clahe_local_ratio;
-    proc_param.clahe_abld_ratio = config2.clahe_abld_ratio;
-    proc_param.clahe_scd_thr_min = config2.clahe_scd_thr_min;
-    proc_param.clahe_scd_thr_max = config2.clahe_scd_thr_max;
+    dci_proc_param.dci_enable = 1;
+    dci_proc_param.dci_mode = config.mode >= 0 ? config.mode : 1;
+    dci_proc_param.is_src_fullrange = common_verify_clrspc_is_full_range(config.src_clrspc);
+    dci_proc_param.pixel_format = get_dci_pixel_format(config.src_fmt);
+    dci_proc_param.clahe_en = config2.clahe_en;
+    dci_proc_param.clahe_clip_value = config2.clahe_clip_value;
+    dci_proc_param.clahe_local_ratio = config2.clahe_local_ratio;
+    dci_proc_param.clahe_abld_ratio = config2.clahe_abld_ratio;
+    dci_proc_param.clahe_scd_thr_min = config2.clahe_scd_thr_min;
+    dci_proc_param.clahe_scd_thr_max = config2.clahe_scd_thr_max;
     dci_src_dump_fmt = common_verify_imgfmt_get_def_planar(config.src_fmt, 10);
-    init_param.platform = get_platform_id(config.platform_name);
-    init_param.debug_dump_mask = (unsigned int)config.dump_flag;
-    snprintf(init_param.debug_path, sizeof(init_param.debug_path), "%s", config.output_dir);
-    sharp_init_param.platform = init_param.platform;
-    sharp_init_param.debug_dump_mask = init_param.debug_dump_mask;
-    snprintf(sharp_init_param.debug_path, sizeof(sharp_init_param.debug_path), "%s", config.output_dir);
+    dci_init_param.platform = get_platform_id(config.platform_name);
+    dci_init_param.debug_dump_mask = (unsigned int)config.dump_flag;
+    snprintf(dci_init_param.debug_path, sizeof(dci_init_param.debug_path), "%s", config.output_dir);
+    shpfull_init_param.platform = dci_init_param.platform;
+    shpfull_init_param.debug_dump_mask = dci_init_param.debug_dump_mask;
+    snprintf(shpfull_init_param.debug_path, sizeof(shpfull_init_param.debug_path), "%s", config.output_dir);
+    shplite_init_param.platform = dci_init_param.platform;
+    shplite_init_param.debug_dump_mask = dci_init_param.debug_dump_mask;
+    snprintf(shplite_init_param.debug_path, sizeof(shplite_init_param.debug_path), "%s", config.output_dir);
 
     if (ends_with(config.config_file, ".json", false)) {
-        snprintf(proc_param.config_path, sizeof(proc_param.config_path), "%s", config.config_file);
-        if (proc_param.dci_mode >= 1 && proc_param.dci_mode <= 3) {
-            LOGE(" - for .json config file, dci_mode(%d) should NOT be in [1, 3]!\n", proc_param.dci_mode);
+        snprintf(dci_proc_param.config_path, sizeof(dci_proc_param.config_path), "%s", config.config_file);
+        if (dci_proc_param.dci_mode >= 1 && dci_proc_param.dci_mode <= 3) {
+            LOGE(" - for .json config file, dci_mode(%d) should NOT be in [1, 3]!\n", dci_proc_param.dci_mode);
             ret = -1;
             goto EXIT;
         }
     }
     else if (ends_with(config.config_file, ".bin", false)) {
-        snprintf(proc_param.reg_path, sizeof(proc_param.reg_path), "%s", config.config_file);
-        if (proc_param.dci_mode != 1 && proc_param.dci_mode != 2) {
-            LOGE(" - for .bin reg file, dci_mode(%d) should be 1 or 2!\n", proc_param.dci_mode);
+        snprintf(dci_proc_param.reg_path, sizeof(dci_proc_param.reg_path), "%s", config.config_file);
+        if (dci_proc_param.dci_mode != 1 && dci_proc_param.dci_mode != 2) {
+            LOGE(" - for .bin reg file, dci_mode(%d) should be 1 or 2!\n", dci_proc_param.dci_mode);
             ret = -1;
             goto EXIT;
         }
@@ -608,14 +607,33 @@ int main(int argc, char *const argv[])
         ret = -1;
         goto EXIT;
     }
-    if (need_sharp) {
-        sharp_proc_param.sharp_full_enable = 1;
-        sharp_proc_param.sharp_full_mode = ends_with(config.config_file, ".json", false) ? 0 : 1;
-        sharp_proc_param.peaking_gain = (config2.shp_peaking_gain != SHP_OVERRIDE_INVALID_INT) ? config2.shp_peaking_gain : 320;
-        snprintf(sharp_proc_param.config_path, sizeof(sharp_proc_param.config_path), "%s", config.config_file);
+    if (shp_type == 1) {
+        shpfull_proc_param.sharp_full_enable = 1;
+        shpfull_proc_param.sharp_full_mode = ends_with(config.config_file, ".json", false) ? 0 : 1;
+        shpfull_proc_param.peaking_gain = (config2.shp_peaking_gain != SHP_OVERRIDE_INVALID_INT) ? config2.shp_peaking_gain
+                                                                                                    : 320;
+        snprintf(shpfull_proc_param.config_path, sizeof(shpfull_proc_param.config_path), "%s", config.config_file);
+    }
+    else if (shp_type == 2) {
+        shplite_proc_param.sharp_lite_enable = 1;
+        shplite_proc_param.legacy_config_mode = 0;
+        if (ends_with(config.config_file, ".bin", false)) {
+            if (config.mode == 1)
+                shplite_proc_param.legacy_config_mode = 1;
+            else if (config.mode == 2)
+                shplite_proc_param.legacy_config_mode = 2;
+        }
+        shplite_proc_param.peaking_gain = (config2.shp_peaking_gain != SHP_OVERRIDE_INVALID_INT) ? config2.shp_peaking_gain
+                                                                                                    : 320;
+        snprintf(shplite_proc_param.config_path, sizeof(shplite_proc_param.config_path), "%s", config.config_file);
+
+        shplite_proc_param.src_info.img_w[0] = config.src_wid;
+        shplite_proc_param.src_info.img_h[0] = config.src_hgt;
+        shplite_proc_param.src_info.img_ws[0] = config.src_wid;
+        shplite_proc_param.src_info.img_hs[0] = config.src_hgt;
     }
 
-    ret = dciVerifyInit(&handle, &init_param);
+    ret = dciVerifyInit(&handle, &dci_init_param);
     if (ret) {
         LOGE("failed to init handler! %d\n", ret);
         goto EXIT;
@@ -628,10 +646,17 @@ int main(int argc, char *const argv[])
             goto EXIT;
         }
     }
-    if (need_sharp) {
-        ret = sharpFullVerifyInit(&sharp_handle, &sharp_init_param);
+    if (shp_type == 1) {
+        ret = sharpFullVerifyInit(&sharp_full_handle, &shpfull_init_param);
         if (ret) {
-            LOGE("failed to init sharp handler! %d\n", ret);
+            LOGE("failed to init sharp_full handler! %d\n", ret);
+            goto EXIT;
+        }
+    }
+    else if (shp_type == 2) {
+        ret = sharpLiteVerifyInit(&sharp_lite_handle, &shplite_init_param);
+        if (ret) {
+            LOGE("failed to init sharp_lite handler! %d\n", ret);
             goto EXIT;
         }
     }
@@ -654,7 +679,7 @@ int main(int argc, char *const argv[])
             break;
         }
         if (enable_dump_med_img) {
-            ret = dump_image_file(config.output_dir, "dci_dbg_input", k, p_src, config.src_wid, config.src_hgt,
+            ret = dump_image_file(config.output_dir, "dci_dbg2_input_10bit", k, p_src, config.src_wid, config.src_hgt,
                 config.src_wid * 2, config.src_hgt, dci_src_dump_fmt, 10, config.dither_up);
         }
 
@@ -683,44 +708,62 @@ int main(int argc, char *const argv[])
             get_plane_pointers(p_shp, config.dst_wid, config.dst_hgt, dci_dst_fmt, &p_shp_y, &p_shp_u, &p_shp_v);
         }
 
-        fill_img_info(&proc_param.src_info, config.src_wid, config.src_hgt,
+        fill_img_info(&dci_proc_param.src_info, config.src_wid, config.src_hgt,
             need_rgb_input_pack ? RGB_101010LSB : config.src_fmt, p_src_y, p_src_u, p_src_v);
-        fill_img_info(&proc_param.dst_info, config.dst_wid, config.dst_hgt, dci_dst_fmt, p_dst_y, p_dst_u, p_dst_v);
-        proc_param.frame_idx = k;
-        proc_param.frame_num = config.nb_frame;
+        fill_img_info(&dci_proc_param.dst_info, config.dst_wid, config.dst_hgt, dci_dst_fmt, p_dst_y, p_dst_u, p_dst_v);
+        dci_proc_param.frame_idx = k;
+        dci_proc_param.frame_num = config.nb_frame;
 
         // supported formats: RGB101010l, YUV444P10l, YUV420P10l
-        ret = dciVerifyProc(handle, &proc_param);
+        ret = dciVerifyProc(handle, &dci_proc_param);
         if (ret) {
             LOGE("dciVerifyProc failed on frame #%d, ret=%d\n", k, ret);
             break;
         }
         if (enable_dump_med_img) {
-            ret = dump_image_file(config.output_dir, "dci_dbg_output", k, p_dst, config.dst_wid, config.dst_hgt,
+            ret = dump_image_file(config.output_dir, "dci_dbg3_output_10bit", k, p_dst, config.dst_wid, config.dst_hgt,
                 config.dst_wid * 2, config.dst_hgt, YUV444P_10LSB, 10, config.dither_dn);
         }
 
         p_final_out = p_dst;
         if (need_sharp) {
-            fill_img_info(&sharp_proc_param.src_info, config.dst_wid, config.dst_hgt, dci_dst_fmt, p_dst_y, p_dst_u, p_dst_v);
-            fill_img_info(&sharp_proc_param.dst_info, config.dst_wid, config.dst_hgt, dci_dst_fmt, p_shp_y, p_shp_u, p_shp_v);
-            sharp_proc_param.frame_idx = k;
-            sharp_proc_param.frame_num = config.nb_frame;
-            ret = sharpFullVerifyProc(sharp_handle, &sharp_proc_param);
-            if (ret) {
-                LOGE("sharpFullVerifyProc failed on frame #%d, ret=%d\n", k, ret);
-                break;
+            if (shp_type == 1) {
+                fill_img_info(&shpfull_proc_param.src_info, config.dst_wid, config.dst_hgt, dci_dst_fmt, p_dst_y,
+                    p_dst_u, p_dst_v);
+                fill_img_info(&shpfull_proc_param.dst_info, config.dst_wid, config.dst_hgt, dci_dst_fmt, p_shp_y,
+                    p_shp_u, p_shp_v);
+                shpfull_proc_param.frame_idx = k;
+                shpfull_proc_param.frame_num = config.nb_frame;
+                ret = sharpFullVerifyProc(sharp_full_handle, &shpfull_proc_param);
+                if (ret) {
+                    LOGE("sharpFullVerifyProc failed on frame #%d, ret=%d\n", k, ret);
+                    break;
+                }
+            }
+            else if (shp_type == 2) {
+                fill_img_info(&shplite_proc_param.src_info, config.dst_wid, config.dst_hgt, dci_dst_fmt, p_dst_y,
+                    p_dst_u, p_dst_v);
+                fill_img_info(&shplite_proc_param.dst_info, config.dst_wid, config.dst_hgt, dci_dst_fmt, p_shp_y,
+                    p_shp_u, p_shp_v);
+                shplite_proc_param.frame_idx = k;
+                ret = sharpLiteVerifyProc(sharp_lite_handle, &shplite_proc_param);
+                if (ret) {
+                    LOGE("sharpLiteVerifyProc failed on frame #%d, ret=%d\n", k, ret);
+                    break;
+                }
             }
             p_final_out = p_shp;
             if (enable_dump_med_img) {
-                ret = dump_image_file(config.output_dir, "shp_dbg_output", k, p_shp, config.dst_wid, config.dst_hgt,
+                ret = dump_image_file(config.output_dir, "dci_dbg4_output_shp", k, p_shp, config.dst_wid, config.dst_hgt,
                     config.dst_wid * 2, config.dst_hgt, YUV444P_10LSB, 10, config.dither_dn);
             }
         }
+
         if (need_rgb_output) {
-            run_csc_with_coef_13bit(p_final_out, p_rgb, config.dst_wid, config.dst_hgt, &rgb_output_csc_coef, &rgb_output_csc_mode);
+            run_csc_with_coef_13bit(p_final_out, p_rgb, config.dst_wid, config.dst_hgt, &rgb_output_csc_coef,
+                &rgb_output_csc_mode);
             if (enable_dump_med_img) {
-                ret = dump_image_file(config.output_dir, "dci_dbg_output_y2r", k, p_rgb, config.dst_wid, config.dst_hgt,
+                ret = dump_image_file(config.output_dir, "dci_dbg5_output_y2r", k, p_rgb, config.dst_wid, config.dst_hgt,
                     config.dst_wid * 2, config.dst_hgt, RGB_PLANAR10LSB, 10, config.dither_dn);
             }
             p_final_out = p_rgb;
@@ -758,12 +801,12 @@ int main(int argc, char *const argv[])
     }
 
 EXIT:
-    if (sharp_handle) {
-        sharpFullVerifyDeinit(sharp_handle);
-    }
-    if (handle) {
+    if (sharp_full_handle)
+        sharpFullVerifyDeinit(sharp_full_handle);
+    if (sharp_lite_handle)
+        sharpLiteVerifyDeinit(sharp_lite_handle);
+    if (handle)
         dciVerifyDeinit(handle);
-    }
     if (fp_src)
         fclose(fp_src);
     if (fp_dst)

@@ -11,7 +11,7 @@ typedef void *dci_handle_t;
 
 typedef struct {
     int          platform;
-    unsigned int debug_dump_mask; // 0 disables temp dumps, ~0ULL keeps all dumps
+    unsigned int debug_dump_mask; // 0 disables temp dumps, 0xff keeps all dumps
     char         debug_path[2048];
 } dci_init_param_t;
 
@@ -26,7 +26,7 @@ typedef struct {
     int        frame_idx;
     int        frame_num;
     // input pixel format (10bit planar) for DCI, see pix_fmt. (PIX_YUV444P_10 or PIX_RGB101010)
-    int pixel_format;
+    int        pixel_format;
 
     /* config path */
     char config_path[2048];

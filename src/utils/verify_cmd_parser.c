@@ -215,7 +215,7 @@ int common_verify_arg_dump_config(struct common_verify_cmd_config *config)
     LOGI(" - custom mode: %d\n", config->mode);
     LOGI(" - random seed: %d\n", config->seed);
     LOGI(" - dither up/down: %d / %d\n", config->dither_up, config->dither_dn);
-    LOGI(" - dump_flag: 0x%X\n", config->dump_flag);
+    LOGI(" - dump_flag: %#X\n", config->dump_flag);
     LOGI("----------------------------------------\n");
     return 0;
 }
