@@ -4,4 +4,4 @@ __pycache__
 output/
 project/build_*/
 rockchip/
-prebuilt/
+# prebuilt/
