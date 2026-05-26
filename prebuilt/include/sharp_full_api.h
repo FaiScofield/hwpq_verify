@@ -29,10 +29,18 @@ typedef struct {
 
 } sharp_full_proc_param_t;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 int sharpFullVerifyInit(sharp_full_handle_t* handle, sharp_full_init_param_t* init_param);
 
 int sharpFullVerifyDeinit(sharp_full_handle_t handle);
 
 int sharpFullVerifyProc(sharp_full_handle_t handle, sharp_full_proc_param_t* proc_params);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __SHARP_FULL_API_H__ */

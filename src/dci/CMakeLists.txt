@@ -11,6 +11,7 @@ add_executable(dci_verify_demo ${DCI_VERIFY_SRC})
 target_link_libraries(dci_verify_demo
     ${VERIFY_LIBS}
     ${PREBUILT_DIR}/libdci_verify.a
+    ${PREBUILT_DIR}/libsharp_full_verify.a
 )
 if(NOT WIN32)
     target_link_libraries(dci_verify_demo m)
