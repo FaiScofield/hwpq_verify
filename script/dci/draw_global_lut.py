@@ -14,6 +14,13 @@ GLOBAL_HIST_BIN_COUNT = 256
 GLOBAL_HIST_BIN_BYTES = 4
 
 
+def ensure_path(path_value):
+    """Convert a path-like input to a Path object."""
+    if path_value is None:
+        return None
+    return Path(path_value)
+
+
 def parse_args():
     """Parse command line arguments for LUT plotting."""
     parser = argparse.ArgumentParser(description="Draw DCI global LUT and/or global histogram figure")
@@ -28,6 +35,7 @@ def parse_args():
 
 def parse_global_lut_file(input_path):
     """Parse LUT entries from a text file."""
+    input_path = ensure_path(input_path)
     lut_map = {}
     with input_path.open("r", encoding="utf-8") as file_obj:
         for line_no, line in enumerate(file_obj, start=1):
@@ -50,6 +58,7 @@ def parse_global_lut_file(input_path):
 
 def parse_global_hist_file(input_path):
     """Parse a 256-bin uint32 global histogram binary file."""
+    input_path = ensure_path(input_path)
     expected_size = GLOBAL_HIST_BIN_COUNT * GLOBAL_HIST_BIN_BYTES
     data = input_path.read_bytes()
     if len(data) != expected_size:
@@ -65,8 +74,10 @@ def parse_global_hist_file(input_path):
 
 def build_output_path(global_lut_path, global_hist_path, output_arg):
     """Build the output PNG path."""
+    global_lut_path = ensure_path(global_lut_path)
+    global_hist_path = ensure_path(global_hist_path)
     if output_arg:
-        output_path = Path(output_arg)
+        output_path = ensure_path(output_arg)
     elif global_lut_path and global_hist_path:
         output_path = global_lut_path.parent / "dci_global_lut_hist.png"
     elif global_lut_path:
@@ -81,12 +92,15 @@ def build_output_path(global_lut_path, global_hist_path, output_arg):
 
 def prepare_figure(output_path):
     """Prepare the figure canvas and output directory."""
+    output_path = ensure_path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.figure(figsize=(12, 6), dpi=150)
 
 
 def draw_global_lut_curve(x_values, y_values, input_path, output_path):
     """Draw and save the LUT curve figure."""
+    input_path = ensure_path(input_path)
+    output_path = ensure_path(output_path)
     prepare_figure(output_path)
     plt.plot(x_values, y_values, color="tab:blue", linewidth=1.5, marker="o", markersize=2.5)
     plt.title(f"DCI Global LUT Curve\n{input_path.name}")
@@ -101,6 +115,8 @@ def draw_global_lut_curve(x_values, y_values, input_path, output_path):
 
 def draw_global_histogram(x_values, y_values, input_path, output_path):
     """Draw and save the global histogram figure."""
+    input_path = ensure_path(input_path)
+    output_path = ensure_path(output_path)
     prepare_figure(output_path)
     plt.bar(x_values, y_values, width=0.9, color="tab:orange", edgecolor="tab:orange", linewidth=0.2)
     plt.title(f"DCI Global Histogram\n{input_path.name}")
@@ -115,6 +131,9 @@ def draw_global_histogram(x_values, y_values, input_path, output_path):
 
 def draw_combined_plot(global_lut_path, global_hist_path, output_path):
     """Draw global LUT and global histogram on a shared x-axis with dual y-axes."""
+    global_lut_path = ensure_path(global_lut_path)
+    global_hist_path = ensure_path(global_hist_path)
+    output_path = ensure_path(output_path)
     lut_x, lut_y = parse_global_lut_file(global_lut_path)
     hist_x, hist_y = parse_global_hist_file(global_hist_path)
 
