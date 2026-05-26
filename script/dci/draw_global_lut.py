@@ -97,11 +97,18 @@ def prepare_figure(output_path):
     plt.figure(figsize=(12, 6), dpi=150)
 
 
+def draw_identity_reference(axis_obj, x_values, scale=1):
+    """Draw a dashed y=scale*x reference line for LUT comparison."""
+    ref_y_values = [scale * value for value in x_values]
+    axis_obj.plot(x_values, ref_y_values, color="tab:gray", linewidth=1.0, linestyle="--", alpha=0.8)
+
+
 def draw_global_lut_curve(x_values, y_values, input_path, output_path):
     """Draw and save the LUT curve figure."""
     input_path = ensure_path(input_path)
     output_path = ensure_path(output_path)
     prepare_figure(output_path)
+    draw_identity_reference(plt.gca(), x_values, scale=4)
     plt.plot(x_values, y_values, color="tab:blue", linewidth=1.5, marker="o", markersize=2.5)
     plt.title(f"DCI Global LUT Curve\n{input_path.name}")
     plt.xlabel("LUT Index")
@@ -140,6 +147,7 @@ def draw_combined_plot(global_lut_path, global_hist_path, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig, ax_lut = plt.subplots(figsize=(12, 6), dpi=150)
     ax_hist = ax_lut.twinx()
+    draw_identity_reference(ax_lut, lut_x, scale=4)
 
     lut_line = ax_lut.plot(
         lut_x,

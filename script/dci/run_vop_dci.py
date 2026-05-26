@@ -27,7 +27,7 @@ def parse_args():
 
 def do_dci_sim(data_dir, clahe_clip=1.0, clahe_lce=19, peaking_gain=150):
     """Run DCI simulation for all matching PNG files in the target directory."""
-    output_dir = os.path.join(data_dir, "dci_sim4")
+    output_dir = os.path.join(data_dir, "dci_sim5")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     # 获取 data_dir 下所有 xxx_off.png 文件
@@ -50,7 +50,7 @@ def do_dci_sim(data_dir, clahe_clip=1.0, clahe_lce=19, peaking_gain=150):
         # 执行 dci_sim_exe 转换 （注: 实际参数还无法通过命令行传入，仍需要修改json才能生效）
         cmd = (
             f'{dci_exe} -i "{png_file}" -o "{out_file}" -c "{config_file}" -m 5 '
-            f'--clahe_clip_value {clahe_clip} --shp_peaking_gain {peaking_gain} --dump 0xf0'
+            f'--clahe_clip_value {clahe_clip} --shp_type 1 --shp_peaking_gain {peaking_gain} --dump 0xf0'
         )
         # print(f"转换：{file_name} -> {base_name}_lce{lce}.png")
         utl.run_cmd(cmd, showOutput=True, showCmd=True)
@@ -60,7 +60,7 @@ def do_dci_sim(data_dir, clahe_clip=1.0, clahe_lce=19, peaking_gain=150):
         global_hist_path = f'{output_dir}/vdpp_hist_data_global_unpacked.bin'
         pic_output_path = f'{output_dir}/{base_name}_hist_and_global_lut.png'
         dgl.draw_combined_plot(global_lut_path, global_hist_path, pic_output_path)
-        utl.run_cmd(f'cp {png_file} {output_dir}/')
+        utl.run_cmd(f'cp {png_file} {output_dir}/', showOutput=False, showCmd=False)
 
         print(f"proc done for {file_name}")
         # return
