@@ -28,10 +28,9 @@ from get_csc_coef_hsv import (
     ALGO_EVIDEO_CSC_PLAN_A,
     ALGO_EVIDEO_CSC_PLAN_B,
     normalize_algo_type,
-    apply_bcsh_hsv,
-    apply_bcsh_yuv,
-    apply_rgb_gain_offset,
     get_evideo_csc_coefs,
+    get_evideo_plan_a_steps,
+    get_evideo_plan_b_steps,
 )
 
 FORMAT_NAMES = {
@@ -77,8 +76,8 @@ CLRSPC_NAMES = {
     3: "BT601_Full",
     4: "BT709_Limited",
     5: "BT709_Full",
-    8: "BT2020_Limited",
-    9: "BT2020_Full",
+    6: "BT2020_Limited",
+    7: "BT2020_Full",
 }
 
 CLRSPC_TO_PARAMS = {
@@ -92,7 +91,7 @@ CLRSPC_TO_PARAMS = {
     9: ("bt2020", "F"),
 }
 
-CLRSPC_OPTIONS = [0, 1, 2, 3, 4, 5, 8, 9]
+CLRSPC_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7]
 
 FMT_OPTIONS_8BIT = [0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA]
 FMT_OPTIONS_10BIT = [0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A]
@@ -354,7 +353,8 @@ def is_rgb_on_hsv_algo_type(algo_type):
 
 def get_rgb_gain_default_value(algo_type):
     """Return the default raw RGB gain value for the selected algorithm."""
-    return 64 if algo_type == ALGO_EVIDEO_CSC else 256
+    evideo_algo_types = {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_PLAN_A, ALGO_EVIDEO_CSC_PLAN_B}
+    return 64 if algo_type in evideo_algo_types else 256
 
 
 def get_default_bcsh_raw_values(algo_type):
@@ -464,58 +464,58 @@ def convert_planar(planar_in, input_clrspc, output_clrspc, coef_precision, pixel
 
 
 def run_selected_algo(planar_in, bcsh, pixel_depth, coef_precision, algo_type, input_clrspc, output_clrspc, input_fmt, output_fmt):
-    """Run the selected CSC/BCSH algorithm and return output plus the primary CSC matrix."""
+    """Run the selected CSC/BCSH algorithm and return output plus up to two CSC steps."""
     runtime_coef_precision = get_runtime_coef_precision(algo_type, coef_precision)
     csc_config = build_csc_config(pixel_depth, runtime_coef_precision, algo_type, input_clrspc, output_clrspc)
     input_is_rgb = is_rgb_format(input_fmt)
     output_is_rgb = is_rgb_format(output_fmt)
-    evideo_affine_algos = {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_PLAN_A}
+    evideo_affine_algos = {ALGO_EVIDEO_CSC}
+    rk_algo_types = {ALGO_RK_HW_CSC, ALGO_RK_SW_CSC}
 
     if algo_type in evideo_affine_algos:
-        base_config = build_csc_config(pixel_depth, 0, ALGO_RK_HW_CSC, input_clrspc, output_clrspc)
+        base_config = build_csc_config(pixel_depth, 0, ALGO_RK_HW_CSC, input_clrspc, output_clrspc) # float coefs
         base_mat, base_ofs = get_csc_coefs(base_config, None)
         coefs, offset = get_evideo_csc_coefs(csc_config, bcsh, base_mat, base_ofs)
         planar_out = apply_csc(planar_in, coefs, offset, runtime_coef_precision, pixel_depth)
-        return planar_out, coefs, offset
+        return planar_out, None, None, coefs, offset
 
-    if algo_type == ALGO_RK_SW_CSC and input_is_rgb and not output_is_rgb:
-        planar_in_proc = apply_rk_rgb_gain(planar_in, bcsh, pixel_depth, algo_type)
-        bcsh_for_csc = clear_bcsh_rgb_gains(bcsh)
+    if algo_type in rk_algo_types:
+        planar_in_proc = planar_in
+        bcsh_for_csc = bcsh
+
+        # SWPQ CSC R2Y case, clip input RGB after rgb_gain applied
+        if algo_type == ALGO_RK_SW_CSC and input_is_rgb and not output_is_rgb:
+            planar_in_proc = apply_rk_rgb_gain(planar_in, bcsh, pixel_depth, algo_type)
+            bcsh_for_csc = clear_bcsh_rgb_gains(bcsh)
+
         coefs, offset = get_csc_coefs(csc_config, bcsh_for_csc)
         planar_out = apply_csc(planar_in_proc, coefs, offset, runtime_coef_precision, pixel_depth)
-        return planar_out, coefs, offset
+        return planar_out, None, None, coefs, offset
 
-    if not is_rgb_on_hsv_algo_type(algo_type):
-        coefs, offset = get_csc_coefs(csc_config, bcsh)
-        planar_out = apply_csc(planar_in, coefs, offset, runtime_coef_precision, pixel_depth)
-        return planar_out, coefs, offset
+    base_config = build_csc_config(pixel_depth, 0, ALGO_RK_HW_CSC, input_clrspc, output_clrspc)
+    base_mat, base_ofs = get_csc_coefs(base_config, None)
 
-    base_coefs, base_offset = get_csc_coefs(csc_config, None)
+    if algo_type == ALGO_EVIDEO_CSC_PLAN_A:
+        (step1_coefs, step1_offset), (step2_coefs, step2_offset) = get_evideo_plan_a_steps(
+            csc_config, bcsh, base_mat, base_ofs
+        )
+        planar_mid = planar_in
+        if step1_coefs is not None:
+            planar_mid = apply_csc(planar_in, step1_coefs, step1_offset, runtime_coef_precision, pixel_depth)
+        planar_out = apply_csc(planar_mid, step2_coefs, step2_offset, runtime_coef_precision, pixel_depth)
+        return planar_out, step1_coefs, step1_offset, step2_coefs, step2_offset
 
-    if not input_is_rgb and not output_is_rgb:
-        planar_out = apply_csc(planar_in, base_coefs, base_offset, runtime_coef_precision, pixel_depth)
-        planar_out = apply_bcsh_yuv(planar_out, bcsh, pixel_depth, algo_type)
-        if algo_type == ALGO_EVIDEO_CSC_PLAN_B:
-            rgb_mid, _, _ = convert_planar(planar_out, output_clrspc, 1, runtime_coef_precision, pixel_depth)
-            rgb_mid = apply_rgb_gain_offset(rgb_mid, bcsh, pixel_depth, algo_type)
-            planar_out, _, _ = convert_planar(rgb_mid, 1, output_clrspc, runtime_coef_precision, pixel_depth)
-        return planar_out, base_coefs, base_offset
+    if algo_type == ALGO_EVIDEO_CSC_PLAN_B:
+        (step1_coefs, step1_offset), (step2_coefs, step2_offset) = get_evideo_plan_b_steps(
+            csc_config, bcsh, base_mat, base_ofs
+        )
+        planar_mid = planar_in
+        if step1_coefs is not None:
+            planar_mid = apply_csc(planar_in, step1_coefs, step1_offset, runtime_coef_precision, pixel_depth)
+        planar_out = apply_csc(planar_mid, step2_coefs, step2_offset, runtime_coef_precision, pixel_depth)
+        return planar_out, step1_coefs, step1_offset, step2_coefs, step2_offset
 
-    if not input_is_rgb and output_is_rgb:
-        planar_in_proc = apply_bcsh_yuv(planar_in, bcsh, pixel_depth, algo_type)
-        planar_out = apply_csc(planar_in_proc, base_coefs, base_offset, runtime_coef_precision, pixel_depth)
-        planar_out = apply_rgb_gain_offset(planar_out, bcsh, pixel_depth, algo_type)
-        return planar_out, base_coefs, base_offset
-
-    if input_is_rgb and not output_is_rgb:
-        planar_in_proc = apply_rgb_gain_offset(planar_in, bcsh, pixel_depth, algo_type)
-        planar_out = apply_csc(planar_in_proc, base_coefs, base_offset, runtime_coef_precision, pixel_depth)
-        planar_out = apply_bcsh_yuv(planar_out, bcsh, pixel_depth, algo_type)
-        return planar_out, base_coefs, base_offset
-
-    planar_out = apply_csc(planar_in, base_coefs, base_offset, runtime_coef_precision, pixel_depth)
-    planar_out = apply_bcsh_hsv(planar_out, bcsh, pixel_depth, algo_type)
-    return planar_out, base_coefs, base_offset
+    raise ValueError(f"Unsupported algorithm type: {algo_type}")
 
 
 def _get_default_output_path(input_path):
@@ -589,12 +589,14 @@ def run_cli(args):
         args.algo_type,
     )
 
-    planar_out, coefs, offset = run_selected_algo(
+    planar_out, step1_coefs, step1_offset, step2_coefs, step2_offset = run_selected_algo(
         planar_in, bcsh, pixel_depth, coef_precision, args.algo_type, input_clrspc, output_clrspc, input_fmt, output_fmt
     )
 
-    print(f"CSC matrix:\n{coefs}")
-    print(f"CSC offset: {offset}")
+    print(f"Step1 CSC matrix:\n{step1_coefs}")
+    print(f"Step1 CSC offset: {step1_offset}")
+    print(f"Step2 CSC matrix:\n{step2_coefs}")
+    print(f"Step2 CSC offset: {step2_offset}")
     write_planar_to_raw(planar_out, output_file, width, height, output_fmt)
     print(f"Conversion done, output written to: {output_file}")
 
@@ -684,7 +686,7 @@ def open_csc_ui(args):
         [sg.Column([
             [sg.TabGroup([
                 [sg.Tab('I/O Config', input_output_layout),
-                 sg.Tab('BCSH Configuration', bcsh_tab_layout)]
+                 sg.Tab('BCSH Config', bcsh_tab_layout)]
             ])]
         ]),
          sg.Column([
@@ -693,8 +695,38 @@ def open_csc_ui(args):
              [sg.Radio('Show Output', 'RADIO1', default=True, key='-SHOW-OUT-', enable_events=True, size=(12, 1))]
          ], element_justification='l', vertical_alignment='top', pad=(10, 30))],
         [sg.HorizontalSeparator()],
-        [sg.Input('Display Size: ...\tCoefs: ...\tOffset: ...', key='-PREVIEW-LABEL-', expand_x=True, font=('Consolas', 10), readonly=True, border_width=0, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color())],
-        [sg.Input('Position: ... Input Pixel: ... Output Pixel: ... [Press Space to freeze]', key='-PIXEL-INFO-', expand_x=True, font=('Consolas', 10), readonly=True, border_width=0, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color())],
+        [sg.Frame('Preview Info', [
+            [
+                sg.Text('Display Size:', size=(12, 1)),
+                sg.Input('', key='-DISPLAY-SIZE-', size=(36, 1), readonly=True, border_width=0,
+                         disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color()),
+                sg.Text('Position:', size=(10, 1)),
+                sg.Input('', key='-POSITION-INFO-', size=(36, 1), readonly=True, border_width=0,
+                         disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color()),
+            ],
+            [
+                sg.Text('Input Pixel:', size=(12, 1)),
+                sg.Input('', key='-INPUT-PIXEL-INFO-', size=(36, 1), readonly=True, border_width=0,
+                         disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color()),
+                sg.Text('Output Pixel:', size=(10, 1)),
+                sg.Input('', key='-OUTPUT-PIXEL-INFO-', size=(36, 1), readonly=True, border_width=0,
+                         disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color()),
+            ],
+        ], expand_x=True)],
+        [sg.Frame('CSC Steps', [
+            [
+                sg.Text('Step1 Coefs:', size=(12, 1)),
+                sg.Multiline('', size=(58, 1), key='-STEP1-COEFS-', disabled=True, no_scrollbar=True),
+                sg.Text('Step1 Offset:', size=(12, 1)),
+                sg.Multiline('', size=(28, 1), key='-STEP1-OFFSET-', disabled=True, no_scrollbar=True),
+            ],
+            [
+                sg.Text('Step2 Coefs:', size=(12, 1)),
+                sg.Multiline('', size=(58, 1), key='-STEP2-COEFS-', disabled=True, no_scrollbar=True),
+                sg.Text('Step2 Offset:', size=(12, 1)),
+                sg.Multiline('', size=(28, 1), key='-STEP2-OFFSET-', disabled=True, no_scrollbar=True),
+            ],
+        ], expand_x=True)],
         [sg.Column([[sg.Image(key='-IMAGE-', background_color='gray')]], key='-IMAGE-COL-', expand_x=True, expand_y=True, element_justification='l', vertical_alignment='top')]
     ]
 
@@ -715,8 +747,10 @@ def open_csc_ui(args):
     current_input_full_range = True
     current_output_color = ColorSpace.BT709
     current_input_color = ColorSpace.BT709
-    current_csc_coefs = None
-    current_csc_offset = None
+    current_step1_coefs = None
+    current_step1_offset = None
+    current_step2_coefs = None
+    current_step2_offset = None
     current_scale_factor = 1.0
     current_mouse_pos = None
     is_pixel_info_frozen = False
@@ -771,7 +805,7 @@ def open_csc_ui(args):
                 in_p0 = current_planar_in[0, ds_y, ds_x]
                 in_p1 = current_planar_in[1, ds_y, ds_x]
                 in_p2 = current_planar_in[2, ds_y, ds_x]
-                in_str = f"({in_p0:04d}, {in_p1:04d}, {in_p2:04d})"
+                in_str = f"({in_p0:4d}, {in_p1:4d}, {in_p2:4d})"
             else:
                 in_str = "(----, ----, ----)"
 
@@ -782,14 +816,15 @@ def open_csc_ui(args):
                     out_p0 = current_planar_out[0, ds_y, ds_x]
                     out_p1 = current_planar_out[1, ds_y, ds_x]
                     out_p2 = current_planar_out[2, ds_y, ds_x]
-                    out_str = f"({out_p0:04d}, {out_p1:04d}, {out_p2:04d})"
+                    out_str = f"({out_p0:4d}, {out_p1:4d}, {out_p2:4d})"
 
             in_format = "yuv" if current_input_is_yuv else "rgb"
             out_format = "yuv" if current_output_is_yuv else "rgb"
 
             freeze_status = "[Frozen]" if is_pixel_info_frozen else "[Press Space to freeze]"
-            info_text = f"Position: ({orig_x:04d},{orig_y:04d}) Input Pixel ({in_format}): {in_str} Output Pixel ({out_format}): {out_str} {freeze_status}"
-            window['-PIXEL-INFO-'].update(info_text)
+            window['-POSITION-INFO-'].update(f"({orig_x:4d},{orig_y:4d}) {freeze_status}")
+            window['-INPUT-PIXEL-INFO-'].update(f"{in_format}: {in_str}")
+            window['-OUTPUT-PIXEL-INFO-'].update(f"{out_format}: {out_str}")
 
     def update_multiline_readonly(window, key, value):
         widget = window[key].Widget
@@ -803,7 +838,8 @@ def open_csc_ui(args):
         nonlocal current_output_is_yuv, current_input_is_yuv
         nonlocal current_output_full_range, current_input_full_range
         nonlocal current_output_color, current_input_color
-        nonlocal current_csc_coefs, current_csc_offset
+        nonlocal current_step1_coefs, current_step1_offset
+        nonlocal current_step2_coefs, current_step2_offset
         nonlocal planar_in_full, current_input_file_params
         nonlocal current_scale_factor
 
@@ -835,7 +871,10 @@ def open_csc_ui(args):
         expected_size = get_frame_size(w, h, ifmt)
         actual_size = os.path.getsize(input_file)
         if actual_size < expected_size:
-            window['-PREVIEW-LABEL-'].update(value=f"Error: Input file size ({actual_size} bytes) is smaller than the expected frame size ({expected_size} bytes)!")
+            window['-DISPLAY-SIZE-'].update(value=f"Error: file too small ({actual_size} < {expected_size})")
+            window['-POSITION-INFO-'].update(value='')
+            window['-INPUT-PIXEL-INFO-'].update(value='')
+            window['-OUTPUT-PIXEL-INFO-'].update(value='')
             window['-IMAGE-'].update(data=b'')
             return
 
@@ -863,14 +902,16 @@ def open_csc_ui(args):
 
             algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_HW_CSC)
 
-            planar_out, coefs, offset = do_conversion(
+            planar_out, step1_coefs, step1_offset, step2_coefs, step2_offset = do_conversion(
                 planar_in, values, depth, precision, algo_type, iclr, oclr, ifmt, ofmt
             )
 
             current_planar_in = planar_in
             current_planar_out = planar_out
-            current_csc_coefs = coefs
-            current_csc_offset = offset
+            current_step1_coefs = step1_coefs
+            current_step1_offset = step1_offset
+            current_step2_coefs = step2_coefs
+            current_step2_offset = step2_offset
             current_output_pixel_depth = out_depth
             current_input_pixel_depth = in_depth
             current_output_is_yuv = is_yuv_format(ofmt)
@@ -897,19 +938,30 @@ def open_csc_ui(args):
                 if current_mouse_pos is not None:
                     update_pixel_info(window, current_mouse_pos[0], current_mouse_pos[1])
         except Exception as e:
-            window['-PREVIEW-LABEL-'].update(value=f"Error: {e}")
+            window['-DISPLAY-SIZE-'].update(value=f"Error: {e}")
+            window['-POSITION-INFO-'].update(value='')
+            window['-INPUT-PIXEL-INFO-'].update(value='')
+            window['-OUTPUT-PIXEL-INFO-'].update(value='')
             window['-IMAGE-'].update(data=b'')
 
     def display_result(window, values):
         nonlocal current_planar_in, current_planar_out
-        nonlocal current_csc_coefs, current_csc_offset
+        nonlocal current_step1_coefs, current_step1_offset
+        nonlocal current_step2_coefs, current_step2_offset
         nonlocal current_scale_factor
 
         show_output = values.get('-SHOW-OUT-', False)
 
         target_planar = current_planar_out if show_output else current_planar_in
         if target_planar is None:
-            window['-PREVIEW-LABEL-'].update(value="No conversion result")
+            window['-DISPLAY-SIZE-'].update(value="No conversion result")
+            window['-POSITION-INFO-'].update(value='')
+            window['-INPUT-PIXEL-INFO-'].update(value='')
+            window['-OUTPUT-PIXEL-INFO-'].update(value='')
+            update_multiline_readonly(window, '-STEP1-COEFS-', 'None')
+            update_multiline_readonly(window, '-STEP1-OFFSET-', 'None')
+            update_multiline_readonly(window, '-STEP2-COEFS-', 'None')
+            update_multiline_readonly(window, '-STEP2-OFFSET-', 'None')
             return
 
         target_is_yuv = current_output_is_yuv if show_output else current_input_is_yuv
@@ -959,12 +1011,17 @@ def open_csc_ui(args):
                 get_clrspc_from_display(iclr_disp),
                 get_clrspc_from_display(oclr_disp),
             )
-            coef_str = str(current_csc_coefs).replace('\n', ' ') if current_csc_coefs is not None else "None"
-            offset_str = str(current_csc_offset) if current_csc_offset is not None else "None"
-            preview_text = f"Display Size: {w}x{h}\tCoefs: {coef_str}\tOffset: {offset_str}"
-            window['-PREVIEW-LABEL-'].update(value=preview_text)
+            step1_coef_str = str(current_step1_coefs).replace('\n', ' ') if current_step1_coefs is not None else "None"
+            step1_offset_str = str(current_step1_offset) if current_step1_offset is not None else "None"
+            step2_coef_str = str(current_step2_coefs).replace('\n', ' ') if current_step2_coefs is not None else "None"
+            step2_offset_str = str(current_step2_offset) if current_step2_offset is not None else "None"
+            window['-DISPLAY-SIZE-'].update(value=f"{w}x{h} ({mode_desc})")
+            update_multiline_readonly(window, '-STEP1-COEFS-', step1_coef_str)
+            update_multiline_readonly(window, '-STEP1-OFFSET-', step1_offset_str)
+            update_multiline_readonly(window, '-STEP2-COEFS-', step2_coef_str)
+            update_multiline_readonly(window, '-STEP2-OFFSET-', step2_offset_str)
         except Exception as e:
-            window['-PREVIEW-LABEL-'].update(value=f"Display error: {e}")
+            window['-DISPLAY-SIZE-'].update(value=f"Display error: {e}")
 
     bcsh_keys = {f'-BCSH-{k}-' for _, k, _, _ in bcsh_names}.union({f'-BCSH-{k}-' for _, _, _, k in bcsh_names})
     convert_keys = {'-IN-FMT-', '-OUT-FMT-', '-IN-CLR-', '-OUT-CLR-',
@@ -998,6 +1055,7 @@ def open_csc_ui(args):
             new_algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_HW_CSC)
             update_rgb_gain_controls_for_algo_switch(window, values, current_algo_type, new_algo_type)
             current_algo_type = new_algo_type
+            print(f"algo_type switch to: {new_algo_type}")
             trigger_convert(values)
         elif event == '-RESET-BCSH-':
             algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_HW_CSC)
@@ -1039,7 +1097,7 @@ def open_csc_ui(args):
                     out_depth = get_pixel_depth(ofmt)
                     depth = max(in_depth, out_depth)
 
-                    full_planar_out, _, _ = do_conversion(
+                    full_planar_out, _, _, _, _ = do_conversion(
                         planar_in_full, values, depth, precision, algo_type, iclr, oclr, ifmt, ofmt
                     )
 
@@ -1139,7 +1197,7 @@ def main():
                              "(+0x10 for 10bit unpacked(LSB); +0x20 for 10bit packed)")
     parser.add_argument("-r", "--clrspc", type=int, default=1,
                         help="input image colorspace, default: 1-RGBF/5-709F, "
-                             "support: {0/1(RGBL/F), 2/3(601L/F), 4/5(709L/F), 8/9(2020L/F)}")
+                             "support: {0/1(RGBL/F), 2/3(601L/F), 4/5(709L/F), 6/7(2020L/F)}")
     parser.add_argument("-o", "--output", type=str, default=None,
                         help="output filename, default: 'dirname(input)/custom_output_basename'")
     parser.add_argument("-F", "--outfmt", type=lambda x: int(x, 0), default=None,

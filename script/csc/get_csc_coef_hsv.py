@@ -309,6 +309,76 @@ def get_evideo_csc_coefs(config, bcsh_cfg, base_mat, base_ofs):
     return final_mat, final_ofs
 
 
+def _split_quad_to_step(quad, config):
+    """
+    Split an optional homogeneous transform into one CSC matrix and offset pair.
+    """
+    if quad is None:
+        return None, None
+
+    step_mat, step_ofs = _split_homogeneous_mat(quad)
+    if config.coef_precision > 0:
+        return _get_fixed_coefs_affine(config, step_mat, step_ofs)
+    return step_mat, step_ofs
+
+
+def _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs):
+    """
+    Build reusable domain transforms for the two-step Plan A / Plan B paths.
+    """
+    _, quads = _get_evideo_bcsh_quads(config.algo_type, bcsh_cfg, config.pixel_depth)
+    quad_base = _make_homogeneous_mat(base_mat, base_ofs)
+    quad_rgb = quads["quad_rgb_rgbOffsets"] @ quads["quad_rgb_rgbGains"]
+    quad_yuv = quads["quad_yuv_bright"] @ quads["quad_yuv_contrast"] @ quads["quad_yuv_hue"] @ quads["quad_yuv_sat"]
+    return quads, quad_base, quad_rgb, quad_yuv
+
+
+def get_evideo_plan_a_steps(config, bcsh_cfg, base_mat, base_ofs):
+    """
+    Build the confirmed two-step homogeneous transforms for Plan A.
+    """
+    quads, quad_base, quad_rgb, quad_yuv = _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs)
+    mode = config.csc_mode
+
+    if mode.is_input_yuv and mode.is_output_yuv:
+        step1_quad = quad_rgb @ quads["quad_y2r"]
+        step2_quad = quad_yuv @ quads["quad_r2y"]
+    elif mode.is_input_yuv and not mode.is_output_yuv:
+        step1_quad = quad_yuv
+        step2_quad = quad_rgb @ quad_base
+    elif not mode.is_input_yuv and mode.is_output_yuv:
+        step1_quad = quad_rgb
+        step2_quad = quad_yuv @ quad_base
+    else:
+        step1_quad = quad_yuv @ quads["quad_r2y"]
+        step2_quad = quad_rgb @ quads["quad_y2r"]
+
+    return _split_quad_to_step(step1_quad, config), _split_quad_to_step(step2_quad, config)
+
+
+def get_evideo_plan_b_steps(config, bcsh_cfg, base_mat, base_ofs):
+    """
+    Build the confirmed two-step homogeneous transforms for Plan B.
+    """
+    quads, quad_base, quad_rgb, quad_yuv = _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs)
+    mode = config.csc_mode
+
+    if mode.is_input_yuv and mode.is_output_yuv:
+        step1_quad = None
+        step2_quad = quad_yuv @ quad_base
+    elif mode.is_input_yuv and not mode.is_output_yuv:
+        step1_quad = quad_yuv
+        step2_quad = quad_rgb @ quad_base
+    elif not mode.is_input_yuv and mode.is_output_yuv:
+        step1_quad = quad_rgb
+        step2_quad = quad_yuv @ quad_base
+    else:
+        step1_quad = None
+        step2_quad = quad_rgb @ quad_base
+
+    return _split_quad_to_step(step1_quad, config), _split_quad_to_step(step2_quad, config)
+
+
 def _rgb_to_hsv(rgb):
     """
     Convert RGB to HSV.
