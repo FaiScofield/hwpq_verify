@@ -79,11 +79,15 @@
 - BCSH参数生效总结：
   - `BCSH` 4个参数融合成齐次矩阵`Quad_yuv`，作用对象按优先级从高到低排列：输出YUV(R2Y/Y2Y)、输入YUV(Y2R)、输入中间层YUV(R2R: R2Y2R)
   - `RgbGain/RgbOffset` 6个参数融合成齐次矩阵`Quad_rgb`，作用对象按优先级从高到低排列：输出RGB(Y2R/R2R)、输入RGB(R2Y)、输入中间层RGB(Y2Y: Y2R2Y)
-  - 改为**Two-Step**形式，先计算作用于输入的矩阵和向量，再计算作用于输出的矩阵和向量，每次变换后都需要钳位
+  - 改为按域拆分的齐次矩阵路径：`R2Y/Y2R` 仍为**Two-Step**形式，`R2R/Y2Y` 为**Four-Step**形式；每次变换后都需要钳位
     - 对于R2Y，计算公式为: $I'_{rgb} = clip(Q_{rgb} * I_{rgb}, 0, 1); O'_{yuv} = clip(Q_{yuv} * M_{r2y} * I'_{rgb}, 0, 1)$
     - 对于Y2R，计算公式为: $I'_{yuv} = clip(Q_{yuv} * I_{yuv}, 0, 1); O'_{rgb} = clip(Q_{rgb} * M_{y2r} * I'_{rgb}, 0, 1)$
-    - 对于R2R，计算公式为: $I'_{yuv} = clip(Q_{yuv} * M_{r2y} * I_{rgb}, 0, 1); O'_{rgb} = clip(Q_{rgb} * M_{y2r} * I'_{yuv}, 0, 1)$
-    - 对于Y2Y，计算公式为: $I'_{rgb} = clip(Q_{rgb} * M_{y2r} * I_{yuv}, 0, 1); O'_{yuv} = clip(Q_{yuv} * M_{r2y} * I'_{rgb}, 0, 1)$
+    - 对于R2R，计算公式为: $I'_{yuv} = clip(M_{r2y} * I_{rgb}, 0, 1); I''_{yuv} = clip(Q_{yuv} * I'_{yuv}, 0, 1); I'_{rgb} = clip(M_{y2r} * I''_{yuv}, 0, 1); O'_{rgb} = clip(Q_{rgb} * I'_{rgb}, 0, 1)$
+    - 对于Y2Y，计算公式为: $I'_{rgb} = clip(M_{y2r} * I_{yuv}, 0, 1); I''_{rgb} = clip(Q_{rgb} * I'_{rgb}, 0, 1); I'_{yuv} = clip(M_{r2y} * I''_{rgb}, 0, 1); O'_{yuv} = clip(Q_{yuv} * I'_{yuv}, 0, 1)$
+  - UI 中仍只显示两组齐次矩阵参数：
+    - `Step1` 显示 `Q_yuv` 的系数和偏移
+    - `Step2` 显示 `Q_rgb` 的系数和偏移
+    - 中间域转换使用的 `M_{r2y}` / `M_{y2r}` 不在 UI 中单独显示
 
     | 参数类型 | 映射范围 | 作用域 |  R2Y | Y2R | R2R | Y2Y |
     | ------- | ------- | ------ | :----:|:---:|:---:|:---:|
@@ -119,10 +123,10 @@
 | 文档/代码对应 | `ALGO_RK_HW_CSC` | 新增条目 | `ALGO_EVIDEO_CSC` | `ALGO_EVIDEO_CSC_PLAN_A` | `ALGO_EVIDEO_CSC_PLAN_B` |
 | 实现形态 | 硬件 One-Step CSC | 软件浮点 CSC | 软件浮点 CSC | 软件浮点 CSC 改进方案 A | 软件浮点 CSC 改进方案 B |
 | BCSH 映射范围 | `RK` 旧映射 | `RK` 旧映射 | `eVideo` 映射 | `eVideo` 映射 | `eVideo` 映射 |
-| 亮度策略 | RGB/YUV 输出域生效 | 基本同 `RK HW CSC` | RGB/YUV 输出域生效 | 并入 `Q_yuv`，按 Two-Step 路径生效 | 并入 `Q_yuv`，按 Two-Step 路径生效 |
+| 亮度策略 | RGB/YUV 输出域生效 | 基本同 `RK HW CSC` | RGB/YUV 输出域生效 | 并入 `Q_yuv`，`R2Y/Y2R` 两步，`R2R/Y2Y` 四步 | 并入 `Q_yuv`，按 Two-Step 路径生效 |
 | 对比度策略 | RGB 域缩放，YUV 输出有偏色风险 | 基本同 `RK HW CSC`，当前脚本未抽离 `Contrast` | RGB 域缩放 | 改为 `Q_yuv` 中的 YUV 域中心缩放 | 并入 `Q_yuv`，`R2R/Y2Y` 仅保留 `step2` |
-| `RgbGain` / `RgbOffset` | RGB 域 / 输出 RGB 域 | `RgbGain` 在 R2Y 时可单独抽离 | RGB 域 / 输出 RGB 域 | 并入 `Q_rgb`，由 `step1/step2` 按域调度 | 并入 `Q_rgb`，`Y2Y` 不生效且 `R2R/Y2Y` 无 `step1` |
-| 主要备注 | 输入域参数过大时可能偏色 | 非 One-Step，可避免大部分色偏 | 主要差异在参数映射范围 | 显式输出 `step1/step2` 两组齐次矩阵参数 | 显式输出 `step1/step2` 两组齐次矩阵参数 |
+| `RgbGain` / `RgbOffset` | RGB 域 / 输出 RGB 域 | `RgbGain` 在 R2Y 时可单独抽离 | RGB 域 / 输出 RGB 域 | 并入 `Q_rgb`，UI 中固定显示为 `Step2` 参数 | 并入 `Q_rgb`，`Y2Y` 不生效且 `R2R/Y2Y` 无 `step1` |
+| 主要备注 | 输入域参数过大时可能偏色 | 非 One-Step，可避免大部分色偏 | 主要差异在参数映射范围 | UI 仅显示 `Q_yuv/Q_rgb` 两组参数，`R2R/Y2Y` 的中间域转换不单独显示 | 显式输出 `step1/step2` 两组齐次矩阵参数 |
 
 **BCSH 参数范围对比**
 
@@ -156,5 +160,6 @@
 
 - 当前文档聚焦 `RK HW CSC`、`RK SW CSC`、`eVideo CSC`、`eVideo CSC Plan A`、`eVideo CSC Plan B` 这 5 个条目。
 - `RK SW CSC` 现在已具备单列算法入口，并在 `R2Y` 场景下将 `RgbGain` 从矩阵路径中抽离为独立 RGB 域处理。
-- `ALGO_EVIDEO_CSC_PLAN_A` 与 `ALGO_EVIDEO_CSC_PLAN_B` 现统一输出 `step1/step2` 两组齐次矩阵参数，并在 UI 中分别展示。
+- `ALGO_EVIDEO_CSC_PLAN_A` 在 UI 中固定展示 `Q_yuv` 与 `Q_rgb` 两组参数；其中 `R2R/Y2Y` 的真实执行为四步，中间域转换不单独展示。
+- `ALGO_EVIDEO_CSC_PLAN_B` 现统一输出 `step1/step2` 两组齐次矩阵参数，并在 UI 中分别展示。
 - 现有代码入口与文档名称的对应关系以 `ALGO_RK_HW_CSC`、`ALGO_RK_SW_CSC`、`ALGO_EVIDEO_CSC`、`ALGO_EVIDEO_CSC_PLAN_A`、`ALGO_EVIDEO_CSC_PLAN_B` 为主。

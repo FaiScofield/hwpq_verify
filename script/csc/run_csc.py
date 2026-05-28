@@ -30,8 +30,11 @@ from get_csc_coef_hsv import (
     normalize_algo_type,
     get_evideo_csc_coefs,
     get_evideo_plan_a_steps,
+    get_evideo_plan_a_runtime_steps,
     get_evideo_plan_b_steps,
 )
+
+DEBUG_DUMP_PATH = "D:/RkDefaultDumpData/"
 
 FORMAT_NAMES = {
     0x0: "RGB888",
@@ -320,6 +323,47 @@ def write_planar_to_raw(planar, filepath, width, height, fmt):
     out.tofile(filepath)
 
 
+def _get_dump_fmt(is_rgb_domain, pixel_depth):
+    """Return a dump format code that matches the intermediate domain and bit depth."""
+    if is_rgb_domain:
+        return 0x12 if pixel_depth > 8 else 0x2
+    return 0x13 if pixel_depth > 8 else 0x3
+
+
+def _dump_step_planar(planar, step_name, is_rgb_domain, pixel_depth):
+    """Dump one intermediate planar image to the debug dump directory."""
+    os.makedirs(DEBUG_DUMP_PATH, exist_ok=True)
+    height, width = planar.shape[1], planar.shape[2]
+    dump_fmt = _get_dump_fmt(is_rgb_domain, pixel_depth)
+    exten = "rgb" if is_rgb_domain else "yuv"
+    dump_path = os.path.join(DEBUG_DUMP_PATH, f"{step_name}_{width}x{height}.{exten}")
+    write_planar_to_raw(planar, dump_path, width, height, dump_fmt)
+    print(f"Dumped file: {dump_path}")
+
+
+def _get_step_output_domains(algo_type, input_is_rgb, output_is_rgb):
+    """Return the output domains for step1 and step2."""
+    if algo_type == ALGO_EVIDEO_CSC_PLAN_A:
+        if not input_is_rgb and not output_is_rgb:
+            return True, False
+        if not input_is_rgb and output_is_rgb:
+            return False, True
+        if input_is_rgb and not output_is_rgb:
+            return True, False
+        return False, True
+
+    if algo_type == ALGO_EVIDEO_CSC_PLAN_B:
+        if not input_is_rgb and not output_is_rgb:
+            return None, False
+        if not input_is_rgb and output_is_rgb:
+            return False, True
+        if input_is_rgb and not output_is_rgb:
+            return True, False
+        return None, True
+
+    return None, output_is_rgb
+
+
 def apply_csc(planar_in, csc_coefs, csc_offset, coef_precision, pixel_depth):
     """Apply CSC transformation to planar image, return output planar (3, H, W)"""
     h, w = planar_in.shape[1], planar_in.shape[2]
@@ -442,9 +486,10 @@ def remap_rgb_gain_value_for_algo_switch(value, old_algo_type, new_algo_type):
 
     remapped = float(value)
     rk_algo_types = {ALGO_RK_HW_CSC, ALGO_RK_SW_CSC}
-    if old_algo_type in rk_algo_types and new_algo_type == ALGO_EVIDEO_CSC:
+    evideo_algo_types = {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_PLAN_A, ALGO_EVIDEO_CSC_PLAN_B}
+    if old_algo_type in rk_algo_types and new_algo_type in evideo_algo_types:
         remapped /= 4.0
-    elif old_algo_type == ALGO_EVIDEO_CSC and new_algo_type in rk_algo_types:
+    elif old_algo_type in evideo_algo_types and new_algo_type in rk_algo_types:
         remapped *= 4.0
 
     return int(np.clip(round(remapped), 0, 511))
@@ -463,12 +508,13 @@ def convert_planar(planar_in, input_clrspc, output_clrspc, coef_precision, pixel
     return planar_out, coefs, offset
 
 
-def run_selected_algo(planar_in, bcsh, pixel_depth, coef_precision, algo_type, input_clrspc, output_clrspc, input_fmt, output_fmt):
+def run_selected_algo(planar_in, bcsh, pixel_depth, coef_precision, algo_type, input_clrspc, output_clrspc, input_fmt, output_fmt, dump_enabled=False):
     """Run the selected CSC/BCSH algorithm and return output plus up to two CSC steps."""
     runtime_coef_precision = get_runtime_coef_precision(algo_type, coef_precision)
     csc_config = build_csc_config(pixel_depth, runtime_coef_precision, algo_type, input_clrspc, output_clrspc)
     input_is_rgb = is_rgb_format(input_fmt)
     output_is_rgb = is_rgb_format(output_fmt)
+    step1_is_rgb, step2_is_rgb = _get_step_output_domains(algo_type, input_is_rgb, output_is_rgb)
     evideo_affine_algos = {ALGO_EVIDEO_CSC}
     rk_algo_types = {ALGO_RK_HW_CSC, ALGO_RK_SW_CSC}
 
@@ -477,6 +523,8 @@ def run_selected_algo(planar_in, bcsh, pixel_depth, coef_precision, algo_type, i
         base_mat, base_ofs = get_csc_coefs(base_config, None)
         coefs, offset = get_evideo_csc_coefs(csc_config, bcsh, base_mat, base_ofs)
         planar_out = apply_csc(planar_in, coefs, offset, runtime_coef_precision, pixel_depth)
+        if dump_enabled:
+            _dump_step_planar(planar_out, "step2", step2_is_rgb, pixel_depth)
         return planar_out, None, None, coefs, offset
 
     if algo_type in rk_algo_types:
@@ -490,6 +538,8 @@ def run_selected_algo(planar_in, bcsh, pixel_depth, coef_precision, algo_type, i
 
         coefs, offset = get_csc_coefs(csc_config, bcsh_for_csc)
         planar_out = apply_csc(planar_in_proc, coefs, offset, runtime_coef_precision, pixel_depth)
+        if dump_enabled:
+            _dump_step_planar(planar_out, "step2", step2_is_rgb, pixel_depth)
         return planar_out, None, None, coefs, offset
 
     base_config = build_csc_config(pixel_depth, 0, ALGO_RK_HW_CSC, input_clrspc, output_clrspc)
@@ -499,10 +549,21 @@ def run_selected_algo(planar_in, bcsh, pixel_depth, coef_precision, algo_type, i
         (step1_coefs, step1_offset), (step2_coefs, step2_offset) = get_evideo_plan_a_steps(
             csc_config, bcsh, base_mat, base_ofs
         )
-        planar_mid = planar_in
-        if step1_coefs is not None:
-            planar_mid = apply_csc(planar_in, step1_coefs, step1_offset, runtime_coef_precision, pixel_depth)
-        planar_out = apply_csc(planar_mid, step2_coefs, step2_offset, runtime_coef_precision, pixel_depth)
+        runtime_steps = get_evideo_plan_a_runtime_steps(csc_config, bcsh, base_mat, base_ofs)
+        if not input_is_rgb and not output_is_rgb:
+            runtime_domains = [True, True, False, False]
+        elif not input_is_rgb and output_is_rgb:
+            runtime_domains = [False, True]
+        elif input_is_rgb and not output_is_rgb:
+            runtime_domains = [True, False]
+        else:
+            runtime_domains = [False, False, True, True]
+
+        planar_out = planar_in
+        for step_index, ((runtime_coefs, runtime_offset), is_rgb_domain) in enumerate(zip(runtime_steps, runtime_domains), start=1):
+            planar_out = apply_csc(planar_out, runtime_coefs, runtime_offset, runtime_coef_precision, pixel_depth)
+            if dump_enabled:
+                _dump_step_planar(planar_out, f"step{step_index}", is_rgb_domain, pixel_depth)
         return planar_out, step1_coefs, step1_offset, step2_coefs, step2_offset
 
     if algo_type == ALGO_EVIDEO_CSC_PLAN_B:
@@ -512,7 +573,11 @@ def run_selected_algo(planar_in, bcsh, pixel_depth, coef_precision, algo_type, i
         planar_mid = planar_in
         if step1_coefs is not None:
             planar_mid = apply_csc(planar_in, step1_coefs, step1_offset, runtime_coef_precision, pixel_depth)
+            if dump_enabled:
+                _dump_step_planar(planar_mid, "step1", step1_is_rgb, pixel_depth)
         planar_out = apply_csc(planar_mid, step2_coefs, step2_offset, runtime_coef_precision, pixel_depth)
+        if dump_enabled:
+            _dump_step_planar(planar_out, "step2", step2_is_rgb, pixel_depth)
         return planar_out, step1_coefs, step1_offset, step2_coefs, step2_offset
 
     raise ValueError(f"Unsupported algorithm type: {algo_type}")
@@ -590,7 +655,7 @@ def run_cli(args):
     )
 
     planar_out, step1_coefs, step1_offset, step2_coefs, step2_offset = run_selected_algo(
-        planar_in, bcsh, pixel_depth, coef_precision, args.algo_type, input_clrspc, output_clrspc, input_fmt, output_fmt
+        planar_in, bcsh, pixel_depth, coef_precision, args.algo_type, input_clrspc, output_clrspc, input_fmt, output_fmt, args.dump
     )
 
     print(f"Step1 CSC matrix:\n{step1_coefs}")
@@ -692,7 +757,8 @@ def open_csc_ui(args):
          sg.Column([
              [sg.Button('Save Output', key='-SAVE-OUT-', size=(12, 2))],
              [sg.Radio('Show Input', 'RADIO1', key='-SHOW-IN-', enable_events=True, size=(12, 1))],
-             [sg.Radio('Show Output', 'RADIO1', default=True, key='-SHOW-OUT-', enable_events=True, size=(12, 1))]
+             [sg.Radio('Show Output', 'RADIO1', default=True, key='-SHOW-OUT-', enable_events=True, size=(12, 1))],
+             [sg.Checkbox('dump', key='-DUMP-', default=False, enable_events=True, size=(12, 1))]
          ], element_justification='l', vertical_alignment='top', pad=(10, 30))],
         [sg.HorizontalSeparator()],
         [sg.Frame('Preview Info', [
@@ -731,6 +797,10 @@ def open_csc_ui(args):
     ]
 
     window = sg.Window('CSC Image Converter', layout, resizable=True, finalize=True, return_keyboard_events=True)
+    window.TKroot.attributes('-topmost', True)
+    window.TKroot.lift()
+    window.TKroot.focus_force()
+    window.TKroot.after(100, lambda: window.TKroot.attributes('-topmost', False))
 
     window.bind('<Configure>', '-WINDOW-RESIZE-')
     window['-IMAGE-'].bind('<Motion>', '+MOTION')
@@ -760,7 +830,7 @@ def open_csc_ui(args):
     planar_in_full = None
     current_input_file_params = None  # (input_file, w, h, ifmt)
 
-    def do_conversion(planar_in, values, depth, precision, algo_type, iclr, oclr, ifmt, ofmt):
+    def do_conversion(planar_in, values, depth, precision, algo_type, iclr, oclr, ifmt, ofmt, dump_enabled=False):
         bcsh = build_bcsh_config_from_dict(
             {
                 'hue': values['-BCSH-hue-'],
@@ -776,7 +846,7 @@ def open_csc_ui(args):
             },
             algo_type,
         )
-        return run_selected_algo(planar_in, bcsh, depth, precision, algo_type, iclr, oclr, ifmt, ofmt)
+        return run_selected_algo(planar_in, bcsh, depth, precision, algo_type, iclr, oclr, ifmt, ofmt, dump_enabled)
 
     def update_rgb_gain_controls_for_algo_switch(window, values, old_algo_type, new_algo_type):
         """Update RGB gain sliders when switching between RK-family and eVideo CSC."""
@@ -903,8 +973,11 @@ def open_csc_ui(args):
             algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_HW_CSC)
 
             planar_out, step1_coefs, step1_offset, step2_coefs, step2_offset = do_conversion(
-                planar_in, values, depth, precision, algo_type, iclr, oclr, ifmt, ofmt
+                planar_in, values, depth, precision, algo_type, iclr, oclr, ifmt, ofmt, False
             )
+
+            if values.get('-DUMP-', False):
+                do_conversion(planar_in_full, values, depth, precision, algo_type, iclr, oclr, ifmt, ofmt, True)
 
             current_planar_in = planar_in
             current_planar_out = planar_out
@@ -1026,6 +1099,7 @@ def open_csc_ui(args):
     bcsh_keys = {f'-BCSH-{k}-' for _, k, _, _ in bcsh_names}.union({f'-BCSH-{k}-' for _, _, _, k in bcsh_names})
     convert_keys = {'-IN-FMT-', '-OUT-FMT-', '-IN-CLR-', '-OUT-CLR-',
                     '-PRECISION-', '-WIDTH-', '-HEIGHT-', '-BCSH-ALGO-TYPE-'}
+    convert_keys.add('-DUMP-')
 
     last_window_size = window.size
 
@@ -1208,6 +1282,8 @@ def main():
                         help="the fixed coef precision bits 0 or [8, 16]")
     parser.add_argument("-D", "--depth", type=int, default=10,
                         help="the pixel depth bits [8, 16]")
+    parser.add_argument("--dump", action="store_true",
+                        help=f"dump step1/step2 apply_csc results to '{DEBUG_DUMP_PATH}'")
 
     parser.add_argument("--hue", type=int, default=None, help="BCSH hue [0, 511], default: 256")
     parser.add_argument("--saturation", type=int, default=None, help="BCSH saturation [0, 511], default: 256")

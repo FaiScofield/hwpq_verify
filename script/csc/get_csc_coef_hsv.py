@@ -23,6 +23,11 @@ ALGO_RK_CSC_LEGACY = "RK CSC"
 ALGO_EVIDEO_CSC_FIX_LEGACY = "eVideo CSC fix"
 ALGO_RGB_ON_HSV_ON_LEGACY = "rgbOnHsv_RgbCfg4YuvOn"
 
+g_r2y_mat_bt709 = np.array(
+    [[0.2126, 0.7152, 0.0722], [-0.114572, -0.385428, 0.5], [0.5, -0.454153, -0.045847]], dtype=np.float32
+)
+g_y2r_mat_bt709 = np.array([[1, 0, 1.5748], [1, -0.187324, -0.468124], [1, 1.8556, 0]], dtype=np.float32)
+
 
 def normalize_algo_type(algo_type):
     """
@@ -86,7 +91,7 @@ def get_evideo_bcsh_param_pack(algo_type, bcsh_cfg, pixel_depth):
         raise ValueError(f"Algorithm '{algo_type}' is not an eVideo family mode")
 
     max_pixel_val = float((1 << pixel_depth) - 1)
-    mid_pixel_val = max_pixel_val * 0.5
+    mid_pixel_val = float(1 << (pixel_depth - 1))
     contrast = bcsh_cfg.contrast / 256.0
     saturation = bcsh_cfg.saturation / 256.0
     hue_deg = _map_centered_unit(bcsh_cfg.hue) * 180.0
@@ -146,24 +151,16 @@ def _get_evideo_bcsh_quads(algo_type, bcsh_cfg, pixel_depth):
     rgb_mat_rgbgains = np.diag(rgb_gains).astype(np.float32)
     rgb_mat_contrast = np.diag([contrast, contrast, contrast]).astype(np.float32)
     yuv_mat_contrast = np.diag([contrast, 1.0, 1.0]).astype(np.float32)
-    if contrast <= 1.0:
-        contrast_center_rgb = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-        contrast_center_yuv = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-    else:
-        contrast_center_rgb = np.array([mid_pixel_val, mid_pixel_val, mid_pixel_val], dtype=np.float32)
-        contrast_center_yuv = np.array([mid_pixel_val, 0.0, 0.0], dtype=np.float32)
+    contrast_center_rgb = np.array([mid_pixel_val, mid_pixel_val, mid_pixel_val], dtype=np.float32)
+    contrast_center_yuv = np.array([mid_pixel_val, 0.0, 0.0], dtype=np.float32)
     hue_matrix = np.array([[1, 0, 0], [0, cos_hue, -sin_hue], [0, sin_hue, cos_hue]], dtype=np.float32)
     saturation_matrix = np.array([[1, 0, 0], [0, saturation, 0], [0, 0, saturation]], dtype=np.float32)
 
     quads = {
         "quad_yuv_hue": _make_homogeneous_mat(hue_matrix),
         "quad_yuv_sat": _make_homogeneous_mat(saturation_matrix),
-        "quad_r2y": _make_homogeneous_mat(
-            np.array([[0.2126, 0.7152, 0.0722], [-0.114572, -0.385428, 0.5], [0.5, -0.454153, -0.045847]], dtype=np.float32)
-        ),
-        "quad_y2r": _make_homogeneous_mat(
-            np.array([[1, 0, 1.5748], [1, -0.187324, -0.468124], [1, 1.8556, 0]], dtype=np.float32)
-        ),
+        "quad_r2y": _make_homogeneous_mat(g_r2y_mat_bt709, None),
+        "quad_y2r": _make_homogeneous_mat(g_y2r_mat_bt709, None),
         "quad_rgb_rgbGains": _make_homogeneous_mat(rgb_mat_rgbgains),
         "quad_rgb_rgbOffsets": _make_translation_quad(rgb_offsets),
         "quad_yuv_bright": _make_translation_quad(np.array([brightness, 0.0, 0.0], dtype=np.float32)),
@@ -335,25 +332,29 @@ def _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs):
 
 def get_evideo_plan_a_steps(config, bcsh_cfg, base_mat, base_ofs):
     """
-    Build the confirmed two-step homogeneous transforms for Plan A.
+    Build the UI-visible YUV/RGB domain transforms for Plan A.
+    """
+    _, _, quad_rgb, quad_yuv = _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs)
+    return _split_quad_to_step(quad_yuv, config), _split_quad_to_step(quad_rgb, config)
+
+
+def get_evideo_plan_a_runtime_steps(config, bcsh_cfg, base_mat, base_ofs):
+    """
+    Build the actual apply_csc step list for Plan A.
     """
     quads, quad_base, quad_rgb, quad_yuv = _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs)
     mode = config.csc_mode
 
     if mode.is_input_yuv and mode.is_output_yuv:
-        step1_quad = quad_rgb @ quads["quad_y2r"]
-        step2_quad = quad_yuv @ quads["quad_r2y"]
+        runtime_quads = [quads["quad_y2r"], quad_rgb, quads["quad_r2y"], quad_yuv]
     elif mode.is_input_yuv and not mode.is_output_yuv:
-        step1_quad = quad_yuv
-        step2_quad = quad_rgb @ quad_base
+        runtime_quads = [quad_yuv, quad_rgb @ quad_base]
     elif not mode.is_input_yuv and mode.is_output_yuv:
-        step1_quad = quad_rgb
-        step2_quad = quad_yuv @ quad_base
+        runtime_quads = [quad_rgb, quad_yuv @ quad_base]
     else:
-        step1_quad = quad_yuv @ quads["quad_r2y"]
-        step2_quad = quad_rgb @ quads["quad_y2r"]
+        runtime_quads = [quads["quad_r2y"], quad_yuv, quads["quad_y2r"], quad_rgb]
 
-    return _split_quad_to_step(step1_quad, config), _split_quad_to_step(step2_quad, config)
+    return [_split_quad_to_step(quad, config) for quad in runtime_quads]
 
 
 def get_evideo_plan_b_steps(config, bcsh_cfg, base_mat, base_ofs):
