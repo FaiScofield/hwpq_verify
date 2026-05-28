@@ -21,7 +21,7 @@ file(GLOB PREBUILT_LIBS
     "${PREBUILT_DIR}/${PREBUILT_LIB_SUFFIX}"
 )
 message(STATUS "[SRC] set PREBUILT_DIR: ${PREBUILT_DIR}")
-message(STATUS "[SRC] set PREBUILT_LIBS: ${PREBUILT_LIBS}")
+# message(STATUS "[SRC] set PREBUILT_LIBS: ${PREBUILT_LIBS}")
 
 ## add common utility libraries
 add_subdirectory(utils)

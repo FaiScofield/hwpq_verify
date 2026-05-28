@@ -9,7 +9,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
-LUT_LINE_PATTERN = re.compile(r"global\s+lut\[(\d+)\]\s*=\s*(-?\d+)", re.IGNORECASE)
+LUT_LINE_PATTERN = re.compile(r".*?\[(\d+)\]\s*=\s*(-?\d+)\s*$", re.IGNORECASE)
 GLOBAL_HIST_BIN_COUNT = 256
 GLOBAL_HIST_BIN_BYTES = 4
 
@@ -131,6 +131,41 @@ def draw_global_histogram(x_values, y_values, input_path, output_path):
     plt.ylabel("Count")
     plt.grid(True, axis="y", linestyle="--", linewidth=0.5, alpha=0.6)
     plt.xlim(min(x_values), max(x_values))
+    plt.tight_layout()
+    plt.savefig(output_path, format="png")
+    plt.close()
+
+
+def draw_multi_lut_plot(lut_specs, output_path, title):
+    """Draw and save multiple LUT curves on a single figure."""
+    output_path = ensure_path(output_path)
+    color_list = ["tab:blue", "tab:orange", "tab:green", "tab:red"]
+    all_x_values = []
+
+    prepare_figure(output_path)
+    axis_obj = plt.gca()
+
+    for idx, (lut_path, label) in enumerate(lut_specs):
+        lut_path = ensure_path(lut_path)
+        x_values, y_values = parse_global_lut_file(lut_path)
+        axis_obj.plot(
+            x_values,
+            y_values,
+            color=color_list[idx % len(color_list)],
+            linewidth=1.5,
+            marker="o",
+            markersize=2.5,
+            label=label,
+        )
+        all_x_values.extend(x_values)
+
+    draw_identity_reference(axis_obj, sorted(set(all_x_values)), scale=1)
+    axis_obj.set_title(title)
+    axis_obj.set_xlabel("LUT Index")
+    axis_obj.set_ylabel("LUT Value")
+    axis_obj.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
+    axis_obj.set_xlim(min(all_x_values), max(all_x_values))
+    axis_obj.legend(loc="best")
     plt.tight_layout()
     plt.savefig(output_path, format="png")
     plt.close()

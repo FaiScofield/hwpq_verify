@@ -27,7 +27,7 @@ def parse_args():
 
 def do_dci_sim(data_dir, clahe_clip=1.0, clahe_lce=19, peaking_gain=150):
     """Run DCI simulation for all matching PNG files in the target directory."""
-    output_dir = os.path.join(data_dir, "dci_sim5")
+    output_dir = os.path.join(data_dir, "dci_sim6")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     # 获取 data_dir 下所有 xxx_off.png 文件
@@ -44,6 +44,9 @@ def do_dci_sim(data_dir, clahe_clip=1.0, clahe_lce=19, peaking_gain=150):
         file_name = os.path.basename(png_file)
         base_name = file_name.split('_')[0]
 
+        # if base_name != "XLS1":
+        #     continue
+
         # 生成输出文件路径
         out_file = os.path.join(output_dir, f"{base_name}_rk_peaking{peaking_gain}_clip{clahe_clip}_lce{clahe_lce}.png")
 
@@ -59,7 +62,15 @@ def do_dci_sim(data_dir, clahe_clip=1.0, clahe_lce=19, peaking_gain=150):
         global_lut_path = f'{output_dir}/VOP_pos1_DCI_Global_LUT_frame0.txt'
         global_hist_path = f'{output_dir}/vdpp_hist_data_global_unpacked.bin'
         pic_output_path = f'{output_dir}/{base_name}_hist_and_global_lut.png'
+        multi_lut_specs = [
+            (f'{output_dir}/VOP_pos1_DCI_CF_LUT_frm0.txt', "CF LUT"),
+            (f'{output_dir}/VOP_pos2_DCI_HE_LUT_frm0.txt', "HE LUT"),
+            (f'{output_dir}/VOP_pos3_DCI_Global_LUT_CFHE_frm0.txt', "Global LUT CFHE"),
+            (f'{output_dir}/VOP_pos4_DCI_Global_LUT_WS_frm0.txt', "Global LUT WS"),
+        ]
+        multi_lut_output_path = f'{output_dir}/{base_name}_he_bs_global_lut.png'
         dgl.draw_combined_plot(global_lut_path, global_hist_path, pic_output_path)
+        dgl.draw_multi_lut_plot(multi_lut_specs, multi_lut_output_path, f"{base_name} CF/HE/CF+HE/BS LUTs")
         utl.run_cmd(f'cp {png_file} {output_dir}/', showOutput=False, showCmd=False)
 
         print(f"proc done for {file_name}")
