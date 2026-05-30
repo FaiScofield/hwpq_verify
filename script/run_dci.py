@@ -1,5 +1,15 @@
-import os
+"""
+DCI Layer 1 Runner UI launcher.
+
+Use this script as the entry point for the interactive DCI UI.
+The original batch helpers (do_png_to_yuv444p10l, do_yuv444p10l_to_png,
+do_dci_sim) are kept below for backward-compatible CLI usage.
+"""
+
 import glob
+import os
+import sys
+
 import utils as utl
 
 data_dir = "V:/ai-contrast/9681Aicontrast/"
@@ -69,7 +79,7 @@ def do_yuv444p10l_to_png(data_dir):
 def do_dci_sim(data_dir, lce=25):
     output_dir = os.path.join(data_dir, "dci_sim")
 
-    # 获取 data_dir 下所有 xxx_off.png 文件
+    # 获取 data_dir 下所有 xxx_yuv444p10le.yuv 文件
     yuv_files = glob.glob(os.path.join(data_dir, "*_yuv444p10le.yuv"))
 
     if not yuv_files:
@@ -93,6 +103,5 @@ def do_dci_sim(data_dir, lce=25):
 
 
 if __name__ == "__main__":
-    # do_png2yuv444p10l(data_dir)
-    # do_dci_sim(data_dir, 5)
-    do_yuv444p10l_to_png(data_dir + "/dci_sim")
+    from dci.dci_ui import main
+    main()
