@@ -28,6 +28,6 @@ cmake -G "Ninja" -H%PROJECT_DIR% -B%BUILD_DIR% ^
 cmake --build %BUILD_DIR% --config %BUILD_TYPE% --target install -j 4 -- -d explain
 
 :: copy compile_commands.json to project root
-copy /Y %BUILD_DIR%\compile_commands.json %PROJECT_DIR%\.vscode\
+copy /Y %BUILD_DIR%\compile_commands.json %PROJECT_DIR%\
 
 @echo on
