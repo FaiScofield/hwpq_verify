@@ -174,6 +174,10 @@ bool dci_load_runner_request(const char *request_path,
     ok = ok && dci_json_get_int(root, "width", &request->width, error_msg);
     ok = ok && dci_json_get_int(root, "height", &request->height, error_msg);
     ok = ok && dci_json_get_int(root, "pixel_format", &request->pixel_format, error_msg);
+    ok = ok && dci_json_get_int(root, "input_format", &request->input_format, error_msg);
+    ok = ok && dci_json_get_int(root, "input_colorspace", &request->input_colorspace, error_msg);
+    ok = ok && dci_json_get_int(root, "output_format", &request->output_format, error_msg);
+    ok = ok && dci_json_get_int(root, "output_colorspace", &request->output_colorspace, error_msg);
 
     /* Optional fields with defaults */
     std::string tmp;

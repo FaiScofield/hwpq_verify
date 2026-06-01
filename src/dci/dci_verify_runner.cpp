@@ -17,6 +17,7 @@
 
 #include "dci_request_io.h"
 #include "dci_verify_api.h"
+#include "verify_img_fmt.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -28,7 +29,7 @@
 /* ------------------------------------------------------------------ */
 
 /**
- * @brief  Read one YUV frame from a raw file into malloc'd buffer.
+ * @brief  Read one planar raw frame from a file into a malloc'd buffer.
  * @param  path      File path.
  * @param  width     Frame width in pixels.
  * @param  height    Frame height in pixels.
@@ -84,7 +85,7 @@ static uint8_t *read_yuv_frame(const char *path, int width, int height,
 }
 
 /**
- * @brief  Write one YUV frame buffer to a raw file.
+ * @brief  Write one planar raw frame buffer to a file.
  * @return true on success.
  */
 static bool write_yuv_frame(const char *path, const uint8_t *data,
@@ -97,14 +98,86 @@ static bool write_yuv_frame(const char *path, const uint8_t *data,
 }
 
 /**
- * @brief  Fill an img_info_t for a YUV444 10-bit planar buffer.
+ * @brief  Return true when the runner can map the format to img_info_t directly.
+ */
+static bool dci_is_supported_planar_format(int format) {
+    switch (format) {
+    case RGB_PLANAR:
+    case RGB_PLANAR10LSB:
+    case YUV444P:
+    case YUV444P_10LSB:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/**
+ * @brief  Validate request-side format/colorspace fields before calling DCI.
+ * @return true on success, false when the request asks for an unsupported layout.
+ */
+static bool dci_validate_request(const dci_runner_request_t &request, int bits,
+                                 std::string *error_msg) {
+    if (!dci_is_supported_planar_format(request.input_format)) {
+        if (error_msg) {
+            *error_msg = "unsupported input_format: " +
+                         std::to_string(request.input_format);
+        }
+        return false;
+    }
+
+    if (!dci_is_supported_planar_format(request.output_format)) {
+        if (error_msg) {
+            *error_msg = "unsupported output_format: " +
+                         std::to_string(request.output_format);
+        }
+        return false;
+    }
+
+    if (common_verify_imgfmt_depth(request.input_format) != bits) {
+        if (error_msg) {
+            *error_msg = "input_format bit depth does not match pixel_format";
+        }
+        return false;
+    }
+
+    if (common_verify_imgfmt_depth(request.output_format) != bits) {
+        if (error_msg) {
+            *error_msg = "output_format bit depth does not match pixel_format";
+        }
+        return false;
+    }
+
+    if (common_verify_imgfmt_is_yuv(request.input_format) !=
+        (request.input_colorspace > RGBFULL)) {
+        if (error_msg) {
+            *error_msg =
+                "input_colorspace family does not match input_format";
+        }
+        return false;
+    }
+
+    if (common_verify_imgfmt_is_yuv(request.output_format) !=
+        (request.output_colorspace > RGBFULL)) {
+        if (error_msg) {
+            *error_msg =
+                "output_colorspace family does not match output_format";
+        }
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * @brief  Fill an img_info_t for a planar 8/10-bit RGB or YUV444 buffer.
  *
- * The DCI library expects planar layout. For 10-bit YUV444 this means
- * three planes (Y, U, V) each width*height samples, stored as 16-bit
- * values in little-endian.
+ * The runner only supports planar 4:4:4 style buffers. For 10-bit data,
+ * each sample is stored as a 16-bit little-endian value.
  */
 static void fill_img_info_10bit_planar(img_info_t *info, uint8_t *buf,
-                                       int width, int height, int bits) {
+                                       int width, int height, int bits,
+                                       int format) {
     memset(info, 0, sizeof(*info));
     info->plane_num = 3;
     int sample_size = (bits == 10) ? 2 : 1;
@@ -119,8 +192,8 @@ static void fill_img_info_10bit_planar(img_info_t *info, uint8_t *buf,
         info->img_hs[p] = height;
     }
     info->img_bits = bits;
-    info->is_yuv = 1;
-    info->is_rgb = 0;
+    info->is_yuv = common_verify_imgfmt_is_yuv(format) ? 1 : 0;
+    info->is_rgb = common_verify_imgfmt_is_rgb(format) ? 1 : 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -146,11 +219,11 @@ static void dci_fill_proc_param(const dci_runner_request_t &request,
 
     /* Fill source image info */
     fill_img_info_10bit_planar(&proc_param->src_info, src_buf, width, height,
-                               bits);
+                               bits, request.input_format);
 
     /* Fill destination image info (output buffer) */
     fill_img_info_10bit_planar(&proc_param->dst_info, dst_buf, width, height,
-                               bits);
+                               bits, request.output_format);
 
     proc_param->frame_idx = request.frame_idx;
     proc_param->frame_num = request.frame_num;
@@ -160,7 +233,8 @@ static void dci_fill_proc_param(const dci_runner_request_t &request,
     snprintf(proc_param->reg_path, sizeof(proc_param->reg_path), "%s",
              request.reg_path.c_str());
 
-    proc_param->is_src_fullrange = request.is_src_fullrange;
+    proc_param->is_src_fullrange =
+        common_verify_clrspc_is_full_range(request.input_colorspace);
 
     /* Copy audit struct directly - field names must match the library ABI */
     memcpy(&proc_param->audit, &request.audit, sizeof(proc_param->audit));
@@ -217,7 +291,28 @@ int main(int argc, char *argv[]) {
 
     /* Step 2: Load input frame */
     size_t frame_size = 0;
-    int bits = (request.pixel_format == 19) ? 10 : 8;
+    int bits = common_verify_imgfmt_depth(request.pixel_format);
+    if (bits == 0) {
+        result.exit_code = 1;
+        result.status = "request_error";
+        result.message = "unsupported pixel_format";
+        result.working_dir = request.audit.working_dir;
+        dci_write_runner_result(result_path, result, nullptr);
+        fprintf(stderr, "request error: unsupported pixel_format %d\n",
+                request.pixel_format);
+        return 1;
+    }
+
+    if (!dci_validate_request(request, bits, &error_msg)) {
+        result.exit_code = 1;
+        result.status = "request_error";
+        result.message = error_msg;
+        result.working_dir = request.audit.working_dir;
+        dci_write_runner_result(result_path, result, nullptr);
+        fprintf(stderr, "request error: %s\n", error_msg.c_str());
+        return 1;
+    }
+
     uint8_t *src_buf = read_yuv_frame(request.input_file.c_str(), request.width,
                                       request.height, bits, request.frame_idx,
                                       &frame_size);

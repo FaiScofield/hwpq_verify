@@ -52,6 +52,10 @@ class DciRunnerRequest:
     width: int = 1920
     height: int = 1080
     pixel_format: int = 19
+    input_format: int = 19
+    input_colorspace: int = 4
+    output_format: int = 19
+    output_colorspace: int = 4
     config_path: str = ""
     reg_path: str = ""
     is_src_fullrange: int = 1
@@ -109,6 +113,10 @@ def load_runner_request(request_path: str) -> Optional[DciRunnerRequest]:
     req.width = data.get("width", 1920)
     req.height = data.get("height", 1080)
     req.pixel_format = data.get("pixel_format", 19)
+    req.input_format = data.get("input_format", 19)
+    req.input_colorspace = data.get("input_colorspace", 4)
+    req.output_format = data.get("output_format", 19)
+    req.output_colorspace = data.get("output_colorspace", 4)
     req.config_path = data.get("config_path", "")
     req.reg_path = data.get("reg_path", "")
     req.is_src_fullrange = data.get("is_src_fullrange", 1)

@@ -16,6 +16,10 @@ struct dci_runner_request_t {
     int width = 0;
     int height = 0;
     int pixel_format = 0;
+    int input_format = 0;
+    int input_colorspace = 0;
+    int output_format = 0;
+    int output_colorspace = 0;
     std::string config_path;
     std::string reg_path;
     int is_src_fullrange = 1;
