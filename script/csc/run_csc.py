@@ -367,12 +367,16 @@ def _get_step_output_domains(algo_type, input_is_rgb, output_is_rgb):
 def apply_csc(planar_in, csc_coefs, csc_offset, coef_precision, pixel_depth):
     """Apply CSC transformation to planar image, return output planar (3, H, W)"""
     h, w = planar_in.shape[1], planar_in.shape[2]
-    pixels = planar_in.reshape(3, -1).astype(np.float64)
-    out = csc_coefs.astype(np.float64) @ pixels + csc_offset.reshape(3, 1).astype(np.float64)
 
     if coef_precision > 0:
+        assert(csc_coefs.dtype == np.int32 and csc_offset.dtype == np.int32)
+        pixels = planar_in.reshape(3, -1).astype(np.int32)
+        out = csc_coefs @ pixels + csc_offset.reshape(3, 1)
         rnd = 1 << (coef_precision - 1)
-        out = (out.astype(np.int64) + rnd) >> coef_precision
+        out = (out + rnd) >> coef_precision
+    else:
+        pixels = planar_in.reshape(3, -1).astype(np.float32)
+        out = csc_coefs.astype(np.float32) @ pixels + csc_offset.reshape(3, 1).astype(np.float32)
 
     max_val = (1 << pixel_depth) - 1
     out = np.clip(out, 0, max_val).astype(planar_in.dtype)
@@ -450,7 +454,7 @@ def apply_rk_rgb_gain(planar_rgb, bcsh_cfg, pixel_depth, algo_type):
     """Apply RK-family RGB gain only in RGB space without applying RGB offsets."""
     h, w = planar_rgb.shape[1], planar_rgb.shape[2]
     max_val = (1 << pixel_depth) - 1
-    rgb_normalized = planar_rgb.reshape(3, -1).T.astype(np.float64) / max_val
+    rgb_normalized = planar_rgb.reshape(3, -1).T.astype(np.float32) / max_val
     algo_type = normalize_algo_type(algo_type)
     if algo_type not in {ALGO_RK_HW_CSC, ALGO_RK_SW_CSC}:
         raise ValueError(f"Algorithm '{algo_type}' is not an RK family mode")
@@ -461,7 +465,7 @@ def apply_rk_rgb_gain(planar_rgb, bcsh_cfg, pixel_depth, algo_type):
             bcsh_cfg.g_gain / 256.0,
             bcsh_cfg.b_gain / 256.0,
         ],
-        dtype=np.float64,
+        dtype=np.float32,
     )
 
     rgb_new = rgb_normalized * rgb_gains
@@ -498,6 +502,27 @@ def remap_rgb_gain_value_for_algo_switch(value, old_algo_type, new_algo_type):
 def ui_bcsh_key_to_config_key(ui_key):
     """Convert a UI BCSH key to the matching config field name."""
     return UI_BCSH_KEY_TO_CONFIG_KEY.get(ui_key, ui_key)
+
+
+def get_bcsh_spin_key(slider_key):
+    """Return the paired spinbox key for a BCSH slider key."""
+    if not slider_key.startswith("-BCSH-") or not slider_key.endswith("-"):
+        raise ValueError(f"Invalid BCSH slider key: {slider_key}")
+    return slider_key[:-1] + "-SPIN-"
+
+
+def normalize_bcsh_spin_value(raw_value, fallback_value):
+    """Normalize a spinbox commit to an in-range integer."""
+    try:
+        value = int(str(raw_value).strip())
+    except (TypeError, ValueError):
+        return int(fallback_value)
+    return max(0, min(511, value))
+
+
+def step_bcsh_value(current_value, delta):
+    """Step a BCSH value by delta while clamping to the valid range."""
+    return max(0, min(511, int(current_value) + int(delta)))
 
 
 def convert_planar(planar_in, input_clrspc, output_clrspc, coef_precision, pixel_depth):
@@ -699,11 +724,11 @@ def open_csc_ui(args):
             sg.Text(n1, size=(10, 1)),
             sg.Slider(range=(0, 511), default_value=256, orientation='h',
                       size=(20, 15), key=f'-BCSH-{k1}-', enable_events=True, disable_number_display=True),
-            sg.Text('256', key=f'-BCSH-{k1}-VAL-', size=(4, 1)),
+            sg.Spin([str(i) for i in range(512)], initial_value='256', key=f'-BCSH-{k1}-SPIN-', size=(5, 1)),
             sg.Text(n2, size=(10, 1)),
             sg.Slider(range=(0, 511), default_value=256, orientation='h',
                       size=(20, 15), key=f'-BCSH-{k2}-', enable_events=True, disable_number_display=True),
-            sg.Text('256', key=f'-BCSH-{k2}-VAL-', size=(4, 1)),
+            sg.Spin([str(i) for i in range(512)], initial_value='256', key=f'-BCSH-{k2}-SPIN-', size=(5, 1)),
         ])
 
     algo_type_options = [
@@ -754,7 +779,7 @@ def open_csc_ui(args):
                  sg.Tab('BCSH Config', bcsh_tab_layout)]
             ])]
         ]),
-         sg.Column([
+        sg.Column([
              [sg.Button('Save Output', key='-SAVE-OUT-', size=(12, 2))],
              [sg.Radio('Show Input', 'RADIO1', key='-SHOW-IN-', enable_events=True, size=(12, 1))],
              [sg.Radio('Show Output', 'RADIO1', default=True, key='-SHOW-OUT-', enable_events=True, size=(12, 1))],
@@ -848,16 +873,40 @@ def open_csc_ui(args):
         )
         return run_selected_algo(planar_in, bcsh, depth, precision, algo_type, iclr, oclr, ifmt, ofmt, dump_enabled)
 
+    def set_bcsh_pair_value(window, values, slider_key, committed_value):
+        """Synchronize one BCSH slider and its paired spinbox."""
+        spin_key = get_bcsh_spin_key(slider_key)
+        committed_value = int(committed_value)
+        window[slider_key].update(value=committed_value)
+        window[spin_key].update(value=str(committed_value))
+        values[slider_key] = committed_value
+        values[spin_key] = str(committed_value)
+
+    def commit_bcsh_spin_value(window, values, spin_key):
+        """Commit an edited BCSH spinbox value back to the paired slider."""
+        slider_key = spin_key.replace("-SPIN-", "-")
+        fallback_value = int(values[slider_key])
+        committed_value = normalize_bcsh_spin_value(values.get(spin_key), fallback_value)
+        set_bcsh_pair_value(window, values, slider_key, committed_value)
+        return committed_value
+
+    def emit_bcsh_ui_event(event_key, stop_default=False):
+        """Build a Tk callback that forwards a custom UI event to the window."""
+        def _handler(event=None):
+            window.write_event_value(event_key, None)
+            if stop_default:
+                return "break"
+            return None
+
+        return _handler
+
     def update_rgb_gain_controls_for_algo_switch(window, values, old_algo_type, new_algo_type):
         """Update RGB gain sliders when switching between RK-family and eVideo CSC."""
         for gain_key in RGB_GAIN_KEYS:
             slider_key = f'-BCSH-{gain_key}-'
-            value_key = f'{slider_key}VAL-'
             current_value = int(values[slider_key])
             remapped_value = remap_rgb_gain_value_for_algo_switch(current_value, old_algo_type, new_algo_type)
-            window[slider_key].update(value=remapped_value)
-            window[value_key].update(str(remapped_value))
-            values[slider_key] = remapped_value
+            set_bcsh_pair_value(window, values, slider_key, remapped_value)
 
     def update_pixel_info(window, orig_x, orig_y):
         nonlocal current_planar_in, current_planar_out
@@ -895,6 +944,19 @@ def open_csc_ui(args):
             window['-POSITION-INFO-'].update(f"({orig_x:4d},{orig_y:4d}) {freeze_status}")
             window['-INPUT-PIXEL-INFO-'].update(f"{in_format}: {in_str}")
             window['-OUTPUT-PIXEL-INFO-'].update(f"{out_format}: {out_str}")
+
+    for _, k1, _, k2 in bcsh_names:
+        for bcsh_key in (k1, k2):
+            slider_key = f'-BCSH-{bcsh_key}-'
+            spin_key = get_bcsh_spin_key(slider_key)
+            window[spin_key].bind('<Return>', '+ENTER')
+            window[spin_key].bind('<KP_Enter>', '+ENTER')
+            window[spin_key].Widget.configure(command=emit_bcsh_ui_event(f'{spin_key}+STEP'))
+            slider_widget = window[slider_key].Widget
+            slider_widget.configure(takefocus=1)
+            slider_widget.bind('<Button-1>', lambda event, widget=slider_widget: widget.focus_set(), add='+')
+            slider_widget.bind('<Left>', emit_bcsh_ui_event(f'{slider_key}+LEFT', stop_default=True))
+            slider_widget.bind('<Right>', emit_bcsh_ui_event(f'{slider_key}+RIGHT', stop_default=True))
 
     def update_multiline_readonly(window, key, value):
         widget = window[key].Widget
@@ -1097,6 +1159,7 @@ def open_csc_ui(args):
             window['-DISPLAY-SIZE-'].update(value=f"Display error: {e}")
 
     bcsh_keys = {f'-BCSH-{k}-' for _, k, _, _ in bcsh_names}.union({f'-BCSH-{k}-' for _, _, _, k in bcsh_names})
+    bcsh_spin_keys = {get_bcsh_spin_key(key) for key in bcsh_keys}
     convert_keys = {'-IN-FMT-', '-OUT-FMT-', '-IN-CLR-', '-OUT-CLR-',
                     '-PRECISION-', '-WIDTH-', '-HEIGHT-', '-BCSH-ALGO-TYPE-'}
     convert_keys.add('-DUMP-')
@@ -1121,9 +1184,21 @@ def open_csc_ui(args):
             trigger_convert(values)
             continue
 
+        event_key, _, event_suffix = event.rpartition('+')
+
         if event in bcsh_keys:
-            val_label_key = event + 'VAL-'
-            window[val_label_key].update(str(int(values[event])))
+            set_bcsh_pair_value(window, values, event, int(values[event]))
+            trigger_convert(values)
+        elif event_key in bcsh_spin_keys and event_suffix == 'STEP':
+            commit_bcsh_spin_value(window, values, event_key)
+            trigger_convert(values)
+        elif event_key in bcsh_spin_keys and event_suffix == 'ENTER':
+            commit_bcsh_spin_value(window, values, event_key)
+            trigger_convert(values)
+        elif event_key in bcsh_keys and event_suffix in {'LEFT', 'RIGHT'}:
+            delta = -1 if event_suffix == 'LEFT' else 1
+            stepped_value = step_bcsh_value(values[event_key], delta)
+            set_bcsh_pair_value(window, values, event_key, stepped_value)
             trigger_convert(values)
         elif event == '-BCSH-ALGO-TYPE-':
             new_algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_HW_CSC)
@@ -1137,12 +1212,8 @@ def open_csc_ui(args):
             for _, k1, _, k2 in bcsh_names:
                 value1 = default_values[ui_bcsh_key_to_config_key(k1)]
                 value2 = default_values[ui_bcsh_key_to_config_key(k2)]
-                window[f'-BCSH-{k1}-'].update(value=value1)
-                window[f'-BCSH-{k1}-VAL-'].update(str(value1))
-                values[f'-BCSH-{k1}-'] = value1
-                window[f'-BCSH-{k2}-'].update(value=value2)
-                window[f'-BCSH-{k2}-VAL-'].update(str(value2))
-                values[f'-BCSH-{k2}-'] = value2
+                set_bcsh_pair_value(window, values, f'-BCSH-{k1}-', value1)
+                set_bcsh_pair_value(window, values, f'-BCSH-{k2}-', value2)
             trigger_convert(values)
         elif event == '-SAVE-OUT-':
             try:

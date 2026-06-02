@@ -153,12 +153,16 @@ def _get_evideo_bcsh_quads(algo_type, bcsh_cfg, pixel_depth):
     yuv_mat_contrast = np.diag([contrast, 1.0, 1.0]).astype(np.float32)
     contrast_center_rgb = np.array([mid_pixel_val, mid_pixel_val, mid_pixel_val], dtype=np.float32)
     contrast_center_yuv = np.array([mid_pixel_val, 0.0, 0.0], dtype=np.float32)
+    chroma_center_yuv_raw = np.array([0.0, mid_pixel_val, mid_pixel_val], dtype=np.float32)
+    chroma_center_yuv_signed = np.array([0.0, 0.0, 0.0], dtype=np.float32)
     hue_matrix = np.array([[1, 0, 0], [0, cos_hue, -sin_hue], [0, sin_hue, cos_hue]], dtype=np.float32)
     saturation_matrix = np.array([[1, 0, 0], [0, saturation, 0], [0, 0, saturation]], dtype=np.float32)
 
     quads = {
-        "quad_yuv_hue": _make_homogeneous_mat(hue_matrix),
-        "quad_yuv_sat": _make_homogeneous_mat(saturation_matrix),
+        "quad_yuv_hue_raw": _make_center_scale_quad(hue_matrix, chroma_center_yuv_raw),
+        "quad_yuv_sat_raw": _make_center_scale_quad(saturation_matrix, chroma_center_yuv_raw),
+        "quad_yuv_hue_signed": _make_center_scale_quad(hue_matrix, chroma_center_yuv_signed),
+        "quad_yuv_sat_signed": _make_center_scale_quad(saturation_matrix, chroma_center_yuv_signed),
         "quad_r2y": _make_homogeneous_mat(g_r2y_mat_bt709, None),
         "quad_y2r": _make_homogeneous_mat(g_y2r_mat_bt709, None),
         "quad_rgb_rgbGains": _make_homogeneous_mat(rgb_mat_rgbgains),
@@ -179,49 +183,53 @@ def _adjust_convert_quad_evideo(config, bcsh_cfg, quad_t):
     quad_rgb_legacy_contrast = _make_homogeneous_mat(
         np.diag([params["contrast"], params["contrast"], params["contrast"]]).astype(np.float32)
     )
+    quad_rgb_legacy_bright = _make_homogeneous_mat(np.eye(3), np.ones(3) * params["brightness_unit"]).astype(np.float32)
 
     if mode.is_input_yuv and mode.is_output_yuv:
+        # Y2Y case, rgb_offsets not work here
         quad_out = (
             quads["quad_yuv_bright"]
             @ quad_t
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
+            @ quads["quad_yuv_hue_raw"]
+            @ quads["quad_yuv_sat_raw"]
             @ quads["quad_r2y"]
             @ quads["quad_rgb_rgbGains"]
             @ quad_rgb_legacy_contrast
             @ quads["quad_y2r"]
         )
     elif mode.is_input_yuv and not mode.is_output_yuv:
+        # Y2R case, all params work here
         quad_out = (
-            quads["quad_rgb_rgbOffsets"]
+            quad_rgb_legacy_bright
+            @ quads["quad_rgb_rgbOffsets"]
             @ quads["quad_rgb_rgbGains"]
             @ quad_rgb_legacy_contrast
             @ quad_t
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
-            @ quads["quad_yuv_bright"]
+            @ quads["quad_yuv_hue_raw"]
+            @ quads["quad_yuv_sat_raw"]
         )
     elif not mode.is_input_yuv and mode.is_output_yuv:
+        # R2Y case, rgb_offsets not work here
         quad_out = (
             quads["quad_yuv_bright"]
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
+            @ quads["quad_yuv_hue_raw"]
+            @ quads["quad_yuv_sat_raw"]
             @ quad_t
             @ quads["quad_rgb_rgbGains"]
             @ quad_rgb_legacy_contrast
-            @ quads["quad_rgb_rgbOffsets"]
         )
     else:
+        # R2R case, all params work here
         quad_out = (
-            quads["quad_rgb_rgbOffsets"]
+            quad_rgb_legacy_bright
+            @ quads["quad_rgb_rgbOffsets"]
             @ quad_t
             @ quads["quad_rgb_rgbGains"]
             @ quad_rgb_legacy_contrast
             @ quads["quad_y2r"]
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
+            @ quads["quad_yuv_hue_signed"]
+            @ quads["quad_yuv_sat_signed"]
             @ quads["quad_r2y"]
-            @ quads["quad_yuv_bright"]
         )
 
     out_mat, out_vec = _split_homogeneous_mat(quad_out)
@@ -235,39 +243,45 @@ def _adjust_convert_quad_evideo_plan_a(config, bcsh_cfg, quad_t):
     _, quads = _get_evideo_bcsh_quads(config.algo_type, bcsh_cfg, config.pixel_depth)
     mode = config.csc_mode
 
-    if mode.is_input_yuv and mode.is_output_yuv:
-        quad_out = quads["quad_yuv_bright"] @ quads["quad_yuv_contrast"] @ quads["quad_yuv_hue"] @ quads["quad_yuv_sat"] @ quad_t
-    elif mode.is_input_yuv and not mode.is_output_yuv:
+    if mode.is_input_yuv and mode.is_output_yuv: # Y2Y case
+        quad_out = (
+            quads["quad_yuv_bright"]
+            @ quads["quad_yuv_contrast"]
+            @ quads["quad_yuv_sat_raw"]
+            @ quads["quad_yuv_hue_raw"]
+            @ quad_t
+        )
+    elif mode.is_input_yuv and not mode.is_output_yuv: # Y2R case
         quad_out = (
             quads["quad_rgb_rgbOffsets"]
             @ quads["quad_rgb_rgbGains"]
             @ quad_t
             @ quads["quad_yuv_bright"]
             @ quads["quad_yuv_contrast"]
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
+            @ quads["quad_yuv_sat_raw"]
+            @ quads["quad_yuv_hue_raw"]
         )
-    elif not mode.is_input_yuv and mode.is_output_yuv:
+    elif not mode.is_input_yuv and mode.is_output_yuv: # R2Y case
         quad_out = (
             quads["quad_yuv_bright"]
             @ quads["quad_yuv_contrast"]
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
+            @ quads["quad_yuv_sat_raw"]
+            @ quads["quad_yuv_hue_raw"]
             @ quad_t
             @ quads["quad_rgb_rgbOffsets"]
             @ quads["quad_rgb_rgbGains"]
         )
-    else:
+    else: # R2R case
         quad_out = (
             quads["quad_rgb_rgbOffsets"]
-            @ quad_t
             @ quads["quad_rgb_rgbGains"]
-            @ quads["quad_rgb_contrast"]
+            @ quad_t
             @ quads["quad_y2r"]
-            @ quads["quad_yuv_hue"]
-            @ quads["quad_yuv_sat"]
-            @ quads["quad_r2y"]
             @ quads["quad_yuv_bright"]
+            @ quads["quad_yuv_contrast"]
+            @ quads["quad_yuv_sat_signed"]
+            @ quads["quad_yuv_hue_signed"]
+            @ quads["quad_r2y"]
         )
 
     out_mat, out_vec = _split_homogeneous_mat(quad_out)
@@ -326,33 +340,44 @@ def _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs):
     _, quads = _get_evideo_bcsh_quads(config.algo_type, bcsh_cfg, config.pixel_depth)
     quad_base = _make_homogeneous_mat(base_mat, base_ofs)
     quad_rgb = quads["quad_rgb_rgbOffsets"] @ quads["quad_rgb_rgbGains"]
-    quad_yuv = quads["quad_yuv_bright"] @ quads["quad_yuv_contrast"] @ quads["quad_yuv_hue"] @ quads["quad_yuv_sat"]
-    return quads, quad_base, quad_rgb, quad_yuv
+    quad_yuv_raw = (
+        quads["quad_yuv_bright"]
+        @ quads["quad_yuv_contrast"]
+        @ quads["quad_yuv_sat_raw"]
+        @ quads["quad_yuv_hue_raw"]
+    )
+    quad_yuv_signed = (
+        quads["quad_yuv_bright"]
+        @ quads["quad_yuv_contrast"]
+        @ quads["quad_yuv_sat_signed"]
+        @ quads["quad_yuv_hue_signed"]
+    )
+    return quads, quad_base, quad_rgb, quad_yuv_raw, quad_yuv_signed
 
 
 def get_evideo_plan_a_steps(config, bcsh_cfg, base_mat, base_ofs):
     """
     Build the UI-visible YUV/RGB domain transforms for Plan A.
     """
-    _, _, quad_rgb, quad_yuv = _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs)
-    return _split_quad_to_step(quad_yuv, config), _split_quad_to_step(quad_rgb, config)
+    _, _, quad_rgb, quad_yuv_raw, _ = _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs)
+    return _split_quad_to_step(quad_yuv_raw, config), _split_quad_to_step(quad_rgb, config)
 
 
 def get_evideo_plan_a_runtime_steps(config, bcsh_cfg, base_mat, base_ofs):
     """
     Build the actual apply_csc step list for Plan A.
     """
-    quads, quad_base, quad_rgb, quad_yuv = _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs)
+    quads, quad_base, quad_rgb, quad_yuv_raw, quad_yuv_signed = _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs)
     mode = config.csc_mode
 
     if mode.is_input_yuv and mode.is_output_yuv:
-        runtime_quads = [quads["quad_y2r"], quad_rgb, quads["quad_r2y"], quad_yuv]
+        runtime_quads = [quads["quad_y2r"], quad_rgb, quads["quad_r2y"], quad_yuv_raw @ quad_base]
     elif mode.is_input_yuv and not mode.is_output_yuv:
-        runtime_quads = [quad_yuv, quad_rgb @ quad_base]
+        runtime_quads = [quad_yuv_raw, quad_rgb @ quad_base]
     elif not mode.is_input_yuv and mode.is_output_yuv:
-        runtime_quads = [quad_rgb, quad_yuv @ quad_base]
+        runtime_quads = [quad_rgb, quad_yuv_raw @ quad_base]
     else:
-        runtime_quads = [quads["quad_r2y"], quad_yuv, quads["quad_y2r"], quad_rgb]
+        runtime_quads = [quads["quad_r2y"], quad_yuv_signed, quads["quad_y2r"], quad_rgb @ quad_base]
 
     return [_split_quad_to_step(quad, config) for quad in runtime_quads]
 
@@ -361,18 +386,18 @@ def get_evideo_plan_b_steps(config, bcsh_cfg, base_mat, base_ofs):
     """
     Build the confirmed two-step homogeneous transforms for Plan B.
     """
-    quads, quad_base, quad_rgb, quad_yuv = _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs)
+    quads, quad_base, quad_rgb, quad_yuv_raw, _ = _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs)
     mode = config.csc_mode
 
     if mode.is_input_yuv and mode.is_output_yuv:
         step1_quad = None
-        step2_quad = quad_yuv @ quad_base
+        step2_quad = quad_yuv_raw @ quad_base
     elif mode.is_input_yuv and not mode.is_output_yuv:
-        step1_quad = quad_yuv
+        step1_quad = quad_yuv_raw
         step2_quad = quad_rgb @ quad_base
     elif not mode.is_input_yuv and mode.is_output_yuv:
         step1_quad = quad_rgb
-        step2_quad = quad_yuv @ quad_base
+        step2_quad = quad_yuv_raw @ quad_base
     else:
         step1_quad = None
         step2_quad = quad_rgb @ quad_base
@@ -453,12 +478,12 @@ def apply_rgb_gain_offset(planar_rgb, bcsh_cfg, pixel_depth, algo_type):
     """
     h, w = planar_rgb.shape[1], planar_rgb.shape[2]
     max_val = (1 << pixel_depth) - 1
-    rgb_normalized = planar_rgb.reshape(3, -1).T.astype(np.float64) / max_val
+    rgb_normalized = planar_rgb.reshape(3, -1).T.astype(np.float32) / max_val
     params = get_evideo_bcsh_param_pack(algo_type, bcsh_cfg, pixel_depth)
 
     rgb_new = rgb_normalized.copy()
-    rgb_new *= params["rgb_gains"].astype(np.float64)
-    rgb_new += params["rgb_offset_units"].astype(np.float64)
+    rgb_new *= params["rgb_gains"].astype(np.float32)
+    rgb_new += params["rgb_offset_units"].astype(np.float32)
     rgb_new = np.clip(rgb_new, 0.0, 1.0)
 
     planar_out = (rgb_new.T * max_val)
@@ -478,7 +503,7 @@ def apply_bcsh_hsv(planar_rgb, bcsh_cfg, pixel_depth, algo_type):
     max_val = (1 << pixel_depth) - 1
     params = get_evideo_bcsh_param_pack(algo_type, bcsh_cfg, pixel_depth)
 
-    rgb_normalized = planar_rgb.reshape(3, -1).T.astype(np.float64) / max_val
+    rgb_normalized = planar_rgb.reshape(3, -1).T.astype(np.float32) / max_val
     hsv = _rgb_to_hsv(rgb_normalized)
 
     H = hsv[:, 0]
@@ -491,8 +516,8 @@ def apply_bcsh_hsv(planar_rgb, bcsh_cfg, pixel_depth, algo_type):
 
     hsv_new = np.stack([H, S, V], axis=-1)
     rgb_new = _hsv_to_rgb(hsv_new)
-    rgb_new *= params["rgb_gains"].astype(np.float64)
-    rgb_new += params["rgb_offset_units"].astype(np.float64)
+    rgb_new *= params["rgb_gains"].astype(np.float32)
+    rgb_new += params["rgb_offset_units"].astype(np.float32)
     rgb_new = np.clip(rgb_new, 0.0, 1.0)
 
     planar_out = (rgb_new.T * max_val)
@@ -511,7 +536,7 @@ def apply_bcsh_yuv(planar_yuv, bcsh_cfg, pixel_depth, algo_type):
     max_val = (1 << pixel_depth) - 1
     params = get_evideo_bcsh_param_pack(algo_type, bcsh_cfg, pixel_depth)
 
-    yuv_normalized = planar_yuv.reshape(3, -1).T.astype(np.float64) / max_val
+    yuv_normalized = planar_yuv.reshape(3, -1).T.astype(np.float32) / max_val
     y = yuv_normalized[:, 0]
     u = yuv_normalized[:, 1] - 0.5
     v = yuv_normalized[:, 2] - 0.5
