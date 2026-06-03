@@ -457,6 +457,8 @@ def get_csc_coefs(config: CscCoefConfig, bcsh_cfg: Optional[CscBcshConfig]) -> t
             final_ofs = range_ofs_o + final_mat @ range_ofs_i
         elif config.algo_type == "eVideo CSC":
             final_mat, final_ofs, diagonal_ratio = adjust_convert_mat_evideo(config, bcsh_cfg, final_mat, final_ofs)
+            # Recover effective range_ofs_o so get_fixed_coefs_mat uses BCSH-corrected offset
+            range_ofs_o = final_ofs - final_mat @ range_ofs_i
         else:
             raise ValueError(f"Algorithm '{config.algo_type}' is not implemented in get_csc_coefs.py")
         if config.tune_fix_coefs:

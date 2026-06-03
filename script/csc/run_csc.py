@@ -497,17 +497,29 @@ def run_selected_algo(planar_in, bcsh, pixel_depth, coef_precision, algo_type, i
     if algo_type in direct_csc_algos:
         planar_in_proc = planar_in
         bcsh_for_csc = bcsh
+        step1_coefs = None
+        step1_offset = None
 
-        # SWPQ CSC R2Y case, clip input RGB after rgb_gain applied
+        # SWPQ CSC R2Y case: pull RgbGain out as a separate step1 CSC to avoid color cast
         if algo_type == ALGO_RK_SW_CSC and input_is_rgb and not output_is_rgb:
-            planar_in_proc = apply_rk_rgb_gain(planar_in, bcsh, pixel_depth, algo_type)
+            fix_factor = 1 << runtime_coef_precision
+            step1_coefs = np.diag([
+                bcsh.r_gain * (fix_factor // 256),
+                bcsh.g_gain * (fix_factor // 256),
+                bcsh.b_gain * (fix_factor // 256),
+            ]).astype(np.int32)
+            step1_offset = np.zeros(3, dtype=np.int32)
+            planar_in_proc = apply_csc(planar_in, step1_coefs, step1_offset, runtime_coef_precision, pixel_depth)
+            step1_is_rgb = True
             bcsh_for_csc = clear_bcsh_rgb_gains(bcsh)
+            if dump_enabled:
+                _dump_step_planar(planar_in_proc, "step1", True, pixel_depth)
 
         coefs, offset = get_csc_coefs(csc_config, bcsh_for_csc)
         planar_out = apply_csc(planar_in_proc, coefs, offset, runtime_coef_precision, pixel_depth)
         if dump_enabled:
             _dump_step_planar(planar_out, "step2", step2_is_rgb, pixel_depth)
-        return planar_out, None, None, coefs, offset
+        return planar_out, step1_coefs, step1_offset, coefs, offset
 
     base_config = build_csc_config(pixel_depth, 0, ALGO_RK_HW_CSC, input_clrspc, output_clrspc)
     base_mat, base_ofs = get_csc_coefs(base_config, None)
@@ -600,10 +612,11 @@ def run_cli(args):
     planar_in = read_raw_to_planar(input_file, width, height, input_fmt)
 
     csc_config = CscCoefConfig()
+    csc_config.csc_mode = parse_csc_mode_str(mode_str)
     csc_config.pixel_depth = pixel_depth
     csc_config.coef_precision = coef_precision
+    csc_config.platform = "rk3576"
     csc_config.algo_type = args.algo_type
-    csc_config.csc_mode = parse_csc_mode_str(mode_str)
 
     bcsh = build_bcsh_config_from_dict(
         {
