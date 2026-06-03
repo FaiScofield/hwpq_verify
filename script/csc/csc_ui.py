@@ -151,7 +151,9 @@ def open_csc_ui(args=None):
 
     fmt_options = FMT_OPTIONS_8BIT + FMT_OPTIONS_10BIT
     fmt_display = [f"0x{f:X} - {FORMAT_NAMES.get(f, 'Unknown')}" for f in fmt_options]
-    clrspc_display = [f"{c} - {CLRSPC_NAMES[c]}" for c in CLRSPC_OPTIONS]
+    clrspc_display_all = [f"{c} - {CLRSPC_NAMES[c]}" for c in CLRSPC_OPTIONS]
+    clrspc_rgb = [s for s in clrspc_display_all if int(s.split(" ")[0]) in (0, 1)]
+    clrspc_yuv = [s for s in clrspc_display_all if int(s.split(" ")[0]) in range(2, 8)]
     precision_values = [0] + list(range(8, 17))
 
     def get_fmt_from_display(display_str):
@@ -159,6 +161,36 @@ def open_csc_ui(args=None):
 
     def get_clrspc_from_display(display_str):
         return int(display_str.split(" ")[0])
+
+    def _update_fmt_for_clrspc(window, values, fmts, iclr):
+        """Auto-select input format based on colorspace when Set Color is active."""
+        iclr_int = int(iclr)
+        if iclr_int in (0, 1):
+            # RGB full/limited -> RGB888 (0x0)
+            target_fmt = next((f for f in fmts if f.startswith('0x0 ')), None)
+        else:
+            # YUV -> YU24 (0x3)
+            target_fmt = next((f for f in fmts if f.startswith('0x3 ')), None)
+        if target_fmt:
+            window['-IN-FMT-'].update(value=target_fmt)
+            values['-IN-FMT-'] = target_fmt
+
+    def _update_clrspc_for_fmt(window, values, clrspc_key, fmt_str, default_clrspc=None):
+        """Update a colorspace combo options to match the selected format domain."""
+        fmt_code = int(fmt_str.split(" ")[0], 16)
+        base = fmt_code & 0xF
+        if base <= 0x2:
+            options = clrspc_rgb
+            default = default_clrspc or clrspc_rgb[1]  # RGB_Full
+        else:
+            options = clrspc_yuv
+            default = default_clrspc or clrspc_yuv[3]  # BT709_Full
+        window[clrspc_key].update(values=options)
+        # Reset to default if current value is not in the new options
+        current_val = values.get(clrspc_key, '')
+        if current_val not in options:
+            window[clrspc_key].update(value=default)
+            values[clrspc_key] = default
 
     bcsh_names = [
         ('Brightness:', 'bright', 'Contrast:', 'contrast'),
@@ -204,18 +236,21 @@ def open_csc_ui(args=None):
          sg.Input(key='-INPUT-FILE-', size=(52, 1), enable_events=True, readonly=True),
          sg.FileBrowse('Browse...')],
         [sg.Text('Width:', size=(6, 1)), sg.Input('1920', key='-WIDTH-', size=(8, 1), enable_events=True),
-         sg.Text('Height:', size=(6, 1)), sg.Input('1080', key='-HEIGHT-', size=(8, 1), enable_events=True)],
+         sg.Text('Height:', size=(6, 1)), sg.Input('1080', key='-HEIGHT-', size=(8, 1), enable_events=True),
+         sg.Checkbox('Set Color', key='-SET-COLOR-', default=False, enable_events=True),
+         sg.Input('128, 128, 128', key='-COLOR-INPUT-', size=(28, 1), enable_events=False,
+                  disabled=True, disabled_readonly_background_color=sg.theme_background_color())],
         [sg.Text('Input Format:', size=(12, 1)),
          sg.Combo(fmt_display, default_value=fmt_display[0], key='-IN-FMT-',
                   readonly=True, size=(28, 1), enable_events=True),
          sg.Text('Input Colorspace:', size=(14, 1)),
-         sg.Combo(clrspc_display, default_value=clrspc_display[1], key='-IN-CLR-',
+         sg.Combo(clrspc_rgb, default_value=clrspc_rgb[1], key='-IN-CLR-',
                   readonly=True, size=(22, 1), enable_events=True)],
         [sg.Text('Output Format:', size=(12, 1)),
          sg.Combo(fmt_display, default_value=fmt_display[0], key='-OUT-FMT-',
                   readonly=True, size=(28, 1), enable_events=True),
          sg.Text('Output Colorspace:', size=(14, 1)),
-         sg.Combo(clrspc_display, default_value=clrspc_display[1], key='-OUT-CLR-',
+         sg.Combo(clrspc_rgb, default_value=clrspc_rgb[1], key='-OUT-CLR-',
                   readonly=True, size=(22, 1), enable_events=True)],
         [sg.Text('Precision (0=float):', size=(16, 1)),
          sg.Combo([str(v) for v in precision_values], default_value='10',
@@ -283,6 +318,8 @@ def open_csc_ui(args=None):
     window['-IMAGE-'].bind('<Motion>', '+MOTION')
     window['-IMAGE-'].bind('<Enter>', '+ENTER')
     window['-IMAGE-'].bind('<Leave>', '+LEAVE')
+    window['-COLOR-INPUT-'].bind('<Return>', '+ENTER')
+    window['-COLOR-INPUT-'].bind('<KP_Enter>', '+ENTER')
 
     current_planar_in = None
     current_planar_out = None
@@ -306,6 +343,23 @@ def open_csc_ui(args=None):
 
     planar_in_full = None
     current_input_file_params = None  # (input_file, w, h, ifmt)
+
+    def parse_color_input(text):
+        """Parse color input text into a list of 3 integers. Returns None on failure."""
+        if not text or not text.strip():
+            return None
+        text = text.strip().replace(',', ' ')
+        parts = text.split()
+        nums = []
+        for p in parts:
+            try:
+                nums.append(int(float(p)))
+            except ValueError:
+                continue
+        if len(nums) < 3:
+            sg.popup_error(f"Need 3 integer values, got {len(nums)}. Input: '{text}'")
+            return None
+        return nums[:3]
 
     def do_conversion(planar_in, values, depth, precision, algo_type, iclr, oclr, ifmt, ofmt, dump_enabled=False):
         bcsh = build_bcsh_config_from_dict(
@@ -433,6 +487,94 @@ def open_csc_ui(args=None):
         nonlocal current_step2_coefs, current_step2_offset
         nonlocal planar_in_full, current_input_file_params
         nonlocal current_scale_factor
+
+        set_color = values.get('-SET-COLOR-', False)
+
+        if set_color:
+            # Use the parsed color as a flat input image
+            color_vals = parse_color_input(values.get('-COLOR-INPUT-', ''))
+            if color_vals is None:
+                return
+
+            try:
+                w = int(values['-WIDTH-']) if values['-WIDTH-'] else 256
+                h = int(values['-HEIGHT-']) if values['-HEIGHT-'] else 256
+                if w <= 0:
+                    w = 256
+                if h <= 0:
+                    h = 256
+                ifmt = get_fmt_from_display(values['-IN-FMT-'])
+                iclr = get_clrspc_from_display(values['-IN-CLR-'])
+                ofmt = get_fmt_from_display(values['-OUT-FMT-'])
+                oclr = get_clrspc_from_display(values['-OUT-CLR-'])
+                precision = int(values['-PRECISION-'])
+
+                in_depth = get_pixel_depth(ifmt)
+                out_depth = get_pixel_depth(ofmt)
+                depth = max(in_depth, out_depth)
+
+                window['-DISP-DEPTH-'].update(str(depth))
+            except (ValueError, IndexError):
+                return
+
+            if h <= 0 or w <= 0:
+                return
+
+            # Build flat planar from color values
+            max_val = (1 << depth) - 1
+            planar_in_full = np.zeros((3, h, w), dtype=np.uint16 if depth > 8 else np.uint8)
+            for i in range(3):
+                planar_in_full[i, :, :] = int(np.clip(color_vals[i], 0, max_val))
+            current_input_file_params = None
+
+            # Downsample for display
+            scale_factor = 1.0
+            disp_w, disp_h = w, h
+            if w > 640 or h > 360:
+                col_widget = window['-IMAGE-COL-'].Widget
+                max_display_w = max(col_widget.winfo_width() - 20, 640)
+                max_display_h = max(col_widget.winfo_height() - 20, 360)
+                scale_factor = min(max_display_w / w, max_display_h / h, 1.0)
+                current_scale_factor = scale_factor
+                disp_w = max(int(w * scale_factor), 1)
+                disp_h = max(int(h * scale_factor), 1)
+                y_indices = np.linspace(0, h - 1, disp_h).astype(int)
+                x_indices = np.linspace(0, w - 1, disp_w).astype(int)
+                planar_in = planar_in_full[:, y_indices[:, None], x_indices]
+            else:
+                current_scale_factor = 1.0
+                planar_in = planar_in_full
+
+            algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_HW_CSC)
+
+            planar_out, step1_coefs, step1_offset, step2_coefs, step2_offset = do_conversion(
+                planar_in, values, depth, precision, algo_type, iclr, oclr, ifmt, ofmt, False
+            )
+
+            current_planar_in = planar_in
+            current_planar_out = planar_out
+            current_step1_coefs = step1_coefs
+            current_step1_offset = step1_offset
+            current_step2_coefs = step2_coefs
+            current_step2_offset = step2_offset
+            current_output_pixel_depth = out_depth
+            current_input_pixel_depth = in_depth
+            current_output_is_yuv = is_yuv_format(ofmt)
+            current_input_is_yuv = is_yuv_format(ifmt)
+
+            _, orange = clrspc_to_mode_params(oclr)
+            current_output_full_range = (orange == "F")
+            ocs, _ = clrspc_to_mode_params(oclr)
+            current_output_color = ColorSpace[ocs.upper()] if ocs.startswith("bt") else ColorSpace.BT709
+
+            _, irange = clrspc_to_mode_params(iclr)
+            current_input_full_range = (irange == "F")
+            ics, _ = clrspc_to_mode_params(iclr)
+            current_input_color = ColorSpace[ics.upper()] if ics.startswith("bt") else ColorSpace.BT709
+
+            if update_display:
+                display_result(window, values)
+            return
 
         input_file = values['-INPUT-FILE-']
         if not input_file or not os.path.isfile(input_file):
@@ -648,6 +790,14 @@ def open_csc_ui(args=None):
         elif event == '-REDRAW-IMAGE-':
             trigger_convert(values)
             continue
+        elif event == '-SET-COLOR-':
+            set_color = values.get('-SET-COLOR-', False)
+            if set_color:
+                window['-COLOR-INPUT-'].update(disabled=False)
+            else:
+                window['-COLOR-INPUT-'].update(disabled=True)
+            trigger_convert(values)
+            continue
 
         event_key, _, event_suffix = event.rpartition('+')
 
@@ -721,6 +871,17 @@ def open_csc_ui(args=None):
                     sg.popup(f"Saved successfully to:\n{save_path}", title="Success")
             except Exception as e:
                 sg.popup_error(f"Failed to save output:\n{e}")
+        elif event == '-COLOR-INPUT-+ENTER':
+            trigger_convert(values)
+        elif event == '-IN-CLR-' and values.get('-SET-COLOR-', False):
+            _update_fmt_for_clrspc(window, values, fmt_display, get_clrspc_from_display(values['-IN-CLR-']))
+            trigger_convert(values)
+        elif event == '-IN-FMT-':
+            _update_clrspc_for_fmt(window, values, '-IN-CLR-', values['-IN-FMT-'])
+            trigger_convert(values)
+        elif event == '-OUT-FMT-':
+            _update_clrspc_for_fmt(window, values, '-OUT-CLR-', values['-OUT-FMT-'])
+            trigger_convert(values)
         elif event in convert_keys:
             trigger_convert(values)
         elif event in ['-SHOW-IN-', '-SHOW-OUT-']:
@@ -733,27 +894,29 @@ def open_csc_ui(args=None):
 
                 # 1. Guess by extension
                 if ext == '.yuv':
-                    # YUV420SP_NV12 is 0x9. fmt_display has format: "0x9 - YUV420SP_NV12"
-                    # BT709_Limited is 4. clrspc_display has format: "4 - BT709_Limited"
+                    # YUV420SP_NV12 is 0x9, BT709_Limited is 4
                     yuv_fmt = next((f for f in fmt_display if f.startswith('0x9 ')), None)
                     if yuv_fmt:
                         window['-IN-FMT-'].update(value=yuv_fmt)
                         values['-IN-FMT-'] = yuv_fmt
-                    bt709_l = next((c for c in clrspc_display if c.startswith('4 ')), None)
+                    bt709_l = next((c for c in clrspc_yuv if c.startswith('4 ')), None)
                     if bt709_l:
                         window['-IN-CLR-'].update(value=bt709_l)
                         values['-IN-CLR-'] = bt709_l
+                    elif yuv_fmt:
+                        _update_clrspc_for_fmt(window, values, '-IN-CLR-', yuv_fmt, clrspc_yuv[0])
                 elif ext == '.rgb':
-                    # RGB888 is 0x0. fmt_display has format: "0x0 - RGB888"
-                    # RGB_Full is 1. clrspc_display has format: "1 - RGB_Full"
+                    # RGB888 is 0x0, RGB_Full is 1
                     rgb_fmt = next((f for f in fmt_display if f.startswith('0x0 ')), None)
                     if rgb_fmt:
                         window['-IN-FMT-'].update(value=rgb_fmt)
                         values['-IN-FMT-'] = rgb_fmt
-                    rgb_f = next((c for c in clrspc_display if c.startswith('1 ')), None)
+                    rgb_f = next((c for c in clrspc_rgb if c.startswith('1 ')), None)
                     if rgb_f:
                         window['-IN-CLR-'].update(value=rgb_f)
                         values['-IN-CLR-'] = rgb_f
+                    elif rgb_fmt:
+                        _update_clrspc_for_fmt(window, values, '-IN-CLR-', rgb_fmt, clrspc_rgb[1])
 
                 # 2. Guess by resolution in basename
                 m_res = re.search(r'(\d+)x(\d+)', basename)
