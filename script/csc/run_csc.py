@@ -28,7 +28,6 @@ from get_csc_coef_hsv import (
     ALGO_EVIDEO_CSC_PLAN_A,
     ALGO_EVIDEO_CSC_PLAN_B,
     normalize_algo_type,
-    get_evideo_csc_coefs,
     get_evideo_plan_a_steps,
     get_evideo_plan_a_runtime_steps,
     get_evideo_plan_b_steps,
@@ -525,6 +524,47 @@ def step_bcsh_value(current_value, delta):
     return max(0, min(511, int(current_value) + int(delta)))
 
 
+def get_bcsh_norm_value(param_key, raw_value, algo_type):
+    """
+    Compute the normalized display value for a BCSH parameter.
+    Returns a formatted string according to the algorithm's mapping range.
+    """
+    evideo_algos = {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_PLAN_A, ALGO_EVIDEO_CSC_PLAN_B}
+    is_evideo = algo_type in evideo_algos
+
+    if param_key in ("r_gain", "g_gain", "b_gain"):
+        if is_evideo:
+            norm = raw_value / 64.0
+        else:
+            norm = raw_value / 256.0
+        return f"{norm:.3f}"
+    elif param_key in ("r_offset", "g_offset", "b_offset"):
+        if is_evideo:
+            norm = (raw_value - 256) / 256.0
+        else:
+            norm = (raw_value - 256) / 2048.0
+        return f"{norm:.3f}"
+    elif param_key == "bright":
+        if is_evideo:
+            norm = (raw_value - 256) / 256.0
+        else:
+            norm = (raw_value - 256) / 1024.0
+        return f"{norm:.3f}"
+    elif param_key == "contrast":
+        norm = raw_value / 256.0
+        return f"{norm:.3f}"
+    elif param_key == "sat":
+        norm = raw_value / 256.0
+        return f"{norm:.3f}"
+    elif param_key == "hue":
+        if is_evideo:
+            norm = (raw_value - 256) * 180.0 / 256.0
+        else:
+            norm = (raw_value - 256) * 30.0 / 256.0
+        return f"{norm:.3f}"
+    return ""
+
+
 def convert_planar(planar_in, input_clrspc, output_clrspc, coef_precision, pixel_depth):
     """Convert planar data between two colorspaces using the matrix CSC path only."""
     csc_config = build_csc_config(pixel_depth, coef_precision, ALGO_RK_HW_CSC, input_clrspc, output_clrspc)
@@ -540,19 +580,9 @@ def run_selected_algo(planar_in, bcsh, pixel_depth, coef_precision, algo_type, i
     input_is_rgb = is_rgb_format(input_fmt)
     output_is_rgb = is_rgb_format(output_fmt)
     step1_is_rgb, step2_is_rgb = _get_step_output_domains(algo_type, input_is_rgb, output_is_rgb)
-    evideo_affine_algos = {ALGO_EVIDEO_CSC}
-    rk_algo_types = {ALGO_RK_HW_CSC, ALGO_RK_SW_CSC}
+    direct_csc_algos = {ALGO_RK_HW_CSC, ALGO_RK_SW_CSC, ALGO_EVIDEO_CSC}
 
-    if algo_type in evideo_affine_algos:
-        base_config = build_csc_config(pixel_depth, 0, ALGO_RK_HW_CSC, input_clrspc, output_clrspc) # float coefs
-        base_mat, base_ofs = get_csc_coefs(base_config, None)
-        coefs, offset = get_evideo_csc_coefs(csc_config, bcsh, base_mat, base_ofs)
-        planar_out = apply_csc(planar_in, coefs, offset, runtime_coef_precision, pixel_depth)
-        if dump_enabled:
-            _dump_step_planar(planar_out, "step2", step2_is_rgb, pixel_depth)
-        return planar_out, None, None, coefs, offset
-
-    if algo_type in rk_algo_types:
+    if algo_type in direct_csc_algos:
         planar_in_proc = planar_in
         bcsh_for_csc = bcsh
 
@@ -725,10 +755,12 @@ def open_csc_ui(args):
             sg.Slider(range=(0, 511), default_value=256, orientation='h',
                       size=(20, 15), key=f'-BCSH-{k1}-', enable_events=True, disable_number_display=True),
             sg.Spin([str(i) for i in range(512)], initial_value='256', key=f'-BCSH-{k1}-SPIN-', size=(5, 1)),
+            sg.Text('', size=(8, 1), key=f'-BCSH-{k1}-NORM-', justification='left'),
             sg.Text(n2, size=(10, 1)),
             sg.Slider(range=(0, 511), default_value=256, orientation='h',
                       size=(20, 15), key=f'-BCSH-{k2}-', enable_events=True, disable_number_display=True),
             sg.Spin([str(i) for i in range(512)], initial_value='256', key=f'-BCSH-{k2}-SPIN-', size=(5, 1)),
+            sg.Text('', size=(8, 1), key=f'-BCSH-{k2}-NORM-', justification='left'),
         ])
 
     algo_type_options = [
@@ -872,6 +904,14 @@ def open_csc_ui(args):
             algo_type,
         )
         return run_selected_algo(planar_in, bcsh, depth, precision, algo_type, iclr, oclr, ifmt, ofmt, dump_enabled)
+
+    def update_bcsh_norm_labels(window, values, algo_type):
+        """Update all BCSH normalized value labels based on current slider values and algo type."""
+        for _, k1, _, k2 in bcsh_names:
+            for k in (k1, k2):
+                raw_val = int(values[f'-BCSH-{k}-'])
+                norm_str = get_bcsh_norm_value(k, raw_val, algo_type)
+                window[f'-BCSH-{k}-NORM-'].update(norm_str)
 
     def set_bcsh_pair_value(window, values, slider_key, committed_value):
         """Synchronize one BCSH slider and its paired spinbox."""
@@ -1166,6 +1206,10 @@ def open_csc_ui(args):
 
     last_window_size = window.size
 
+    # Initialize normalized value labels with default values
+    default_bcsh_vals = {f'-BCSH-{k}-': 256 for _, k1, _, k2 in bcsh_names for k in (k1, k2)}
+    update_bcsh_norm_labels(window, default_bcsh_vals, ALGO_RK_HW_CSC)
+
     while True:
         event, values = window.read()
         if event in (sg.WIN_CLOSED, None):
@@ -1188,22 +1232,27 @@ def open_csc_ui(args):
 
         if event in bcsh_keys:
             set_bcsh_pair_value(window, values, event, int(values[event]))
+            update_bcsh_norm_labels(window, values, current_algo_type)
             trigger_convert(values)
         elif event_key in bcsh_spin_keys and event_suffix == 'STEP':
             commit_bcsh_spin_value(window, values, event_key)
+            update_bcsh_norm_labels(window, values, current_algo_type)
             trigger_convert(values)
         elif event_key in bcsh_spin_keys and event_suffix == 'ENTER':
             commit_bcsh_spin_value(window, values, event_key)
+            update_bcsh_norm_labels(window, values, current_algo_type)
             trigger_convert(values)
         elif event_key in bcsh_keys and event_suffix in {'LEFT', 'RIGHT'}:
             delta = -1 if event_suffix == 'LEFT' else 1
             stepped_value = step_bcsh_value(values[event_key], delta)
             set_bcsh_pair_value(window, values, event_key, stepped_value)
+            update_bcsh_norm_labels(window, values, current_algo_type)
             trigger_convert(values)
         elif event == '-BCSH-ALGO-TYPE-':
             new_algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_HW_CSC)
             update_rgb_gain_controls_for_algo_switch(window, values, current_algo_type, new_algo_type)
             current_algo_type = new_algo_type
+            update_bcsh_norm_labels(window, values, current_algo_type)
             print(f"algo_type switch to: {new_algo_type}")
             trigger_convert(values)
         elif event == '-RESET-BCSH-':
@@ -1214,6 +1263,7 @@ def open_csc_ui(args):
                 value2 = default_values[ui_bcsh_key_to_config_key(k2)]
                 set_bcsh_pair_value(window, values, f'-BCSH-{k1}-', value1)
                 set_bcsh_pair_value(window, values, f'-BCSH-{k2}-', value2)
+            update_bcsh_norm_labels(window, values, algo_type)
             trigger_convert(values)
         elif event == '-SAVE-OUT-':
             try:
@@ -1366,7 +1416,7 @@ def main():
     parser.add_argument("--r_offset", type=int, default=None, help="BCSH R offset [0, 511], default: 256")
     parser.add_argument("--g_offset", type=int, default=None, help="BCSH G offset [0, 511], default: 256")
     parser.add_argument("--b_offset", type=int, default=None, help="BCSH B offset [0, 511], default: 256")
-    parser.add_argument("--algo-type", type=str, default=ALGO_RK_HW_CSC,
+    parser.add_argument("-t", "--algo-type", type=str, default=ALGO_RK_HW_CSC,
                         help=f"BCSH algorithm type: '{ALGO_RK_HW_CSC}', '{ALGO_RK_SW_CSC}', '{ALGO_EVIDEO_CSC}', '{ALGO_EVIDEO_CSC_PLAN_A}', '{ALGO_EVIDEO_CSC_PLAN_B}'")
 
     args, _ = parser.parse_known_args()
