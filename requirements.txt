@@ -3,3 +3,6 @@ pandas
 tqdm
 pyautogui
 keyboard
+PySimpleGUI
+Pillow
+PyInstaller

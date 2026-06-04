@@ -1,10 +1,11 @@
-.cache/
-.trae/
-.vscode/
+.cache
+.vscode
+.trae
 __pycache__
 *.lnk
 build/
-docs/superpowers/
+docs/
+dist/
 output/
 project/build_*/
 rockchip/

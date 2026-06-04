@@ -4,7 +4,7 @@
  * @author:      vance.wu@rock-chips.com
  * @create:      2025-09-12
  * @modifier:    vance.wu@rock-chips.com
- * @modify:      2026-03-03
+ * @modify:      2026-05-25
  */
 
 #include "verify_com.h"
@@ -1212,7 +1212,7 @@ int imgcvt_from_planar_10bit_lsb(uint16_t const *p_src, uint8_t *p_dst, int w, i
                     p_dst_row[j + 1] = MIN((ug + 2) >> 2, 255);
                     p_dst_row[j + 2] = MIN((vb + 2) >> 2, 255);
                     if (nb_comps == 4)
-                        p_dst_row[j + 3] =  MIN((a + 2) >> 2, 255);
+                        p_dst_row[j + 3] = MIN((a + 2) >> 2, 255);
                 }
             }
         }
@@ -1935,6 +1935,8 @@ void dump_regs_to_dat(const char *filename, uint const *regs, int nb_regs, unsig
 #define STBI_NO_PIC
 #define STBI_NO_PNM
 #include "stb_image.h" // only jpeg//png/bmp support
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 bool ends_with(const char *str, const char *suffix, bool case_sensitive)
 {
@@ -1965,8 +1967,9 @@ bool ends_with(const char *str, const char *suffix, bool case_sensitive)
 
 bool is_stb_image(const char *filename)
 {
-    if (ends_with(filename, ".jpg", true) || ends_with(filename, ".jpeg", true) ||
-        ends_with(filename, ".png", true) || ends_with(filename, ".bmp", true)) {
+    if (ends_with(filename, ".jpg", true) || ends_with(filename, ".jpeg", true) || ends_with(filename, ".png", true) ||
+        ends_with(filename, ".bmp", true))
+    {
         return true;
     }
     return false;
@@ -1996,6 +1999,43 @@ uint8_t *read_stb_image_auto(const char *filename, int *width, int *height, int 
         LOGW("input file '%s' is not a stb image!\n", filename);
     }
     return data;
+}
+
+/**
+ * @brief Write an interleaved 8-bit image with an stb-supported file extension.
+ */
+int write_stb_image_auto(const char *filename, int width, int height, int channel, const void *data, int pitch)
+{
+    assert(filename != NULL);
+    assert(data != NULL);
+
+    if (channel < 1 || channel > 4) {
+        LOGE("unsupported image channel count: %d\n", channel);
+        return -1;
+    }
+
+    int ret = 0;
+    if (ends_with(filename, ".png", true)) {
+        ret = stbi_write_png(filename, width, height, channel, data, pitch);
+    }
+    else if (ends_with(filename, ".bmp", true)) {
+        ret = stbi_write_bmp(filename, width, height, channel, data);
+    }
+    else if (ends_with(filename, ".jpg", true) || ends_with(filename, ".jpeg", true)) {
+        ret = stbi_write_jpg(filename, width, height, channel, data, 95);
+    }
+    else {
+        LOGE("unsupported stb output image suffix: '%s'\n", filename);
+        return -1;
+    }
+
+    if (ret == 0) {
+        LOGE("failed to write stb image file '%s'\n", filename);
+        return -1;
+    }
+
+    LOGI("write stb image to file: %s\n", filename);
+    return 0;
 }
 
 void free_stb_image_auto(uint8_t *data)

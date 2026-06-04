@@ -3,8 +3,19 @@
  * @description: dci_verify_demo.cpp
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-15
- * @history:
+ * @modify: 2026-05-26
  */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "dci_api.h"
+#include "sharp_full_api.h"
+#include "sharp_lite_api.h"
+#include "rockchip_post_csc.h"
+#ifdef __cplusplus
+}
+#endif
 
 #include "verify_com.h"
 #include "verify_cmd_parser.h"
@@ -13,6 +24,7 @@
 #include "stb_image.h"
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /**
@@ -294,13 +306,36 @@ int run_as_runner(int argc, char *const argv[])
 
 int run_as_demo(int argc, char *const argv[])
 {
+    void *p_src = NULL;
+    void *p_src_dci = NULL;
+    void *p_dst = NULL;
+    void *p_shp = NULL;
+    void *p_rgb = NULL;
+    void *p_src_stb = NULL;
+    void *p_src_y = NULL;
+    void *p_src_u = NULL;
+    void *p_src_v = NULL;
+    void *p_dst_y = NULL;
+    void *p_dst_u = NULL;
+    void *p_dst_v = NULL;
+    void *p_shp_y = NULL;
+    void *p_shp_u = NULL;
+    void *p_shp_v = NULL;
+    FILE *fp_src = NULL;
+    FILE *fp_dst = NULL;
+    FILE *fp_crc = NULL;
+    dci_handle_t handle = NULL;
+    sharp_full_handle_t sharp_full_handle = NULL;
+    sharp_lite_handle_t sharp_lite_handle = NULL;
+    size_t frame_size_max = 0;
     int ret = 0;
     struct common_verify_cmd_config cmd_config = {0};
     ret = common_verify_arg_get_cmd_config(argc, argv, &cmd_config);
     if (ret < 0) {
+        print_usage_addition();
         return ret;
     }
-    common_verify_arg_dump_config(&cmd_config);
+    common_verify_arg_dump_config(&config);
 
     if (cmd_config.crc_file[0] == '\0') {
         snprintf(cmd_config.crc_file, 1024, "%s/dci_crc_out.dat", cmd_config.output_dir);
@@ -394,6 +429,10 @@ int run_as_demo(int argc, char *const argv[])
             fprintf(stderr, "Failed to read frame #%d from input file '%s'! %s\n", k, cmd_config.input_file, strerror(errno));
             break;
         }
+        if (enable_dump_med_img) {
+            ret = dump_image_file(config.output_dir, "dci_dbg2_input_10bit", k, p_src, config.src_wid, config.src_hgt,
+                config.src_wid * 2, config.src_hgt, dci_src_dump_fmt, 10, config.dither_up);
+        }
 
         crc_val = get_crc_for_planar_frame_10bit(p_src, cmd_config.src_wid, cmd_config.src_hgt, bIsInputYuv);
         printf("src CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsInputYuv ? "VYU" : "RGB", k, crc_val);
@@ -455,6 +494,9 @@ EXIT:
     if (p_dst)
         free(p_dst);
 
+    if (ret == 0) {
+        LOGI("verify done. please check the output file: %s\n", config.output_file);
+    }
     return ret;
 }
 
