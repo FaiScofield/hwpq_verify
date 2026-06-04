@@ -31,7 +31,7 @@ def main():
         "--onedir",
         "--windowed",
         "--name",
-        "verify_csc_ui",
+        "csc_test_tool",
         "--specpath",
         str(pyinstaller_work_dir),
         "--add-data",

@@ -3,6 +3,7 @@
 __pycache__
 *.lnk
 build/
+docs/
 dist/
 output/
 project/build_*/

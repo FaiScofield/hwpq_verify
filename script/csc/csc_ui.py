@@ -411,7 +411,7 @@ def open_csc_ui(args=None):
     ]
     bcsh_tab_layout = [
         *bcsh_layout,
-        [sg.Text('AlgoType:', size=(8, 1)),
+        [sg.Text('Algo Type:', size=(8, 1)),
          sg.Combo(algo_type_options, default_value=ALGO_RK_HW_CSC, key='-BCSH-ALGO-TYPE-',
                   readonly=True, size=(22, 1), enable_events=True),
          sg.Push(),
@@ -532,7 +532,7 @@ def open_csc_ui(args=None):
          ], key='-SAT-IMAGE-COL-', expand_y=True, element_justification='center', vertical_alignment='top', pad=((10, 0), 0), visible=False)]
     ]
 
-    window = sg.Window('CSC Test Tool', layout, resizable=True, finalize=True, return_keyboard_events=True)
+    window = sg.Window('CSC Test Tool v1.0', layout, resizable=True, finalize=True, return_keyboard_events=True)
     window.TKroot.attributes('-topmost', True)
     window.TKroot.lift()
     window.TKroot.focus_force()
