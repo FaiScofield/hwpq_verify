@@ -6,16 +6,16 @@
  * @modify: 2026-05-26
  */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+// #ifdef __cplusplus
+// extern "C" {
+// #endif
 #include "dci_api.h"
 #include "sharp_full_api.h"
 #include "sharp_lite_api.h"
-#include "rockchip_post_csc.h"
-#ifdef __cplusplus
-}
-#endif
+// #include "rockchip_post_csc.h"
+// #ifdef __cplusplus
+// }
+// #endif
 
 #include "verify_com.h"
 #include "verify_cmd_parser.h"
@@ -45,7 +45,7 @@ extern "C" {
  */
 
 #include "dci_request_io.h"
-#include "dci_verify_api.h"
+#include "dci_api.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -307,69 +307,54 @@ int run_as_runner(int argc, char *const argv[])
 int run_as_demo(int argc, char *const argv[])
 {
     void *p_src = NULL;
-    void *p_src_dci = NULL;
     void *p_dst = NULL;
-    void *p_shp = NULL;
-    void *p_rgb = NULL;
-    void *p_src_stb = NULL;
-    void *p_src_y = NULL;
-    void *p_src_u = NULL;
-    void *p_src_v = NULL;
-    void *p_dst_y = NULL;
-    void *p_dst_u = NULL;
-    void *p_dst_v = NULL;
-    void *p_shp_y = NULL;
-    void *p_shp_u = NULL;
-    void *p_shp_v = NULL;
+    void *p_src_raw = NULL;
     FILE *fp_src = NULL;
     FILE *fp_dst = NULL;
     FILE *fp_crc = NULL;
     dci_handle_t handle = NULL;
-    sharp_full_handle_t sharp_full_handle = NULL;
-    sharp_lite_handle_t sharp_lite_handle = NULL;
+    dci_init_param_t init_param;
     size_t frame_size_max = 0;
+    bool bIsInputYuv = true;
+    bool bIsOutputYuv = true;
+    int crc_val = 0;
     int ret = 0;
-    struct common_verify_cmd_config cmd_config = {0};
-    ret = common_verify_arg_get_cmd_config(argc, argv, &cmd_config);
+    struct common_verify_cmd_config config = {0};
+    ret = common_verify_arg_get_cmd_config(argc, argv, &config);
     if (ret < 0) {
-        print_usage_addition();
+        common_verify_arg_print_usage("dci_verify_demo");
         return ret;
     }
     common_verify_arg_dump_config(&config);
 
-    if (cmd_config.crc_file[0] == '\0') {
-        snprintf(cmd_config.crc_file, 1024, "%s/dci_crc_out.dat", cmd_config.output_dir);
-        printf(" - crc_file update to: '%s'!\n", cmd_config.crc_file);
+    if (config.crc_file[0] == '\0') {
+        snprintf(config.crc_file, 1024, "%s/dci_crc_out.dat", config.output_dir);
+        printf(" - crc_file update to: '%s'!\n", config.crc_file);
     }
 
-    const int bIsInputYuv = common_verify_imgfmt_is_yuv(cmd_config.src_fmt);
-    const int bIsOutputYuv = common_verify_imgfmt_is_yuv(cmd_config.dst_fmt);
-    const size_t frame_size_max = cmd_config.src_wid * cmd_config.src_hgt * 4 * 2; // 4 channels x 16bpp
+    bIsInputYuv = common_verify_imgfmt_is_yuv(config.src_fmt);
+    bIsOutputYuv = common_verify_imgfmt_is_yuv(config.dst_fmt);
+    frame_size_max = config.src_wid * config.src_hgt * 4 * 2; // 4 channels x 16bpp
 
-    void *p_src_raw = NULL;
-    uint8_t *p_src = NULL;
-    uint8_t *p_dst = NULL;
-    FILE *fp_src = NULL, *fp_dst = NULL, *fp_crc = NULL;
-    int crc_val = -1;
-
-    const bool is_src_stb_img = is_stb_image(cmd_config.input_file);
+    const bool is_src_stb_img = is_stb_image(config.input_file);
     if (is_src_stb_img) {
         int nb_channels = 0;
-        p_src_raw = read_stb_image_auto(cmd_config.input_file, &cmd_config.src_wid, &cmd_config.src_hgt, &nb_channels, 3);
+        p_src_raw = read_stb_image_auto(config.input_file, &config.src_wid, &config.src_hgt, &nb_channels, 3);
         if (p_src_raw) {
-            cmd_config.nb_frame = 1;
-            cmd_config.src_fmt = RGB888;
-            cmd_config.src_wid_vir = cmd_config.src_wid * 3;
-            cmd_config.src_hgt_vir = cmd_config.src_hgt;
-            printf("stb image read success, src size: %dx%d, fmt: RGB888\n", cmd_config.src_wid, cmd_config.src_hgt);
-            if (cmd_config.dst_hgt != cmd_config.src_hgt || cmd_config.dst_wid != cmd_config.src_wid) {
-                cmd_config.dst_hgt = cmd_config.src_hgt;
-                cmd_config.dst_wid = cmd_config.src_wid;
-                cmd_config.dst_wid_vir = MAX(cmd_config.dst_wid_vir,
-                    ROUND_S32(cmd_config.dst_wid * common_verify_imgfmt_pitch_ratio(cmd_config.dst_fmt)));
-                cmd_config.dst_hgt_vir = MAX(cmd_config.dst_hgt_vir, cmd_config.dst_hgt);
+            config.nb_frame = 1;
+            config.src_fmt = RGB888;
+            config.src_wid_vir = config.src_wid * 3;
+            config.src_hgt_vir = config.src_hgt;
+            bIsInputYuv = false;
+            printf("stb image read success, src size: %dx%d, fmt: RGB888\n", config.src_wid, config.src_hgt);
+            if (config.dst_hgt != config.src_hgt || config.dst_wid != config.src_wid) {
+                config.dst_hgt = config.src_hgt;
+                config.dst_wid = config.src_wid;
+                config.dst_wid_vir = MAX(config.dst_wid_vir,
+                    ROUND_S32(config.dst_wid * common_verify_imgfmt_pitch_ratio(config.dst_fmt)));
+                config.dst_hgt_vir = MAX(config.dst_hgt_vir, config.dst_hgt);
                 printf("dst size updated to: %dx%d, the resolution in dst filename '%s' might not match!\n",
-                    cmd_config.dst_wid, cmd_config.dst_hgt, cmd_config.output_file);
+                    config.dst_wid, config.dst_hgt, config.output_file);
             }
         }
         else {
@@ -377,9 +362,9 @@ int run_as_demo(int argc, char *const argv[])
         }
     }
     else {
-        fp_src = fopen(cmd_config.input_file, "rb");
+        fp_src = fopen(config.input_file, "rb");
         if (!fp_src) {
-            fprintf(stderr, "Failed to open the input file '%s'! %s\n", cmd_config.input_file, strerror(errno));
+            fprintf(stderr, "Failed to open the input file '%s'! %s\n", config.input_file, strerror(errno));
             goto EXIT;
         }
     }
@@ -390,22 +375,21 @@ int run_as_demo(int argc, char *const argv[])
         goto EXIT;
     }
 
-    fp_dst = fopen(cmd_config.output_file, "wb");
+    fp_dst = fopen(config.output_file, "wb");
     if (!fp_dst) {
-        fprintf(stderr, "Failed to open the output file '%s'! %s\n", cmd_config.output_file, strerror(errno));
+        fprintf(stderr, "Failed to open the output file '%s'! %s\n", config.output_file, strerror(errno));
         goto EXIT;
     }
 
-    fp_crc = fopen(cmd_config.crc_file, "a");
+    fp_crc = fopen(config.crc_file, "a");
     if (!fp_crc) {
         fprintf(stderr, "Failed to open the crc output file '%s'! %s. CRC value will not be written!\n",
-            cmd_config.crc_file, strerror(errno));
+            config.crc_file, strerror(errno));
     }
 
-    dci_handle_t handle;
-    dci_init_param_t init_param;
+
     memset(&init_param, 0, sizeof(init_param));
-    init_param.platform = 3572; // default or parse from cmd_config.platform_name
+    init_param.platform = 3572; // default or parse from config.platform_name
 
     ret = dciVerifyInit(&handle, &init_param);
     if (ret != 0) {
@@ -413,42 +397,42 @@ int run_as_demo(int argc, char *const argv[])
         goto EXIT;
     }
 
-    for (int k = 0; k < cmd_config.nb_frame; k++) {
+    for (int k = 0; k < config.nb_frame; k++) {
         if (is_src_stb_img) {
             // DCI library expects 10-bit planar YUV or RGB?
             // Currently DCI process expects planar layout, let's use 10bit planar
-            ret = imgcvt_to_planar_10bit_lsb((uint8_t *)p_src_raw, (uint16_t *)p_src, cmd_config.src_wid,
-                cmd_config.src_hgt, cmd_config.src_wid_vir, cmd_config.src_hgt_vir, cmd_config.src_wid * 2,
-                cmd_config.src_hgt, cmd_config.src_fmt, false, 0);
+            ret = imgcvt_to_planar_10bit_lsb((uint8_t *)p_src_raw, (uint16_t *)p_src, config.src_wid,
+                config.src_hgt, config.src_wid_vir, config.src_hgt_vir, config.src_wid * 2,
+                config.src_hgt, config.src_fmt, false, 0);
         }
         else {
-            ret = image_read_to_10bit_planar(fp_src, p_src, k, cmd_config.src_wid, cmd_config.src_hgt,
-                cmd_config.src_wid_vir, cmd_config.src_hgt_vir, cmd_config.src_fmt, cmd_config.dither_up);
+            ret = image_read_to_10bit_planar(fp_src, p_src, k, config.src_wid, config.src_hgt,
+                config.src_wid_vir, config.src_hgt_vir, config.src_fmt, config.dither_up);
         }
         if (ret) {
-            fprintf(stderr, "Failed to read frame #%d from input file '%s'! %s\n", k, cmd_config.input_file, strerror(errno));
+            fprintf(stderr, "Failed to read frame #%d from input file '%s'! %s\n", k, config.input_file, strerror(errno));
             break;
         }
-        if (enable_dump_med_img) {
-            ret = dump_image_file(config.output_dir, "dci_dbg2_input_10bit", k, p_src, config.src_wid, config.src_hgt,
-                config.src_wid * 2, config.src_hgt, dci_src_dump_fmt, 10, config.dither_up);
-        }
+        // if (enable_dump_med_img) {
+        //     ret = dump_image_file(config.output_dir, "dci_dbg2_input_10bit", k, p_src, config.src_wid, config.src_hgt,
+        //         config.src_wid * 2, config.src_hgt, dci_src_dump_fmt, 10, config.dither_up);
+        // }
 
-        crc_val = get_crc_for_planar_frame_10bit(p_src, cmd_config.src_wid, cmd_config.src_hgt, bIsInputYuv);
+        crc_val = get_crc_for_planar_frame_10bit(p_src, config.src_wid, config.src_hgt, bIsInputYuv);
         printf("src CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsInputYuv ? "VYU" : "RGB", k, crc_val);
 
         dci_proc_param_t proc_param;
         memset(&proc_param, 0, sizeof(proc_param));
         proc_param.dci_enable = 1;
-        fill_img_info_10bit_planar(&proc_param.src_info, p_src, cmd_config.src_wid, cmd_config.src_hgt, 10,
-            common_verify_imgfmt_is_yuv(cmd_config.src_fmt));
-        fill_img_info_10bit_planar(&proc_param.dst_info, p_dst, cmd_config.dst_wid, cmd_config.dst_hgt, 10,
-            common_verify_imgfmt_is_yuv(cmd_config.dst_fmt));
+        fill_img_info_10bit_planar(&proc_param.src_info, (uint8_t *)p_src, config.src_wid, config.src_hgt, 10,
+            common_verify_imgfmt_is_yuv(config.src_fmt));
+        fill_img_info_10bit_planar(&proc_param.dst_info, (uint8_t *)p_dst, config.dst_wid, config.dst_hgt, 10,
+            common_verify_imgfmt_is_yuv(config.dst_fmt));
         proc_param.frame_idx = k;
-        proc_param.frame_num = cmd_config.nb_frame;
-        snprintf(proc_param.config_path, sizeof(proc_param.config_path), "%s", cmd_config.config_file);
+        proc_param.frame_num = config.nb_frame;
+        snprintf(proc_param.config_path, sizeof(proc_param.config_path), "%s", config.config_file);
 
-        proc_param.is_src_fullrange = common_verify_clrspc_is_full_range(cmd_config.src_clrspc);
+        proc_param.is_src_fullrange = common_verify_clrspc_is_full_range(config.src_clrspc);
 
         ret = dciVerifyProc(handle, &proc_param);
         if (ret != 0) {
@@ -456,17 +440,17 @@ int run_as_demo(int argc, char *const argv[])
             break;
         }
 
-        ret = image_write_from_plannar(fp_dst, (ushort *)p_dst, k, cmd_config.dst_wid, cmd_config.dst_hgt,
-            cmd_config.dst_wid_vir, cmd_config.dst_hgt_vir, cmd_config.dst_fmt, 10, cmd_config.dither_dn);
+        ret = image_write_from_plannar(fp_dst, (ushort *)p_dst, k, config.dst_wid, config.dst_hgt,
+            config.dst_wid_vir, config.dst_hgt_vir, config.dst_fmt, 10, config.dither_dn);
         if (ret) {
             break;
         }
 
-        crc_val = get_crc_for_planar_frame_10bit(p_dst, cmd_config.dst_wid, cmd_config.dst_hgt, bIsOutputYuv);
+        crc_val = get_crc_for_planar_frame_10bit(p_dst, config.dst_wid, config.dst_hgt, bIsOutputYuv);
         printf("dst CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
         if (fp_crc) {
-            fprintf(fp_crc, "input: %s, cmd_config: %s, crc (%s MSB order) of frame #%04d: 0x%08X\n",
-                get_basename(cmd_config.input_file), get_basename(cmd_config.config_file), bIsOutputYuv ? "VYU" : "RGB",
+            fprintf(fp_crc, "input: %s, config: %s, crc (%s MSB order) of frame #%04d: 0x%08X\n",
+                get_basename(config.input_file), get_basename(config.config_file), bIsOutputYuv ? "VYU" : "RGB",
                 k, crc_val);
         }
     }
@@ -474,7 +458,7 @@ int run_as_demo(int argc, char *const argv[])
     dciVerifyDeinit(handle);
 
     if (0 == ret) {
-        printf("done. write output to file: '%s'\n", cmd_config.output_file);
+        printf("done. write output to file: '%s'\n", config.output_file);
     }
     else {
         fprintf(stderr, "error happened, please have a check!\n");

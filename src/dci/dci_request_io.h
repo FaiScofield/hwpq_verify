@@ -1,7 +1,8 @@
-#pragma once
+#ifndef _DCI_REQUEST_IO_H_
+#define _DCI_REQUEST_IO_H_
 
+#include "dci_api.h"
 #include <string>
-#include "dci_verify_api.h"
 
 /**
  * @brief  Request-side native structs that mirror the Layer 1 JSON contract.
@@ -61,3 +62,5 @@ bool dci_load_runner_request(const char *request_path,
 bool dci_write_runner_result(const char *result_path,
                              const dci_runner_result_t &result,
                              std::string *error_msg);
+
+#endif /* _DCI_REQUEST_IO_H_ */

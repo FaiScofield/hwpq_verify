@@ -87,9 +87,9 @@ static bool dci_parse_audit_section(cJSON *audit_obj,
     if (!dci_json_get_int(audit_obj, "static_only", &audit->static_only,
                           error_msg))
         return false;
-    if (!dci_json_get_int(audit_obj, "node_mask", &audit->node_mask, error_msg))
+    if (!dci_json_get_int(audit_obj, "node_mask", (int *)&audit->node_mask, error_msg))
         return false;
-    if (!dci_json_get_int(audit_obj, "export_mask", &audit->export_mask,
+    if (!dci_json_get_int(audit_obj, "export_mask", (int *)&audit->export_mask,
                           error_msg))
         return false;
 

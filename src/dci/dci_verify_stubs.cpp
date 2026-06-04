@@ -10,7 +10,7 @@
  * CMakeLists.txt to link against it.
  */
 
-#include "dci_verify_api.h"
+#include "dci_api.h"
 #include <cstdio>
 
 #ifdef __cplusplus

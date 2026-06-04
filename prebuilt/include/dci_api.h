@@ -9,11 +9,54 @@ typedef void *dci_handle_t;
 #define DCI_CLAHE_OVERRIDE_INVALID_INT (-1)
 #define DCI_CLAHE_OVERRIDE_INVALID_F32 (-1.0f)
 
+#define DCI_AUDIT_TAG_MAX_LEN  256
+#define DCI_AUDIT_PATH_MAX_LEN 2048
+
+#define DCI_AUDIT_NODE_INPUT    (1u << 0)
+#define DCI_AUDIT_NODE_CF       (1u << 1)
+#define DCI_AUDIT_NODE_HE       (1u << 2)
+#define DCI_AUDIT_NODE_CF_HE    (1u << 3)
+#define DCI_AUDIT_NODE_BWS      (1u << 4)
+#define DCI_AUDIT_NODE_LOCAL    (1u << 5)
+#define DCI_AUDIT_NODE_PACK_PRE (1u << 6)
+
+#define DCI_AUDIT_EXPORT_MANIFEST      (1u << 0)
+#define DCI_AUDIT_EXPORT_METRICS_JSON  (1u << 1)
+#define DCI_AUDIT_EXPORT_CURVES_JSON   (1u << 2)
+#define DCI_AUDIT_EXPORT_HISTS_JSON    (1u << 3)
+#define DCI_AUDIT_EXPORT_PREVIEW_PNG   (1u << 4)
+#define DCI_AUDIT_EXPORT_RAW_META_JSON (1u << 5)
+
 typedef struct {
     int          platform;
     unsigned int debug_dump_mask; // 0 disables temp dumps, 0xff keeps all dumps
     char         debug_path[2048];
 } dci_init_param_t;
+
+typedef struct {
+    int enable_cf_he_ratio_override;
+    int cf_he_ratio;
+    int enable_bs_set_point_override;
+    int bs_set_point;
+    int enable_ws_set_point_override;
+    int ws_set_point;
+    int enable_clahe_local_ratio_override;
+    int clahe_local_ratio;
+    int enable_clahe_clip_value_override;
+    float clahe_clip_value;
+} dci_audit_override_t;
+
+typedef struct {
+    int                  enable;
+    int                  static_only;
+    unsigned int         node_mask;
+    unsigned int         export_mask;
+    char                 tag[DCI_AUDIT_TAG_MAX_LEN];
+    char                 working_dir[DCI_AUDIT_PATH_MAX_LEN];
+    int                  save_snapshot;
+    char                 snapshot_dir[DCI_AUDIT_PATH_MAX_LEN];
+    dci_audit_override_t override_cfg;
+} dci_audit_param_t;
 
 typedef struct {
     int dci_enable;
@@ -39,6 +82,8 @@ typedef struct {
     float clahe_abld_ratio;  // valid: [0.0f, 1.0f], default: 0.7f, invalid: -1
     int   clahe_scd_thr_min; // valid: >= 0, default: 0.7f, invalid: -1
     int   clahe_scd_thr_max; // valid: >= 0, default: 3.0f, invalid: -1
+
+    dci_audit_param_t audit;
 
 } dci_proc_param_t;
 
