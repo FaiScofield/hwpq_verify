@@ -205,23 +205,51 @@ def _hsv2rgb(h, s, v):
     return r, g, b
 
 
+SAT_COLORMAP_SIZE = 416  # effective image area size (px)
+SAT_MARGIN = 48          # border margin for axes/labels
+_DATA_RANGE_MAX = 128    # max data value, range is [-128, 127] or [-128, 128]
+_DATA_SIZE = 256         # total data range size (max - min + 1 for ticks)
+
+
+def _data_to_pix(val):
+    """Map a float data value in [-128, 128] to pixel coordinate [0, SAT_COLORMAP_SIZE-1].
+    Uses exact integer scaling: each of the 256 data values occupies SIZE/256 pixels."""
+    return int(round((val + _DATA_RANGE_MAX) * SAT_COLORMAP_SIZE / _DATA_SIZE))
+
+
+def _pix_to_data(pix):
+    """Map pixel [0, SIZE-1] to continuous float data value in [-128, 127.5].
+    Used for color generation (colormap pixel→data→RGB conversion)."""
+    return pix * _DATA_SIZE / SAT_COLORMAP_SIZE - _DATA_RANGE_MAX
+
+
+def _pix_to_data_int(pix):
+    """Map pixel [0, SIZE-1] to discrete integer data value in [-128, 127].
+    Uses floor: each group of ceil(SIZE/256) pixels maps to one integer data value."""
+    return int(pix * _DATA_SIZE / SAT_COLORMAP_SIZE) - _DATA_RANGE_MAX
+
+
 def _build_colormap_yuv(luma_val):
-    """Build YCbCr->RGB colormap (256x256) for a fixed luma value. Returns PIL Image."""
-    w, h_img = 256, 256
-    cb_grid = np.tile(np.arange(w, dtype=np.float32), (h_img, 1)) - 128.0
-    cr_grid = np.tile(np.arange(h_img - 1, -1, -1, dtype=np.float32).reshape(-1, 1), (1, w)) - 128.0
+    """Build YCbCr->RGB colormap for a fixed luma value. Returns PIL Image."""
+    w, h_img = SAT_COLORMAP_SIZE, SAT_COLORMAP_SIZE
+    # Map pixel coords to data range [-128, 127]
+    cb_grid = _pix_to_data(np.tile(np.arange(w, dtype=np.float32), (h_img, 1)))
+    cr_grid = _pix_to_data(np.tile(np.arange(h_img - 1, -1, -1, dtype=np.float32).reshape(-1, 1), (1, w)))
     y = np.full((h_img, w), float(luma_val), dtype=np.float32)
     r, g, b = _ycbcr2rgb(y, cb_grid, cr_grid)
     return Image.fromarray(np.stack([r, g, b], axis=-1), 'RGB')
 
 
 def _build_colormap_rgb(value_val):
-    """Build HSV->RGB colormap (256x256) for a fixed V value. Returns PIL Image."""
-    w, h_img = 256, 256
-    cx = np.tile(np.arange(-128, 128, dtype=np.float32), (h_img, 1))
-    cy = np.tile(np.arange(127, -129, -1, dtype=np.float32).reshape(-1, 1), (1, w))
+    """Build HSV->RGB colormap for a fixed V value. Returns PIL Image."""
+    w, h_img = SAT_COLORMAP_SIZE, SAT_COLORMAP_SIZE
+    # Map pixel coords to [-128, 127] range, then to normalized [-1, 1]
+    pix_x = np.tile(np.arange(w, dtype=np.float32), (h_img, 1))
+    pix_y = np.tile(np.arange(h_img - 1, -1, -1, dtype=np.float32).reshape(-1, 1), (1, w))
+    cx = _pix_to_data(pix_x) / _DATA_RANGE_MAX
+    cy = _pix_to_data(pix_y) / _DATA_RANGE_MAX
     h = (np.arctan2(cy, cx) * 180.0 / np.pi + 360.0) % 360.0
-    s = np.sqrt(cx ** 2 + cy ** 2) / 128.0
+    s = np.sqrt(cx ** 2 + cy ** 2)
     v = np.full((h_img, w), float(value_val) / 255.0, dtype=np.float32)
     r, g, b = _hsv2rgb(h, s, v)
     mask = s > 1.0
@@ -229,43 +257,46 @@ def _build_colormap_rgb(value_val):
     return Image.fromarray(np.stack([r, g, b], axis=-1), 'RGB')
 
 
-def _build_colormap_with_axis(img_256, title, xlabel, ylabel):
-    """Add margin and axes to a 256x256 colormap PIL Image."""
-    margin = 64
-    w, h_img = 256, 256
+def _build_colormap_with_axis(img_eff, title, xlabel, ylabel):
+    """Add margin and axes to a colormap PIL Image. Returns (padded_img, margin_size)."""
+    margin = SAT_MARGIN
+    w, h_img = img_eff.size
     total_w, total_h = w + 2 * margin, h_img + 2 * margin
     padded = Image.new('RGB', (total_w, total_h), (255, 255, 255))
-    padded.paste(img_256, (margin, margin))
+    padded.paste(img_eff, (margin, margin))
     draw = ImageDraw.Draw(padded)
     try:
-        font = ImageFont.truetype('arial.ttf', 14)
+        font = ImageFont.truetype('arial.ttf', 16)
     except Exception:
         font = None
     axis_color = (0, 0, 0)
     tick_color = (64, 64, 64)
-    # X axis
-    y0 = margin + h_img // 2
+    # Origin at center of effective area (Cb=0, Cr=0)
+    cx0 = _data_to_pix(0)    # pixel offset within effective area for Cb=0
+    cy0 = _data_to_pix(0)    # pixel offset from top for Cr=0 (= SIZE-1 - _data_to_pix(0) for symmetry)
+    x0 = margin + cx0
+    y0 = margin + (SAT_COLORMAP_SIZE - 1) - cy0
+    # X axis (horizontal through Cr=0)
     draw.line([(margin, y0), (total_w - margin, y0)], fill=axis_color, width=2)
-    # Y axis
-    x0 = margin + w // 2
+    # Y axis (vertical through Cb=0)
     draw.line([(x0, margin), (x0, total_h - margin)], fill=axis_color, width=2)
-    # Ticks every 64 pixels
-    for i in range(0, w + 1, 64):
-        x = margin + i
-        data_val = i - 128
+    # Ticks
+    tick_data_vals = [-128, -96, -64, -32, 0, 32, 64, 96]  # match data range [-128, 127]
+    for dv in tick_data_vals:
+        # X tick: Cb=dv at pixel _data_to_pix(dv) from left
+        x = margin + _data_to_pix(dv)
         draw.line([(x, y0 - 4), (x, y0 + 4)], fill=tick_color, width=1)
-        if font and i != 128:
-            draw.text((x + 3, y0 + 5), str(data_val), fill=tick_color, font=font)
-    for j in range(0, h_img + 1, 64):
-        y = margin + j
-        data_val = 127 - j
+        if font and dv != 0:
+            draw.text((x + 3, y0 + 5), str(dv), fill=tick_color, font=font)
+        # Y tick: Cr=dv at pixel SAT_COLORMAP_SIZE-1-_data_to_pix(dv) from top
+        y = margin + (SAT_COLORMAP_SIZE - 1) - _data_to_pix(dv)
         draw.line([(x0 - 4, y), (x0 + 4, y)], fill=tick_color, width=1)
-        if font and j != 128:
-            draw.text((x0 - 28, y - 8), str(data_val), fill=tick_color, font=font)
+        if font and dv != 0:
+            draw.text((x0 - 30, y - 8), str(dv), fill=tick_color, font=font)
     # Labels
     if font:
         draw.text((total_w - margin + 8, y0 - 10), xlabel, fill=axis_color, font=font)
-        draw.text((x0 + 5, margin - 20), ylabel, fill=axis_color, font=font)
+        draw.text((x0 + 5, margin - 22), ylabel, fill=axis_color, font=font)
         bbox = draw.textbbox((0, 0), title, font=font)
         tw = bbox[2] - bbox[0]
         draw.text((total_w // 2 - tw // 2, 4), title, fill=axis_color, font=font)
@@ -415,7 +446,7 @@ def open_csc_ui(args=None):
                 [sg.Tab('I/O Config', input_output_layout),
                  sg.Tab('BCSH Config', bcsh_tab_layout),
                  sg.Tab('Sat/Hue Test', sathue_tab_layout)]
-            ])]
+            ], key='-TABS-', enable_events=True)]
         ]),
         sg.Column([
              [sg.Button('Save Output', key='-SAVE-OUT-', size=(12, 2))],
@@ -497,16 +528,18 @@ def open_csc_ui(args=None):
     sathue_luma_val = 204
     sathue_hue_val = 0
     sathue_sat_val = 1.0
-    sathue_img_256 = None       # 256x256 colormap PIL Image (without axes)
+    sathue_img_eff = None       # effective colormap PIL Image (without axes)
     sathue_img_full = None      # full image with axes, margin
-    sathue_margin = 64
+    sathue_margin = SAT_MARGIN
     sathue_locked = False
-    sathue_locked_pix = None    # (img_x, img_y) in 256x256 effective coords
+    sathue_locked_pix = None    # (img_x, img_y) in effective coords
     sathue_locked_input = None  # (c1, c2, c3) input values at lock point
     sathue_mouse_pos = None
     sathue_display_scale = 1.0  # scale ratio applied to full_img for display
+    sathue_render_after_id = None  # tkinter after id for deferred render
     is_mouse_in_sathue = False
     show_sathue_image = False   # whether the main -IMAGE- is showing sathue colormap
+    sathue_initialized = False  # lazy init on first tab activation
 
     planar_in_full = None
     current_input_file_params = None  # (input_file, w, h, ifmt)
@@ -530,20 +563,20 @@ def open_csc_ui(args=None):
 
     def update_sathue_map():
         """Regenerate the Sat/Hue colormap image and update the widget."""
-        nonlocal sathue_img_256, sathue_img_full, sathue_margin
+        nonlocal sathue_img_eff, sathue_img_full, sathue_margin
         nonlocal show_sathue_image, sathue_display_scale
         if sathue_colorspace == 'YUV':
-            img_256 = _build_colormap_yuv(sathue_luma_val)
+            img_eff = _build_colormap_yuv(sathue_luma_val)
             title = f"YCbCr->RGB  (Y={sathue_luma_val})"
             xlabel, ylabel = "Cb", "Cr"
         else:
-            img_256 = _build_colormap_rgb(sathue_luma_val)
+            img_eff = _build_colormap_rgb(sathue_luma_val)
             title = f"HSV->RGB  (V={sathue_luma_val})"
             xlabel, ylabel = "S*cos(H)", "S*sin(H)"
-        sathue_img_256 = img_256.copy()
+        sathue_img_eff = img_eff.copy()
 
         # Draw locked-point circles
-        img_verbose = img_256.copy()
+        img_verbose = img_eff.copy()
         draw_verbose = ImageDraw.Draw(img_verbose)
 
         if sathue_locked and sathue_locked_pix is not None:
@@ -568,23 +601,57 @@ def open_csc_ui(args=None):
         full_img, margin = _build_colormap_with_axis(img_verbose, title, xlabel, ylabel)
         sathue_img_full = full_img
         sathue_margin = margin
-        bio = io.BytesIO()
-        full_img.save(bio, format='PNG')
-        img_w, img_h = full_img.size
-        # Base scale 1.5x, capped by widget width
-        col_widget = window['-IMAGE-COL-'].Widget
-        max_display_w = max(col_widget.winfo_width() - 20, 640)
-        scale_ratio = min(1.5, max_display_w / img_w)
-        sathue_display_scale = scale_ratio
-        display_w = int(img_w * scale_ratio)
-        display_h = int(img_h * scale_ratio)
-        window['-IMAGE-'].update(data=bio.getvalue(), size=(display_w, display_h))
+        _render_sathue_display()
         show_sathue_image = True
+
+    def _render_sathue_display():
+        """Scale the full colormap image to fit the widget and display it."""
+        nonlocal sathue_display_scale, sathue_render_after_id
+        sathue_render_after_id = None
+        if sathue_img_full is None:
+            return
+        img_w, img_h = sathue_img_full.size
+        col_widget = window['-IMAGE-COL-'].Widget
+        max_display_w = max(col_widget.winfo_width() - 20, 512)
+        max_display_h = max(col_widget.winfo_height() - 20, 512)
+        scale_ratio = min(2.0, max_display_w / img_w, max_display_h / img_h)
+        sathue_display_scale = scale_ratio
+        display_w = int(round(img_w * scale_ratio))
+        display_h = int(round(img_h * scale_ratio))
+        display_img = sathue_img_full.resize((display_w, display_h),
+            Image.LANCZOS if hasattr(Image, 'LANCZOS') else Image.Resampling.LANCZOS)
+        bio = io.BytesIO()
+        display_img.save(bio, format='PNG')
+        window['-IMAGE-'].update(data=bio.getvalue(), size=(display_w, display_h))
         window['-DISPLAY-SIZE-'].update(value=f"{img_w}x{img_h} @ x{scale_ratio:.2f}")
+
+    def _is_sathue_tab_active(values):
+        """Return whether the Sat/Hue Test tab is the active top tab."""
+        return 'Sat/Hue Test' in str(values.get('-TABS-', ''))
+
+    def _sync_preview_with_active_tab(values):
+        """Switch the bottom preview source to match the currently active tab."""
+        nonlocal show_sathue_image, sathue_initialized
+        if _is_sathue_tab_active(values):
+            if not sathue_initialized:
+                update_sathue_map()
+                sathue_initialized = True
+            elif sathue_img_full is not None:
+                _render_sathue_display()
+                show_sathue_image = True
+            return
+
+        show_sathue_image = False
+        if current_planar_in is not None or current_planar_out is not None:
+            display_result(window, values)
+            if current_mouse_pos is not None:
+                update_pixel_info(window, current_mouse_pos[0], current_mouse_pos[1])
+        else:
+            trigger_convert(values)
 
     def _compute_sathue_output_pos():
         """Compute the output pixel coordinate after Hue/Saturation transform on locked input.
-        Returns (pix_x, pix_y) in 256x256 effective coords, or None if out of range."""
+        Returns (pix_x, pix_y) in effective coords, or None if out of range."""
         if sathue_locked_input is None:
             return None
         c1, c2, c3 = sathue_locked_input
@@ -598,33 +665,32 @@ def open_csc_ui(args=None):
             cr2 = sat_scale * (cb * np.sin(h_rad) + cr * np.cos(h_rad))
             cb2 = np.clip(cb2, -128, 127)
             cr2 = np.clip(cr2, -128, 127)
-            tx = int(round(cb2 + 128))
-            ty = int(round(127 - cr2))
+            tx = _data_to_pix(cb2)
+            ty = _data_to_pix(-cr2)
         else:
             h = c1
             s = float(c2)
             h2 = (h + hue_deg) % 360
             s2 = np.clip(s * sat_scale, 0.0, 1.0)
-            sx = s2 * 128 * np.cos(np.radians(h2))
-            sy = s2 * 128 * np.sin(np.radians(h2))
-            tx = int(round(sx + 128))
-            ty = int(round(127 - sy))
-        if 0 <= tx < 256 and 0 <= ty < 256:
+            sx = _data_to_pix(s2 * _DATA_RANGE_MAX * np.cos(np.radians(h2)))
+            sy = _data_to_pix(-s2 * _DATA_RANGE_MAX * np.sin(np.radians(h2)))
+            tx, ty = sx, sy
+        if 0 <= tx < SAT_COLORMAP_SIZE and 0 <= ty < SAT_COLORMAP_SIZE:
             return tx, ty
         return None
 
     def _get_sathue_input_at(pix_x, pix_y):
-        """Get the (c1, c2, c3) input values at pixel (pix_x, pix_y) in 256x256 effective coords."""
+        """Get the (c1, c2, c3) input values at pixel in effective coords."""
         if sathue_colorspace == 'YUV':
             Y = sathue_luma_val
-            Cb = pix_x - 128
-            Cr = 127 - pix_y
+            Cb = _pix_to_data_int(pix_x)
+            Cr = _pix_to_data_int(SAT_COLORMAP_SIZE - 1 - pix_y)
             return (Y, Cb, Cr)
         else:
-            cx = pix_x - 128
-            cy = 127 - pix_y
+            cx = _pix_to_data(pix_x) / _DATA_RANGE_MAX
+            cy = _pix_to_data(SAT_COLORMAP_SIZE - 1 - pix_y) / _DATA_RANGE_MAX
             H = (np.arctan2(cy, cx) * 180.0 / np.pi + 360.0) % 360.0
-            S = np.sqrt(cx ** 2 + cy ** 2) / 128.0
+            S = np.sqrt(cx ** 2 + cy ** 2)
             V = sathue_luma_val / 255.0
             return (H, max(S, 0.0), V)
 
@@ -632,11 +698,11 @@ def open_csc_ui(args=None):
         """Format input pixel info string per the display template."""
         if sathue_colorspace == 'YUV':
             y_val, cb, cr = invals
-            return f"YCbCr({y_val}, {cb}, {cr}) <=> YUV({y_val}, {cb+128}, {cr+128})"
+            return f"YCbCr({y_val:3d}, {cb:3d}, {cr:3d}) <=> YUV({y_val:3d}, {cb+128:3d}, {cr+128:3d})"
         else:
             h_val, s_val, v_val = invals
             r, g, b = _hsv2rgb(np.array([h_val]), np.array([s_val]), np.array([v_val]))
-            return f"HSV({h_val:.1f}, {s_val:.2f}, {v_val:.2f}) <=> RGB({r[0]}, {g[0]}, {b[0]})"
+            return f"HSV({h_val:3.1f}, {s_val:3.2f}, {v_val:3.2f}) <=> RGB({r[0]:3d}, {g[0]:3d}, {b[0]:3d})"
 
     def _format_sathue_output_str(outvals):
         """Format output pixel info string per the display template."""
@@ -649,20 +715,20 @@ def open_csc_ui(args=None):
             return f"HSV({h_val[0]:3.1f}, {s_val[0]:3.2f}, {v_val[0]:3.2f}) <=> RGB({r:3d}, {g:3d}, {b:3d})"
 
     def _get_sathue_output_at(pix_x, pix_y):
-        """Get the output values at pixel (pix_x, pix_y) in effective coords.
+        """Get the output values at pixel in effective coords.
         YUV mode: returns (Y, Cb, Cr). RGB mode: returns (R, G, B) 0-255.
         Returns None if outside valid area."""
-        if not (0 <= pix_x < 256 and 0 <= pix_y < 256):
+        if not (0 <= pix_x < SAT_COLORMAP_SIZE and 0 <= pix_y < SAT_COLORMAP_SIZE):
             return None
-        if sathue_img_256 is None:
+        if sathue_img_eff is None:
             return None
         # For HSV mode, outside circle is invalid
         if sathue_colorspace == 'RGB':
-            cx = pix_x - 128
-            cy = 127 - pix_y
-            if np.sqrt(cx ** 2 + cy ** 2) / 128.0 > 1.0:
+            cx = _pix_to_data(pix_x) / _DATA_RANGE_MAX
+            cy = _pix_to_data(SAT_COLORMAP_SIZE - 1 - pix_y) / _DATA_RANGE_MAX
+            if cx ** 2 + cy ** 2 > 1.0:
                 return None
-        px = sathue_img_256.getpixel((pix_x, pix_y))
+        px = sathue_img_eff.getpixel((pix_x, pix_y))
         r, g, b = px[0], px[1], px[2]
         if sathue_colorspace == 'YUV':
             # Convert RGB back to YCbCr
@@ -676,9 +742,9 @@ def open_csc_ui(args=None):
         return (r, g, b)
 
     def _format_sathue_pos_str(pix_x, pix_y):
-        """Format position as (x-center, y-center) in effective 256x256 coordinate space."""
-        cx = pix_x - 128
-        cy = 127 - pix_y
+        """Format position as (x-center, y-center) in effective coordinate space."""
+        cx = _pix_to_data_int(pix_x)
+        cy = _pix_to_data_int(SAT_COLORMAP_SIZE - 1 - pix_y)
         return f"({cx:4d},{cy:4d})"
 
     def _update_sathue_lock_display():
@@ -925,7 +991,7 @@ def open_csc_ui(args=None):
             ics, _ = clrspc_to_mode_params(iclr)
             current_input_color = ColorSpace[ics.upper()] if ics.startswith("bt") else ColorSpace.BT709
 
-            if update_display:
+            if update_display and not _is_sathue_tab_active(values):
                 display_result(window, values)
             return
 
@@ -1024,7 +1090,7 @@ def open_csc_ui(args=None):
             else:
                 current_input_color = ColorSpace.BT709
 
-            if update_display:
+            if update_display and not _is_sathue_tab_active(values):
                 display_result(window, values)
                 if current_mouse_pos is not None:
                     update_pixel_info(window, current_mouse_pos[0], current_mouse_pos[1])
@@ -1128,23 +1194,24 @@ def open_csc_ui(args=None):
     default_bcsh_vals = {f'-BCSH-{k}-': 256 for _, k1, _, k2 in bcsh_names for k in (k1, k2)}
     update_bcsh_norm_labels(window, default_bcsh_vals, ALGO_RK_HW_CSC)
 
-    # Generate initial Sat/Hue colormap
-    update_sathue_map()
-
     while True:
         event, values = window.read()
         if event in (sg.WIN_CLOSED, None):
             break
 
+        if event == '-TABS-':
+            _sync_preview_with_active_tab(values)
+            continue
+
         if event == '-WINDOW-RESIZE-':
-            # Only redraw if the size actually changed significantly to prevent infinite loop
-            if last_window_size != window.size:
+            if show_sathue_image:
+                # Defer so layout reflows before we read the new widget width
+                if sathue_render_after_id is not None:
+                    window.TKroot.after_cancel(sathue_render_after_id)
+                sathue_render_after_id = window.TKroot.after(50, _render_sathue_display)
+            elif last_window_size != window.size:
                 last_window_size = window.size
-                if show_sathue_image:
-                    update_sathue_map()
-                elif current_planar_in is not None:
-                    # Delay slightly to allow the UI layout to settle before re-calculating dimensions
-                    # We call trigger_convert to re-downsample the image with the new size
+                if current_planar_in is not None:
                     window.perform_long_operation(lambda: None, '-REDRAW-IMAGE-')
             continue
         elif event == '-REDRAW-IMAGE-':
@@ -1237,7 +1304,9 @@ def open_csc_ui(args=None):
             _update_fmt_for_clrspc(window, values, fmt_display, get_clrspc_from_display(values['-IN-CLR-']))
             trigger_convert(values)
         elif event == '-IN-FMT-':
-            _update_clrspc_for_fmt(window, values, '-IN-CLR-', values['-IN-FMT-'])
+            fmt_base = get_fmt_from_display(values['-IN-FMT-']) & 0xF
+            default_clrspc = clrspc_rgb[1] if fmt_base <= 0x2 else clrspc_yuv[3]
+            _update_clrspc_for_fmt(window, values, '-IN-CLR-', values['-IN-FMT-'], default_clrspc)
             trigger_convert(values)
         elif event == '-OUT-FMT-':
             _update_clrspc_for_fmt(window, values, '-OUT-CLR-', values['-OUT-FMT-'])
@@ -1348,7 +1417,8 @@ def open_csc_ui(args=None):
         elif event in convert_keys:
             trigger_convert(values)
         elif event in ['-SHOW-IN-', '-SHOW-OUT-']:
-            display_result(window, values)
+            if not _is_sathue_tab_active(values):
+                display_result(window, values)
         elif event == '-INPUT-FILE-':
             if values['-INPUT-FILE-'] and os.path.isfile(values['-INPUT-FILE-']):
                 filepath = values['-INPUT-FILE-']
@@ -1411,7 +1481,7 @@ def open_csc_ui(args=None):
                     wx, wy = e.x, e.y
                     eff_x = int(wx / sathue_display_scale) - sathue_margin
                     eff_y = int(wy / sathue_display_scale) - sathue_margin
-                    if 0 <= eff_x < 256 and 0 <= eff_y < 256:
+                    if 0 <= eff_x < SAT_COLORMAP_SIZE and 0 <= eff_y < SAT_COLORMAP_SIZE:
                         invals = _get_sathue_input_at(eff_x, eff_y)
                         outpx = _get_sathue_output_at(eff_x, eff_y)
                         window['-INPUT-PIXEL-INFO-'].update(f"{_format_sathue_input_str(invals)}")
