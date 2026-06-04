@@ -313,6 +313,8 @@ def open_csc_ui(args=None):
     clrspc_rgb = [s for s in clrspc_display_all if int(s.split(" ")[0]) in (0, 1)]
     clrspc_yuv = [s for s in clrspc_display_all if int(s.split(" ")[0]) in range(2, 8)]
     precision_values = [0] + list(range(8, 17))
+    fmt_combo_width = 28
+    clrspc_combo_width = 22
 
     def get_fmt_from_display(display_str):
         return int(display_str.split(" ")[0], 16)
@@ -333,6 +335,14 @@ def open_csc_ui(args=None):
             window['-IN-FMT-'].update(value=target_fmt)
             values['-IN-FMT-'] = target_fmt
 
+    def _enforce_combo_width(window, key, width_chars):
+        """Keep combo widget width stable after runtime value list updates."""
+        widget = window[key].Widget
+        try:
+            widget.configure(width=width_chars)
+        except Exception:
+            pass
+
     def _update_clrspc_for_fmt(window, values, clrspc_key, fmt_str, default_clrspc=None):
         """Update a colorspace combo options to match the selected format domain."""
         fmt_code = int(fmt_str.split(" ")[0], 16)
@@ -344,11 +354,19 @@ def open_csc_ui(args=None):
             options = clrspc_yuv
             default = default_clrspc or clrspc_yuv[3]  # BT709_Full
         window[clrspc_key].update(values=options)
+        _enforce_combo_width(window, clrspc_key, clrspc_combo_width)
         # Reset to default if current value is not in the new options
         current_val = values.get(clrspc_key, '')
         if current_val not in options:
             window[clrspc_key].update(value=default)
             values[clrspc_key] = default
+        else:
+            window[clrspc_key].update(value=current_val)
+
+    def _sync_clrspc_controls(window, values):
+        """Bind input/output colorspace controls to the current format domain."""
+        _update_clrspc_for_fmt(window, values, '-IN-CLR-', values['-IN-FMT-'])
+        _update_clrspc_for_fmt(window, values, '-OUT-CLR-', values['-OUT-FMT-'])
 
     bcsh_names = [
         ('Brightness:', 'bright', 'Contrast:', 'contrast'),
@@ -389,12 +407,19 @@ def open_csc_ui(args=None):
          sg.Button('Reset BCSH', key='-RESET-BCSH-')]
     ]
 
+    preview_resize_threshold = 24
+
     sathue_tab_layout = [
         [sg.Text('Input Colorspace:', size=(14, 1)),
          sg.Combo(['YUV', 'RGB'], default_value='YUV', key='-SAT-CLRSPC-',
                   readonly=True, size=(6, 1), enable_events=True),
          sg.Text('Input Depth:', size=(10, 1)),
-         sg.Text('8bit', key='-SAT-DEPTH-', size=(5, 1))],
+         sg.Text('8bit', key='-SAT-DEPTH-', size=(5, 1)),
+         sg.Push(),
+         sg.Checkbox('Show Color Map', key='-SAT-SHOW-MAP-', default=False, enable_events=True)],
+        [sg.Checkbox('Set Color', key='-SAT-SET-COLOR-', default=False, enable_events=True),
+         sg.Input('', key='-SAT-COLOR-INPUT-', size=(28, 1), enable_events=False,
+                  disabled=True, disabled_readonly_background_color=sg.theme_background_color())],
         [sg.Text('Luma/Value:', size=(14, 1)),
          sg.Slider(range=(0, 255), default_value=204, orientation='h',
                    size=(20, 15), key='-SAT-LUMA-', enable_events=True, disable_number_display=True),
@@ -409,7 +434,6 @@ def open_csc_ui(args=None):
                    size=(20, 15), key='-SAT-SAT-', enable_events=True, disable_number_display=True),
          sg.Spin([f"{i/180:.2f}" for i in range(361)], initial_value='1.00', key='-SAT-SAT-SPIN-', size=(5, 1)),
          sg.Button('Reset', key='-SAT-SAT-RESET-', size=(5, 1))],
-        [sg.HorizontalSeparator()],
     ]
 
     input_output_layout = [
@@ -423,16 +447,16 @@ def open_csc_ui(args=None):
                   disabled=True, disabled_readonly_background_color=sg.theme_background_color())],
         [sg.Text('Input Format:', size=(12, 1)),
          sg.Combo(fmt_display, default_value=fmt_display[0], key='-IN-FMT-',
-                  readonly=True, size=(28, 1), enable_events=True),
+                  readonly=True, size=(fmt_combo_width, 1), enable_events=True),
          sg.Text('Input Colorspace:', size=(14, 1)),
          sg.Combo(clrspc_rgb, default_value=clrspc_rgb[1], key='-IN-CLR-',
-                  readonly=True, size=(22, 1), enable_events=True)],
+                  readonly=True, size=(clrspc_combo_width, 1), enable_events=True)],
         [sg.Text('Output Format:', size=(12, 1)),
          sg.Combo(fmt_display, default_value=fmt_display[0], key='-OUT-FMT-',
-                  readonly=True, size=(28, 1), enable_events=True),
+                  readonly=True, size=(fmt_combo_width, 1), enable_events=True),
          sg.Text('Output Colorspace:', size=(14, 1)),
          sg.Combo(clrspc_rgb, default_value=clrspc_rgb[1], key='-OUT-CLR-',
-                  readonly=True, size=(22, 1), enable_events=True)],
+                  readonly=True, size=(clrspc_combo_width, 1), enable_events=True)],
         [sg.Text('Precision (0=float):', size=(16, 1)),
          sg.Combo([str(v) for v in precision_values], default_value='10',
                   key='-PRECISION-', readonly=True, size=(6, 1), enable_events=True),
@@ -446,7 +470,7 @@ def open_csc_ui(args=None):
                 [sg.Tab('I/O Config', input_output_layout),
                  sg.Tab('BCSH Config', bcsh_tab_layout),
                  sg.Tab('Sat/Hue Test', sathue_tab_layout)]
-            ], key='-TABS-', enable_events=True)]
+            ], key='-TABS-')]
         ]),
         sg.Column([
              [sg.Button('Save Output', key='-SAVE-OUT-', size=(12, 2))],
@@ -487,7 +511,14 @@ def open_csc_ui(args=None):
                 sg.Multiline('', size=(28, 1), key='-STEP2-OFFSET-', disabled=True, no_scrollbar=True),
             ],
         ], expand_x=True)],
-        [sg.Column([[sg.Image(key='-IMAGE-', background_color='gray')]], key='-IMAGE-COL-', expand_x=True, expand_y=True, element_justification='l', vertical_alignment='top')]
+        [sg.Column([
+            [sg.Frame('Image Preview', [[sg.Image(key='-IMAGE-', background_color='gray')]],
+                      key='-MAIN-PREVIEW-FRAME-', expand_x=True, expand_y=True)]
+        ], key='-MAIN-IMAGE-COL-', expand_x=True, expand_y=True, element_justification='center', vertical_alignment='top'),
+         sg.Column([
+             [sg.Frame('Sat/Hue Preview', [[sg.Image(key='-SAT-IMAGE-', background_color='gray')]],
+                       key='-SAT-PREVIEW-FRAME-', expand_x=True, expand_y=True)]
+         ], key='-SAT-IMAGE-COL-', expand_y=True, element_justification='center', vertical_alignment='top', pad=((10, 0), 0), visible=False)]
     ]
 
     window = sg.Window('CSC Image Converter', layout, resizable=True, finalize=True, return_keyboard_events=True)
@@ -497,11 +528,25 @@ def open_csc_ui(args=None):
     window.TKroot.after(100, lambda: window.TKroot.attributes('-topmost', False))
 
     window.bind('<Configure>', '-WINDOW-RESIZE-')
+    _sync_clrspc_controls(window, {
+        '-IN-FMT-': window['-IN-FMT-'].get(),
+        '-IN-CLR-': window['-IN-CLR-'].get(),
+        '-OUT-FMT-': window['-OUT-FMT-'].get(),
+        '-OUT-CLR-': window['-OUT-CLR-'].get(),
+    })
+    _enforce_combo_width(window, '-IN-FMT-', fmt_combo_width)
+    _enforce_combo_width(window, '-OUT-FMT-', fmt_combo_width)
+
     window['-IMAGE-'].bind('<Motion>', '+MOTION')
     window['-IMAGE-'].bind('<Enter>', '+ENTER')
     window['-IMAGE-'].bind('<Leave>', '+LEAVE')
+    window['-SAT-IMAGE-'].bind('<Motion>', '+MOTION')
+    window['-SAT-IMAGE-'].bind('<Enter>', '+ENTER')
+    window['-SAT-IMAGE-'].bind('<Leave>', '+LEAVE')
     window['-COLOR-INPUT-'].bind('<Return>', '+ENTER')
     window['-COLOR-INPUT-'].bind('<KP_Enter>', '+ENTER')
+    window['-SAT-COLOR-INPUT-'].bind('<Return>', '+ENTER')
+    window['-SAT-COLOR-INPUT-'].bind('<KP_Enter>', '+ENTER')
 
     current_planar_in = None
     current_planar_out = None
@@ -522,6 +567,10 @@ def open_csc_ui(args=None):
     is_pixel_info_frozen = False
     is_mouse_in_image = False
     current_algo_type = ALGO_RK_HW_CSC
+    sat_preview_visible = False
+    last_main_preview_size = (0, 0)
+    last_sat_preview_size = (0, 0)
+    current_main_display_size = (400, 400)
 
     # Sat/Hue Test state
     sathue_colorspace = 'YUV'
@@ -538,9 +587,7 @@ def open_csc_ui(args=None):
     sathue_display_scale = 1.0  # scale ratio applied to full_img for display
     sathue_render_after_id = None  # tkinter after id for deferred render
     is_mouse_in_sathue = False
-    show_sathue_image = False   # whether the main -IMAGE- is showing sathue colormap
-    sathue_initialized = False  # lazy init on first tab activation
-
+    sathue_set_color_enabled = False
     planar_in_full = None
     current_input_file_params = None  # (input_file, w, h, ifmt)
 
@@ -561,10 +608,10 @@ def open_csc_ui(args=None):
             return None
         return nums[:3]
 
-    def update_sathue_map():
+    def update_sathue_map(preserve_display_size=False):
         """Regenerate the Sat/Hue colormap image and update the widget."""
         nonlocal sathue_img_eff, sathue_img_full, sathue_margin
-        nonlocal show_sathue_image, sathue_display_scale
+        nonlocal sathue_display_scale
         if sathue_colorspace == 'YUV':
             img_eff = _build_colormap_yuv(sathue_luma_val)
             title = f"YCbCr->RGB  (Y={sathue_luma_val})"
@@ -601,20 +648,85 @@ def open_csc_ui(args=None):
         full_img, margin = _build_colormap_with_axis(img_verbose, title, xlabel, ylabel)
         sathue_img_full = full_img
         sathue_margin = margin
-        _render_sathue_display()
-        show_sathue_image = True
+        if preserve_display_size:
+            _update_sathue_image_content()
+        else:
+            _render_sathue_display()
+
+    def _preview_size_changed_enough(last_size, new_size):
+        """Return whether preview size changed enough to justify a redraw."""
+        return any(abs(new_size[idx] - last_size[idx]) >= preview_resize_threshold for idx in range(2))
+
+    def _get_preview_widget_size(key):
+        """Return widget size as a (width, height) tuple."""
+        widget = window[key].Widget
+        return max(widget.winfo_width(), 0), max(widget.winfo_height(), 0)
+
+    def _set_sat_preview_visible(visible):
+        """Show or hide the right-side Sat/Hue preview column."""
+        nonlocal sat_preview_visible, last_sat_preview_size
+        sat_preview_visible = bool(visible)
+        window['-SAT-IMAGE-COL-'].update(visible=sat_preview_visible)
+        if not sat_preview_visible:
+            window['-SAT-IMAGE-'].update(data=b'')
+            last_sat_preview_size = (0, 0)
+
+    def _set_sathue_color_lock(pixel_vals):
+        """Apply a typed color to Sat/Hue Test and lock both input/output markers."""
+        nonlocal sathue_locked, sathue_locked_pix, sathue_locked_input, sathue_luma_val
+        if sathue_colorspace == 'YUV':
+            y_val = int(np.clip(pixel_vals[0], 0, 255))
+            u_val = int(np.clip(pixel_vals[1], 0, 255))
+            v_val = int(np.clip(pixel_vals[2], 0, 255))
+            cb = u_val - 128
+            cr = v_val - 128
+            sathue_luma_val = y_val
+            window['-SAT-LUMA-'].update(value=y_val)
+            window['-SAT-LUMA-SPIN-'].update(value=str(y_val))
+            lock_x = _data_to_pix(cb)
+            lock_y = SAT_COLORMAP_SIZE - 1 - _data_to_pix(cr)
+            sathue_locked_input = (y_val, cb, cr)
+        else:
+            r_val = int(np.clip(pixel_vals[0], 0, 255))
+            g_val = int(np.clip(pixel_vals[1], 0, 255))
+            b_val = int(np.clip(pixel_vals[2], 0, 255))
+            hue_arr, sat_arr, val_arr = _rgb2hsv(np.array([r_val]), np.array([g_val]), np.array([b_val]))
+            hue = float(hue_arr[0])
+            sat = float(sat_arr[0])
+            val = float(val_arr[0])
+            value_byte = int(np.clip(round(val * 255.0), 0, 255))
+            sathue_luma_val = value_byte
+            window['-SAT-LUMA-'].update(value=value_byte)
+            window['-SAT-LUMA-SPIN-'].update(value=str(value_byte))
+            lock_x = _data_to_pix(sat * _DATA_RANGE_MAX * np.cos(np.radians(hue)))
+            lock_y = SAT_COLORMAP_SIZE - 1 - _data_to_pix(sat * _DATA_RANGE_MAX * np.sin(np.radians(hue)))
+            sathue_locked_input = (hue, sat, val)
+
+        lock_x = int(np.clip(lock_x, 0, SAT_COLORMAP_SIZE - 1))
+        lock_y = int(np.clip(lock_y, 0, SAT_COLORMAP_SIZE - 1))
+        sathue_locked = True
+        sathue_locked_pix = (lock_x, lock_y)
+        update_sathue_map(preserve_display_size=False)
+
+    def _clear_sathue_color_lock():
+        """Disable the forced Sat/Hue color lock and restore hover mode."""
+        nonlocal sathue_locked, sathue_locked_pix, sathue_locked_input
+        sathue_locked = False
+        sathue_locked_pix = None
+        sathue_locked_input = None
+        update_sathue_map(preserve_display_size=True)
 
     def _render_sathue_display():
         """Scale the full colormap image to fit the widget and display it."""
         nonlocal sathue_display_scale, sathue_render_after_id
         sathue_render_after_id = None
-        if sathue_img_full is None:
+        if sathue_img_full is None or not sat_preview_visible:
             return
         img_w, img_h = sathue_img_full.size
-        col_widget = window['-IMAGE-COL-'].Widget
-        max_display_w = max(col_widget.winfo_width() - 20, 512)
-        max_display_h = max(col_widget.winfo_height() - 20, 512)
-        scale_ratio = min(2.0, max_display_w / img_w, max_display_h / img_h)
+        col_widget = window['-SAT-IMAGE-COL-'].Widget
+        preferred_side = current_main_display_size[1] if current_main_display_size[1] > 0 else 400
+        max_side = max(preferred_side, 1)
+        scale_ratio = min(2.0, max_side / img_w, max_side / img_h)
         sathue_display_scale = scale_ratio
         display_w = int(round(img_w * scale_ratio))
         display_h = int(round(img_h * scale_ratio))
@@ -622,32 +734,19 @@ def open_csc_ui(args=None):
             Image.LANCZOS if hasattr(Image, 'LANCZOS') else Image.Resampling.LANCZOS)
         bio = io.BytesIO()
         display_img.save(bio, format='PNG')
-        window['-IMAGE-'].update(data=bio.getvalue(), size=(display_w, display_h))
-        window['-DISPLAY-SIZE-'].update(value=f"{img_w}x{img_h} @ x{scale_ratio:.2f}")
+        window['-SAT-IMAGE-'].update(data=bio.getvalue(), size=(display_w, display_h))
 
-    def _is_sathue_tab_active(values):
-        """Return whether the Sat/Hue Test tab is the active top tab."""
-        return 'Sat/Hue Test' in str(values.get('-TABS-', ''))
-
-    def _sync_preview_with_active_tab(values):
-        """Switch the bottom preview source to match the currently active tab."""
-        nonlocal show_sathue_image, sathue_initialized
-        if _is_sathue_tab_active(values):
-            if not sathue_initialized:
-                update_sathue_map()
-                sathue_initialized = True
-            elif sathue_img_full is not None:
-                _render_sathue_display()
-                show_sathue_image = True
+    def _update_sathue_image_content():
+        """Refresh only the Sat/Hue preview image content while keeping its display size fixed."""
+        if sathue_img_full is None or not sat_preview_visible:
             return
-
-        show_sathue_image = False
-        if current_planar_in is not None or current_planar_out is not None:
-            display_result(window, values)
-            if current_mouse_pos is not None:
-                update_pixel_info(window, current_mouse_pos[0], current_mouse_pos[1])
-        else:
-            trigger_convert(values)
+        display_w = max(int(round(sathue_img_full.size[0] * sathue_display_scale)), 1)
+        display_h = max(int(round(sathue_img_full.size[1] * sathue_display_scale)), 1)
+        display_img = sathue_img_full.resize((display_w, display_h),
+            Image.LANCZOS if hasattr(Image, 'LANCZOS') else Image.Resampling.LANCZOS)
+        bio = io.BytesIO()
+        display_img.save(bio, format='PNG')
+        window['-SAT-IMAGE-'].update(data=bio.getvalue())
 
     def _compute_sathue_output_pos():
         """Compute the output pixel coordinate after Hue/Saturation transform on locked input.
@@ -946,22 +1045,19 @@ def open_csc_ui(args=None):
                 planar_in_full[i, :, :] = int(np.clip(color_vals[i], 0, max_val))
             current_input_file_params = None
 
-            # Downsample for display
-            scale_factor = 1.0
-            disp_w, disp_h = w, h
-            if w > 640 or h > 360:
-                col_widget = window['-IMAGE-COL-'].Widget
-                max_display_w = max(col_widget.winfo_width() - 20, 640)
-                max_display_h = max(col_widget.winfo_height() - 20, 360)
-                scale_factor = min(max_display_w / w, max_display_h / h, 1.0)
-                current_scale_factor = scale_factor
-                disp_w = max(int(w * scale_factor), 1)
-                disp_h = max(int(h * scale_factor), 1)
+            # Downsample for display while preserving aspect ratio
+            col_widget = window['-MAIN-IMAGE-COL-'].Widget
+            max_display_w = max(col_widget.winfo_width() - 20, 400)
+            max_display_h = max(col_widget.winfo_height() - 20, 400)
+            scale_factor = min(max_display_w / w, max_display_h / h, 1.0)
+            current_scale_factor = scale_factor
+            disp_w = max(int(w * scale_factor), 1)
+            disp_h = max(int(h * scale_factor), 1)
+            if disp_w != w or disp_h != h:
                 y_indices = np.linspace(0, h - 1, disp_h).astype(int)
                 x_indices = np.linspace(0, w - 1, disp_w).astype(int)
                 planar_in = planar_in_full[:, y_indices[:, None], x_indices]
             else:
-                current_scale_factor = 1.0
                 planar_in = planar_in_full
 
             algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_HW_CSC)
@@ -991,7 +1087,7 @@ def open_csc_ui(args=None):
             ics, _ = clrspc_to_mode_params(iclr)
             current_input_color = ColorSpace[ics.upper()] if ics.startswith("bt") else ColorSpace.BT709
 
-            if update_display and not _is_sathue_tab_active(values):
+            if update_display:
                 display_result(window, values)
             return
 
@@ -1025,11 +1121,12 @@ def open_csc_ui(args=None):
         expected_size = get_frame_size(w, h, ifmt)
         actual_size = os.path.getsize(input_file)
         if actual_size < expected_size:
+            current_main_display_size = (400, 400)
             window['-DISPLAY-SIZE-'].update(value=f"Error: file too small ({actual_size} < {expected_size})")
             window['-POSITION-INFO-'].update(value='')
             window['-INPUT-PIXEL-INFO-'].update(value='')
             window['-OUTPUT-PIXEL-INFO-'].update(value='')
-            window['-IMAGE-'].update(data=b'')
+            window['-IMAGE-'].update(data=b'', size=current_main_display_size)
             return
 
         try:
@@ -1039,7 +1136,7 @@ def open_csc_ui(args=None):
                 current_input_file_params = file_params
 
             # Calculate downsampling factors
-            col_widget = window['-IMAGE-COL-'].Widget
+            col_widget = window['-MAIN-IMAGE-COL-'].Widget
             # Provide some default size before window is fully rendered
             max_display_w = max(col_widget.winfo_width() - 20, 640)
             max_display_h = max(col_widget.winfo_height() - 20, 360)
@@ -1090,28 +1187,31 @@ def open_csc_ui(args=None):
             else:
                 current_input_color = ColorSpace.BT709
 
-            if update_display and not _is_sathue_tab_active(values):
+            if update_display:
                 display_result(window, values)
                 if current_mouse_pos is not None:
                     update_pixel_info(window, current_mouse_pos[0], current_mouse_pos[1])
         except Exception as e:
+            current_main_display_size = (400, 400)
             window['-DISPLAY-SIZE-'].update(value=f"Error: {e}")
             window['-POSITION-INFO-'].update(value='')
             window['-INPUT-PIXEL-INFO-'].update(value='')
             window['-OUTPUT-PIXEL-INFO-'].update(value='')
-            window['-IMAGE-'].update(data=b'')
+            window['-IMAGE-'].update(data=b'', size=current_main_display_size)
 
     def display_result(window, values):
         nonlocal current_planar_in, current_planar_out
         nonlocal current_step1_coefs, current_step1_offset
         nonlocal current_step2_coefs, current_step2_offset
         nonlocal current_scale_factor
-        nonlocal show_sathue_image
+        nonlocal current_main_display_size
 
         show_output = values.get('-SHOW-OUT-', False)
+        old_main_display_size = current_main_display_size
 
         target_planar = current_planar_out if show_output else current_planar_in
         if target_planar is None:
+            current_main_display_size = (400, 400)
             window['-DISPLAY-SIZE-'].update(value="No conversion result")
             window['-POSITION-INFO-'].update(value='')
             window['-INPUT-PIXEL-INFO-'].update(value='')
@@ -1120,6 +1220,7 @@ def open_csc_ui(args=None):
             update_multiline_readonly(window, '-STEP1-OFFSET-', 'None')
             update_multiline_readonly(window, '-STEP2-COEFS-', 'None')
             update_multiline_readonly(window, '-STEP2-OFFSET-', 'None')
+            window['-IMAGE-'].update(data=b'', size=current_main_display_size)
             return
 
         target_is_yuv = current_output_is_yuv if show_output else current_input_is_yuv
@@ -1162,7 +1263,9 @@ def open_csc_ui(args=None):
             bio = io.BytesIO()
             img.save(bio, format='PNG')
             window['-IMAGE-'].update(data=bio.getvalue(), size=(w, h))
-            show_sathue_image = False
+            current_main_display_size = (w, h)
+            if sat_preview_visible and current_main_display_size != old_main_display_size:
+                _render_sathue_display()
 
             iclr_disp = values['-IN-CLR-']
             oclr_disp = values['-OUT-CLR-']
@@ -1193,25 +1296,32 @@ def open_csc_ui(args=None):
     # Initialize normalized value labels with default values
     default_bcsh_vals = {f'-BCSH-{k}-': 256 for _, k1, _, k2 in bcsh_names for k in (k1, k2)}
     update_bcsh_norm_labels(window, default_bcsh_vals, ALGO_RK_HW_CSC)
+    update_sathue_map()
+    _set_sat_preview_visible(False)
 
     while True:
         event, values = window.read()
         if event in (sg.WIN_CLOSED, None):
             break
 
-        if event == '-TABS-':
-            _sync_preview_with_active_tab(values)
-            continue
-
         if event == '-WINDOW-RESIZE-':
-            if show_sathue_image:
-                # Defer so layout reflows before we read the new widget width
+            main_preview_size = _get_preview_widget_size('-MAIN-IMAGE-COL-')
+            sat_preview_size = _get_preview_widget_size('-SAT-IMAGE-COL-') if sat_preview_visible else (0, 0)
+            main_changed = _preview_size_changed_enough(last_main_preview_size, main_preview_size)
+            sat_changed = sat_preview_visible and _preview_size_changed_enough(last_sat_preview_size, sat_preview_size)
+            if main_changed:
+                last_main_preview_size = main_preview_size
+            if sat_changed:
+                last_sat_preview_size = sat_preview_size
+
+            if sat_changed:
                 if sathue_render_after_id is not None:
                     window.TKroot.after_cancel(sathue_render_after_id)
                 sathue_render_after_id = window.TKroot.after(50, _render_sathue_display)
-            elif last_window_size != window.size:
+
+            if last_window_size != window.size:
                 last_window_size = window.size
-                if current_planar_in is not None:
+                if main_changed and current_planar_in is not None:
                     window.perform_long_operation(lambda: None, '-REDRAW-IMAGE-')
             continue
         elif event == '-REDRAW-IMAGE-':
@@ -1302,6 +1412,7 @@ def open_csc_ui(args=None):
             trigger_convert(values)
         elif event == '-IN-CLR-' and values.get('-SET-COLOR-', False):
             _update_fmt_for_clrspc(window, values, fmt_display, get_clrspc_from_display(values['-IN-CLR-']))
+            _update_clrspc_for_fmt(window, values, '-IN-CLR-', values['-IN-FMT-'])
             trigger_convert(values)
         elif event == '-IN-FMT-':
             fmt_base = get_fmt_from_display(values['-IN-FMT-']) & 0xF
@@ -1311,24 +1422,46 @@ def open_csc_ui(args=None):
         elif event == '-OUT-FMT-':
             _update_clrspc_for_fmt(window, values, '-OUT-CLR-', values['-OUT-FMT-'])
             trigger_convert(values)
+        elif event == '-SAT-SHOW-MAP-':
+            _set_sat_preview_visible(values.get('-SAT-SHOW-MAP-', False))
+            main_preview_size = _get_preview_widget_size('-MAIN-IMAGE-COL-')
+            last_main_preview_size = main_preview_size
+            if current_planar_in is not None:
+                window.perform_long_operation(lambda: None, '-REDRAW-IMAGE-')
+            if sat_preview_visible:
+                window.TKroot.after(50, _render_sathue_display)
+        elif event == '-SAT-SET-COLOR-':
+            sathue_set_color_enabled = values.get('-SAT-SET-COLOR-', False)
+            window['-SAT-COLOR-INPUT-'].update(disabled=not sathue_set_color_enabled)
+            if sathue_set_color_enabled:
+                color_vals = parse_color_input(values.get('-SAT-COLOR-INPUT-', ''))
+                if color_vals is not None:
+                    _set_sathue_color_lock(color_vals)
+            else:
+                _clear_sathue_color_lock()
         elif event == '-SAT-CLRSPC-':
             sathue_colorspace = values['-SAT-CLRSPC-']
+            if sathue_set_color_enabled:
+                color_vals = parse_color_input(values.get('-SAT-COLOR-INPUT-', ''))
+                if color_vals is not None:
+                    _set_sathue_color_lock(color_vals)
+                    continue
             update_sathue_map()
         elif event == '-SAT-LUMA-':
             sathue_luma_val = int(values['-SAT-LUMA-'])
             window['-SAT-LUMA-SPIN-'].update(value=str(sathue_luma_val))
-            if sathue_locked:
+            if sathue_locked and not sathue_set_color_enabled:
                 sathue_locked_input = _get_sathue_input_at(*sathue_locked_pix)
-            update_sathue_map()
+            update_sathue_map(preserve_display_size=True)
         elif event == '-SAT-HUE-':
             sathue_hue_val = int(values['-SAT-HUE-'])
             window['-SAT-HUE-SPIN-'].update(value=str(sathue_hue_val))
-            update_sathue_map()
+            update_sathue_map(preserve_display_size=True)
         elif event == '-SAT-SAT-':
             sathue_sat_val = int(values['-SAT-SAT-']) / 180.0
             window['-SAT-SAT-SPIN-'].update(value=f"{sathue_sat_val:.2f}")
-            update_sathue_map()
-        elif event_key.endswith('-SAT-SPIN-') and event_suffix == 'STEP':
+            update_sathue_map(preserve_display_size=True)
+        elif event_key.startswith('-SAT-') and event_key.endswith('-SPIN-') and event_suffix == 'STEP':
             slider_key = event_key.replace('-SPIN-', '-')
             if event_key == '-SAT-LUMA-SPIN-':
                 v = int(values[event_key])
@@ -1348,8 +1481,8 @@ def open_csc_ui(args=None):
                     v = sathue_sat_val
                 sathue_sat_val = v
                 window[slider_key].update(value=int(round(v * 180)))
-            update_sathue_map()
-        elif event_key.endswith('-SAT-SPIN-') and event_suffix == 'ENTER':
+            update_sathue_map(preserve_display_size=True)
+        elif event_key.startswith('-SAT-') and event_key.endswith('-SPIN-') and event_suffix == 'ENTER':
             slider_key = event_key.replace('-SPIN-', '-')
             if event_key == '-SAT-LUMA-SPIN-':
                 try:
@@ -1380,17 +1513,22 @@ def open_csc_ui(args=None):
                 sathue_sat_val = v
                 window[slider_key].update(value=int(round(v * 180)))
                 window[event_key].update(value=f"{v:.2f}")
-            update_sathue_map()
+            update_sathue_map(preserve_display_size=True)
         elif event == '-SAT-HUE-RESET-':
             sathue_hue_val = 0
             window['-SAT-HUE-'].update(value=0)
             window['-SAT-HUE-SPIN-'].update(value='0')
-            update_sathue_map()
+            update_sathue_map(preserve_display_size=True)
         elif event == '-SAT-SAT-RESET-':
             sathue_sat_val = 1.0
             window['-SAT-SAT-'].update(value=180)
             window['-SAT-SAT-SPIN-'].update(value='1.00')
-            update_sathue_map()
+            update_sathue_map(preserve_display_size=True)
+        elif event == '-SAT-COLOR-INPUT-+ENTER':
+            if sathue_set_color_enabled:
+                color_vals = parse_color_input(values.get('-SAT-COLOR-INPUT-', ''))
+                if color_vals is not None:
+                    _set_sathue_color_lock(color_vals)
         elif event_key.startswith('-SAT-') and event_key.endswith('-') and event_suffix in {'LEFT', 'RIGHT'}:
             delta = -1 if event_suffix == 'LEFT' else 1
             cur = int(values[event_key])
@@ -1399,7 +1537,7 @@ def open_csc_ui(args=None):
                 sathue_luma_val = cur
                 window['-SAT-LUMA-SPIN-'].update(value=str(cur))
                 window[event_key].update(value=cur)
-                if sathue_locked:
+                if sathue_locked and not sathue_set_color_enabled:
                     sathue_locked_input = _get_sathue_input_at(*sathue_locked_pix)
             elif event_key == '-SAT-HUE-':
                 cur = max(-180, min(180, cur + delta))
@@ -1413,12 +1551,11 @@ def open_csc_ui(args=None):
                 sv = int(round(new_val * 180))
                 window[event_key].update(value=sv)
                 window['-SAT-SAT-SPIN-'].update(value=f"{new_val:.2f}")
-            update_sathue_map()
+            update_sathue_map(preserve_display_size=True)
         elif event in convert_keys:
             trigger_convert(values)
         elif event in ['-SHOW-IN-', '-SHOW-OUT-']:
-            if not _is_sathue_tab_active(values):
-                display_result(window, values)
+            display_result(window, values)
         elif event == '-INPUT-FILE-':
             if values['-INPUT-FILE-'] and os.path.isfile(values['-INPUT-FILE-']):
                 filepath = values['-INPUT-FILE-']
@@ -1427,28 +1564,20 @@ def open_csc_ui(args=None):
 
                 # 1. Guess by extension
                 if ext == '.yuv':
-                    # YUV420SP_NV12 is 0x9, BT709_Limited is 4
+                    # YUV420SP_NV12 is 0x9, BT709_Full is 5
                     yuv_fmt = next((f for f in fmt_display if f.startswith('0x9 ')), None)
                     if yuv_fmt:
                         window['-IN-FMT-'].update(value=yuv_fmt)
                         values['-IN-FMT-'] = yuv_fmt
-                    bt709_l = next((c for c in clrspc_yuv if c.startswith('4 ')), None)
-                    if bt709_l:
-                        window['-IN-CLR-'].update(value=bt709_l)
-                        values['-IN-CLR-'] = bt709_l
-                    elif yuv_fmt:
-                        _update_clrspc_for_fmt(window, values, '-IN-CLR-', yuv_fmt, clrspc_yuv[0])
+                    if yuv_fmt:
+                        _update_clrspc_for_fmt(window, values, '-IN-CLR-', yuv_fmt, clrspc_yuv[3])
                 elif ext == '.rgb':
                     # RGB888 is 0x0, RGB_Full is 1
                     rgb_fmt = next((f for f in fmt_display if f.startswith('0x0 ')), None)
                     if rgb_fmt:
                         window['-IN-FMT-'].update(value=rgb_fmt)
                         values['-IN-FMT-'] = rgb_fmt
-                    rgb_f = next((c for c in clrspc_rgb if c.startswith('1 ')), None)
-                    if rgb_f:
-                        window['-IN-CLR-'].update(value=rgb_f)
-                        values['-IN-CLR-'] = rgb_f
-                    elif rgb_fmt:
+                    if rgb_fmt:
                         _update_clrspc_for_fmt(window, values, '-IN-CLR-', rgb_fmt, clrspc_rgb[1])
 
                 # 2. Guess by resolution in basename
@@ -1463,35 +1592,26 @@ def open_csc_ui(args=None):
                 trigger_convert(values)
         elif event == '-IMAGE-+ENTER':
             is_mouse_in_image = True
-            is_mouse_in_sathue = True
+            is_mouse_in_sathue = False
+            if is_pixel_info_frozen and current_mouse_pos is not None:
+                update_pixel_info(window, current_mouse_pos[0], current_mouse_pos[1])
         elif event == '-IMAGE-+LEAVE':
             is_mouse_in_image = False
+        elif event == '-SAT-IMAGE-+ENTER':
+            is_mouse_in_sathue = True
+            is_mouse_in_image = False
+            if sathue_locked:
+                _update_sathue_lock_display()
+        elif event == '-SAT-IMAGE-+LEAVE':
             is_mouse_in_sathue = False
-            if show_sathue_image and not sathue_locked:
+            if is_mouse_in_image and is_pixel_info_frozen and current_mouse_pos is not None:
+                update_pixel_info(window, current_mouse_pos[0], current_mouse_pos[1])
+            elif not sathue_locked:
                 window['-INPUT-PIXEL-INFO-'].update('(hover over image)')
                 window['-OUTPUT-PIXEL-INFO-'].update('')
                 window['-POSITION-INFO-'].update('')
         elif event == '-IMAGE-+MOTION':
-            if show_sathue_image:
-                if sathue_locked:
-                    # When locked, always show locked pixel info regardless of mouse position
-                    _update_sathue_lock_display()
-                elif sathue_img_full is not None:
-                    e = window['-IMAGE-'].user_bind_event
-                    wx, wy = e.x, e.y
-                    eff_x = int(wx / sathue_display_scale) - sathue_margin
-                    eff_y = int(wy / sathue_display_scale) - sathue_margin
-                    if 0 <= eff_x < SAT_COLORMAP_SIZE and 0 <= eff_y < SAT_COLORMAP_SIZE:
-                        invals = _get_sathue_input_at(eff_x, eff_y)
-                        outpx = _get_sathue_output_at(eff_x, eff_y)
-                        window['-INPUT-PIXEL-INFO-'].update(f"{_format_sathue_input_str(invals)}")
-                        window['-POSITION-INFO-'].update(_format_sathue_pos_str(eff_x, eff_y))
-                        if outpx is not None:
-                            window['-OUTPUT-PIXEL-INFO-'].update(f"{_format_sathue_output_str(outpx)}")
-                        else:
-                            window['-OUTPUT-PIXEL-INFO-'].update('(outside valid area)')
-                        sathue_mouse_pos = (eff_x, eff_y)
-            elif current_planar_in is not None and not is_pixel_info_frozen:
+            if current_planar_in is not None and not is_pixel_info_frozen:
                 e = window['-IMAGE-'].user_bind_event
                 # tkinter event coordinates are relative to the widget
                 widget_x, widget_y = e.x, e.y
@@ -1503,9 +1623,29 @@ def open_csc_ui(args=None):
 
                 current_mouse_pos = (orig_x, orig_y)
                 update_pixel_info(window, orig_x, orig_y)
+        elif event == '-SAT-IMAGE-+MOTION':
+            if sathue_locked:
+                _update_sathue_lock_display()
+            elif sathue_img_full is not None:
+                e = window['-SAT-IMAGE-'].user_bind_event
+                wx, wy = e.x, e.y
+                eff_x = int(wx / sathue_display_scale) - sathue_margin
+                eff_y = int(wy / sathue_display_scale) - sathue_margin
+                if 0 <= eff_x < SAT_COLORMAP_SIZE and 0 <= eff_y < SAT_COLORMAP_SIZE:
+                    invals = _get_sathue_input_at(eff_x, eff_y)
+                    outpx = _get_sathue_output_at(eff_x, eff_y)
+                    window['-INPUT-PIXEL-INFO-'].update(f"{_format_sathue_input_str(invals)}")
+                    window['-POSITION-INFO-'].update(_format_sathue_pos_str(eff_x, eff_y))
+                    if outpx is not None:
+                        window['-OUTPUT-PIXEL-INFO-'].update(f"{_format_sathue_output_str(outpx)}")
+                    else:
+                        window['-OUTPUT-PIXEL-INFO-'].update('(outside valid area)')
+                    sathue_mouse_pos = (eff_x, eff_y)
 
         elif event == ' ':  # Space key
-            if show_sathue_image and sathue_mouse_pos is not None:
+            if is_mouse_in_sathue and sathue_mouse_pos is not None:
+                if sathue_set_color_enabled:
+                    continue
                 if sathue_locked:
                     # Unlock
                     sathue_locked = False
