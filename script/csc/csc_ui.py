@@ -807,7 +807,7 @@ def open_csc_ui(args=None):
     def _format_sathue_input_str(invals):
         """Format input pixel info string per the display template."""
         if sathue_colorspace == 'YUV':
-            y_val, cb, cr = invals
+            y_val, cb, cr = int(round(invals[0])), int(round(invals[1])), int(round(invals[2]))
             return f"YCbCr({y_val:3d}, {cb:3d}, {cr:3d}) <=> YUV({y_val:3d}, {cb+128:3d}, {cr+128:3d})"
         else:
             h_val, s_val, v_val = invals
@@ -817,7 +817,7 @@ def open_csc_ui(args=None):
     def _format_sathue_output_str(outvals):
         """Format output pixel info string per the display template."""
         if sathue_colorspace == 'YUV':
-            y_val, cb, cr = outvals
+            y_val, cb, cr = int(round(outvals[0])), int(round(outvals[1])), int(round(outvals[2]))
             return f"YCbCr({y_val:3d}, {cb:3d}, {cr:3d}) <=> YUV({y_val:3d}, {cb+128:3d}, {cr+128:3d})"
         else:
             r, g, b = outvals
@@ -851,11 +851,13 @@ def open_csc_ui(args=None):
             return (np.clip(Y, 0, 255), np.clip(Cb, -128, 127), np.clip(Cr, -128, 127))
         return (r, g, b)
 
-    def _format_sathue_pos_str(pix_x, pix_y):
+    def _format_sathue_pos_str(pix_x, pix_y, frozen=False):
         """Format position as (x-center, y-center) in effective coordinate space."""
         cx = _pix_to_data_int(pix_x)
         cy = _pix_to_data_int(SAT_COLORMAP_SIZE - 1 - pix_y)
-        return f"({cx:4d},{cy:4d})"
+        if not frozen:
+            return f"({cx:4d},{cy:4d}) [Press Space to freeze this color]"
+        return f"({cx:4d},{cy:4d}) [Frozen]"
 
     def _update_sathue_lock_display():
         """Update the input/output pixel text when a pixel is locked."""
@@ -869,8 +871,7 @@ def open_csc_ui(args=None):
             out_px = _get_sathue_output_at(*out_pos)
             if out_px is not None:
                 window['-OUTPUT-PIXEL-INFO-'].update(f"{_format_sathue_output_str(out_px)}")
-                window['-POSITION-INFO-'].update(_format_sathue_pos_str(lx, ly)
-                    + f"  [Locked | Hue={sathue_hue_val}°, Sat={sathue_sat_val:.2f}]")
+                window['-POSITION-INFO-'].update(_format_sathue_pos_str(lx, ly, frozen=True))
             else:
                 window['-OUTPUT-PIXEL-INFO-'].update('(outside valid area)')
         else:
@@ -969,7 +970,7 @@ def open_csc_ui(args=None):
             in_format = "yuv" if current_input_is_yuv else "rgb"
             out_format = "yuv" if current_output_is_yuv else "rgb"
 
-            freeze_status = "[Frozen]" if is_pixel_info_frozen else "[Press Space to freeze]"
+            freeze_status = "[Frozen]" if is_pixel_info_frozen else "[Press Space to feeze this pixel]"
             window['-POSITION-INFO-'].update(f"({orig_x:4d},{orig_y:4d}) {freeze_status}")
             window['-INPUT-PIXEL-INFO-'].update(f"{in_format}: {in_str}")
             window['-OUTPUT-PIXEL-INFO-'].update(f"{out_format}: {out_str}")
@@ -1462,6 +1463,8 @@ def open_csc_ui(args=None):
                 if color_vals is not None:
                     _set_sathue_color_lock(color_vals)
                     continue
+            if sathue_locked and sathue_locked_pix is not None:
+                sathue_locked_input = _get_sathue_input_at(*sathue_locked_pix)
             update_sathue_map()
         elif event == '-SAT-LUMA-':
             sathue_luma_val = int(values['-SAT-LUMA-'])
@@ -1651,7 +1654,7 @@ def open_csc_ui(args=None):
                     invals = _get_sathue_input_at(eff_x, eff_y)
                     outpx = _get_sathue_output_at(eff_x, eff_y)
                     window['-INPUT-PIXEL-INFO-'].update(f"{_format_sathue_input_str(invals)}")
-                    window['-POSITION-INFO-'].update(_format_sathue_pos_str(eff_x, eff_y))
+                    window['-POSITION-INFO-'].update(_format_sathue_pos_str(eff_x, eff_y, frozen=False))
                     if outpx is not None:
                         window['-OUTPUT-PIXEL-INFO-'].update(f"{_format_sathue_output_str(outpx)}")
                     else:
@@ -1672,7 +1675,7 @@ def open_csc_ui(args=None):
                         invals = _get_sathue_input_at(*sathue_mouse_pos)
                         outpx = _get_sathue_output_at(*sathue_mouse_pos)
                         window['-INPUT-PIXEL-INFO-'].update(f"{_format_sathue_input_str(invals)}")
-                        window['-POSITION-INFO-'].update(_format_sathue_pos_str(*sathue_mouse_pos))
+                        window['-POSITION-INFO-'].update(_format_sathue_pos_str(*sathue_mouse_pos, frozen=False))
                         if outpx:
                             window['-OUTPUT-PIXEL-INFO-'].update(f"{_format_sathue_output_str(outpx)}")
                         else:
