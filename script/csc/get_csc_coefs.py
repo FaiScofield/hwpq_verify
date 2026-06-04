@@ -45,7 +45,7 @@ class CscCoefConfig:
     coef_precision = 0
     tune_fix_coefs = 0  # 0-no tuning, >0 means a diagonal ratio (float), no need to set this value
     platform = "rk3572"
-    algo_type = "RK CSC"  # "RK CSC", "RK CSC (fix contrast)", "RGB_on_HSV"
+    algo_type = "RK HW CSC"  # "RK HW CSC", "RK SW CSC"
 
 
 class CscBcshConfig:
@@ -232,9 +232,9 @@ def adjust_convert_mat(
     g_offset = bcsh_cfg.g_offset - 256
     b_offset = bcsh_cfg.b_offset - 256
     brightness = bcsh_cfg.brightness - 256
-    offset_shift_bits = 3 - (config.pixel_depth - 8)  # [1, 3]
+    offset_shift_bits = 3 - (config.pixel_depth - 8)
     if offset_shift_bits >= 0:
-        r_offset >>= offset_shift_bits  # [-32, 32) for U8
+        r_offset >>= offset_shift_bits
         g_offset >>= offset_shift_bits
         b_offset >>= offset_shift_bits
     else:
@@ -242,9 +242,9 @@ def adjust_convert_mat(
         g_offset <<= -offset_shift_bits
         b_offset <<= -offset_shift_bits
     if config.pixel_depth <= 10:
-        brightness >>= 10 - config.pixel_depth  # [-64, 64) for U8
+        brightness >>= 10 - config.pixel_depth
     else:
-        brightness <<= config.pixel_depth - 10  # [-256, 256) for U10
+        brightness <<= config.pixel_depth - 10
 
     gain_matrix = np.array([[r_gain, 0, 0], [0, g_gain, 0], [0, 0, b_gain]], dtype=np.float32)
     contrast_matrix = np.array([[contrast, 0, 0], [0, contrast, 0], [0, 0, contrast]], dtype=np.float32)
@@ -252,32 +252,27 @@ def adjust_convert_mat(
     saturation_matrix = np.array([[1, 0, 0], [0, saturation, 0], [0, 0, saturation]], dtype=np.float32)
     b_diagonal_m0 = hue_rad == 0 and saturation == 1
     b_diagonal_m1 = r_gain == g_gain and g_gain == b_gain
-
-    ## M0 = hue_matrix * saturation_matrix, which is applied on YUV space. It will be a DIAGONAL matrix ONLY if the hue_matrix is identity
-    ## M1 = gain_matrix * contrast_matrix, which is applied on RGB space. It will be a DIAGONAL matrix ONLY if the gain_matrix is identity
-    M0 = hue_matrix @ saturation_matrix
-    M1 = gain_matrix @ contrast_matrix
-    r2y_matrix = g_r2y_mat_bt709
-    y2r_matrix = g_y2r_mat_bt709
+    m_yuv = hue_matrix @ saturation_matrix
+    m_rgb = gain_matrix @ contrast_matrix
     mode = config.csc_mode
 
     ## Y2Y: output = T * M0 * N_r2y * M1 * N_y2r
     if mode.is_input_yuv and mode.is_output_yuv:
-        out_mat = out_mat @ M0 @ r2y_matrix @ M1 @ y2r_matrix
+        out_mat = out_mat @ m_yuv @ g_r2y_mat_bt709 @ m_rgb @ g_y2r_mat_bt709
         out_vec[0] += brightness
     ## Y2R: output = M1 * T * M0
     elif mode.is_input_yuv and not mode.is_output_yuv:
-        out_mat = M1 @ out_mat @ M0
+        out_mat = m_rgb @ out_mat @ m_yuv
         out_vec[0] += brightness + r_offset
         out_vec[1] += brightness + g_offset
         out_vec[2] += brightness + b_offset
     ## R2Y: output = M0 * T * M1
     elif not mode.is_input_yuv and mode.is_output_yuv:
-        out_mat = M0 @ out_mat @ M1
+        out_mat = m_yuv @ out_mat @ m_rgb
         out_vec[0] += brightness
     ## R2R: output = T * M1 * N_y2r * M0 * N_r2y
     else:
-        out_mat = out_mat @ M1 @ y2r_matrix @ M0 @ r2y_matrix
+        out_mat = out_mat @ m_rgb @ g_y2r_mat_bt709 @ m_yuv @ g_r2y_mat_bt709
         out_vec[0] += brightness + r_offset
         out_vec[1] += brightness + g_offset
         out_vec[2] += brightness + b_offset
@@ -289,6 +284,106 @@ def adjust_convert_mat(
         diagonal_ratio = 0.0
 
     return out_mat, out_vec, diagonal_ratio
+
+
+def _compose_transforms(*transforms):
+    """
+    Compose a sequence of (mat, ofs) transforms where the first tuple is applied first to the pixel.
+    Each transform is a tuple (mat3x3, ofs3x1).
+    """
+    mat = np.eye(3, dtype=np.float32)
+    ofs = np.zeros(3, dtype=np.float32)
+    for t_mat, t_ofs in transforms:
+        ofs = t_mat @ ofs + t_ofs
+        mat = t_mat @ mat
+    return mat, ofs
+
+
+def adjust_convert_mat_evideo(config, bcsh_cfg, out_mat, out_vec):
+    """
+    Adjust the non-homogeneous CSC matrix with eVideo BCSH parameters.
+    Uses the same direct matrix-manipulation approach as adjust_convert_mat,
+    but with eVideo parameter mapping ranges.
+    """
+    from get_csc_coef_hsv import get_evideo_bcsh_param_pack
+
+    params = get_evideo_bcsh_param_pack(config.algo_type, bcsh_cfg, config.pixel_depth)
+    contrast = params["contrast"]
+    saturation = params["saturation"]
+    hue_rad = params["hue_rad"]
+    cos_hue = np.cos(hue_rad)
+    sin_hue = np.sin(hue_rad)
+    rgb_gains = params["rgb_gains"]
+    rgb_offsets = params["rgb_offset_pixels"]
+    brightness = params["brightness_pixel"]
+    brightness_unit = params["brightness_unit"]
+    mid_pixel_val = params["mid_pixel_val"]
+
+    zero3 = np.zeros(3, dtype=np.float32)
+    ident = np.eye(3, dtype=np.float32)
+
+    # Build BCSH matrices matching the quad version
+    gain_matrix = np.diag(rgb_gains).astype(np.float32)
+    contrast_matrix = np.diag([contrast, contrast, contrast]).astype(np.float32)
+    hue_matrix = np.array([[1, 0, 0], [0, cos_hue, -sin_hue], [0, sin_hue, cos_hue]], dtype=np.float32)
+    saturation_matrix = np.array([[1, 0, 0], [0, saturation, 0], [0, 0, saturation]], dtype=np.float32)
+    chroma_center_raw = np.array([0.0, mid_pixel_val, mid_pixel_val], dtype=np.float32)
+
+    # Build transform tuples matching the homogeneous quad versions
+    tf_contrast = (contrast_matrix, zero3)  # legacy eVideo contrast: no center
+    tf_rgbGains = (gain_matrix, zero3)
+    tf_rgbOffsets = (ident, rgb_offsets)
+    tf_bright_yuv = (ident, np.array([brightness, 0.0, 0.0], dtype=np.float32))
+    tf_bright_rgb = (ident, np.full(3, brightness_unit, dtype=np.float32))
+
+    # Center-scaled around chroma_center_raw (unsigned YUV)
+    sat_raw_ofs = chroma_center_raw - saturation_matrix @ chroma_center_raw
+    hue_raw_ofs = chroma_center_raw - hue_matrix @ chroma_center_raw
+    tf_sat_raw = (saturation_matrix, sat_raw_ofs)
+    tf_hue_raw = (hue_matrix, hue_raw_ofs)
+
+    # Signed (center at [0, 0, 0], no offset needed)
+    tf_sat_signed = (saturation_matrix, zero3)
+    tf_hue_signed = (hue_matrix, zero3)
+
+    tf_r2y = (g_r2y_mat_bt709, zero3)
+    tf_y2r = (g_y2r_mat_bt709, zero3)
+
+    base_tf = (out_mat, out_vec)
+
+    mode = config.csc_mode
+
+    if mode.is_input_yuv and mode.is_output_yuv:
+        # Y2Y: bright_yuv @ base @ hue_raw @ sat_raw @ r2y @ rgbGains @ contrast @ y2r
+        final_mat, final_ofs = _compose_transforms(
+            tf_y2r, tf_contrast, tf_rgbGains, tf_r2y, tf_sat_raw, tf_hue_raw, base_tf, tf_bright_yuv
+        )
+    elif mode.is_input_yuv and not mode.is_output_yuv:
+        # Y2R: bright_rgb @ rgbOffsets @ rgbGains @ contrast @ base @ hue_raw @ sat_raw
+        final_mat, final_ofs = _compose_transforms(
+            tf_sat_raw, tf_hue_raw, base_tf, tf_contrast, tf_rgbGains, tf_rgbOffsets, tf_bright_rgb
+        )
+    elif not mode.is_input_yuv and mode.is_output_yuv:
+        # R2Y: bright_yuv @ hue_raw @ sat_raw @ base @ rgbGains @ contrast
+        final_mat, final_ofs = _compose_transforms(
+            tf_contrast, tf_rgbGains, base_tf, tf_sat_raw, tf_hue_raw, tf_bright_yuv
+        )
+    else:
+        # R2R: bright_rgb @ rgbOffsets @ base @ rgbGains @ contrast @ y2r @ hue_signed @ sat_signed @ r2y
+        final_mat, final_ofs = _compose_transforms(
+            tf_r2y, tf_sat_signed, tf_hue_signed, tf_y2r, tf_contrast, tf_rgbGains,
+            base_tf, tf_rgbOffsets, tf_bright_rgb
+        )
+
+    # Compute diagonal ratio for later fixed-point fine-tuning
+    b_diagonal_m0 = hue_rad == 0.0 and saturation == 1.0
+    b_diagonal_m1 = abs(rgb_gains[0] - rgb_gains[1]) < 1e-6 and abs(rgb_gains[1] - rgb_gains[2]) < 1e-6
+    if b_diagonal_m0 and b_diagonal_m1:
+        diagonal_ratio = rgb_gains[0] * contrast * saturation
+    else:
+        diagonal_ratio = 0.0
+
+    return final_mat, final_ofs, diagonal_ratio
 
 
 def get_fixed_coefs_mat(
@@ -353,14 +448,19 @@ def get_csc_coefs(config: CscCoefConfig, bcsh_cfg: Optional[CscBcshConfig]) -> t
     range_mat_i, range_mat_o, range_ofs_i, range_ofs_o = get_range_convert_mat(config.csc_mode, config.pixel_depth)
     color_convert_mat = get_space_convert_mat(config.csc_mode)
     final_mat = range_mat_o @ color_convert_mat @ range_mat_i
+    final_ofs = range_ofs_o + final_mat @ range_ofs_i
 
     ## adjust final_mat with bsch configs
     if bcsh_cfg is not None:
-        if config.algo_type == 'RK CSC (fix contrast)':
-            # TODO: modify contrast coefficient application method here
-            # Currently falls through to the default RK CSC path
-            pass
-        final_mat, range_ofs_o, diagonal_ratio = adjust_convert_mat(config, bcsh_cfg, final_mat, range_ofs_o)
+        if config.algo_type in {"RK HW CSC", "RK SW CSC"}:
+            final_mat, range_ofs_o, diagonal_ratio = adjust_convert_mat(config, bcsh_cfg, final_mat, range_ofs_o)
+            final_ofs = range_ofs_o + final_mat @ range_ofs_i
+        elif config.algo_type == "eVideo CSC":
+            final_mat, final_ofs, diagonal_ratio = adjust_convert_mat_evideo(config, bcsh_cfg, final_mat, final_ofs)
+            # Recover effective range_ofs_o so get_fixed_coefs_mat uses BCSH-corrected offset
+            range_ofs_o = final_ofs - final_mat @ range_ofs_i
+        else:
+            raise ValueError(f"Algorithm '{config.algo_type}' is not implemented in get_csc_coefs.py")
         if config.tune_fix_coefs:
             config.tune_fix_coefs = diagonal_ratio  # >0 means the BCSH matrixes are diagonal
 
@@ -372,7 +472,7 @@ def get_csc_coefs(config: CscCoefConfig, bcsh_cfg: Optional[CscBcshConfig]) -> t
             csc_offset = (csc_offset + rnd_half + (csc_offset >> 31)) >> config.coef_precision
     else:
         csc_coefs = final_mat
-        csc_offset = range_ofs_o + final_mat @ range_ofs_i
+        csc_offset = final_ofs
 
     return csc_coefs, csc_offset
 
@@ -431,7 +531,9 @@ if __name__ == '__main__':
         default="",
         help="dump all csc coefs for all supported modes to a file when '-a' is set",
     )
-    parser.add_argument("-p", "--platform", type=str, default="RK3572", help="the RK soc platform name, like: rk3572/rk3576/rk3538")
+    parser.add_argument(
+        "-p", "--platform", type=str, default="RK3572", help="the RK soc platform name, like: rk3572/rk3576/rk3538"
+    )
     parser.add_argument(
         "-M", "--mode", type=str, default="", help="a single csc mode string, like: '601f_to_rgbl/rgbf_to_2020f' ...)"
     )
@@ -471,7 +573,7 @@ if __name__ == '__main__':
     csc_config.pixel_depth = depth
     csc_config.coef_precision = precision
     csc_config.tune_fix_coefs = args.fix_check
-    csc_config.platform = args.platform.lower() # RK3576/RK3572/RK3538
+    csc_config.platform = args.platform.lower()  # RK3576/RK3572/RK3538
 
     bcsh = CscBcshConfig()
     # bcsh.hue = 256
@@ -540,7 +642,7 @@ if __name__ == '__main__':
         if args.color is not None:
             out_color = mat @ args.color + offset
             if precision > 0:
-                out_color = (out_color.astype(np.int32) +  (1 << (precision - 1))) >> precision
+                out_color = (out_color.astype(np.int32) + (1 << (precision - 1))) >> precision
                 out_color = np.clip(out_color, 0, 2**depth - 1)
 
             # 格式化 numpy 数组，保留 6 位小数

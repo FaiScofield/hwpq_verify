@@ -1,7 +1,13 @@
+.cache
 .vscode
 __pycache__
 *.lnk
+build/
+docs/
+dist/
 output/
 project/build_*/
 rockchip/
-# prebuilt/
+prebuilt/
+
+compile_commands.json
