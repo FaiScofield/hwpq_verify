@@ -9,15 +9,21 @@ Provides five panels:
   5. Action panel      -- Run, Refresh, Save Config & Result, Open Output Dir
 """
 
+import io
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass
 
 # Ensure the parent script/ package is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import numpy as np
 import PySimpleGUI as sg
+from PIL import Image
+
+from csc.run_csc import get_frame_size, get_pixel_depth, is_yuv_format, read_raw_to_planar
 
 from dci.dci_models import (
     DciAuditConfig,
@@ -99,6 +105,8 @@ FMT_DISPLAY = [f"0x{fmt:X} - {FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_
 CLRSPC_DISPLAY = [f"{clr} - {CLRSPC_NAMES[clr]}" for clr in CLRSPC_OPTIONS]
 DEFAULT_FMT_DISPLAY = next(item for item in FMT_DISPLAY if item.startswith("0x0 "))
 DEFAULT_CLRSPC_DISPLAY = next(item for item in CLRSPC_DISPLAY if item.startswith("1 "))
+CLRSPC_DISPLAY_RGB = [s for s in CLRSPC_DISPLAY if int(s.split(" ")[0]) in (0, 1)]
+CLRSPC_DISPLAY_YUV = [s for s in CLRSPC_DISPLAY if int(s.split(" ")[0]) in range(2, 8)]
 
 
 # ------------------------------------------------------------------ #
@@ -133,6 +141,91 @@ IO_PAIR_LEFT_LABEL_SIZE = (10, 1)
 IO_PAIR_RIGHT_LABEL_SIZE = (10, 1)
 
 
+def _update_clrspc_for_fmt(window: sg.Window, values: dict, clrspc_key: str, fmt_str: str):
+    """Update a colorspace combo options to match the selected format domain."""
+    fmt_code = int(fmt_str.split(" ")[0], 16)
+    base = fmt_code & 0xF
+    if base <= 0x2:
+        options = CLRSPC_DISPLAY_RGB
+        default = CLRSPC_DISPLAY_RGB[1]  # RGB_Full
+    else:
+        options = CLRSPC_DISPLAY_YUV
+        default = CLRSPC_DISPLAY_YUV[3]  # BT709_Full
+    current_val = values.get(clrspc_key, "")
+    new_val = current_val if current_val in options else default
+    window[clrspc_key].update(values=options, value=new_val)
+    _enforce_combo_width(window, clrspc_key, IO_CLR_COMBO_SIZE[0])
+    values[clrspc_key] = new_val
+
+
+def _enforce_combo_width(window: sg.Window, key: str, width_chars: int):
+    """Keep combo widget width stable after runtime value list updates."""
+    try:
+        window[key].Widget.configure(width=width_chars)
+    except Exception:
+        pass
+
+
+def _show_native_raw_preview(window: sg.Window, values: dict):
+    """Read raw input file and show native preview image."""
+    input_file = values.get("-INPUT-", "").strip()
+    if not input_file or not os.path.isfile(input_file):
+        return
+
+    try:
+        w = int(values.get("-WIDTH-", "1920"))
+        h = int(values.get("-HEIGHT-", "1080"))
+    except ValueError:
+        w, h = 1920, 1080
+
+    fmt_str = values.get("-IN-FMT-", DEFAULT_FMT_DISPLAY)
+    fmt = int(fmt_str.split(" ")[0], 16)
+
+    expected_size = get_frame_size(w, h, fmt)
+    actual_size = os.path.getsize(input_file)
+    if actual_size < expected_size:
+        return
+
+    try:
+        planar = read_raw_to_planar(input_file, w, h, fmt)
+    except Exception:
+        return
+
+    depth = get_pixel_depth(fmt)
+    max_val = (1 << depth) - 1
+
+    if is_yuv_format(fmt):
+        # Simple BT.709 YCbCr to RGB for preview
+        y = planar[0].astype(np.float32)
+        cb = planar[1].astype(np.float32) - (max_val // 2)
+        cr = planar[2].astype(np.float32) - (max_val // 2)
+        r = np.clip(y + 1.5748 * cr, 0, max_val)
+        g = np.clip(y - 0.187324 * cb - 0.468124 * cr, 0, max_val)
+        b = np.clip(y + 1.8556 * cb, 0, max_val)
+        rgb_planar = np.stack([r, g, b]).astype(planar.dtype)
+    else:
+        rgb_planar = planar
+
+    if depth > 8:
+        rgb_8bit = (rgb_planar >> (depth - 8)).astype(np.uint8)
+    else:
+        rgb_8bit = rgb_planar.astype(np.uint8)
+
+    rgb_interleaved = np.stack([rgb_8bit[0], rgb_8bit[1], rgb_8bit[2]], axis=-1)
+    img = Image.fromarray(rgb_interleaved, "RGB")
+
+    # Downscale if too large for preview
+    max_preview = 640
+    if max(img.size) > max_preview:
+        ratio = max_preview / max(img.size)
+        new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+        img = img.resize(new_size, Image.LANCZOS if hasattr(Image, "LANCZOS") else Image.Resampling.LANCZOS)
+
+    bio = io.BytesIO()
+    img.save(bio, format="PNG")
+    window["-NATIVE-PREVIEW-"].update(data=bio.getvalue())
+
+
 def _build_input_output_layout() -> list:
     """Build the input and output configuration tab."""
     return [
@@ -148,11 +241,13 @@ def _build_input_output_layout() -> list:
             sg.Text("Output Dir", size=IO_LABEL_SIZE),
             sg.Input(DEFAULT_OUTPUT_DIR, key="-OUTPUT-DIR-", size=IO_PATH_INPUT_SIZE),
             sg.FolderBrowse(size=IO_BROWSE_BUTTON_SIZE),
+            sg.Button("Explor", size=IO_BROWSE_BUTTON_SIZE, key="-OPEN-DIR-"),
         ],
         [
             sg.Text("Snapshot Root", size=IO_LABEL_SIZE),
             sg.Input(DEFAULT_OUTPUT_DIR, key="-SNAPROOT-", size=IO_PATH_INPUT_SIZE),
             sg.FolderBrowse(size=IO_BROWSE_BUTTON_SIZE),
+            sg.Button("Explor", size=IO_BROWSE_BUTTON_SIZE, key="-OPEN-SNAPROOT-"),
         ],
         [
             sg.Text("Config Path", size=IO_LABEL_SIZE),
@@ -163,7 +258,7 @@ def _build_input_output_layout() -> list:
         [sg.HorizontalSeparator()],
         [
             sg.Text("Input File", size=IO_LABEL_SIZE),
-            sg.Input(key="-INPUT-", size=IO_PATH_INPUT_SIZE),
+            sg.Input(key="-INPUT-", size=IO_PATH_INPUT_SIZE, enable_events=True),
             sg.FileBrowse(size=IO_BROWSE_BUTTON_SIZE),
         ],
         [
@@ -171,8 +266,6 @@ def _build_input_output_layout() -> list:
             sg.Input("1920", size=(8, 1), key="-WIDTH-"),
             sg.Text("Height", size=IO_PAIR_RIGHT_LABEL_SIZE),
             sg.Input("1080", size=(8, 1), key="-HEIGHT-"),
-        ],
-        [
             sg.Text("Frame Idx", size=IO_PAIR_LEFT_LABEL_SIZE),
             sg.Input("0", size=(8, 1), key="-FRAMEIDX-"),
             sg.Text("Frame Num", size=IO_PAIR_RIGHT_LABEL_SIZE),
@@ -186,11 +279,12 @@ def _build_input_output_layout() -> list:
                 key="-IN-FMT-",
                 readonly=True,
                 size=IO_FMT_COMBO_SIZE,
+                enable_events=True,
             ),
             sg.Text("Input Colorspace", size=IO_CLR_LABEL_SIZE),
             sg.Combo(
-                CLRSPC_DISPLAY,
-                default_value=DEFAULT_CLRSPC_DISPLAY,
+                CLRSPC_DISPLAY_RGB,
+                default_value=CLRSPC_DISPLAY_RGB[1],  # RGB_Full
                 key="-IN-CLR-",
                 readonly=True,
                 size=IO_CLR_COMBO_SIZE,
@@ -204,11 +298,12 @@ def _build_input_output_layout() -> list:
                 key="-OUT-FMT-",
                 readonly=True,
                 size=IO_FMT_COMBO_SIZE,
+                enable_events=True,
             ),
             sg.Text("Output Colorspace", size=IO_CLR_LABEL_SIZE),
             sg.Combo(
-                CLRSPC_DISPLAY,
-                default_value=DEFAULT_CLRSPC_DISPLAY,
+                CLRSPC_DISPLAY_RGB,
+                default_value=CLRSPC_DISPLAY_RGB[1],  # RGB_Full
                 key="-OUT-CLR-",
                 readonly=True,
                 size=IO_CLR_COMBO_SIZE,
@@ -216,14 +311,67 @@ def _build_input_output_layout() -> list:
         ],
     ]
 
-
 def _build_dci_config_layout() -> list:
-    """Build the DCI configuration tab."""
+    """Build the DCI configuration tab with merged audit controls."""
     return [
-        [sg.Text("Debug Dump Mask"), sg.Input("0", size=(8, 1), key="-DUMPMASK-")],
+        [
+            sg.Checkbox("Enable Audit", default=False, key="-AUDIT-ENABLE-"),
+            sg.Text("Tag", size=(4, 1)),
+            sg.Input("ui_live", size=(20, 1), key="-TAG-"),
+        ],
+        [
+            sg.Text("Node Mask", size=(10, 1)),
+            sg.Input("0", size=(8, 1), key="-NODEMASK-"),
+            sg.Text("Export Mask", size=(11, 1)),
+            sg.Input("0", size=(8, 1), key="-EXPORTMASK-"),
+            sg.Text("Debug Dump Mask", size=(14, 1)),
+            sg.Input("0", size=(8, 1), key="-DUMPMASK-"),
+        ],
         [sg.HorizontalSeparator()],
-        *_build_audit_panel(),
+        _build_numeric_control_row(
+            "CF/HE Ratio",
+            "-CFHE-",
+            "-CFHE-SLIDER-",
+            32,
+            0,
+            64,
+        ),
+        _build_numeric_control_row(
+            "BS Set Point",
+            "-BS-",
+            "-BS-SLIDER-",
+            80,
+            0,
+            255,
+        ),
+        _build_numeric_control_row(
+            "WS Set Point",
+            "-WS-",
+            "-WS-SLIDER-",
+            80,
+            0,
+            255,
+        ),
+        _build_numeric_control_row(
+            "CLAHE Local Ratio",
+            "-CLAHE-R-",
+            "-CLAHE-R-SLIDER-",
+            19,
+            0,
+            32,
+        ),
+        _build_numeric_control_row(
+            "CLAHE Clip Value",
+            "-CLAHE-C-",
+            "-CLAHE-C-SLIDER-",
+            1.0,
+            0.0,
+            8.0,
+            resolution=0.1,
+        ),
     ]
+
+
 
 
 def _build_numeric_control_row(
@@ -247,13 +395,6 @@ def _build_numeric_control_row(
 
     return [
         sg.Text(label, size=label_size),
-        sg.Spin(
-            spin_values,
-            initial_value=default_value,
-            size=(8, 1),
-            key=spin_key,
-            enable_events=True,
-        ),
         sg.Slider(
             range=(min_value, max_value),
             default_value=default_value,
@@ -263,6 +404,13 @@ def _build_numeric_control_row(
             key=slider_key,
             enable_events=True,
             disable_number_display=True,
+        ),
+        sg.Spin(
+            spin_values,
+            initial_value=default_value,
+            size=(8, 1),
+            key=spin_key,
+            enable_events=True,
         ),
     ]
 
@@ -312,65 +460,7 @@ def _build_shp_config_layout() -> list:
     ]
 
 
-def _build_audit_panel() -> list:
-    """Build the audit control panel with override knobs."""
-    return [
-        [
-            sg.Checkbox("Enable Audit", default=False, key="-AUDIT-ENABLE-"),
-            sg.Checkbox("Static Only", default=True, key="-STATIC-ONLY-"),
-        ],
-        [
-            sg.Text("Node Mask"),
-            sg.Input("0", size=(8, 1), key="-NODEMASK-"),
-            sg.Text("Export Mask"),
-            sg.Input("0", size=(8, 1), key="-EXPORTMASK-"),
-        ],
-        [
-            sg.Text("Tag"),
-            sg.Input("ui_live", size=(20, 1), key="-TAG-"),
-        ],
-        _build_numeric_control_row(
-            "CF/HE Ratio",
-            "-CFHE-",
-            "-CFHE-SLIDER-",
-            32,
-            0,
-            64,
-        ),
-        _build_numeric_control_row(
-            "BS Set Point",
-            "-BS-",
-            "-BS-SLIDER-",
-            80,
-            0,
-            255,
-        ),
-        _build_numeric_control_row(
-            "WS Set Point",
-            "-WS-",
-            "-WS-SLIDER-",
-            80,
-            0,
-            255,
-        ),
-        _build_numeric_control_row(
-            "CLAHE Local Ratio",
-            "-CLAHE-R-",
-            "-CLAHE-R-SLIDER-",
-            19,
-            0,
-            32,
-        ),
-        _build_numeric_control_row(
-            "CLAHE Clip Value",
-            "-CLAHE-C-",
-            "-CLAHE-C-SLIDER-",
-            1.0,
-            0.0,
-            8.0,
-            resolution=0.1,
-        ),
-    ]
+
 
 
 def _build_action_panel() -> list:
@@ -380,7 +470,6 @@ def _build_action_panel() -> list:
             sg.Button("Run", size=(10, 1), key="-RUN-"),
             sg.Button("Refresh", size=(10, 1), key="-REFRESH-"),
             sg.Button("Save Config & Result", size=(18, 1), key="-SAVE-"),
-            sg.Button("Open Output Dir", size=(16, 1), key="-OPEN-DIR-"),
         ],
         [sg.Text("", key="-STATUS-", text_color="gray", size=(60, 1))],
     ]
@@ -483,7 +572,6 @@ def _build_request_from_values(
 
     audit = DciAuditConfig(
         enable=1 if values.get("-AUDIT-ENABLE-") else 0,
-        static_only=1 if values.get("-STATIC-ONLY-") else 0,
         node_mask=_try_int(values.get("-NODEMASK-", "0"), 0),
         export_mask=_try_int(values.get("-EXPORTMASK-", "0"), 0),
         tag=values.get("-TAG-", "ui_live"),
@@ -741,9 +829,21 @@ def _sync_numeric_control(
     if event in (spin_key, return_event):
         window[spin_key].update(value=value)
         window[slider_key].update(value=value)
+        window[slider_key].set_focus()
     elif event == slider_key:
         window[spin_key].update(value=value)
         window[slider_key].update(value=value)
+        window[slider_key].set_focus()
+
+
+
+# Slider keys that support click-to-focus for keyboard arrow control
+_SLIDER_KEYS = {
+    "-CFHE-SLIDER-", "-BS-SLIDER-", "-WS-SLIDER-",
+    "-CLAHE-R-SLIDER-", "-CLAHE-C-SLIDER-",
+    "-SHP-PEAKING-GAIN-SLIDER-", "-SHP-CORING-THRESHOLD-SLIDER-",
+    "-SHP-SHOOT-OVER-SLIDER-", "-SHP-SHOOT-UNDER-SLIDER-",
+}
 
 
 def _to_slider_float(value) -> float:
@@ -751,21 +851,18 @@ def _to_slider_float(value) -> float:
     return round(float(value), 1)
 
 
-def _bind_numeric_return_events(window: sg.Window):
-    """Bind the Return key so manual Spin input is applied immediately."""
+def _bind_control_events(window: sg.Window):
+    """Bind Return key on spins and arrow keys on sliders."""
     spin_keys = [
-        "-CFHE-",
-        "-BS-",
-        "-WS-",
-        "-CLAHE-R-",
-        "-CLAHE-C-",
-        "-SHP-PEAKING-GAIN-",
-        "-SHP-CORING-THRESHOLD-",
-        "-SHP-SHOOT-OVER-",
-        "-SHP-SHOOT-UNDER-",
+        "-CFHE-", "-BS-", "-WS-", "-CLAHE-R-", "-CLAHE-C-",
+        "-SHP-PEAKING-GAIN-", "-SHP-CORING-THRESHOLD-",
+        "-SHP-SHOOT-OVER-", "-SHP-SHOOT-UNDER-",
     ]
     for key in spin_keys:
         window[key].bind("<Return>", "_ENTER")
+
+    for key in _SLIDER_KEYS:
+        window[key].bind("<Button-1>", "_CLICK")
 
 
 def _apply_shp_values_to_config(config_data: dict, values: dict) -> dict:
@@ -1019,7 +1116,7 @@ def main():
     # Pre-fill runner path if found
     if state.exe_path:
         window["-EXE-"].update(state.exe_path)
-    _bind_numeric_return_events(window)
+    _bind_control_events(window)
 
     while True:
         event, values = window.read()
@@ -1047,6 +1144,47 @@ def main():
 
         elif event == "-OPEN-DIR-":
             _do_open_dir(values, window)
+
+        elif event == "-OPEN-SNAPROOT-":
+            snaproot = values.get("-SNAPROOT-", "").strip()
+            if snaproot and os.path.isdir(snaproot):
+                os.startfile(snaproot)
+            else:
+                window["-STATUS-"].update("Snapshot root not found", text_color="orange")
+
+        elif event == "-IN-FMT-":
+            _update_clrspc_for_fmt(window, values, "-IN-CLR-", values["-IN-FMT-"])
+            _show_native_raw_preview(window, values)
+
+        elif event == "-OUT-FMT-":
+            _update_clrspc_for_fmt(window, values, "-OUT-CLR-", values["-OUT-FMT-"])
+
+        elif event == "-INPUT-":
+            input_file = values.get("-INPUT-", "").strip()
+            if input_file and os.path.isfile(input_file):
+                basename = os.path.basename(input_file).lower()
+                ext = os.path.splitext(basename)[1]
+                # Guess format by extension
+                if ext == ".yuv":
+                    yuv_fmt = next((f for f in FMT_DISPLAY if f.startswith("0x9 ")), None)
+                    if yuv_fmt:
+                        window["-IN-FMT-"].update(value=yuv_fmt)
+                        values["-IN-FMT-"] = yuv_fmt
+                        _update_clrspc_for_fmt(window, values, "-IN-CLR-", yuv_fmt)
+                elif ext == ".rgb":
+                    rgb_fmt = next((f for f in FMT_DISPLAY if f.startswith("0x0 ")), None)
+                    if rgb_fmt:
+                        window["-IN-FMT-"].update(value=rgb_fmt)
+                        values["-IN-FMT-"] = rgb_fmt
+                        _update_clrspc_for_fmt(window, values, "-IN-CLR-", rgb_fmt)
+                # Guess resolution from filename
+                m_res = re.search(r"(\d+)x(\d+)", basename)
+                if m_res:
+                    window["-WIDTH-"].update(value=m_res.group(1))
+                    values["-WIDTH-"] = m_res.group(1)
+                    window["-HEIGHT-"].update(value=m_res.group(2))
+                    values["-HEIGHT-"] = m_res.group(2)
+                _show_native_raw_preview(window, values)
 
         elif event in ("-CFHE-", "-CFHE-SLIDER-", "-CFHE-_ENTER"):
             _sync_numeric_control(window, values, event, "-CFHE-", "-CFHE-SLIDER-", int)
@@ -1120,6 +1258,12 @@ def main():
                 "-SHP-SHOOT-UNDER-SLIDER-",
                 int,
             )
+
+        elif event.endswith("_CLICK"):
+            # Set focus on slider when clicked so arrow keys work
+            slider_key = event[: -len("_CLICK")]
+            if slider_key in _SLIDER_KEYS:
+                window[slider_key].set_focus()
 
     window.close()
 
