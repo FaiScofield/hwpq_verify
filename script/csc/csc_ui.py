@@ -9,6 +9,8 @@ Description : PySimpleGUI-based UI for interactive CSC image conversion
 import io
 import os
 import re
+import sys
+from pathlib import Path
 import numpy as np
 import PySimpleGUI as sg
 from PIL import Image, ImageDraw, ImageFont
@@ -60,6 +62,18 @@ UI_BCSH_KEY_TO_CONFIG_KEY = {
     "bright": "brightness",
     "sat": "saturation",
 }
+
+
+def _load_ui_font(size):
+    """Load the UI font from the packaged bundle or repository data directory."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        font_path = Path(sys._MEIPASS) / "assets" / "fonts" / "NotoSans-Regular.ttf"
+    else:
+        font_path = Path(__file__).resolve().parents[2] / "data" / "fonts" / "NotoSans-Regular.ttf"
+    try:
+        return ImageFont.truetype(str(font_path), size)
+    except Exception:
+        return ImageFont.load_default()
 
 
 def ui_bcsh_key_to_config_key(ui_key):
@@ -265,10 +279,7 @@ def _build_colormap_with_axis(img_eff, title, xlabel, ylabel):
     padded = Image.new('RGB', (total_w, total_h), (255, 255, 255))
     padded.paste(img_eff, (margin, margin))
     draw = ImageDraw.Draw(padded)
-    try:
-        font = ImageFont.truetype('arial.ttf', 16)
-    except Exception:
-        font = None
+    font = _load_ui_font(16)
     axis_color = (0, 0, 0)
     tick_color = (64, 64, 64)
     # Origin at center of effective area (Cb=0, Cr=0)
@@ -443,7 +454,7 @@ def open_csc_ui(args=None):
         [sg.Text('Width:', size=(6, 1)), sg.Input('1920', key='-WIDTH-', size=(8, 1), enable_events=True),
          sg.Text('Height:', size=(6, 1)), sg.Input('1080', key='-HEIGHT-', size=(8, 1), enable_events=True),
          sg.Checkbox('Set Color', key='-SET-COLOR-', default=False, enable_events=True),
-         sg.Input('128, 128, 128', key='-COLOR-INPUT-', size=(28, 1), enable_events=False,
+         sg.Input('128 128 128', key='-COLOR-INPUT-', size=(28, 1), enable_events=False,
                   disabled=True, disabled_readonly_background_color=sg.theme_background_color())],
         [sg.Text('Input Format:', size=(12, 1)),
          sg.Combo(fmt_display, default_value=fmt_display[0], key='-IN-FMT-',
@@ -521,7 +532,7 @@ def open_csc_ui(args=None):
          ], key='-SAT-IMAGE-COL-', expand_y=True, element_justification='center', vertical_alignment='top', pad=((10, 0), 0), visible=False)]
     ]
 
-    window = sg.Window('CSC Image Converter', layout, resizable=True, finalize=True, return_keyboard_events=True)
+    window = sg.Window('CSC Test Tool', layout, resizable=True, finalize=True, return_keyboard_events=True)
     window.TKroot.attributes('-topmost', True)
     window.TKroot.lift()
     window.TKroot.focus_force()
@@ -995,7 +1006,7 @@ def open_csc_ui(args=None):
         widget.configure(state='normal')
         window[key].update(value=value)
 
-    def trigger_convert(values, update_display=True):
+    def trigger_convert(values, update_display=True, preserve_preview_size=False):
         nonlocal current_planar_in, current_planar_out
         nonlocal current_output_pixel_depth, current_input_pixel_depth
         nonlocal current_output_is_yuv, current_input_is_yuv
@@ -1005,6 +1016,21 @@ def open_csc_ui(args=None):
         nonlocal current_step2_coefs, current_step2_offset
         nonlocal planar_in_full, current_input_file_params
         nonlocal current_scale_factor
+
+        def get_preview_sampling_size(src_w, src_h, min_display_w, min_display_h):
+            """Return the preview sampling size while optionally preserving the current display size."""
+            if preserve_preview_size and current_planar_in is not None:
+                prev_h, prev_w = current_planar_in.shape[1], current_planar_in.shape[2]
+                if prev_w > 0 and prev_h > 0:
+                    return min(prev_w, src_w), min(prev_h, src_h)
+
+            col_widget = window['-MAIN-IMAGE-COL-'].Widget
+            max_display_w = max(col_widget.winfo_width() - 20, min_display_w)
+            max_display_h = max(col_widget.winfo_height() - 20, min_display_h)
+            scale_factor = min(max_display_w / src_w, max_display_h / src_h, 1.0)
+            disp_w = max(int(src_w * scale_factor), 1)
+            disp_h = max(int(src_h * scale_factor), 1)
+            return disp_w, disp_h
 
         set_color = values.get('-SET-COLOR-', False)
 
@@ -1046,13 +1072,9 @@ def open_csc_ui(args=None):
             current_input_file_params = None
 
             # Downsample for display while preserving aspect ratio
-            col_widget = window['-MAIN-IMAGE-COL-'].Widget
-            max_display_w = max(col_widget.winfo_width() - 20, 400)
-            max_display_h = max(col_widget.winfo_height() - 20, 400)
-            scale_factor = min(max_display_w / w, max_display_h / h, 1.0)
+            disp_w, disp_h = get_preview_sampling_size(w, h, 400, 400)
+            scale_factor = min(disp_w / w, disp_h / h, 1.0)
             current_scale_factor = scale_factor
-            disp_w = max(int(w * scale_factor), 1)
-            disp_h = max(int(h * scale_factor), 1)
             if disp_w != w or disp_h != h:
                 y_indices = np.linspace(0, h - 1, disp_h).astype(int)
                 x_indices = np.linspace(0, w - 1, disp_w).astype(int)
@@ -1136,15 +1158,9 @@ def open_csc_ui(args=None):
                 current_input_file_params = file_params
 
             # Calculate downsampling factors
-            col_widget = window['-MAIN-IMAGE-COL-'].Widget
-            # Provide some default size before window is fully rendered
-            max_display_w = max(col_widget.winfo_width() - 20, 640)
-            max_display_h = max(col_widget.winfo_height() - 20, 360)
-
-            scale_factor = min(max_display_w / w, max_display_h / h, 1.0)
+            disp_w, disp_h = get_preview_sampling_size(w, h, 640, 360)
+            scale_factor = min(disp_w / w, disp_h / h, 1.0)
             current_scale_factor = scale_factor
-            disp_w = max(int(w * scale_factor), 1)
-            disp_h = max(int(h * scale_factor), 1)
 
             # Downsample the full resolution input
             y_indices = np.linspace(0, h - 1, disp_h).astype(int)
@@ -1341,28 +1357,28 @@ def open_csc_ui(args=None):
         if event in bcsh_keys:
             set_bcsh_pair_value(window, values, event, int(values[event]))
             update_bcsh_norm_labels(window, values, current_algo_type)
-            trigger_convert(values)
+            trigger_convert(values, preserve_preview_size=True)
         elif event_key in bcsh_spin_keys and event_suffix == 'STEP':
             commit_bcsh_spin_value(window, values, event_key)
             update_bcsh_norm_labels(window, values, current_algo_type)
-            trigger_convert(values)
+            trigger_convert(values, preserve_preview_size=True)
         elif event_key in bcsh_spin_keys and event_suffix == 'ENTER':
             commit_bcsh_spin_value(window, values, event_key)
             update_bcsh_norm_labels(window, values, current_algo_type)
-            trigger_convert(values)
+            trigger_convert(values, preserve_preview_size=True)
         elif event_key in bcsh_keys and event_suffix in {'LEFT', 'RIGHT'}:
             delta = -1 if event_suffix == 'LEFT' else 1
             stepped_value = step_bcsh_value(values[event_key], delta)
             set_bcsh_pair_value(window, values, event_key, stepped_value)
             update_bcsh_norm_labels(window, values, current_algo_type)
-            trigger_convert(values)
+            trigger_convert(values, preserve_preview_size=True)
         elif event == '-BCSH-ALGO-TYPE-':
             new_algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_HW_CSC)
             update_rgb_gain_controls_for_algo_switch(window, values, current_algo_type, new_algo_type)
             current_algo_type = new_algo_type
             update_bcsh_norm_labels(window, values, current_algo_type)
             print(f"algo_type switch to: {new_algo_type}")
-            trigger_convert(values)
+            trigger_convert(values, preserve_preview_size=True)
         elif event == '-RESET-BCSH-':
             algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_HW_CSC)
             default_values = get_default_bcsh_raw_values(algo_type)
@@ -1372,7 +1388,7 @@ def open_csc_ui(args=None):
                 set_bcsh_pair_value(window, values, f'-BCSH-{k1}-', value1)
                 set_bcsh_pair_value(window, values, f'-BCSH-{k2}-', value2)
             update_bcsh_norm_labels(window, values, algo_type)
-            trigger_convert(values)
+            trigger_convert(values, preserve_preview_size=True)
         elif event == '-SAVE-OUT-':
             try:
                 input_file = values['-INPUT-FILE-']

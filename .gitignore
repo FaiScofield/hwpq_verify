@@ -3,6 +3,7 @@
 __pycache__
 *.lnk
 build/
+dist/
 output/
 project/build_*/
 rockchip/
