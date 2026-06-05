@@ -732,6 +732,7 @@ int main(int argc, char *const argv[])
     FILE *fp_src = NULL, *fp_dst = NULL, *fp_crc = NULL;
     int crc_val = -1;
     int mid_fmt = YUV444P;
+    int mid_stride = 0;
     int ret = 0;
 
     /* parse cmd parameters */
@@ -927,10 +928,12 @@ int main(int argc, char *const argv[])
             if (pixel_depth == 8) { // to RGB_planar
                 ret = imgcvt_to_planar_8bit_lsb((uint8_t *)p_src_raw, (uint8_t *)p_src, config.src_wid, config.src_hgt,
                     config.src_wid_vir, config.src_hgt_vir, config.src_wid, config.src_hgt, config.src_fmt, false, 0);
+                mid_stride = config.src_wid;
             }
             else if (pixel_depth == 10) { // to RGB10l_planar
                 ret = imgcvt_to_planar_10bit_lsb((uint8_t *)p_src_raw, (uint16_t *)p_src, config.src_wid, config.src_hgt,
                     config.src_wid_vir, config.src_hgt_vir, config.src_wid * 2, config.src_hgt, config.src_fmt, false, 0);
+                mid_stride = config.src_wid * sizeof(uint16_t);
             }
             else {
                 LOGE("unsupported pixel depth: %d\n", pixel_depth);
@@ -940,6 +943,7 @@ int main(int argc, char *const argv[])
         else {
             ret = image_read_to_planar(fp_src, p_src, k, config.src_wid, config.src_hgt, config.src_wid_vir,
                 config.src_hgt_vir, config.src_fmt, pixel_depth, config.dither_up);
+            mid_stride = config.src_wid * (pixel_depth > 8 ? 2 : 1);
         }
         if (ret) {
             LOGE("Failed to read frame #%d from input file '%s'! %s\n", k, config.input_file, strerror(errno));
@@ -947,7 +951,7 @@ int main(int argc, char *const argv[])
         }
 
         if (pixel_depth == 10) {
-            crc_val = calc_crc32_rtl_10bit_planar(p_src, config.src_wid, config.src_hgt, config.src_wid_vir, bIsInputYuv);
+            crc_val = calc_crc32_rtl_10bit_planar(p_src, config.src_wid, config.src_hgt, mid_stride, bIsInputYuv);
             LOGI("src CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsInputYuv ? "VYU" : "RGB", k, crc_val);
         }
 
@@ -967,7 +971,7 @@ int main(int argc, char *const argv[])
 
         // get CRC
         if (pixel_depth == 10) {
-            crc_val = calc_crc32_rtl_10bit_planar(p_dst, config.dst_wid, config.dst_hgt, config.dst_wid_vir, bIsOutputYuv);
+            crc_val = calc_crc32_rtl_10bit_planar(p_dst, config.dst_wid, config.dst_hgt, mid_stride, bIsOutputYuv);
             LOGI("dst CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
             if (fp_crc) {
                 if (mode_idx >= 0 && mode_idx < CSC_MODE_MAX) {

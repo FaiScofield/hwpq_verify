@@ -418,7 +418,8 @@ int run_as_demo(int argc, char *const argv[])
         //         config.src_wid * 2, config.src_hgt, dci_src_dump_fmt, 10, config.dither_up);
         // }
 
-        crc_val = calc_crc32_rtl_10bit_planar(p_src, config.src_wid, config.src_hgt, config.src_wid_vir, bIsInputYuv);
+        const int mid_stride = config.src_wid * 2;
+        crc_val = calc_crc32_rtl_10bit_planar(p_src, config.src_wid, config.src_hgt, mid_stride, bIsInputYuv);
         printf("src CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsInputYuv ? "VYU" : "RGB", k, crc_val);
 
         dci_proc_param_t proc_param;
@@ -446,7 +447,7 @@ int run_as_demo(int argc, char *const argv[])
             break;
         }
 
-        crc_val = calc_crc32_rtl_10bit_planar(p_dst, config.dst_wid, config.dst_hgt, config.dst_wid_vir, bIsOutputYuv);
+        crc_val = calc_crc32_rtl_10bit_planar(p_dst, config.dst_wid, config.dst_hgt, mid_stride, bIsOutputYuv);
         printf("dst CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
         if (fp_crc) {
             fprintf(fp_crc, "input: %s, config: %s, crc (%s MSB order) of frame #%04d: 0x%08X\n",

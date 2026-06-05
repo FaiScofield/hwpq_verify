@@ -7,7 +7,7 @@
  * @modify:    2026-03-10
  */
 
-#include "verify_com.h"
+#include "verify_img_io.h"
 #include "verify_cmd_parser.h"
 #include <errno.h>
 #include <stdio.h>

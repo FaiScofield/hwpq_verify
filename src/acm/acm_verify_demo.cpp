@@ -97,7 +97,8 @@ int main(int argc, char *const argv[])
             break;
         }
 
-        crc_val = calc_crc32_rtl_10bit_planar(p_src, config.src_wid, config.src_hgt, config.src_wid_vir, bIsInputYuv);
+        const int mid_stride = config.src_wid * 2;
+        crc_val = calc_crc32_rtl_10bit_planar(p_src, config.src_wid, config.src_hgt, mid_stride, bIsInputYuv);
         LOGI("src CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsInputYuv ? "VYU" : "RGB", k, crc_val);
 
         void *p_src_y = p_src;
@@ -163,7 +164,7 @@ int main(int argc, char *const argv[])
         fwrite(p_src, 2, config.src_wid * config.src_hgt * 3, fp_dst); // write src after dst
 
         // get CRC
-        crc_val = calc_crc32_rtl_10bit_planar(p_dst, config.dst_wid, config.dst_hgt, config.dst_wid_vir, bIsOutputYuv);
+        crc_val = calc_crc32_rtl_10bit_planar(p_dst, config.dst_wid, config.dst_hgt, mid_stride, bIsOutputYuv);
         LOGI("dst CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
         if (fp_crc) {
             fprintf(fp_crc, "input: %s, cmd_config: %s, crc (%s MSB order) of frame #%04d: 0x%08X\n",
