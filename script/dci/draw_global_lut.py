@@ -171,17 +171,33 @@ def draw_multi_lut_plot(lut_specs, output_path, title):
     plt.close()
 
 
+def compute_cdf(hist_values):
+    """Compute CDF from histogram values, normalized to [0, 1]."""
+    total = sum(hist_values)
+    if total == 0:
+        return [0.0] * len(hist_values)
+    cdf = []
+    cumulative = 0
+    for v in hist_values:
+        cumulative += v
+        cdf.append(cumulative / total)
+    return cdf
+
+
 def draw_combined_plot(global_lut_path, global_hist_path, output_path):
-    """Draw global LUT and global histogram on a shared x-axis with dual y-axes."""
+    """Draw global LUT, global histogram, and histogram CDF on a shared x-axis with dual y-axes."""
     global_lut_path = ensure_path(global_lut_path)
     global_hist_path = ensure_path(global_hist_path)
     output_path = ensure_path(output_path)
     lut_x, lut_y = parse_global_lut_file(global_lut_path)
     hist_x, hist_y = parse_global_hist_file(global_hist_path)
+    cdf_y = compute_cdf(hist_y)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig, ax_lut = plt.subplots(figsize=(12, 6), dpi=150)
     ax_hist = ax_lut.twinx()
+
+    lut_max = 1023
     draw_identity_reference(ax_lut, lut_x, scale=4)
 
     lut_line = ax_lut.plot(
@@ -192,6 +208,14 @@ def draw_combined_plot(global_lut_path, global_hist_path, output_path):
         marker="o",
         markersize=2.5,
         label="Global LUT",
+    )[0]
+    cdf_line = ax_lut.plot(
+        hist_x,
+        [v * lut_max for v in cdf_y],
+        color="tab:red",
+        linewidth=1.5,
+        linestyle="--",
+        label="CDF (scaled)",
     )[0]
     hist_bar = ax_hist.bar(
         hist_x,
@@ -204,18 +228,151 @@ def draw_combined_plot(global_lut_path, global_hist_path, output_path):
         label="Global Histogram",
     )
 
-    ax_lut.set_title(f"DCI Global LUT and Histogram\n{global_lut_path.name} | {global_hist_path.name}")
+    ax_lut.set_title(f"DCI Global LUT, CDF and Histogram\n{global_lut_path.name} | {global_hist_path.name}")
     ax_lut.set_xlabel("Index / Histogram Bin")
-    ax_lut.set_ylabel("LUT Value", color="tab:blue")
+    ax_lut.set_ylabel("LUT Value / CDF (x{:.0f})".format(lut_max), color="tab:blue")
     ax_hist.set_ylabel("Histogram Count", color="tab:orange")
     ax_lut.tick_params(axis="y", labelcolor="tab:blue")
     ax_hist.tick_params(axis="y", labelcolor="tab:orange")
     ax_lut.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
     ax_lut.set_xlim(0, max(max(lut_x), max(hist_x)))
-    ax_lut.legend([lut_line, hist_bar], ["Global LUT", "Global Histogram"], loc="best")
+    ax_lut.legend([lut_line, cdf_line, hist_bar], ["Global LUT", "CDF", "Global Histogram"], loc="best")
 
     fig.tight_layout()
     fig.savefig(output_path, format="png")
+    plt.close(fig)
+
+
+LOCAL_BLOCK_COLS = 16
+LOCAL_BLOCK_ROWS = 16
+LOCAL_HIST_BINS = 16
+LOCAL_HIST_BIN_BYTES = 4
+LOCAL_LUT_PATTERN = re.compile(r".*?\((\d+),\s*(\d+)\).*?\[(\d+)\]\s*=\s*(-?\d+)\s*$", re.IGNORECASE)
+
+
+def parse_local_hist_file(input_path):
+    """Parse a 16x16x16-bin uint32 local histogram binary file.
+
+    Returns a 2D list of (x_values, y_values) tuples, indexed by [row][col].
+    Each block has LOCAL_HIST_BINS bins.
+    """
+    input_path = ensure_path(input_path)
+    expected_size = LOCAL_BLOCK_ROWS * LOCAL_BLOCK_COLS * LOCAL_HIST_BINS * LOCAL_HIST_BIN_BYTES
+    data = input_path.read_bytes()
+    if len(data) != expected_size:
+        raise ValueError(
+            f"invalid local histogram file size: {len(data)} bytes, expected {expected_size} bytes"
+        )
+
+    hist_values = struct.unpack(f"<{LOCAL_BLOCK_ROWS * LOCAL_BLOCK_COLS * LOCAL_HIST_BINS}I", data)
+    result = []
+    idx = 0
+    for r in range(LOCAL_BLOCK_ROWS):
+        row_data = []
+        for c in range(LOCAL_BLOCK_COLS):
+            y_vals = list(hist_values[idx:idx + LOCAL_HIST_BINS])
+            x_vals = list(range(LOCAL_HIST_BINS))
+            row_data.append((x_vals, y_vals))
+            idx += LOCAL_HIST_BINS
+        result.append(row_data)
+    return result
+
+def parse_local_lut_file(input_path):
+    """Parse a 16x16x16 local LUT text file.
+
+    Returns a 2D list of (x_values, y_values) tuples, indexed by [row][col].
+    Each block has LOCAL_HIST_BINS entries.
+    """
+    input_path = ensure_path(input_path)
+    # Initialize empty arrays for all blocks
+    result = [[None] * LOCAL_BLOCK_COLS for _ in range(LOCAL_BLOCK_ROWS)]
+    for r in range(LOCAL_BLOCK_ROWS):
+        for c in range(LOCAL_BLOCK_COLS):
+            result[r][c] = {}
+
+    with input_path.open("r", encoding="utf-8") as file_obj:
+        for line_no, line in enumerate(file_obj, start=1):
+            match = LOCAL_LUT_PATTERN.search(line)
+            if not match:
+                continue
+            blk_row = int(match.group(1))
+            blk_col = int(match.group(2))
+            lut_idx = int(match.group(3))
+            lut_val = int(match.group(4))
+            if blk_row < LOCAL_BLOCK_ROWS and blk_col < LOCAL_BLOCK_COLS:
+                result[blk_row][blk_col][lut_idx] = lut_val
+
+    # Convert dicts to sorted lists
+    final = []
+    for r in range(LOCAL_BLOCK_ROWS):
+        row_data = []
+        for c in range(LOCAL_BLOCK_COLS):
+            items = sorted(result[r][c].items())
+            if not items:
+                row_data.append(([], []))
+            else:
+                x_vals = [item[0] for item in items]
+                y_vals = [item[1] for item in items]
+                row_data.append((x_vals, y_vals))
+        final.append(row_data)
+    return final
+
+def draw_local_combined_plot(local_lut_path, local_hist_path, output_path):
+    """Draw 16x16 local block histograms, CDF curves, and mapping LUT curves."""
+    local_lut_path = ensure_path(local_lut_path)
+    local_hist_path = ensure_path(local_hist_path)
+    output_path = ensure_path(output_path)
+    hist_data = parse_local_hist_file(local_hist_path)
+    lut_data = parse_local_lut_file(local_lut_path)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Avoid sharex/sharey on 256 subplots - syncing viewLim across all siblings is O(n²)
+    fig, axes = plt.subplots(
+        LOCAL_BLOCK_ROWS, LOCAL_BLOCK_COLS,
+        figsize=(LOCAL_BLOCK_COLS * 1.4, LOCAL_BLOCK_ROWS * 1.2),
+        dpi=72,
+    )
+    fig.subplots_adjust(left=0.04, right=0.98, bottom=0.04, top=0.92,
+                        hspace=0.5, wspace=0.4)
+
+    for r in range(LOCAL_BLOCK_ROWS):
+        for c in range(LOCAL_BLOCK_COLS):
+            ax = axes[r][c]
+            hist_x, hist_y = hist_data[r][c]
+            lut_x, lut_y = lut_data[r][c]
+            lut_max = 1023
+            cdf_y = compute_cdf(hist_y)
+
+            # Scale histogram to fit LUT range [0, 1023]
+            hist_max = max(hist_y) if hist_y else 1
+            hist_scaled = [v * lut_max / hist_max for v in hist_y] if hist_max > 0 else hist_y
+
+            # Histogram as step plot
+            ax.fill_between(hist_x, 0, hist_scaled, step="mid", color="tab:orange", alpha=0.45)
+            ax.step(hist_x, hist_scaled, where="mid", color="tab:orange", linewidth=0.5, alpha=0.6)
+
+            # CDF curve scaled to LUT range
+            if cdf_y and sum(hist_y) > 0:
+                ax.plot(hist_x, [v * lut_max for v in cdf_y],
+                        color="tab:red", linewidth=0.8, linestyle="--")
+
+            # LUT curve, full range [0, 1023]
+            if lut_x and lut_y:
+                ax.plot(lut_x, lut_y, color="tab:blue", linewidth=0.8)
+
+            ax.set_xlim(0, LOCAL_HIST_BINS - 1)
+            ax.set_ylim(0, lut_max * 1.05 if lut_max > 0 else 1023)
+            ax.set_title(f"({r},{c})", fontsize=6, pad=1)
+            ax.tick_params(labelsize=5, pad=1, length=2)
+            ax.grid(True, linestyle="--", linewidth=0.3, alpha=0.4)
+
+    fig.suptitle(
+        f"Local 16x16 Blocks: Histogram / CDF / LUT\n{local_hist_path.name} | {local_lut_path.name}",
+        fontsize=10,
+    )
+    fig.savefig(output_path, format="png")
+    # Use clf() instead of close() to avoid interactive-mode hang under debugpy
+    fig.clf()
     plt.close(fig)
 
 
