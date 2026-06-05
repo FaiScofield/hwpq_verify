@@ -73,6 +73,95 @@ from verify_tool_app.ui_shp import (
 )
 
 # ------------------------------------------------------------------ #
+# ImageFrame — pipeline data abstraction                             #
+# ------------------------------------------------------------------ #
+
+class ImageFrame:
+    """Image frame abstraction for pipeline data.
+
+    Encapsulates planar data, format, colorspace, and frame index.
+    Internal format convention for pipeline processing:
+      8/10-bit RGB -> 0x2 (RGB_Planar) / 0x12 (RGB_Planar_10LSB)
+      8/10-bit YUV -> 0x3 (YUV444P_YU24) / 0x13 (YUV444P_10LSB)
+    """
+
+    __slots__ = ("data", "fmt", "clrspc", "frame_idx")
+
+    def __init__(self, data: np.ndarray, fmt: int, clrspc: int, frame_idx: int = 0):
+        self.data = data          # planar (3, H, W)
+        self.fmt = fmt            # format code
+        self.clrspc = clrspc      # colorspace code
+        self.frame_idx = frame_idx
+
+    # -- properties -------------------------------------------------- #
+
+    @property
+    def depth(self) -> int:
+        """Pixel bit depth derived from format code."""
+        return get_pixel_depth(self.fmt)
+
+    @property
+    def is_yuv(self) -> bool:
+        return is_yuv_format(self.fmt)
+
+    @property
+    def is_rgb(self) -> bool:
+        return is_rgb_format(self.fmt)
+
+    @property
+    def height(self) -> int:
+        return int(self.data.shape[1])
+
+    @property
+    def width(self) -> int:
+        return int(self.data.shape[2])
+
+    # -- helpers ----------------------------------------------------- #
+
+    def copy(self) -> "ImageFrame":
+        """Shallow copy with a deep copy of the data array."""
+        return ImageFrame(self.data.copy(), self.fmt, self.clrspc, self.frame_idx)
+
+    def as_tuple(self) -> tuple:
+        """Return (data, fmt, clrspc) for backward-compatible module API."""
+        return (self.data, self.fmt, self.clrspc)
+
+    def _fmt_for_depth(self, target_10bit: bool) -> int:
+        """Pick internal planar format code matching the YUV/RGB domain."""
+        if self.is_rgb:
+            return 0x12 if target_10bit else 0x2
+        else:
+            return 0x13 if target_10bit else 0x3
+
+    # -- precision conversion ---------------------------------------- #
+
+    def promote_to_10bit(self):
+        """Promote 8-bit data to 10-bit by left-shifting 2 bits.
+
+        Updates data (uint8 -> uint16) and fmt (e.g. 0x2 -> 0x12).
+        No-op if already 10-bit.
+        """
+        if self.depth >= 10:
+            return self
+        self.data = (self.data.astype(np.uint16) << 2)
+        self.fmt = self._fmt_for_depth(target_10bit=True)
+        return self
+
+    def demote_to_8bit(self):
+        """Demote 10-bit data to 8-bit with rounding (add 2 then >> 2).
+
+        Updates data (uint16 -> uint8) and fmt (e.g. 0x12 -> 0x2).
+        No-op if already 8-bit.
+        """
+        if self.depth <= 8:
+            return self
+        rounded = (self.data.astype(np.uint32) + 2) >> 2
+        self.data = rounded.astype(np.uint8)
+        self.fmt = self._fmt_for_depth(target_10bit=False)
+        return self
+
+
+# ------------------------------------------------------------------ #
 # Module registry                                                    #
 # ------------------------------------------------------------------ #
 
@@ -84,11 +173,11 @@ _PIPELINE_DEFAULT_ENABLED = {"csc"}
 pipeline_order = list(_PIPELINE_DEFAULT_ORDER)
 pipeline_enabled = set(_PIPELINE_DEFAULT_ENABLED)
 
-# Snapshot cache: {tag: (data: np.ndarray, fmt: int, clrspc: int)}
-_SNAPSHOTS: dict[str, tuple] = {}
+# Snapshot cache: {tag: ImageFrame}
+_SNAPSHOTS: dict[str, ImageFrame] = {}
 
-# Input image cache: (data_planar, fmt, clrspc) read from file
-_INPUT_IMAGE: tuple | None = None
+# Input image cache: ImageFrame read from file
+_INPUT_IMAGE: ImageFrame | None = None
 
 # Track last output format to detect changes that require buffer re-creation
 _last_out_format: int | None = None
@@ -321,7 +410,22 @@ def _update_left_preview(window: sg.Window, planar: np.ndarray, fmt: int, tag: s
     """Update the left preview area with new image data."""
     global _current_display_data, _scale_factor, _left_display_size
     _current_display_data = (planar, fmt)
-    img = _planar_to_rgb_pil(planar, fmt)
+
+    # Scale image to fit available preview area, never exceeding original resolution.
+    # _planar_to_rgb_pil compares max_size against max(img_width, img_height),
+    # so we clamp to original's max dimension and the frame's min dimension.
+    orig_h, orig_w = planar.shape[1], planar.shape[2]
+    try:
+        frame_h = window["-LEFT-PREVIEW-FRAME-"].Widget.winfo_height()
+        frame_w = window["-LEFT-PREVIEW-FRAME-"].Widget.winfo_width()
+        if frame_h < 100:
+            max_size = max(orig_w, orig_h)
+        else:
+            max_size = min(frame_h, frame_w, max(orig_w, orig_h))
+    except Exception:
+        max_size = max(orig_w, orig_h)
+
+    img = _planar_to_rgb_pil(planar, fmt, max_size=max_size)
     w, h = img.size
     orig_h, orig_w = planar.shape[1], planar.shape[2]
     _scale_factor = h / orig_h if orig_h > 0 else 1.0
@@ -445,7 +549,10 @@ def _parse_color_input(text: str):
 
 
 def _load_input_image(values: dict, window: sg.Window) -> bool:
-    """Load input file or generate set-color image into _INPUT_IMAGE cache. Returns True on success."""
+    """Load input file or generate set-color image into _INPUT_IMAGE cache.
+
+    Returns True on success.  Applies stream-depth promotion to 10-bit if needed.
+    """
     global _INPUT_IMAGE
     io_params = read_io_params(values)
 
@@ -453,6 +560,9 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
     h = io_params["height"]
     in_fmt = io_params["in_fmt"]
     in_clrspc = io_params["in_clrspc"]
+
+    stream_depth_str = values.get("-STREAM-DEPTH-", "8bit")
+    stream_10bit = (stream_depth_str == "10bit")
 
     use_set_color = values.get("-USE-SET-COLOR-", False)
     if use_set_color:
@@ -465,8 +575,10 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
         data = np.zeros((3, h, w), dtype=np.uint16 if depth > 8 else np.uint8)
         for i in range(3):
             data[i, :, :] = int(np.clip(color_vals[i], 0, max_val))
-        _INPUT_IMAGE = (data, in_fmt, in_clrspc)
+        _INPUT_IMAGE = ImageFrame(data, in_fmt, in_clrspc)
         _SNAPSHOTS.clear()
+        if stream_10bit:
+            _INPUT_IMAGE.promote_to_10bit()
         _update_status(window, f"Set color ({' '.join(str(v) for v in color_vals)}) applied", color="green")
         return True
 
@@ -491,8 +603,10 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
             window["-HEIGHT-"].update(value=str(h))
             values["-WIDTH-"] = str(w)
             values["-HEIGHT-"] = str(h)
-            _INPUT_IMAGE = (data, 0x0, in_clrspc)
+            _INPUT_IMAGE = ImageFrame(data, 0x0, in_clrspc)
             _SNAPSHOTS.clear()
+            if stream_10bit:
+                _INPUT_IMAGE.promote_to_10bit()
             _update_status(window, f"Loaded image: {os.path.basename(input_file)} ({w}x{h})", color="green")
             return True
         except Exception as e:
@@ -515,8 +629,10 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
         _update_status(window, f"Read error: {e}", color="red")
         return False
 
-    _INPUT_IMAGE = (data, in_fmt, in_clrspc)
+    _INPUT_IMAGE = ImageFrame(data, in_fmt, in_clrspc)
     _SNAPSHOTS.clear()
+    if stream_10bit:
+        _INPUT_IMAGE.promote_to_10bit()
     _update_status(window, f"Loaded: {os.path.basename(input_file)}", color="green")
     return True
 
@@ -532,6 +648,11 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
     width = io_params["width"]
     height = io_params["height"]
 
+    # Read stream depth for promotion / demotion decisions
+    stream_depth_str = values.get("-STREAM-DEPTH-", "8bit")
+    stream_10bit = (stream_depth_str == "10bit")
+    out_fmt_is_8bit = (get_pixel_depth(out_fmt) <= 8)
+
     # Recalculate output frame size; force full pipeline reset if changed
     out_frame_size = get_frame_size(width, height, out_fmt)
     out_fmt_changed = (_last_out_format is not None and out_fmt != _last_out_format)
@@ -544,7 +665,7 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
     start_tag = trigger_tag if trigger_tag else ""
     if start_tag:
         # Check if upstream snapshot exists
-        upstream = _SNAPSHOTS.get(start_tag)
+        upstream: ImageFrame | None = _SNAPSHOTS.get(start_tag)
         if upstream is None:
             # Fall back to input
             start_tag = ""
@@ -564,9 +685,13 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
 
     effective = _get_effective_pipeline()
     if not effective:
-        # No modules enabled, show input
-        if _INPUT_IMAGE:
-            _update_left_preview(window, _INPUT_IMAGE[0], _INPUT_IMAGE[1])
+        # No modules enabled, show input (with stream-depth demotion if needed)
+        if _INPUT_IMAGE is not None:
+            display_frame = _INPUT_IMAGE
+            if stream_10bit and out_fmt_is_8bit:
+                display_frame = _INPUT_IMAGE.copy()
+                display_frame.demote_to_8bit()
+            _update_left_preview(window, display_frame.data, display_frame.fmt)
         return
 
     # Determine start index
@@ -586,7 +711,7 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
         _update_status(window, "No input data", color="orange")
         return
 
-    current_data, current_fmt, current_clrspc = upstream
+    current_frame = upstream
     output_dir = io_params["output_dir"] or os.path.dirname(io_params["input_file"]) or "."
 
     for i in range(start_idx, len(effective)):
@@ -599,20 +724,18 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
         snap_key = tag
         if i > 0 and snap_key in _SNAPSHOTS:
             # Use cached upstream result
-            current_data, current_fmt, current_clrspc = _SNAPSHOTS[snap_key]
+            current_frame = _SNAPSHOTS[snap_key]
             continue
 
         params = mod["read_params"](values)
 
         if tag == "csc":
             ok, result = mod["process"](
-                current_data, current_fmt, current_clrspc,
+                current_frame.data, current_frame.fmt, current_frame.clrspc,
                 out_fmt, out_clrspc, params,
             )
             if ok:
-                current_data = result
-                current_fmt = out_fmt
-                current_clrspc = out_clrspc
+                current_frame = ImageFrame(result, out_fmt, out_clrspc)
             else:
                 _update_status(window, f"CSC error: {result}", color="red")
                 return
@@ -629,24 +752,28 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
                 "sharpen_exe": values.get("-SHP-EXE-", ""),
             }
             ok, result, res_fmt, res_clrspc = mod["process"](
-                current_data, current_fmt, current_clrspc,
+                current_frame.data, current_frame.fmt, current_frame.clrspc,
                 out_fmt, out_clrspc, params, full_io,
             )
             if ok:
-                current_data = result
-                current_fmt = res_fmt
-                current_clrspc = res_clrspc
+                current_frame = ImageFrame(result, res_fmt, res_clrspc)
             else:
                 _update_status(window, f"{tag.upper()} error: {result}", color="red")
                 return
 
-        _SNAPSHOTS[tag] = (current_data.copy(), current_fmt, current_clrspc)
+        _SNAPSHOTS[tag] = current_frame.copy()
+
+    # Apply stream-depth demotion after last module if output format is 8-bit
+    display_frame = current_frame
+    if stream_10bit and out_fmt_is_8bit:
+        display_frame = current_frame.copy()
+        display_frame.demote_to_8bit()
 
     # Display final output
     final_tag = effective[-1] if effective else ""
     _update_status(window, f"Pipeline OK ({' → '.join(effective)})", color="green")
-    _update_left_preview(window, current_data, current_fmt, final_tag)
-    _update_right_preview(window, final_tag, (current_data, current_fmt, current_clrspc),
+    _update_left_preview(window, display_frame.data, display_frame.fmt, final_tag)
+    _update_right_preview(window, final_tag, display_frame.as_tuple(),
                            REGISTERED_MODULES.get(final_tag, {}).get("read_params", lambda v: {})(values))
 
 
@@ -672,7 +799,8 @@ def _handle_mouse_motion(window: sg.Window, values: dict, event: str):
     # Get input pixel
     input_str = "(----, ----, ----)"
     if _INPUT_IMAGE is not None:
-        in_planar, in_fmt, _ = _INPUT_IMAGE
+        in_planar = _INPUT_IMAGE.data
+        in_fmt = _INPUT_IMAGE.fmt
         in_h, in_w = in_planar.shape[1], in_planar.shape[2]
         if 0 <= orig_x < in_w and 0 <= orig_y < in_h:
             p0 = in_planar[0, orig_y, orig_x]
@@ -723,7 +851,8 @@ def _handle_right_mouse_motion(window: sg.Window, values: dict, event: str):
     # Get input pixel from input image
     input_str = "(----, ----, ----)"
     if _INPUT_IMAGE is not None:
-        in_planar, in_fmt, _ = _INPUT_IMAGE
+        in_planar = _INPUT_IMAGE.data
+        in_fmt = _INPUT_IMAGE.fmt
         in_h, in_w = in_planar.shape[1], in_planar.shape[2]
         if 0 <= orig_x < in_w and 0 <= orig_y < in_h:
             p0 = in_planar[0, orig_y, orig_x]
@@ -786,7 +915,7 @@ def _refresh_right_preview_only(window: sg.Window, values: dict):
     if mod is None:
         return
     params = mod.get("read_params", lambda v: {})(values)
-    _update_right_preview(window, last_tag, snap, params)
+    _update_right_preview(window, last_tag, snap.as_tuple(), params)
 
 
 def _save_image(values: dict, window: sg.Window, display_data):
@@ -988,7 +1117,7 @@ def main():
         # Show Left Input checkbox
         if event == "-SHOW-INPUT-":
             if values["-SHOW-INPUT-"] and _INPUT_IMAGE is not None:
-                _update_left_preview(window, _INPUT_IMAGE[0], _INPUT_IMAGE[1], "input")
+                _update_left_preview(window, _INPUT_IMAGE.data, _INPUT_IMAGE.fmt, "input")
             else:
                 # Show last output
                 effective = _get_effective_pipeline()
@@ -996,7 +1125,7 @@ def main():
                     last = effective[-1]
                     snap = _SNAPSHOTS.get(last) or _INPUT_IMAGE
                     if snap:
-                        _update_left_preview(window, snap[0], snap[1], last)
+                        _update_left_preview(window, snap.data, snap.fmt, last)
             continue
 
         # Show Right Input checkbox
@@ -1016,6 +1145,12 @@ def main():
         # Save Right Image
         if event == "-SAVE-RIGHT-IMAGE-":
             _save_image(values, window, _right_display_data)
+            continue
+
+        # Stream depth changed — reload input and re-run pipeline
+        if event == "-STREAM-DEPTH-":
+            _SNAPSHOTS.clear()
+            _run_pipeline(values, window)
             continue
 
         # IO events
