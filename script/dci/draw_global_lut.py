@@ -165,6 +165,7 @@ def draw_multi_lut_plot(lut_specs, output_path, title):
     axis_obj.set_ylabel("LUT Value")
     axis_obj.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
     axis_obj.set_xlim(min(all_x_values), max(all_x_values))
+    axis_obj.set_ylim(bottom=0)
     axis_obj.legend(loc="best")
     plt.tight_layout()
     plt.savefig(output_path, format="png")
@@ -236,6 +237,7 @@ def draw_combined_plot(global_lut_path, global_hist_path, output_path):
     ax_hist.tick_params(axis="y", labelcolor="tab:orange")
     ax_lut.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
     ax_lut.set_xlim(0, max(max(lut_x), max(hist_x)))
+    ax_lut.set_ylim(bottom=0)
     ax_lut.legend([lut_line, cdf_line, hist_bar], ["Global LUT", "CDF", "Global Histogram"], loc="best")
 
     fig.tight_layout()
@@ -359,6 +361,9 @@ def draw_local_combined_plot(local_lut_path, local_hist_path, output_path):
             # LUT curve, full range [0, 1023]
             if lut_x and lut_y:
                 ax.plot(lut_x, lut_y, color="tab:blue", linewidth=0.8)
+
+            # y = 64*x reference line (1024 / 16 bins), representing linear mapping
+            draw_identity_reference(ax, hist_x, scale=64)
 
             ax.set_xlim(0, LOCAL_HIST_BINS - 1)
             ax.set_ylim(0, lut_max * 1.05 if lut_max > 0 else 1023)

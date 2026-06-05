@@ -24,8 +24,7 @@ typedef void *dci_handle_t;
 #define DCI_AUDIT_EXPORT_METRICS_JSON  (1u << 1)
 #define DCI_AUDIT_EXPORT_CURVES_JSON   (1u << 2)
 #define DCI_AUDIT_EXPORT_HISTS_JSON    (1u << 3)
-#define DCI_AUDIT_EXPORT_PREVIEW_PNG   (1u << 4)
-#define DCI_AUDIT_EXPORT_RAW_META_JSON (1u << 5)
+#define DCI_AUDIT_EXPORT_RAW_META_JSON (1u << 4)
 
 typedef struct {
     int          platform;
@@ -69,19 +68,21 @@ typedef struct {
     int        frame_idx;
     int        frame_num;
     // input pixel format (10bit planar) for DCI, see pix_fmt. (PIX_YUV444P_10 or PIX_RGB101010)
-    int        pixel_format;
+    int        pixel_format; // [O]
 
     /* config path */
     char config_path[2048];
     char reg_path[2048];
 
-    /* optional CLAHE overrides, keep invalid values to use JSON defaults */
-    int   clahe_en;          // valid: 0 or 1, default: 1, invalid: -1
-    float clahe_clip_value;  // valid: >= 0.0f, default: 1.0f, invalid: -1
-    int   clahe_local_ratio; // valid: [0, 32], default: 19, invalid: -1
-    float clahe_abld_ratio;  // valid: [0.0f, 1.0f], default: 0.7f, invalid: -1
-    int   clahe_scd_thr_min; // valid: >= 0, default: 0.7f, invalid: -1
-    int   clahe_scd_thr_max; // valid: >= 0, default: 3.0f, invalid: -1
+    /* optional parameter overrides, set to invalid values (-1) to use JSON defaults */
+    int   clahe_en;          // [0, (1)]
+    float clahe_clip_value;  // [0.0f, (1.0f), 2.0f], higher value means higher local effect
+    int   clahe_local_ratio; // [0, (19), 32], higher value means higher local effect and less global effect
+    float clahe_abld_ratio;  // [0.0f, (0.7), 1.0f], higher value means higher history effect
+    int   cf_gain_low;       // 5bit fixed, [0, (32)], 0 means no CF_low  effct
+    int   cf_gain_mid;       // 5bit fixed, [0, (32)], 0 means no CF_mid  effct
+    int   cf_gain_high;      // 5bit fixed, [0, (32)], 0 means no CF_high effct
+    int   cf_he_ratio;       // 6bit fixed, [0, (64)], 0 means no HE effct
 
     dci_audit_param_t audit;
 

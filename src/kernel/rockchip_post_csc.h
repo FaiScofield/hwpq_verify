@@ -22,8 +22,15 @@ enum post_csc_channel_swap_type {
 	Y2Y_ON_R2Y = 5,
 };
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 int rockchip_calc_post_csc(struct post_csc *csc_cfg, struct post_csc_coef *csc_simple_coef,
 			   struct post_csc_convert_mode *convert_mode);
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif
