@@ -85,6 +85,8 @@ IO_FMT_COMBO_SIZE = (24, 1)
 IO_CLR_COMBO_SIZE = (20, 1)
 IO_BROWSE_BUTTON_SIZE = (8, 1)
 
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp"}
+
 TAB_LABEL = "I/O"
 
 
@@ -330,6 +332,13 @@ def _recalc_frame_num(values: dict, window: sg.Window):
     if not input_file or not os.path.isfile(input_file):
         return
 
+    # Image files are compressed; always treated as a single frame
+    ext = os.path.splitext(input_file)[1].lower()
+    if ext in IMAGE_EXTENSIONS:
+        window["-FRAME-NUM-"].update(value="1")
+        values["-FRAME-NUM-"] = "1"
+        return
+
     fmt_str = values.get("-IN-FMT-", DEFAULT_FMT_DISPLAY)
     fmt_code = get_fmt_from_display(fmt_str)
     try:
@@ -358,6 +367,26 @@ def _guess_input_params(values: dict, window: sg.Window):
 
     basename = os.path.basename(input_file).lower()
     ext = os.path.splitext(basename)[1]
+
+    if ext in IMAGE_EXTENSIONS:
+        # Treat image files as RGB888
+        rgb_fmt = next((f for f in FMT_DISPLAY if f.startswith("0x0 ")), None)
+        if rgb_fmt:
+            window["-IN-FMT-"].update(value=rgb_fmt)
+            values["-IN-FMT-"] = rgb_fmt
+            update_clrspc_for_fmt(window, values, "-IN-CLR-", rgb_fmt)
+        # Read actual dimensions from image file
+        try:
+            from PIL import Image
+            with Image.open(input_file) as im:
+                w, h_img = im.size
+                window["-WIDTH-"].update(value=str(w))
+                values["-WIDTH-"] = str(w)
+                window["-HEIGHT-"].update(value=str(h_img))
+                values["-HEIGHT-"] = str(h_img)
+        except Exception:
+            pass
+        return
 
     if ext == ".yuv":
         yuv_fmt = next((f for f in FMT_DISPLAY if f.startswith("0x4 ")), None)

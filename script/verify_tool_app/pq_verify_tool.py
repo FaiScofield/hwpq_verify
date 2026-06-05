@@ -33,6 +33,7 @@ from verify_tool_app.ui_io import (
     FMT_DISPLAY,
     DEFAULT_FMT_DISPLAY,
     CLRSPC_DISPLAY_RGB,
+    IMAGE_EXTENSIONS,
     build_controls as build_io_controls,
     handle_io_event,
     update_clrspc_for_fmt,
@@ -166,8 +167,10 @@ _scale_factor = 1.0
 _right_scale_factor = 1.0
 _current_display_data = None  # (planar, fmt) currently shown in left preview
 _right_display_data = None    # (planar, fmt) currently shown in right preview
+_right_input_data = None      # (planar, fmt) input data before right-side processing
 _right_frozen = False         # independent freeze for right preview
 _right_mouse_pos = None
+_left_display_size = (0, 0)   # (w, h) of the displayed left preview image in pixels
 
 
 def _build_preview_layout() -> list:
@@ -215,11 +218,6 @@ def _build_preview_layout() -> list:
                         [sg.Image(key="-LEFT-PREVIEW-", background_color="gray")]
                     ], key="-LEFT-PREVIEW-FRAME-", expand_x=True, expand_y=True),
                 ],
-                [
-                    sg.Checkbox("Show Input", key="-SHOW-INPUT-", default=False, enable_events=True),
-                    sg.Push(),
-                    sg.Button("Save Image", key="-SAVE-IMAGE-"),
-                ],
             ], expand_x=True, expand_y=True),
             sg.Column([
                 [
@@ -227,7 +225,13 @@ def _build_preview_layout() -> list:
                         [sg.Image(key="-RIGHT-PREVIEW-", background_color="gray")]
                     ], key="-RIGHT-PREVIEW-FRAME-", expand_x=True, expand_y=True),
                 ],
-            ], expand_y=True),
+            ], expand_x=True, expand_y=True),
+            sg.Column([
+                [sg.Checkbox("Show Left Input", key="-SHOW-INPUT-", default=False, enable_events=True)],
+                [sg.Button("Save Left Image", key="-SAVE-LEFT-IMAGE-")],
+                [sg.Checkbox("Show Right Input", key="-SHOW-RIGHT-INPUT-", default=False, enable_events=True)],
+                [sg.Button("Save Right Image", key="-SAVE-RIGHT-IMAGE-")],
+            ], vertical_alignment="top", pad=(8, 0)),
         ],
         [sg.Input("", key="-STATUS-", text_color="gray", size=(80, 1), readonly=True,
                   border_width=0,
@@ -289,33 +293,45 @@ def _update_status(window: sg.Window, text: str, color: str = "gray"):
 
 def _update_left_preview(window: sg.Window, planar: np.ndarray, fmt: int, tag: str = ""):
     """Update the left preview area with new image data."""
-    global _current_display_data, _scale_factor
+    global _current_display_data, _scale_factor, _left_display_size
     _current_display_data = (planar, fmt)
     img = _planar_to_rgb_pil(planar, fmt)
     w, h = img.size
-    orig_h = planar.shape[1]
+    orig_h, orig_w = planar.shape[1], planar.shape[2]
     _scale_factor = h / orig_h if orig_h > 0 else 1.0
+    _left_display_size = (w, h)
     window["-LEFT-PREVIEW-"].update(data=_pil_to_bytes(img))
-    window["-DISPLAY-SIZE-"].update(value=f"{w}x{h} (scale: {_scale_factor:.2f})")
+    window["-DISPLAY-SIZE-"].update(value=f"{w}x{h} (scale={_scale_factor:.2f})")
 
 
 def _update_right_preview(window: sg.Window, tag: str, snapshot: tuple, params: dict):
     """Update the right preview with module-specific image.
 
     The right preview image is height-matched to the left preview for
-    consistent visual comparison.
+    consistent visual comparison. Display resolution is used for matching,
+    so the displayed heights are always the same regardless of original
+    resolutions.
     """
-    global _right_display_data, _right_scale_factor
+    global _right_display_data, _right_scale_factor, _right_input_data
     mod = REGISTERED_MODULES.get(tag)
     if mod is None:
         window["-RIGHT-PREVIEW-"].update(data=b"")
         _right_display_data = None
+        _right_input_data = None
         return
     getter = mod.get("get_right_preview_image")
     if getter is None:
         window["-RIGHT-PREVIEW-"].update(data=b"")
         _right_display_data = None
+        _right_input_data = None
         return
+
+    # Store the input snapshot before right-side processing
+    if snapshot is not None and isinstance(snapshot, tuple) and len(snapshot) >= 2:
+        _right_input_data = (snapshot[0], snapshot[1])
+    else:
+        _right_input_data = None
+
     result = getter(snapshot, params)
     if result is not None:
         if isinstance(result, Image.Image):
@@ -332,19 +348,19 @@ def _update_right_preview(window: sg.Window, tag: str, snapshot: tuple, params: 
             _right_display_data = None
             return
 
-        # Scale right preview to match left preview height
-        left_img_h = _get_left_preview_height(window)
-        if left_img_h is not None and left_img_h > 0:
-            h_ratio = left_img_h / img.size[1]
+        # Scale right preview to match left preview display height
+        left_disp_h = _left_display_size[1]
+        if left_disp_h > 0 and img.size[1] > 0:
+            h_ratio = left_disp_h / img.size[1]
             new_w = int(img.size[0] * h_ratio)
-            img = img.resize((new_w, left_img_h), Image.LANCZOS if hasattr(Image, "LANCZOS") else Image.Resampling.LANCZOS)
+            img = img.resize((new_w, left_disp_h), Image.LANCZOS if hasattr(Image, "LANCZOS") else Image.Resampling.LANCZOS)
             _right_scale_factor = h_ratio
         else:
             _right_scale_factor = 1.0
 
         # Store full planar data for right-preview pixel lookup if not already stored
-        if _right_display_data is None and snapshot is not None and isinstance(snapshot, tuple) and len(snapshot) >= 2:
-            _right_display_data = (snapshot[0], snapshot[1])
+        if _right_display_data is None:
+            _right_display_data = (snapshot[0], snapshot[1]) if snapshot is not None and len(snapshot) >= 2 else None
 
         window["-RIGHT-PREVIEW-"].update(data=_pil_to_bytes(img))
     else:
@@ -432,6 +448,30 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
     if not input_file or not os.path.isfile(input_file):
         _update_status(window, "No input file selected", color="orange")
         return False
+
+    # Handle image files (PNG/JPG/JPEG/BMP) via PIL, treat as RGB888
+    ext = os.path.splitext(input_file)[1].lower()
+    if ext in IMAGE_EXTENSIONS:
+        try:
+            from PIL import Image as PILImage
+            im = PILImage.open(input_file).convert("RGB")
+            w, h = im.size
+            arr = np.asarray(im)
+            # Convert interleaved RGB (H, W, 3) to planar (3, H, W)
+            data = np.stack([arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]], axis=0).astype(np.uint8)
+            im.close()
+            # Update width/height on UI to match actual image dimensions
+            window["-WIDTH-"].update(value=str(w))
+            window["-HEIGHT-"].update(value=str(h))
+            values["-WIDTH-"] = str(w)
+            values["-HEIGHT-"] = str(h)
+            _INPUT_IMAGE = (data, 0x0, in_clrspc)
+            _SNAPSHOTS.clear()
+            _update_status(window, f"Loaded image: {os.path.basename(input_file)} ({w}x{h})", color="green")
+            return True
+        except Exception as e:
+            _update_status(window, f"Image read error: {e}", color="red")
+            return False
 
     expected_size = 0
     try:
@@ -667,10 +707,10 @@ def _handle_right_mouse_motion(window: sg.Window, values: dict, event: str):
     display_str = ""
     if _right_display_data is not None:
         rhs, rws = _right_display_data[0].shape[1], _right_display_data[0].shape[2]
-        display_str = f"{rws}x{rhs} (R-scale: {_right_scale_factor:.2f})"
+        display_str = f"{rws}x{rhs} (scale={_right_scale_factor:.2f})"
     if not display_str and _current_display_data is not None:
-        lhs, lws = _current_display_data[0].shape[1], _current_display_data[0].shape[2]
-        display_str = f"{lws}x{lhs} (scale: {_scale_factor:.2f})"
+        lh, lw = _current_display_data[0].shape[1], _current_display_data[0].shape[2]
+        display_str = f"{lw}x{lh} (scale={_scale_factor:.2f})"
 
     freeze_status = "[Frozen]" if _right_frozen else "[Space to freeze]"
     window["-POSITION-INFO-"].update(f"({orig_x:4d},{orig_y:4d}) R {freeze_status}")
@@ -708,9 +748,9 @@ def _refresh_right_preview_only(window: sg.Window, values: dict):
     _update_right_preview(window, last_tag, snap, params)
 
 
-def _save_current_image(values: dict, window: sg.Window):
-    """Save the currently displayed left preview image to file."""
-    if _current_display_data is None:
+def _save_image(values: dict, window: sg.Window, display_data):
+    """Save the given display data (planar, fmt) to file."""
+    if display_data is None:
         _update_status(window, "No image to save", color="orange")
         return
 
@@ -721,7 +761,7 @@ def _save_current_image(values: dict, window: sg.Window):
     if not file_path:
         return
 
-    planar, fmt = _current_display_data
+    planar, fmt = display_data
     ext = os.path.splitext(file_path)[1].lower()
 
     try:
@@ -729,7 +769,9 @@ def _save_current_image(values: dict, window: sg.Window):
             img = _planar_to_rgb_pil(planar, fmt, max_size=99999)
             img.save(file_path)
         elif ext in (".yuv", ".rgb"):
-            write_planar_to_raw(planar, file_path)
+            width = int(values.get("-WIDTH-", "1920"))
+            height = int(values.get("-HEIGHT-", "1080"))
+            write_planar_to_raw(planar, file_path, width, height, fmt)
         else:
             _update_status(window, f"Unsupported format: {ext}", color="orange")
             return
@@ -738,14 +780,31 @@ def _save_current_image(values: dict, window: sg.Window):
         _update_status(window, f"Save error: {e}", color="red")
 
 
+def _update_right_preview_with_snapshot(window: sg.Window, planar: np.ndarray, fmt: int):
+    """Update right preview directly with the given planar data (for Show Right Input)."""
+    global _right_display_data, _right_scale_factor
+    _right_display_data = (planar, fmt)
+    img = _planar_to_rgb_pil(planar, fmt, max_size=99999)
+    # Match left preview display height
+    left_disp_h = _left_display_size[1]
+    if left_disp_h > 0 and img.size[1] > 0:
+        h_ratio = left_disp_h / img.size[1]
+        new_w = int(img.size[0] * h_ratio)
+        img = img.resize((new_w, left_disp_h), Image.LANCZOS if hasattr(Image, "LANCZOS") else Image.Resampling.LANCZOS)
+        _right_scale_factor = h_ratio
+    else:
+        _right_scale_factor = 1.0
+    window["-RIGHT-PREVIEW-"].update(data=_pil_to_bytes(img))
+
+
 # ------------------------------------------------------------------ #
 # Main                                                               #
 # ------------------------------------------------------------------ #
 
 def main():
     """Main entry point for PQ Verify Tool."""
-    global _pixel_info_frozen, _mouse_pos, _scale_factor, _current_display_data, _right_scale_factor, _right_display_data, _right_frozen
-    global _INPUT_IMAGE, pipeline_order, pipeline_enabled, _SNAPSHOTS
+    global _pixel_info_frozen, _mouse_pos, _scale_factor, _current_display_data, _right_scale_factor, _right_display_data, _right_input_data, _right_frozen
+    global _left_display_size, _INPUT_IMAGE, pipeline_order, pipeline_enabled, _SNAPSHOTS
 
     _register_modules()
 
@@ -879,7 +938,7 @@ def main():
                 window["-POSITION-INFO-"].update(pos.replace("[Frozen]", status))
             continue
 
-        # Show Input checkbox
+        # Show Left Input checkbox
         if event == "-SHOW-INPUT-":
             if values["-SHOW-INPUT-"] and _INPUT_IMAGE is not None:
                 _update_left_preview(window, _INPUT_IMAGE[0], _INPUT_IMAGE[1], "input")
@@ -893,9 +952,23 @@ def main():
                         _update_left_preview(window, snap[0], snap[1], last)
             continue
 
-        # Save Image
-        if event == "-SAVE-IMAGE-":
-            _save_current_image(values, window)
+        # Show Right Input checkbox
+        if event == "-SHOW-RIGHT-INPUT-":
+            if values["-SHOW-RIGHT-INPUT-"] and _right_input_data is not None:
+                _update_right_preview_with_snapshot(window, _right_input_data[0], _right_input_data[1])
+            else:
+                # Refresh right preview from pipeline
+                _refresh_right_preview_only(window, values)
+            continue
+
+        # Save Left Image
+        if event == "-SAVE-LEFT-IMAGE-":
+            _save_image(values, window, _current_display_data)
+            continue
+
+        # Save Right Image
+        if event == "-SAVE-RIGHT-IMAGE-":
+            _save_image(values, window, _right_display_data)
             continue
 
         # IO events
