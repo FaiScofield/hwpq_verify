@@ -10,7 +10,7 @@
  *  - 2025-09-10 vance.wu: print crc32 value for input/output data.
  */
 
-#include "verify_com.h"
+#include "verify_img_io.h"
 #include "verify_cmd_parser.h"
 #include "verify_crc32.h"
 #include "rockchip_post_csc.h"
@@ -947,7 +947,7 @@ int main(int argc, char *const argv[])
         }
 
         if (pixel_depth == 10) {
-            crc_val = get_crc_for_planar_frame_10bit(p_src, config.src_wid, config.src_hgt, bIsInputYuv);
+            crc_val = calc_crc32_rtl_10bit_planar(p_src, config.src_wid, config.src_hgt, config.src_wid_vir, bIsInputYuv);
             LOGI("src CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsInputYuv ? "VYU" : "RGB", k, crc_val);
         }
 
@@ -967,7 +967,7 @@ int main(int argc, char *const argv[])
 
         // get CRC
         if (pixel_depth == 10) {
-            crc_val = get_crc_for_planar_frame_10bit(p_dst, config.src_wid, config.src_hgt, bIsOutputYuv);
+            crc_val = calc_crc32_rtl_10bit_planar(p_dst, config.dst_wid, config.dst_hgt, config.dst_wid_vir, bIsOutputYuv);
             LOGI("dst CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
             if (fp_crc) {
                 if (mode_idx >= 0 && mode_idx < CSC_MODE_MAX) {

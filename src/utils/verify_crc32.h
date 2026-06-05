@@ -9,16 +9,21 @@
 #ifndef _VERIFY_CRC32_H_
 #define _VERIFY_CRC32_H_
 
+#include <stdbool.h>
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef void *crc_handle;
-int common_verify_crc_create(crc_handle *handle);                             // create crc handle
-int common_verify_crc_release(crc_handle handle);                             // release crc handle
-int common_verify_crc_calc(crc_handle handle, unsigned char *data, int size); // calc crc value of data (one pixel)
-unsigned int common_verify_get_crc_val(crc_handle handle);                    // get crc value
-unsigned int get_crc_for_planar_frame_10bit(void *p_buf, int img_w, int img_h, int is_vyu_order); // calc crc value for a 10bit plannar frame
+/* Standard CRC-32 (zip/gzip style) */
+unsigned int calc_crc32(const void *data, size_t len);
+
+/* RTL-compatible CRC-32 (byte-reversed, bitrev per byte) */
+unsigned int calc_crc32_rtl(const void *data, size_t len);
+
+// calc crc value for a 10bit rgb/yuv plannar frame
+unsigned int calc_crc32_rtl_10bit_planar(const void *data, int width, int height, int pitch, bool is_vyu_order);
 
 #ifdef __cplusplus
 }

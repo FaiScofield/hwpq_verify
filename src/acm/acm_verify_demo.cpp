@@ -6,7 +6,7 @@
  * @history:
  */
 
-#include "verify_com.h"
+#include "verify_img_io.h"
 #include "verify_cmd_parser.h"
 #include "verify_crc32.h"
 #include "cJSON.h"
@@ -29,8 +29,8 @@ int main(int argc, char *const argv[])
     }
     common_verify_arg_dump_config(&config);
 
-    const int bIsInputYuv = common_verify_imgfmt_is_yuv(config.src_fmt);
-    const int bIsOutputYuv = common_verify_imgfmt_is_yuv(config.dst_fmt);
+    const bool bIsInputYuv = common_verify_imgfmt_is_yuv(config.src_fmt);
+    const bool bIsOutputYuv = common_verify_imgfmt_is_yuv(config.dst_fmt);
 
     // check nessary parameters
     if (config.config_file[0] == '\0') {
@@ -97,7 +97,7 @@ int main(int argc, char *const argv[])
             break;
         }
 
-        crc_val = get_crc_for_planar_frame_10bit(p_src, config.src_wid, config.src_hgt, bIsInputYuv);
+        crc_val = calc_crc32_rtl_10bit_planar(p_src, config.src_wid, config.src_hgt, config.src_wid_vir, bIsInputYuv);
         LOGI("src CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsInputYuv ? "VYU" : "RGB", k, crc_val);
 
         void *p_src_y = p_src;
@@ -163,7 +163,7 @@ int main(int argc, char *const argv[])
         fwrite(p_src, 2, config.src_wid * config.src_hgt * 3, fp_dst); // write src after dst
 
         // get CRC
-        crc_val = get_crc_for_planar_frame_10bit(p_dst, config.src_wid, config.src_hgt, bIsOutputYuv);
+        crc_val = calc_crc32_rtl_10bit_planar(p_dst, config.dst_wid, config.dst_hgt, config.dst_wid_vir, bIsOutputYuv);
         LOGI("dst CRC (%s MSB order) of frame #%04d: 0x%08X\n", bIsOutputYuv ? "VYU" : "RGB", k, crc_val);
         if (fp_crc) {
             fprintf(fp_crc, "input: %s, cmd_config: %s, crc (%s MSB order) of frame #%04d: 0x%08X\n",

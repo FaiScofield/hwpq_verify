@@ -7,26 +7,33 @@
  */
 
 #include "verify_crc32.h"
+
 #include <stdlib.h>
 #include <string.h>
 
-struct crc32_ctx
-{
-    unsigned int poly;
-    unsigned int init;
-    unsigned int lut[256];
-};
+#define CRC32_TABLE_SIZE         256
 
+/* Standard CRC-32 (zip/gzip style) */
+#define CRC32_INIT               0xFFFFFFFF
+#define CRC32_POLY_REFLECTED     0x04C11DB7
+
+/* RTL-compatible CRC-32 (byte-reversed, bitrev per byte) */
+#define CRC32_RTL_INIT           0xFFFFFFFF
+#define CRC32_RTL_POLY_REFLECTED 0xEDB88320
+
+typedef unsigned char uint8_t;
+typedef unsigned short uint16_t;
+typedef unsigned int uint32_t;
 
 /**
  * @note: the data in RTL is like: [31,24],[23,16],[15,8],[7,0]
  *  but in cmodel is like: [7:0],[15,8],[16,23],[31,24]
  *  so you need to swap data byte by bittrev()
  */
-static inline unsigned int bittrev(unsigned int data, int bit_len)
+static inline uint32_t bittrev(uint32_t data, int bit_len)
 {
     int i;
-    unsigned int poly = 0;
+    uint32_t poly = 0;
     for (i = 0; i < bit_len; i++) {
         if (data & 0x01)
             poly |= 1 << (bit_len - 1 - i);
@@ -36,89 +43,82 @@ static inline unsigned int bittrev(unsigned int data, int bit_len)
 }
 
 /**
- * @brief: generate crc32 lookup table to accelerate crc calculation
+ * @brief: calc CRC32 in RTL-compatible mode (byte-reversed order, bitrev per byte)
+ *   The algorithm matches hardware (RTL) behavior: process data from end to
+ *   start, apply bittrev to each byte, and bittrev the final result.
  */
-static void gen_crc32_lut(crc_handle handle)
+uint32_t calc_crc32_rtl(const void *data, size_t len)
 {
-    struct crc32_ctx *ctx = (struct crc32_ctx *)handle;
-    unsigned int crc;
-    unsigned int poly;
-    int i, j;
-    poly = bittrev(ctx->poly, 32);
-    for (i = 0; i < 256; i++) {
-        crc = i;
-        for (j = 0; j < 8; j++) {
-            if (crc & 1) {
-                crc = (crc >> 1) ^ poly;
-            }
-            else {
-                crc >>= 1;
-            }
-        }
-        ctx->lut[i] = crc;
-    }
-}
-
-int common_verify_crc_create(crc_handle *handle)
-{
-    struct crc32_ctx *ctx = (struct crc32_ctx *)malloc(sizeof(struct crc32_ctx));
-    if (ctx) {
-        memset(ctx->lut, 0, sizeof(ctx->lut));
-        ctx->poly = 0x04c11db7;
-        ctx->init = 0xffffffff;
-        *handle = (crc_handle)ctx;
-        gen_crc32_lut(*handle);
-        return 0;
-    }
-    return -1;
-}
-
-int common_verify_crc_release(crc_handle handle)
-{
-    struct crc32_ctx *ctx = (struct crc32_ctx *)handle;
-    if (ctx) {
-        free(ctx);
-    }
-    return 0;
-}
-
-int common_verify_crc_calc(crc_handle handle, unsigned char *data, int size)
-{
-    struct crc32_ctx *ctx = (struct crc32_ctx *)handle;
-    unsigned int CRC32 = ctx->init;
+    static uint32_t table[CRC32_TABLE_SIZE];
+    static int inited = 0;
+    const unsigned char *p = (const unsigned char *)data;
+    uint32_t crc = CRC32_RTL_INIT;
     int i;
-    unsigned char *pData;
-    pData = (unsigned char *)data + size - 1;
-    for (i = 0; i < size; i++) {
-        CRC32 = ctx->lut[(CRC32 ^ (bittrev(*pData--, 8))) & 0xff] ^ (CRC32 >> 8);
+
+    if (!inited) {
+        for (i = 0; i < CRC32_TABLE_SIZE; i++) {
+            uint32_t c = i;
+            for (int j = 0; j < 8; j++)
+                c = (c >> 1) ^ (c & 1 ? CRC32_RTL_POLY_REFLECTED : 0);
+            table[i] = c;
+        }
+        inited = 1;
     }
-    ctx->init = CRC32;
-    return 0;
+
+    p = p + len - 1;
+    for (i = 0; i < (int)len; i++)
+        crc = table[(crc ^ bittrev(*p--, 8)) & 0xFF] ^ (crc >> 8);
+
+    return bittrev(crc, 32);
 }
 
-unsigned int common_verify_get_crc_val(crc_handle handle)
+uint32_t calc_crc32_rtl_10bit_planar(const void *data, int width, int height, int pitch, bool is_vyu_order)
 {
-    struct crc32_ctx *ctx = (struct crc32_ctx *)handle;
-    return bittrev(ctx->init, 32);
-}
+    const int pixel_count = width * height;
+    uint32_t *u32_data = (uint32_t *)malloc(pixel_count * sizeof(uint32_t));
+    if (!u32_data)
+        return 0;
 
-unsigned int get_crc_for_planar_frame_10bit(void *p_buf, int img_w, int img_h, int is_vyu_order)
-{
-    crc_handle crc_ctx;
-    common_verify_crc_create(&crc_ctx);
-    for (int i = 0; i < img_h; i++) {
-        for (int j = 0; j < img_w; j++) {
-            int y_val = *((unsigned short *)p_buf + 0 * img_w * img_h + i * img_w + j);
-            int u_val = *((unsigned short *)p_buf + 1 * img_w * img_h + i * img_w + j);
-            int v_val = *((unsigned short *)p_buf + 2 * img_w * img_h + i * img_w + j);
-            unsigned int crc_tmp = (y_val << 20) + (u_val << 10) + v_val;
-            if (is_vyu_order) {
-                crc_tmp = (v_val << 20) + (y_val << 10) + u_val; // VYU, same to fpga YCbCr444
-            }
-            common_verify_crc_calc(crc_ctx, (unsigned char *)&crc_tmp, sizeof(crc_tmp));
+    int idx = 0;
+    for (int i = 0; i < height; i++) {
+        const uint16_t *row_yr = (const uint16_t *)((uint8_t *)data + 0 * pitch * height + i * pitch);
+        const uint16_t *row_ug = (const uint16_t *)((uint8_t *)data + 1 * pitch * height + i * pitch);
+        const uint16_t *row_vb = (const uint16_t *)((uint8_t *)data + 2 * pitch * height + i * pitch);
+        for (int j = 0; j < width; j++) {
+            const uint32_t yr = row_yr[j];
+            const uint32_t ug = row_ug[j];
+            const uint32_t vb = row_vb[j];
+            // VYU, same to fpga YCbCr444
+            const uint32_t u32_pix = is_vyu_order ? ((vb << 20) + (yr << 10) + ug) : ((yr << 20) + (ug << 10) + vb);
+            u32_data[idx++] = u32_pix;
         }
     }
-    unsigned int crc_result = common_verify_get_crc_val(crc_ctx);
-    common_verify_crc_release(crc_ctx);
+
+    uint32_t crc_result = calc_crc32_rtl(u32_data, pixel_count * sizeof(uint32_t));
+    free(u32_data);
     return crc_result;
+}
+
+uint32_t calc_crc32(const void *data, size_t len)
+{
+    const unsigned char *p = (const unsigned char *)data;
+    uint32_t crc = CRC32_INIT;
+    static uint32_t table[CRC32_TABLE_SIZE];
+    static int inited = 0;
+    int i;
+
+    if (!inited) {
+        for (i = 0; i < CRC32_TABLE_SIZE; i++) {
+            uint32_t c = i;
+            for (int j = 0; j < 8; j++)
+                c = (c >> 1) ^ (c & 1 ? CRC32_POLY_REFLECTED : 0);
+            table[i] = c;
+        }
+        inited = 1;
+    }
+
+    for (i = 0; i < (int)len; i++)
+        crc = table[(crc ^ p[i]) & 0xFF] ^ (crc >> 8);
+
+    return crc ^ CRC32_INIT;
 }
