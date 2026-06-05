@@ -11,7 +11,7 @@ import os
 import subprocess
 from typing import Optional
 
-from dci_models import DciRunnerResult
+from dci.dci_models import DciRunnerResult
 
 
 def run_dci_request(

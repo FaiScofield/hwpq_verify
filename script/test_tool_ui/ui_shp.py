@@ -65,6 +65,15 @@ def _build_numeric_control_row(
 def build_controls() -> list:
     """Build the SHP Config tab layout."""
     return [
+        [
+            sg.Text("SHP EXE", size=(10, 1)),
+            sg.Input(key="-SHP-EXE-", size=(52, 1)),
+            sg.FileBrowse(
+                file_types=(("Executable", "*.exe"),),
+                size=(8, 1),
+            ),
+        ],
+        [sg.HorizontalSeparator()],
         [sg.Checkbox("Enable SHP", default=True, key="-SHP-ENABLE-")],
         _build_numeric_control_row(
             "Peaking Gain", "-SHP-PEAKING-GAIN-", "-SHP-PEAKING-GAIN-SLIDER-",

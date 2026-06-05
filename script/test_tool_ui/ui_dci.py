@@ -74,6 +74,15 @@ def build_controls() -> list:
     """Build the DCI Config tab layout."""
     return [
         [
+            sg.Text("DCI EXE", size=(10, 1)),
+            sg.Input(key="-DCI-EXE-", size=(52, 1)),
+            sg.FileBrowse(
+                file_types=(("Executable", "*.exe"),),
+                size=(8, 1),
+            ),
+        ],
+        [sg.HorizontalSeparator()],
+        [
             sg.Checkbox("Enable Audit", default=False, key="-AUDIT-ENABLE-"),
             sg.Text("Tag", size=(4, 1)),
             sg.Input("ui_live", size=(20, 1), key="-TAG-"),

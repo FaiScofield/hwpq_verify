@@ -13,7 +13,7 @@ import re
 import sys
 
 # Ensure the parent script/ package is importable
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import PySimpleGUI as sg
@@ -179,7 +179,7 @@ def _build_preview_layout() -> list:
                     disabled_readonly_background_color=sg.theme_background_color(),
                     disabled_readonly_text_color=sg.theme_text_color(),
                 ),
-                sg.Text("Position:", size=(10, 1)),
+                sg.Text("Position:", size=(12, 1)),
                 sg.Input(
                     "", key="-POSITION-INFO-", size=(48, 1),
                     readonly=True, border_width=0,
@@ -225,7 +225,10 @@ def _build_preview_layout() -> list:
                 ],
             ], expand_y=True),
         ],
-        [sg.Text("", key="-STATUS-", text_color="gray", size=(80, 1))],
+        [sg.Input("", key="-STATUS-", text_color="gray", size=(80, 1), readonly=True,
+                  border_width=0,
+                  disabled_readonly_background_color=sg.theme_background_color(),
+                  disabled_readonly_text_color=sg.theme_text_color())],
     ]
 
 
@@ -269,6 +272,15 @@ def _pil_to_bytes(img: Image.Image) -> bytes:
     bio = io.BytesIO()
     img.save(bio, format="PNG")
     return bio.getvalue()
+
+
+def _update_status(window: sg.Window, text: str, color: str = "gray"):
+    """Update the status bar with text and color."""
+    window["-STATUS-"].update(value=text)
+    try:
+        window["-STATUS-"].Widget.configure(foreground=color)
+    except Exception:
+        pass
 
 
 def _update_left_preview(window: sg.Window, planar: np.ndarray, fmt: int, tag: str = ""):
@@ -320,19 +332,53 @@ def _invalidate_from(tag: str):
             _SNAPSHOTS.pop(t, None)
 
 
+def _parse_color_input(text: str):
+    """Parse color input text into a list of 3 integers. Returns None on failure."""
+    if not text or not text.strip():
+        return None
+    text = text.strip().replace(',', ' ')
+    parts = text.split()
+    nums = []
+    for p in parts:
+        try:
+            nums.append(int(float(p)))
+        except ValueError:
+            continue
+    if len(nums) < 3:
+        return None
+    return nums[:3]
+
+
 def _load_input_image(values: dict, window: sg.Window) -> bool:
-    """Load input file into _INPUT_IMAGE cache. Returns True on success."""
+    """Load input file or generate set-color image into _INPUT_IMAGE cache. Returns True on success."""
     global _INPUT_IMAGE
     io_params = read_io_params(values)
-    input_file = io_params["input_file"]
-    if not input_file or not os.path.isfile(input_file):
-        window["-STATUS-"].update("No input file selected", text_color="orange")
-        return False
 
     w = io_params["width"]
     h = io_params["height"]
     in_fmt = io_params["in_fmt"]
     in_clrspc = io_params["in_clrspc"]
+
+    use_set_color = values.get("-USE-SET-COLOR-", False)
+    if use_set_color:
+        color_vals = _parse_color_input(values.get("-SET-COLOR-INPUT-", ""))
+        if color_vals is None:
+            _update_status(window, "Invalid set-color input", color="orange")
+            return False
+        depth = get_pixel_depth(in_fmt)
+        max_val = (1 << depth) - 1
+        data = np.zeros((3, h, w), dtype=np.uint16 if depth > 8 else np.uint8)
+        for i in range(3):
+            data[i, :, :] = int(np.clip(color_vals[i], 0, max_val))
+        _INPUT_IMAGE = (data, in_fmt, in_clrspc)
+        _SNAPSHOTS.clear()
+        _update_status(window, f"Set color ({' '.join(str(v) for v in color_vals)}) applied", color="green")
+        return True
+
+    input_file = io_params["input_file"]
+    if not input_file or not os.path.isfile(input_file):
+        _update_status(window, "No input file selected", color="orange")
+        return False
 
     expected_size = 0
     try:
@@ -343,16 +389,17 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
 
     actual_size = os.path.getsize(input_file)
     if expected_size > 0 and actual_size < expected_size:
-        window["-STATUS-"].update("File too small for frame size", text_color="orange")
+        _update_status(window, "File too small for frame size", color="orange")
 
     try:
         data = read_raw_to_planar(input_file, w, h, in_fmt)
     except Exception as e:
-        window["-STATUS-"].update(f"Read error: {e}", text_color="red")
+        _update_status(window, f"Read error: {e}", color="red")
         return False
 
     _INPUT_IMAGE = (data, in_fmt, in_clrspc)
     _SNAPSHOTS.clear()
+    _update_status(window, f"Loaded: {os.path.basename(input_file)}", color="green")
     return True
 
 
@@ -401,7 +448,7 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
             upstream = _INPUT_IMAGE
 
     if upstream is None:
-        window["-STATUS-"].update("No input data", text_color="orange")
+        _update_status(window, "No input data", color="orange")
         return
 
     current_data, current_fmt, current_clrspc = upstream
@@ -433,7 +480,7 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
                 current_fmt = out_fmt
                 current_clrspc = out_clrspc
             else:
-                window["-STATUS-"].update(f"CSC error: {result}", text_color="red")
+                _update_status(window, f"CSC error: {result}", color="red")
                 return
         else:
             # DCI/SHP need io_params
@@ -456,14 +503,14 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
                 current_fmt = res_fmt
                 current_clrspc = res_clrspc
             else:
-                window["-STATUS-"].update(f"{tag.upper()} error: {result}", text_color="red")
+                _update_status(window, f"{tag.upper()} error: {result}", color="red")
                 return
 
         _SNAPSHOTS[tag] = (current_data.copy(), current_fmt, current_clrspc)
 
     # Display final output
     final_tag = effective[-1] if effective else ""
-    window["-STATUS-"].update(f"Pipeline OK ({' → '.join(effective)})", text_color="green")
+    _update_status(window, f"Pipeline OK ({' → '.join(effective)})", color="green")
     _update_left_preview(window, current_data, current_fmt, final_tag)
     _update_right_preview(window, final_tag, (current_data, current_fmt, current_clrspc),
                            REGISTERED_MODULES.get(final_tag, {}).get("read_params", lambda v: {})(values))
@@ -503,13 +550,15 @@ def _handle_mouse_motion(window: sg.Window, values: dict, event: str):
     # Get output pixel
     output_str = "(----, ----, ----)"
     if _current_display_data is not None:
-        out_planar, out_fmt = _current_display_data
+        out_planar, _ = _current_display_data
         out_h, out_w = out_planar.shape[1], out_planar.shape[2]
         if 0 <= orig_x < out_w and 0 <= orig_y < out_h:
             p0 = out_planar[0, orig_y, orig_x]
             p1 = out_planar[1, orig_y, orig_x]
             p2 = out_planar[2, orig_y, orig_x]
-            fmt_label = "yuv" if is_yuv_format(out_fmt) else "rgb"
+            # Use I/O output format for the label, not the displayed data format
+            io_out_fmt = get_fmt_from_display(values.get("-OUT-FMT-", DEFAULT_FMT_DISPLAY))
+            fmt_label = "yuv" if is_yuv_format(io_out_fmt) else "rgb"
             output_str = f"{fmt_label}: ({p0:4d}, {p1:4d}, {p2:4d})"
 
     freeze_status = "[Frozen]" if _pixel_info_frozen else "[Space to freeze]"
@@ -528,7 +577,7 @@ def _clear_pixel_info(window: sg.Window):
 def _save_current_image(values: dict, window: sg.Window):
     """Save the currently displayed left preview image to file."""
     if _current_display_data is None:
-        window["-STATUS-"].update("No image to save", text_color="orange")
+        _update_status(window, "No image to save", color="orange")
         return
 
     file_path = sg.popup_get_file(
@@ -548,11 +597,11 @@ def _save_current_image(values: dict, window: sg.Window):
         elif ext in (".yuv", ".rgb"):
             write_planar_to_raw(planar, file_path)
         else:
-            window["-STATUS-"].update(f"Unsupported format: {ext}", text_color="orange")
+            _update_status(window, f"Unsupported format: {ext}", color="orange")
             return
-        window["-STATUS-"].update(f"Saved: {file_path}", text_color="green")
+        _update_status(window, f"Saved: {file_path}", color="green")
     except Exception as e:
-        window["-STATUS-"].update(f"Save error: {e}", text_color="red")
+        _update_status(window, f"Save error: {e}", color="red")
 
 
 # ------------------------------------------------------------------ #
@@ -584,7 +633,7 @@ def main():
     ]
 
     window = sg.Window(
-        "PQ Test Tool",
+        "PQ Test Tool v0.1",
         layout,
         resizable=True,
         finalize=True,
@@ -597,11 +646,18 @@ def main():
     window["-LEFT-PREVIEW-"].bind("<Enter>", "+ENTER")
     window["-LEFT-PREVIEW-"].bind("<Leave>", "+LEAVE")
 
+    # Bind keyboard events on left preview for pixel freeze
+    window["-LEFT-PREVIEW-"].Widget.bind("<space>", lambda e: window.write_event_value("-LEFT-PREVIEW-SPACE-", None))
+    window["-LEFT-PREVIEW-"].Widget.focus_set()
+
     # Bind slider keyboard for DCI/SHP
     _bind_sliders(window)
 
     # Initial colorspace sync
     _init_clrspc_sync(window)
+
+    # Initial BCSH norm labels
+    _init_bcsh_norm(window)
 
     # Event loop
     while True:
@@ -653,7 +709,7 @@ def main():
             continue
 
         # Space to freeze/unfreeze pixel info
-        if event == " ":
+        if event in (" ", "-LEFT-PREVIEW-SPACE-"):
             _pixel_info_frozen = not _pixel_info_frozen
             status = "[Frozen]" if _pixel_info_frozen else "[Unfrozen]"
             pos = window["-POSITION-INFO-"].get()
@@ -684,7 +740,7 @@ def main():
 
         # IO events
         if handle_io_event(event, values, window):
-            if event != "-USE-SET-COLOR-":
+            if not event.startswith("-OPEN-DIR-"):
                 _run_pipeline(values, window)
             continue
 
@@ -712,6 +768,28 @@ def _init_clrspc_sync(window: sg.Window):
     from test_tool_ui.ui_io import DEFAULT_FMT_DISPLAY
     update_clrspc_for_fmt(window, {}, "-IN-CLR-", DEFAULT_FMT_DISPLAY)
     update_clrspc_for_fmt(window, {}, "-OUT-CLR-", DEFAULT_FMT_DISPLAY)
+
+
+def _init_bcsh_norm(window: sg.Window):
+    """Initialize BCSH norm labels to default values on startup."""
+    from csc.csc_ui import get_bcsh_norm_value
+    from csc.run_csc import get_default_bcsh_raw_values
+    from test_tool_ui.ui_csc import BCSH_NAMES, ALGO_RK_HW_CSC
+    algo_type = ALGO_RK_HW_CSC
+    defaults = get_default_bcsh_raw_values(algo_type)
+    key_name_map = {
+        "bright": "brightness", "contrast": "contrast",
+        "sat": "saturation", "hue": "hue",
+        "r_gain": "r_gain", "r_offset": "r_offset",
+        "g_gain": "g_gain", "g_offset": "g_offset",
+        "b_gain": "b_gain", "b_offset": "b_offset",
+    }
+    for _, k1, _, k2 in BCSH_NAMES:
+        for k in (k1, k2):
+            config_key = key_name_map.get(k, k)
+            default_val = defaults.get(config_key, 256)
+            norm = get_bcsh_norm_value(k, default_val, algo_type)
+            window[f"-BCSH-{k}-NORM-"].update(value=norm)
 
 
 def _bind_sliders(window: sg.Window):

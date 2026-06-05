@@ -152,18 +152,21 @@ def build_controls() -> list:
     layout = [
         [
             sg.Text("Input File", size=IO_LABEL_SIZE),
-            sg.Input(key="-INPUT-FILE-", size=(52, 1), enable_events=True),
+            sg.Input(key="-INPUT-FILE-", size=(46, 1), enable_events=True),
             sg.FileBrowse(size=IO_BROWSE_BUTTON_SIZE),
+            sg.Button("Reload", key="-RELOAD-", size=(8, 1)),
         ],
         [
             sg.Text("Output Dir", size=IO_LABEL_SIZE),
-            sg.Input("", key="-OUTPUT-DIR-", size=(52, 1)),
+            sg.Input("D:\\RkDefaultDumpData\\", key="-OUTPUT-DIR-", size=(46, 1)),
             sg.FolderBrowse(size=IO_BROWSE_BUTTON_SIZE),
+            sg.Button("Open Dir", key="-OPEN-DIR-OUTPUT-", size=(8, 1)),
         ],
         [
             sg.Text("Config File", size=IO_LABEL_SIZE),
-            sg.Input("", key="-CONFIG-PATH-", size=(52, 1)),
+            sg.Input("", key="-CONFIG-PATH-", size=(46, 1)),
             sg.FileBrowse(size=IO_BROWSE_BUTTON_SIZE),
+            sg.Button("Open Dir", key="-OPEN-DIR-CONFIG-", size=(8, 1)),
         ],
         [sg.HorizontalSeparator()],
         [
@@ -228,26 +231,10 @@ def build_controls() -> list:
                 key="-SET-COLOR-INPUT-",
                 size=(28, 1),
                 disabled=True,
+                enable_events=True,
                 disabled_readonly_background_color=sg.theme_background_color(),
             ),
             sg.Checkbox("dump", key="-DUMP-", default=False),
-        ],
-        [sg.HorizontalSeparator()],
-        [
-            sg.Text("DCI EXE", size=IO_LABEL_SIZE),
-            sg.Input(key="-DCI-EXE-", size=(52, 1)),
-            sg.FileBrowse(
-                file_types=(("Executable", "*.exe"),),
-                size=IO_BROWSE_BUTTON_SIZE,
-            ),
-        ],
-        [
-            sg.Text("SHP EXE", size=IO_LABEL_SIZE),
-            sg.Input(key="-SHP-EXE-", size=(52, 1)),
-            sg.FileBrowse(
-                file_types=(("Executable", "*.exe"),),
-                size=IO_BROWSE_BUTTON_SIZE,
-            ),
         ],
     ]
     return layout
@@ -283,12 +270,56 @@ def handle_io_event(event: str, values: dict, window: sg.Window) -> bool:
         window["-SET-COLOR-INPUT-"].update(disabled=not enabled)
         return True
 
+    if event == "-SET-COLOR-INPUT-":
+        # Enter pressed on color input — only apply when -USE-SET-COLOR- is active
+        if values.get("-USE-SET-COLOR-", False):
+            return True
+        return True
+
     if event == "-INPUT-FILE-":
         _guess_input_params(values, window)
         _recalc_frame_num(values, window)
         return True
 
+    if event == "-RELOAD-":
+        # Turn off USE-SET-COLOR and re-read input file
+        window["-USE-SET-COLOR-"].update(value=False)
+        window["-SET-COLOR-INPUT-"].update(disabled=True)
+        values["-USE-SET-COLOR-"] = False
+        return True
+
+    if event.startswith("-OPEN-DIR-"):
+        _open_containing_folder(values, event, window)
+        return True
+
     return False
+
+
+def _open_containing_folder(values: dict, event: str, window: sg.Window):
+    """Open the folder containing the file referenced by an Open Dir button."""
+    key_map = {
+        "-OPEN-DIR-OUTPUT-": "-OUTPUT-DIR-",
+        "-OPEN-DIR-CONFIG-": "-CONFIG-PATH-",
+    }
+    target_key = key_map.get(event)
+    if target_key is None:
+        return
+    path = values.get(target_key, "").strip()
+    if not path:
+        return
+    target = os.path.dirname(path) if os.path.isfile(path) else path
+    if os.path.isdir(target):
+        try:
+            os.startfile(target)
+        except Exception:
+            pass
+    elif os.path.isfile(path):
+        dirpath = os.path.dirname(path)
+        if os.path.isdir(dirpath):
+            try:
+                os.startfile(dirpath)
+            except Exception:
+                pass
 
 
 def _recalc_frame_num(values: dict, window: sg.Window):
