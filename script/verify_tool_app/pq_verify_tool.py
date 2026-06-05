@@ -1,10 +1,10 @@
 """
-PQ Test Tool - Unified module testing framework for ISP pipeline.
+PQ Verify Tool - Unified module verification framework for ISP pipeline.
 
 Supports multi-module pipeline serialization (CSC -> DCI -> SHP),
 real-time parameter adjustment, and live image preview.
 
-Entry point:  python pq_test_tool.py
+Entry point:  python pq_verify_tool.py
 """
 
 import io
@@ -28,7 +28,7 @@ from csc.run_csc import (
     FORMAT_NAMES,
 )
 
-from test_tool_ui.ui_io import (
+from verify_tool_app.ui_io import (
     TAB_LABEL as IO_TAB_LABEL,
     FMT_DISPLAY,
     DEFAULT_FMT_DISPLAY,
@@ -43,7 +43,7 @@ from test_tool_ui.ui_io import (
     IO_CLR_COMBO_SIZE,
 )
 
-from test_tool_ui.ui_csc import (
+from verify_tool_app.ui_csc import (
     TAB_LABEL as CSC_TAB_LABEL,
     build_controls as build_csc_controls,
     handle_csc_event,
@@ -52,7 +52,7 @@ from test_tool_ui.ui_csc import (
     get_right_preview_image as csc_right_preview,
 )
 
-from test_tool_ui.ui_dci import (
+from verify_tool_app.ui_dci import (
     TAB_LABEL as DCI_TAB_LABEL,
     build_controls as build_dci_controls,
     handle_dci_event,
@@ -61,7 +61,7 @@ from test_tool_ui.ui_dci import (
     get_right_preview_image as dci_right_preview,
 )
 
-from test_tool_ui.ui_shp import (
+from verify_tool_app.ui_shp import (
     TAB_LABEL as SHP_TAB_LABEL,
     build_controls as build_shp_controls,
     handle_shp_event,
@@ -609,7 +609,7 @@ def _save_current_image(values: dict, window: sg.Window):
 # ------------------------------------------------------------------ #
 
 def main():
-    """Main entry point for PQ Test Tool."""
+    """Main entry point for PQ Verify Tool."""
     global _pixel_info_frozen, _mouse_pos, _scale_factor, _current_display_data
     global _INPUT_IMAGE, pipeline_order, pipeline_enabled, _SNAPSHOTS
 
@@ -633,7 +633,7 @@ def main():
     ]
 
     window = sg.Window(
-        "PQ Test Tool v0.1",
+        "PQ Verify Tool v0.1",
         layout,
         resizable=True,
         finalize=True,
@@ -765,7 +765,7 @@ def main():
 
 def _init_clrspc_sync(window: sg.Window):
     """Sync initial colorspace combos to match default format on startup."""
-    from test_tool_ui.ui_io import DEFAULT_FMT_DISPLAY
+    from verify_tool_app.ui_io import DEFAULT_FMT_DISPLAY
     update_clrspc_for_fmt(window, {}, "-IN-CLR-", DEFAULT_FMT_DISPLAY)
     update_clrspc_for_fmt(window, {}, "-OUT-CLR-", DEFAULT_FMT_DISPLAY)
 
@@ -774,7 +774,7 @@ def _init_bcsh_norm(window: sg.Window):
     """Initialize BCSH norm labels to default values on startup."""
     from csc.csc_ui import get_bcsh_norm_value
     from csc.run_csc import get_default_bcsh_raw_values
-    from test_tool_ui.ui_csc import BCSH_NAMES, ALGO_RK_HW_CSC
+    from verify_tool_app.ui_csc import BCSH_NAMES, ALGO_RK_HW_CSC
     algo_type = ALGO_RK_HW_CSC
     defaults = get_default_bcsh_raw_values(algo_type)
     key_name_map = {
