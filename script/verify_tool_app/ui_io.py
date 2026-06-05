@@ -257,7 +257,6 @@ def handle_io_event(event: str, values: dict, window: sg.Window) -> bool:
 
     if event == "-OUT-FMT-":
         update_clrspc_for_fmt(window, values, "-OUT-CLR-", values["-OUT-FMT-"])
-        _recalc_frame_num(values, window)
         return True
 
     if event == "-OUT-CLR-":

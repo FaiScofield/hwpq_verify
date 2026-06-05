@@ -23,6 +23,7 @@ from csc.run_csc import (
     is_yuv_format,
     is_rgb_format,
     get_pixel_depth,
+    get_frame_size,
     read_raw_to_planar,
     write_planar_to_raw,
     FORMAT_NAMES,
@@ -88,6 +89,10 @@ _SNAPSHOTS: dict[str, tuple] = {}
 
 # Input image cache: (data_planar, fmt, clrspc) read from file
 _INPUT_IMAGE: tuple | None = None
+
+# Track last output format to detect changes that require buffer re-creation
+_last_out_format: int | None = None
+_last_out_frame_size: int = 0
 
 
 def _register_modules():
@@ -475,7 +480,6 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
 
     expected_size = 0
     try:
-        from csc.run_csc import get_frame_size
         expected_size = get_frame_size(w, h, in_fmt)
     except Exception:
         pass
@@ -498,9 +502,22 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
 
 def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
     """Execute the pipeline. If trigger_tag is set, only re-run from that module."""
-    global _INPUT_IMAGE
+    global _INPUT_IMAGE, _last_out_format, _last_out_frame_size
 
     io_params = read_io_params(values)
+
+    out_fmt = io_params["out_fmt"]
+    out_clrspc = io_params["out_clrspc"]
+    width = io_params["width"]
+    height = io_params["height"]
+
+    # Recalculate output frame size; force full pipeline reset if changed
+    out_frame_size = get_frame_size(width, height, out_fmt)
+    out_fmt_changed = (_last_out_format is not None and out_fmt != _last_out_format)
+    if out_fmt_changed:
+        _SNAPSHOTS.clear()
+    _last_out_format = out_fmt
+    _last_out_frame_size = out_frame_size
 
     # Determine whether to re-run from trigger_tag or from scratch
     start_tag = trigger_tag if trigger_tag else ""
@@ -515,9 +532,13 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
             _invalidate_from(start_tag)
 
     if not start_tag:
-        _SNAPSHOTS.clear()
-        if not _load_input_image(values, window):
-            return
+        if out_fmt_changed and _INPUT_IMAGE is not None:
+            # Output format changed, input unchanged: skip input reload
+            pass
+        else:
+            _SNAPSHOTS.clear()
+            if not _load_input_image(values, window):
+                return
         upstream = _INPUT_IMAGE
 
     effective = _get_effective_pipeline()
@@ -545,14 +566,13 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
         return
 
     current_data, current_fmt, current_clrspc = upstream
-    out_fmt = io_params["out_fmt"]
-    out_clrspc = io_params["out_clrspc"]
     output_dir = io_params["output_dir"] or os.path.dirname(io_params["input_file"]) or "."
 
     for i in range(start_idx, len(effective)):
         tag = effective[i]
         mod = REGISTERED_MODULES.get(tag)
         if mod is None:
+            _update_status(window, f"Module '{tag}' not registered", color="orange")
             continue
 
         snap_key = tag
@@ -804,7 +824,7 @@ def _update_right_preview_with_snapshot(window: sg.Window, planar: np.ndarray, f
 def main():
     """Main entry point for PQ Verify Tool."""
     global _pixel_info_frozen, _mouse_pos, _scale_factor, _current_display_data, _right_scale_factor, _right_display_data, _right_input_data, _right_frozen
-    global _left_display_size, _INPUT_IMAGE, pipeline_order, pipeline_enabled, _SNAPSHOTS
+    global _left_display_size, _INPUT_IMAGE, _last_out_format, _last_out_frame_size, pipeline_order, pipeline_enabled, _SNAPSHOTS
 
     _register_modules()
 
