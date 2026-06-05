@@ -78,12 +78,12 @@ CLRSPC_DISPLAY_YUV = [s for s in CLRSPC_DISPLAY if int(s.split(" ")[0]) in range
 DEFAULT_FMT_DISPLAY = next(item for item in FMT_DISPLAY if item.startswith("0x0 "))
 DEFAULT_CLRSPC_DISPLAY = next(item for item in CLRSPC_DISPLAY if item.startswith("1 "))
 
-IO_LABEL_SIZE = (14, 1)
-IO_FMT_LABEL_SIZE = (14, 1)
-IO_CLR_LABEL_SIZE = (16, 1)
-IO_FMT_COMBO_SIZE = (24, 1)
+IO_LABEL_SIZE = (12, 1)
+IO_FMT_LABEL_SIZE = (12, 1)
+IO_CLR_LABEL_SIZE = (14, 1)
+IO_FMT_COMBO_SIZE = (26, 1)
 IO_CLR_COMBO_SIZE = (20, 1)
-IO_BROWSE_BUTTON_SIZE = (8, 1)
+IO_BUTTON_SIZE = (8, 1)
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp"}
 
@@ -154,21 +154,21 @@ def build_controls() -> list:
     layout = [
         [
             sg.Text("Input File", size=IO_LABEL_SIZE),
-            sg.Input("G:/Project/pq/inputs/512x428_test_image_many_pattern_nv24.yuv", key="-INPUT-FILE-", size=(46, 1), enable_events=True),
-            sg.FileBrowse(size=IO_BROWSE_BUTTON_SIZE),
-            sg.Button("Reload", key="-RELOAD-", size=(8, 1)),
+            sg.Input("F:/data/512x428_test_image_many_pattern_nv24.yuv", key="-INPUT-FILE-", size=(46, 1), enable_events=True),
+            sg.FileBrowse(size=IO_BUTTON_SIZE),
+            sg.Button("Reload", key="-RELOAD-", size=IO_BUTTON_SIZE),
         ],
         [
             sg.Text("Output Dir", size=IO_LABEL_SIZE),
             sg.Input("D:\\RkDefaultDumpData\\", key="-OUTPUT-DIR-", size=(46, 1)),
-            sg.FolderBrowse(size=IO_BROWSE_BUTTON_SIZE),
-            sg.Button("Open Dir", key="-OPEN-DIR-OUTPUT-", size=(8, 1)),
+            sg.FolderBrowse(size=IO_BUTTON_SIZE),
+            sg.Button("Open Dir", key="-OPEN-DIR-OUTPUT-", size=IO_BUTTON_SIZE),
         ],
         [
             sg.Text("Config File", size=IO_LABEL_SIZE),
             sg.Input("", key="-CONFIG-PATH-", size=(46, 1)),
-            sg.FileBrowse(size=IO_BROWSE_BUTTON_SIZE),
-            sg.Button("Open Dir", key="-OPEN-DIR-CONFIG-", size=(8, 1)),
+            sg.FileBrowse(size=IO_BUTTON_SIZE),
+            sg.Button("Open Dir", key="-OPEN-DIR-CONFIG-", size=IO_BUTTON_SIZE),
         ],
         [sg.HorizontalSeparator()],
         [
@@ -176,10 +176,10 @@ def build_controls() -> list:
             sg.Input("1920", key="-WIDTH-", size=(8, 1), enable_events=True),
             sg.Text("Height", size=(8, 1)),
             sg.Input("1080", key="-HEIGHT-", size=(8, 1), enable_events=True),
-            sg.Text("Frame Num", size=(10, 1)),
-            sg.Input("1", key="-FRAME-NUM-", size=(6, 1), readonly=True),
-            sg.Text("Frame Idx", size=(10, 1)),
-            sg.Input("0", key="-FRAME-IDX-", size=(6, 1)),
+            sg.Text("Frame Num", size=(8, 1)),
+            sg.Input("1", key="-FRAME-NUM-", size=(8, 1), readonly=True),
+            sg.Text("Frame Idx", size=(8, 1)),
+            sg.Input("0", key="-FRAME-IDX-", size=(8, 1)),
         ],
         [
             sg.Text("Input Format", size=IO_FMT_LABEL_SIZE),
@@ -191,7 +191,7 @@ def build_controls() -> list:
                 size=IO_FMT_COMBO_SIZE,
                 enable_events=True,
             ),
-            sg.Text("Input Colorsp.", size=IO_CLR_LABEL_SIZE),
+            sg.Text("Input Colorsp", size=IO_CLR_LABEL_SIZE),
             sg.Combo(
                 CLRSPC_DISPLAY_RGB,
                 default_value=CLRSPC_DISPLAY_RGB[1],
@@ -211,7 +211,7 @@ def build_controls() -> list:
                 size=IO_FMT_COMBO_SIZE,
                 enable_events=True,
             ),
-            sg.Text("Output Colorsp.", size=IO_CLR_LABEL_SIZE),
+            sg.Text("Output Colorsp", size=IO_CLR_LABEL_SIZE),
             sg.Combo(
                 CLRSPC_DISPLAY_RGB,
                 default_value=CLRSPC_DISPLAY_RGB[1],
@@ -223,7 +223,7 @@ def build_controls() -> list:
         ],
         [
             sg.Checkbox(
-                "Use Specified Color as Input:",
+                "Use Specified Color as Input",
                 key="-USE-SET-COLOR-",
                 default=False,
                 enable_events=True,
@@ -231,12 +231,18 @@ def build_controls() -> list:
             sg.Input(
                 "128 128 128",
                 key="-SET-COLOR-INPUT-",
-                size=(28, 1),
+                size=(20, 1),
                 disabled=True,
                 enable_events=True,
                 disabled_readonly_background_color=sg.theme_background_color(),
             ),
-            sg.Checkbox("dump", key="-DUMP-", default=False),
+            sg.Text("Stream Depth"),
+            sg.Combo(
+                ["8bit", "10bit"],
+                default_value="10bit",
+                key="-STREAM-DEPTH-",
+                readonly=True,
+            ),
         ],
     ]
     return layout

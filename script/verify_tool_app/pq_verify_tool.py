@@ -134,27 +134,46 @@ def _register_modules():
 # ------------------------------------------------------------------ #
 
 def _build_pipeline_bar() -> list:
-    """Build the top pipeline control bar."""
-    row = []
+    """Build the left-side vertical pipeline control bar."""
+    rows = []
     for tag in pipeline_order:
         mod = REGISTERED_MODULES[tag]
         enabled = tag in pipeline_enabled
-        row.extend([
+        rows.append([
             sg.Checkbox(
                 mod["label"],
                 default=enabled,
                 key=f"-PIPE-ENABLE-{tag}-",
                 enable_events=True,
+                size=(3, 1),
             ),
-            sg.Button("◀", key=f"-PIPE-LEFT-{tag}-", size=(2, 1)),
-            sg.Button("▶", key=f"-PIPE-RIGHT-{tag}-", size=(2, 1)),
-            sg.Text("  "),
+            sg.Button("▲", key=f"-PIPE-UP-{tag}-", size=(1, 1)),
+            sg.Button("▼", key=f"-PIPE-DOWN-{tag}-", size=(1, 1)),
         ])
-    return [sg.Frame("Pipeline", [row], expand_x=True)]
+    return [sg.Frame("Pipeline", rows, key="-PIPELINE-FRAME-")]
 
 
 def _rebuild_pipeline_bar(window: sg.Window):
-    """Rebuild pipeline bar after order/enable change. Simpler: just update checkboxes."""
+    """Rebuild pipeline bar after order/enable change: repack row frames vertically."""
+    frame_widget = window["-PIPELINE-FRAME-"].Widget
+    # ttk.LabelFrame inner content frame is the first child
+    row_frame = frame_widget.winfo_children()[0]
+
+    # Map tag -> parent tk frame (the row container)
+    row_frames = {}
+    for tag in pipeline_order:
+        widget = window[f"-PIPE-ENABLE-{tag}-"].Widget
+        row_frames[tag] = widget.master
+
+    # Forget all row frames
+    for parent in row_frames.values():
+        parent.pack_forget()
+
+    # Repack row frames in the updated pipeline_order sequence
+    for tag in pipeline_order:
+        row_frames[tag].pack(side="top", fill="x")
+
+    # Sync checkbox state
     for tag in pipeline_order:
         window[f"-PIPE-ENABLE-{tag}-"].update(value=tag in pipeline_enabled)
 
@@ -256,9 +275,10 @@ def _planar_to_rgb_pil(planar: np.ndarray, fmt: int, max_size: int = PREVIEW_MAX
 
     if is_yuv_format(fmt):
         max_val = float((1 << depth) - 1)
+        uv_half = 1 << (depth - 1)
         y = data[0]
-        cb = data[1] - (max_val / 2)
-        cr = data[2] - (max_val / 2)
+        cb = data[1] - uv_half
+        cr = data[2] - uv_half
         r = np.clip(y + 1.5748 * cr, 0, max_val)
         g = np.clip(y - 0.187324 * cb - 0.468124 * cr, 0, max_val)
         b = np.clip(y + 1.8556 * cb, 0, max_val)
@@ -267,7 +287,8 @@ def _planar_to_rgb_pil(planar: np.ndarray, fmt: int, max_size: int = PREVIEW_MAX
         rgb = data
 
     if depth > 8:
-        rgb = (rgb >> (depth - 8))
+        # Use integer division instead of >> which fails on float32 arrays
+        rgb = (rgb // (1 << (depth - 8)))
     rgb = np.clip(rgb, 0, 255).astype(np.uint8)
     interleaved = np.stack([rgb[0], rgb[1], rgb[2]], axis=-1)
     img = Image.fromarray(interleaved, "RGB")
@@ -840,10 +861,16 @@ def main():
 
     # Build full layout
     layout = [
-        _build_pipeline_bar(),
-        [tab_group],
+        [
+            tab_group,
+            sg.Column([
+                _build_pipeline_bar(),
+                [sg.Checkbox("dump", key="-DUMP-", default=False)],
+            ], vertical_alignment="top"),
+        ],
         *_build_preview_layout(),
     ]
+    # rows.append([sg.Checkbox("dump", key="-DUMP-", default=False)])
 
     window = sg.Window(
         "PQ Verify Tool v0.2",
@@ -895,8 +922,8 @@ def main():
             _run_pipeline(values, window)
             continue
 
-        if event.startswith("-PIPE-LEFT-"):
-            tag = event.replace("-PIPE-LEFT-", "").rstrip("-")
+        if event.startswith("-PIPE-UP-"):
+            tag = event.replace("-PIPE-UP-", "").rstrip("-")
             idx = pipeline_order.index(tag)
             if idx > 0:
                 pipeline_order[idx], pipeline_order[idx - 1] = \
@@ -906,8 +933,8 @@ def main():
                 _run_pipeline(values, window)
             continue
 
-        if event.startswith("-PIPE-RIGHT-"):
-            tag = event.replace("-PIPE-RIGHT-", "").rstrip("-")
+        if event.startswith("-PIPE-DOWN-"):
+            tag = event.replace("-PIPE-DOWN-", "").rstrip("-")
             idx = pipeline_order.index(tag)
             if idx < len(pipeline_order) - 1:
                 pipeline_order[idx], pipeline_order[idx + 1] = \

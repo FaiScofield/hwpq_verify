@@ -49,6 +49,8 @@ BCSH_DEFAULT = {
     "b_gain": 256, "b_offset": 256,
 }
 
+CHANNEL_SWAP_TYPES = ["None", "V1_SWAP", "V2_Y2R_R2R", "V2_R2Y_R2R", "V2_Y2R_Y2Y"]
+
 PRECISION_VALUES = [0] + list(range(8, 17))
 
 ALGO_TYPE_OPTIONS = [
@@ -234,7 +236,7 @@ def _build_bcsh_layout() -> list:
             sg.Text(n1, size=(10, 1)),
             sg.Slider(
                 range=(0, 511), default_value=256, orientation="h",
-                size=(20, 15), key=f"-BCSH-{k1}-", enable_events=True,
+                size=(15, 15), key=f"-BCSH-{k1}-", enable_events=True,
                 disable_number_display=True,
             ),
             sg.Spin(
@@ -245,7 +247,7 @@ def _build_bcsh_layout() -> list:
             sg.Text(n2, size=(10, 1)),
             sg.Slider(
                 range=(0, 511), default_value=256, orientation="h",
-                size=(20, 15), key=f"-BCSH-{k2}-", enable_events=True,
+                size=(15, 15), key=f"-BCSH-{k2}-", enable_events=True,
                 disable_number_display=True,
             ),
             sg.Spin(
@@ -338,19 +340,24 @@ def build_controls() -> list:
     """
     csc_config_rows = [
         [
-            sg.Text("Algo Type:", size=(10, 1)),
+            sg.Text("Algo Type:"),
             sg.Combo(
                 ALGO_TYPE_OPTIONS, default_value=ALGO_RK_HW_CSC,
-                key="-BCSH-ALGO-TYPE-", readonly=True, size=(22, 1),
+                key="-BCSH-ALGO-TYPE-", readonly=True,
                 enable_events=True,
             ),
-            sg.Text("Precision:", size=(12, 1)),
+            sg.Text("Precision:"),
             sg.Combo(
                 [str(v) for v in PRECISION_VALUES], default_value="10",
-                key="-PRECISION-", readonly=True, size=(6, 1),
+                key="-PRECISION-", readonly=True,
                 enable_events=True,
             ),
-            #sg.Push(),
+            sg.Text("Channel Swap (VOP):"),
+            sg.Combo(
+                CHANNEL_SWAP_TYPES, default_value="None",
+                key="-CHANNEL-SWAP-", readonly=True,
+                enable_events=True,
+            ),
             sg.Button("Reset BCSH", key="-RESET-BCSH-"),
         ],
     ]
