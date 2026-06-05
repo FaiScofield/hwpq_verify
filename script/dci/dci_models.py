@@ -32,6 +32,7 @@ class DciAuditConfig:
     """Audit configuration that mirrors the Layer 2 API fields."""
 
     enable: int = 0
+    static_only: int = 0
     node_mask: int = 0
     export_mask: int = 0
     tag: str = ""

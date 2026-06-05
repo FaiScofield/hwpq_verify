@@ -152,7 +152,7 @@ def build_controls() -> list:
     layout = [
         [
             sg.Text("Input File", size=IO_LABEL_SIZE),
-            sg.Input(key="-INPUT-FILE-", size=(46, 1), enable_events=True),
+            sg.Input("G:/Project/pq/inputs/512x428_test_image_many_pattern_nv24.yuv", key="-INPUT-FILE-", size=(46, 1), enable_events=True),
             sg.FileBrowse(size=IO_BROWSE_BUTTON_SIZE),
             sg.Button("Reload", key="-RELOAD-", size=(8, 1)),
         ],
@@ -282,10 +282,12 @@ def handle_io_event(event: str, values: dict, window: sg.Window) -> bool:
         return True
 
     if event == "-RELOAD-":
-        # Turn off USE-SET-COLOR and re-read input file
+        # Turn off USE-SET-COLOR, re-analyze input file, then re-read
         window["-USE-SET-COLOR-"].update(value=False)
         window["-SET-COLOR-INPUT-"].update(disabled=True)
         values["-USE-SET-COLOR-"] = False
+        _guess_input_params(values, window)
+        _recalc_frame_num(values, window)
         return True
 
     if event.startswith("-OPEN-DIR-"):
