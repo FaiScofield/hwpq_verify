@@ -12,6 +12,14 @@ import numpy as np
 from PIL import Image, ImageDraw
 import PySimpleGUI as sg
 
+from verify_tool_app.ui_helpers import (
+    SliderSpinConfig,
+    bind_keyboard_events as _bind_kb_shared,
+    handle_keyboard_event,
+    sync_slider_to_spin,
+    sync_spin_to_slider,
+)
+
 from get_csc_coef_hsv import (
     ALGO_RK_HW_CSC,
     ALGO_RK_SW_CSC,
@@ -62,12 +70,24 @@ ALGO_TYPE_OPTIONS = [
 ]
 
 BCSH_NAMES = [
-    ("Brightness", "bright", "Contrast:", "contrast"),
+    ("Brightness", "bright", "Contrast", "contrast"),
     ("Saturation", "sat", "Hue", "hue"),
     ("R Gain", "r_gain", "R Offset", "r_offset"),
     ("G Gain", "g_gain", "G Offset", "g_offset"),
     ("B Gain", "b_gain", "B Offset", "b_offset"),
 ]
+
+# SliderSpinConfig pairs generated from BCSH_NAMES
+CSC_SLIDER_SPIN_PAIRS: list[SliderSpinConfig] = []
+_BCSH_KEY_LOOKUP: dict[str, str] = {}  # slider_key -> short name for norm sync
+for _label1, _key1, _label2, _key2 in BCSH_NAMES:
+    for _k in (_key1, _key2):
+        pair = SliderSpinConfig(
+            f"-BCSH-{_k}-SPIN-", f"-BCSH-{_k}-", 0, 511, 256
+        )
+        CSC_SLIDER_SPIN_PAIRS.append(pair)
+        _BCSH_KEY_LOOKUP[pair.slider_key] = _k
+        _BCSH_KEY_LOOKUP[pair.spin_key] = _k
 
 
 # ------------------------------------------------------------------ #
@@ -385,46 +405,30 @@ def build_controls() -> list:
 
 def handle_csc_event(event: str, values: dict, window: sg.Window) -> bool:
     """Handle CSC-specific events. Returns True if consumed."""
-    # -- Keyboard suffix events (bind_keyboard_events) - step before exact match --
-    if "+" in event:
-        event_key, _, event_suffix = event.rpartition("+")
+    # Keyboard suffix events via shared handler
+    if handle_keyboard_event(event, values, window, CSC_SLIDER_SPIN_PAIRS):
+        # After keyboard step/commit, sync norm labels
+        _sync_bcsh_norms_all(window, values)
+        return True
 
-        # BCSH spin +STEP / +ENTER: commit spin → slider
-        if event_key.endswith("-SPIN-") and event_suffix in ("STEP", "ENTER"):
-            _commit_bcsh_spin_to_slider(window, values, event_key)
+    # SAT-LUMA keyboard events (single special pair)
+    sat_luma_handled = handle_keyboard_event(
+        event, values, window,
+        [SliderSpinConfig("-SAT-LUMA-SPIN-", "-SAT-LUMA-", 0, 255, 128)]
+    )
+    if sat_luma_handled:
+        return True
+
+    # BCSH slider/spin direct sync
+    for pair in CSC_SLIDER_SPIN_PAIRS:
+        if event == pair.slider_key:
+            sync_slider_to_spin(window, values, pair.slider_key, pair.spin_key, pair.step)
+            _sync_bcsh_norm(window, values, _BCSH_KEY_LOOKUP[pair.slider_key])
             return True
-
-        # BCSH slider +LEFT / +RIGHT: step by ±1
-        if event_suffix in ("LEFT", "RIGHT") and not event_key.endswith("-SPIN-"):
-            delta = -1 if event_suffix == "LEFT" else 1
-            _step_bcsh_slider(window, values, event_key, delta)
+        if event == pair.spin_key:
+            sync_spin_to_slider(window, values, pair.spin_key, pair.slider_key)
+            _sync_bcsh_norm(window, values, _BCSH_KEY_LOOKUP[pair.spin_key])
             return True
-
-        # SAT-LUMA spin +STEP / +ENTER
-        if event_key == "-SAT-LUMA-SPIN-" and event_suffix in ("STEP", "ENTER"):
-            _sync_sathue_slider_spin(window, values, "LUMA", 0, 255, int)
-            return True
-
-        # SAT-LUMA slider +LEFT / +RIGHT
-        if event_key == "-SAT-LUMA-" and event_suffix in ("LEFT", "RIGHT"):
-            delta = -1 if event_suffix == "LEFT" else 1
-            cur = int(values.get("-SAT-LUMA-", 0))
-            val = max(0, min(255, cur + delta))
-            window["-SAT-LUMA-"].update(value=val)
-            window["-SAT-LUMA-SPIN-"].update(value=str(val))
-            return True
-
-    # BCSH slider/spin sync
-    for _, k1, _, k2 in BCSH_NAMES:
-        for k in (k1, k2):
-            slider_key = f"-BCSH-{k}-"
-            spin_key = f"-BCSH-{k}-SPIN-"
-            if event == slider_key:
-                _sync_bcsh_slider(window, values, k)
-                return True
-            if event == spin_key:
-                _sync_bcsh_spin(window, values, k)
-                return True
 
     if event == "-RESET-BCSH-":
         _reset_bcsh(window, values)
@@ -458,6 +462,21 @@ def handle_csc_event(event: str, values: dict, window: sg.Window) -> bool:
 _current_algo_type = ALGO_RK_HW_CSC
 
 
+def _sync_bcsh_norm(window: sg.Window, values: dict, key: str):
+    """Update a single BCSH norm label based on current slider value."""
+    algo_type = values.get("-BCSH-ALGO-TYPE-", ALGO_RK_HW_CSC)
+    val = int(values.get(f"-BCSH-{key}-", 256))
+    norm = get_bcsh_norm_value(key, val, algo_type)
+    window[f"-BCSH-{key}-NORM-"].update(value=norm)
+
+
+def _sync_bcsh_norms_all(window: sg.Window, values: dict):
+    """Update all BCSH norm labels."""
+    for _, k1, _, k2 in BCSH_NAMES:
+        for k in (k1, k2):
+            _sync_bcsh_norm(window, values, k)
+
+
 def _handle_algo_type_switch(window: sg.Window, values: dict):
     """Handle algo type switch and remap RGB gain values."""
     global _current_algo_type
@@ -480,28 +499,6 @@ def _handle_algo_type_switch(window: sg.Window, values: dict):
             norm = get_bcsh_norm_value(k, raw_val, new_algo_type)
             window[f"-BCSH-{k}-NORM-"].update(value=norm)
     _current_algo_type = new_algo_type
-
-
-def _sync_bcsh_slider(window: sg.Window, values: dict, key: str):
-    """Sync Spin to Slider value on BCSH Slider change."""
-    val = int(values[f"-BCSH-{key}-"])
-    window[f"-BCSH-{key}-SPIN-"].update(value=str(val))
-    algo_type = values.get("-BCSH-ALGO-TYPE-", ALGO_RK_HW_CSC)
-    norm = get_bcsh_norm_value(key, val, algo_type)
-    window[f"-BCSH-{key}-NORM-"].update(value=norm)
-
-
-def _sync_bcsh_spin(window: sg.Window, values: dict, key: str):
-    """Sync Slider to Spin value on BCSH Spin change."""
-    try:
-        val = int(values[f"-BCSH-{key}-SPIN-"])
-    except ValueError:
-        return
-    val = max(0, min(511, val))
-    window[f"-BCSH-{key}-"].update(value=val)
-    algo_type = values.get("-BCSH-ALGO-TYPE-", ALGO_RK_HW_CSC)
-    norm = get_bcsh_norm_value(key, val, algo_type)
-    window[f"-BCSH-{key}-NORM-"].update(value=norm)
 
 
 def _sync_sathue_slider_spin(window: sg.Window, values: dict, suffix: str,
@@ -645,67 +642,11 @@ def get_right_preview_image(snapshot, params: dict):
 # Keyboard bindings                                                  #
 # ------------------------------------------------------------------ #
 
-def _commit_bcsh_spin_to_slider(window: sg.Window, values: dict, spin_key: str):
-    """For BCSH spin +STEP / +ENTER: commit spin value to slider and update norm."""
-    try:
-        val = int(values.get(spin_key, "256"))
-    except (ValueError, TypeError):
-        return
-    val = max(0, min(511, val))
-    slider_key = spin_key.replace("-SPIN-", "-")
-    window[slider_key].update(value=val)
-
-
-def _step_bcsh_slider(window: sg.Window, values: dict, slider_key: str, delta: int):
-    """For BCSH slider +LEFT / +RIGHT: step the slider value by delta."""
-    cur = int(values.get(slider_key, 256))
-    val = max(0, min(511, cur + delta))
-    spin_key = slider_key[:-1] + "-SPIN-"
-    window[slider_key].update(value=val)
-    window[spin_key].update(value=str(val))
-
-
 def bind_keyboard_events(window: sg.Window):
-    """Bind keyboard events (arrows, Enter, step) on all CSC sliders and spins."""
-    for _, k1, _, k2 in BCSH_NAMES:
-        for bcsh_key in (k1, k2):
-            slider_key = f"-BCSH-{bcsh_key}-"
-            spin_key = f"-BCSH-{bcsh_key}-SPIN-"
-            # Spin: Return / KP_Enter to commit, command for step
-            try:
-                window[spin_key].bind("<Return>", "+ENTER")
-                window[spin_key].bind("<KP_Enter>", "+ENTER")
-                window[spin_key].Widget.configure(
-                    command=lambda wk=window, sk=spin_key: wk.write_event_value(f"{sk}+STEP", None)
-                )
-            except Exception:
-                pass
-            # Slider: Left/Right arrow to step, Button-1 to focus
-            try:
-                sw = window[slider_key].Widget
-                sw.configure(takefocus=1)
-                sw.bind("<Button-1>", lambda e, w=sw: w.focus_set(), add="+")
-                sw.bind("<Left>", lambda e, wk=window, sk=slider_key: wk.write_event_value(f"{sk}+LEFT", None))
-                sw.bind("<Right>", lambda e, wk=window, sk=slider_key: wk.write_event_value(f"{sk}+RIGHT", None))
-            except Exception:
-                pass
-
-    # SAT-LUMA spin
-    try:
-        window["-SAT-LUMA-SPIN-"].bind("<Return>", "+ENTER")
-        window["-SAT-LUMA-SPIN-"].bind("<KP_Enter>", "+ENTER")
-        window["-SAT-LUMA-SPIN-"].Widget.configure(
-            command=lambda wk=window: wk.write_event_value("-SAT-LUMA-SPIN-+STEP", None)
-        )
-    except Exception:
-        pass
-
-    # SAT-LUMA slider
-    try:
-        sw = window["-SAT-LUMA-"].Widget
-        sw.configure(takefocus=1)
-        sw.bind("<Button-1>", lambda e, w=sw: w.focus_set(), add="+")
-        sw.bind("<Left>", lambda e, wk=window: wk.write_event_value("-SAT-LUMA-+LEFT", None))
-        sw.bind("<Right>", lambda e, wk=window: wk.write_event_value("-SAT-LUMA-+RIGHT", None))
-    except Exception:
-        pass
+    """Bind keyboard events on all CSC sliders and spins."""
+    _bind_kb_shared(window, CSC_SLIDER_SPIN_PAIRS)
+    # SAT-LUMA: bind individually (single special pair)
+    _bind_kb_shared(
+        window,
+        [SliderSpinConfig("-SAT-LUMA-SPIN-", "-SAT-LUMA-", 0, 255, 128)]
+    )
