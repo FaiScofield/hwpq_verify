@@ -110,6 +110,17 @@ SHP_SLIDER_KEYS = [
 
 def handle_shp_event(event: str, values: dict, window: sg.Window) -> bool:
     """Handle SHP-specific events. Returns True if consumed."""
+    # -- Keyboard suffix events (bind_keyboard_events) - step before exact match --
+    if "+" in event:
+        event_key, _, event_suffix = event.rpartition("+")
+        if event_key.endswith("-SLIDER-") and event_suffix in ("LEFT", "RIGHT"):
+            delta = -1 if event_suffix == "LEFT" else 1
+            _step_shp_slider(window, values, event_key, delta)
+            return True
+        if not event_key.endswith("-SLIDER-") and event_suffix in ("STEP", "ENTER"):
+            _commit_shp_spin_to_slider(window, values, event_key)
+            return True
+
     for spin_key, slider_key in SHP_SLIDER_KEYS:
         if event in (spin_key, slider_key):
             _sync_numeric_control(window, values, spin_key, slider_key)
@@ -204,3 +215,72 @@ def process(input_data: np.ndarray, input_fmt: int, input_clrspc: int,
 def get_right_preview_image(snapshot, params: dict):
     """No SHP-specific right-side preview yet."""
     return None
+
+
+# ------------------------------------------------------------------ #
+# Keyboard bindings                                                  #
+# ------------------------------------------------------------------ #
+
+# SHP slider parameters: (min, max, resolution)
+_SHP_SLIDER_PARAMS = {
+    "-SHP-PEAKING-GAIN-SLIDER-": (0, 1024, 1),
+    "-SHP-CORING-THRESHOLD-SLIDER-": (0, 255, 1),
+    "-SHP-SHOOT-OVER-SLIDER-": (0, 255, 1),
+    "-SHP-SHOOT-UNDER-SLIDER-": (0, 255, 1),
+}
+
+
+def _step_shp_slider(window: sg.Window, values: dict, slider_key: str, delta: int):
+    """For SHP slider +LEFT / +RIGHT: step by resolution."""
+    params = _SHP_SLIDER_PARAMS.get(slider_key)
+    if params is None:
+        return
+    _min, _max, resolution = params
+    try:
+        cur = float(values.get(slider_key, 0))
+    except (ValueError, TypeError):
+        return
+    val = max(_min, min(_max, cur + delta * resolution))
+    if resolution >= 1:
+        val = int(round(val))
+    window[slider_key].update(value=val)
+    # Sync spin
+    for spin_key, s_key in SHP_SLIDER_KEYS:
+        if s_key == slider_key:
+            window[spin_key].update(value=val)
+            break
+
+
+def _commit_shp_spin_to_slider(window: sg.Window, values: dict, spin_key: str):
+    """For SHP spin +STEP / +ENTER: commit spin value to slider."""
+    try:
+        val = float(values.get(spin_key, 0))
+    except (ValueError, TypeError):
+        return
+    for s_key, slider_key in SHP_SLIDER_KEYS:
+        if s_key == spin_key:
+            window[slider_key].update(value=val)
+            break
+
+
+def bind_keyboard_events(window: sg.Window):
+    """Bind keyboard events (arrows, Enter, step) on all SHP sliders and spins."""
+    for spin_key, slider_key in SHP_SLIDER_KEYS:
+        # Spin: Return / KP_Enter to commit, command for step
+        try:
+            window[spin_key].bind("<Return>", "+ENTER")
+            window[spin_key].bind("<KP_Enter>", "+ENTER")
+            window[spin_key].Widget.configure(
+                command=lambda wk=window, sk=spin_key: wk.write_event_value(f"{sk}+STEP", None)
+            )
+        except Exception:
+            pass
+        # Slider: Left/Right arrow to step, Button-1 to focus
+        try:
+            sw = window[slider_key].Widget
+            sw.configure(takefocus=1)
+            sw.bind("<Button-1>", lambda e, w=sw: w.focus_set(), add="+")
+            sw.bind("<Left>", lambda e, wk=window, sk=slider_key: wk.write_event_value(f"{sk}+LEFT", None))
+            sw.bind("<Right>", lambda e, wk=window, sk=slider_key: wk.write_event_value(f"{sk}+RIGHT", None))
+        except Exception:
+            pass

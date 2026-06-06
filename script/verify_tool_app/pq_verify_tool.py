@@ -292,14 +292,14 @@ def _build_preview_layout() -> list:
         [sg.HorizontalSeparator()],
         [sg.Frame("Common Info", [
             [
-                sg.Text("Display Size:", size=(12, 1)),
+                sg.Text("Display Size", size=(12, 1)),
                 sg.Input(
                     "", key="-DISPLAY-SIZE-", size=(48, 1),
                     readonly=True, border_width=0,
                     disabled_readonly_background_color=sg.theme_background_color(),
                     disabled_readonly_text_color=sg.theme_text_color(),
                 ),
-                sg.Text("Position:", size=(12, 1)),
+                sg.Text("Position", size=(12, 1)),
                 sg.Input(
                     "", key="-POSITION-INFO-", size=(48, 1),
                     readonly=True, border_width=0,
@@ -308,14 +308,14 @@ def _build_preview_layout() -> list:
                 ),
             ],
             [
-                sg.Text("Input Pixel:", size=(12, 1)),
+                sg.Text("Input Pixel", size=(12, 1)),
                 sg.Input(
                     "", key="-INPUT-PIXEL-INFO-", size=(48, 1),
                     readonly=True, border_width=0,
                     disabled_readonly_background_color=sg.theme_background_color(),
                     disabled_readonly_text_color=sg.theme_text_color(),
                 ),
-                sg.Text("Output Pixel:", size=(12, 1)),
+                sg.Text("Output Pixel", size=(12, 1)),
                 sg.Input(
                     "", key="-OUTPUT-PIXEL-INFO-", size=(48, 1),
                     readonly=True, border_width=0,
@@ -883,7 +883,7 @@ def _handle_right_mouse_motion(window: sg.Window, values: dict, event: str):
         display_str = f"{lw}x{lh} (scale={_scale_factor:.2f})"
 
     freeze_status = "[Frozen]" if _right_frozen else "[Space to freeze]"
-    window["-POSITION-INFO-"].update(f"({orig_x:4d},{orig_y:4d}) R {freeze_status}")
+    window["-POSITION-INFO-"].update(f"({orig_x:4d},{orig_y:4d}) {freeze_status}")
     window["-INPUT-PIXEL-INFO-"].update(input_str)
     window["-OUTPUT-PIXEL-INFO-"].update(output_str)
     if display_str:
@@ -1093,8 +1093,8 @@ def main():
                 _clear_pixel_info(window)
             continue
 
-        # Space to freeze/unfreeze pixel info
-        if event in (" ", "-LEFT-PREVIEW-SPACE-"):
+        # Space to freeze/unfreeze pixel info — independent per preview
+        if event == "-LEFT-PREVIEW-SPACE-":
             _pixel_info_frozen = not _pixel_info_frozen
             status = "[Frozen]" if _pixel_info_frozen else "[Unfrozen]"
             pos = window["-POSITION-INFO-"].get()
@@ -1214,19 +1214,14 @@ def _init_bcsh_norm(window: sg.Window):
 
 
 def _bind_sliders(window: sg.Window):
-    """Bind keyboard focus on slider widgets for DCI/SHP."""
-    slider_keys = [
-        "-CFHE-SLIDER-", "-BS-SLIDER-", "-WS-SLIDER-",
-        "-CLAHE-R-SLIDER-", "-CLAHE-C-SLIDER-",
-        "-SHP-PEAKING-GAIN-SLIDER-", "-SHP-CORING-THRESHOLD-SLIDER-",
-        "-SHP-SHOOT-OVER-SLIDER-", "-SHP-SHOOT-UNDER-SLIDER-",
-    ]
-    for key in slider_keys:
-        try:
-            tk_widget = window[key].Widget
-            tk_widget.bind("<Button-1>", lambda e, k=key: window[k].Widget.focus_set())
-        except Exception:
-            pass
+    """Bind keyboard events on all module slider/spin widgets."""
+    from verify_tool_app.ui_csc import bind_keyboard_events as bind_csc
+    from verify_tool_app.ui_dci import bind_keyboard_events as bind_dci
+    from verify_tool_app.ui_shp import bind_keyboard_events as bind_shp
+
+    bind_csc(window)
+    bind_dci(window)
+    bind_shp(window)
 
 
 if __name__ == "__main__":

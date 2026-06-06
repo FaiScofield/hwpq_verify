@@ -62,11 +62,11 @@ ALGO_TYPE_OPTIONS = [
 ]
 
 BCSH_NAMES = [
-    ("Brightness:", "bright", "Contrast:", "contrast"),
-    ("Saturation:", "sat", "Hue:", "hue"),
-    ("R Gain:", "r_gain", "R Offset:", "r_offset"),
-    ("G Gain:", "g_gain", "G Offset:", "g_offset"),
-    ("B Gain:", "b_gain", "B Offset:", "b_offset"),
+    ("Brightness", "bright", "Contrast:", "contrast"),
+    ("Saturation", "sat", "Hue", "hue"),
+    ("R Gain", "r_gain", "R Offset", "r_offset"),
+    ("G Gain", "g_gain", "G Offset", "g_offset"),
+    ("B Gain", "b_gain", "B Offset", "b_offset"),
 ]
 
 
@@ -316,18 +316,18 @@ def _build_coef_info_layout() -> list:
     return [
         [sg.Frame("CSC Coef Info", [
             [
-                sg.Text("Step1 Coefs:", size=(12, 1)),
-                sg.Multiline("", size=(58, 1), key="-STEP1-COEFS-", disabled=True, no_scrollbar=True),
-                sg.Text("Step1 Offset:", size=(12, 1)),
-                sg.Multiline("", size=(28, 1), key="-STEP1-OFFSET-", disabled=True, no_scrollbar=True),
+                sg.Text("Step1 Coefs", size=(12, 1)),
+                sg.Multiline("", size=(50, 1), key="-STEP1-COEFS-", disabled=True, no_scrollbar=True),
+                sg.Text("Step1 Offset", size=(12, 1)),
+                sg.Multiline("", size=(25, 1), key="-STEP1-OFFSET-", disabled=True, no_scrollbar=True),
             ],
             [
-                sg.Text("Step2 Coefs:", size=(12, 1)),
-                sg.Multiline("", size=(58, 1), key="-STEP2-COEFS-", disabled=True, no_scrollbar=True),
-                sg.Text("Step2 Offset:", size=(12, 1)),
-                sg.Multiline("", size=(28, 1), key="-STEP2-OFFSET-", disabled=True, no_scrollbar=True),
+                sg.Text("Step2 Coefs", size=(12, 1)),
+                sg.Multiline("", size=(50, 1), key="-STEP2-COEFS-", disabled=True, no_scrollbar=True),
+                sg.Text("Step2 Offset", size=(12, 1)),
+                sg.Multiline("", size=(25, 1), key="-STEP2-OFFSET-", disabled=True, no_scrollbar=True),
             ],
-        ], expand_x=True)],
+        ])],
     ]
 
 
@@ -340,19 +340,19 @@ def build_controls() -> list:
     """
     csc_config_rows = [
         [
-            sg.Text("Algo Type:"),
+            sg.Text("Algo Type"),
             sg.Combo(
                 ALGO_TYPE_OPTIONS, default_value=ALGO_RK_HW_CSC,
                 key="-BCSH-ALGO-TYPE-", readonly=True,
                 enable_events=True,
             ),
-            sg.Text("Precision:"),
+            sg.Text("Precision"),
             sg.Combo(
                 [str(v) for v in PRECISION_VALUES], default_value="10",
                 key="-PRECISION-", readonly=True,
                 enable_events=True,
             ),
-            sg.Text("Channel Swap (VOP):"),
+            sg.Text("Channel Swap (VOP)"),
             sg.Combo(
                 CHANNEL_SWAP_TYPES, default_value="None",
                 key="-CHANNEL-SWAP-", readonly=True,
@@ -385,6 +385,35 @@ def build_controls() -> list:
 
 def handle_csc_event(event: str, values: dict, window: sg.Window) -> bool:
     """Handle CSC-specific events. Returns True if consumed."""
+    # -- Keyboard suffix events (bind_keyboard_events) - step before exact match --
+    if "+" in event:
+        event_key, _, event_suffix = event.rpartition("+")
+
+        # BCSH spin +STEP / +ENTER: commit spin → slider
+        if event_key.endswith("-SPIN-") and event_suffix in ("STEP", "ENTER"):
+            _commit_bcsh_spin_to_slider(window, values, event_key)
+            return True
+
+        # BCSH slider +LEFT / +RIGHT: step by ±1
+        if event_suffix in ("LEFT", "RIGHT") and not event_key.endswith("-SPIN-"):
+            delta = -1 if event_suffix == "LEFT" else 1
+            _step_bcsh_slider(window, values, event_key, delta)
+            return True
+
+        # SAT-LUMA spin +STEP / +ENTER
+        if event_key == "-SAT-LUMA-SPIN-" and event_suffix in ("STEP", "ENTER"):
+            _sync_sathue_slider_spin(window, values, "LUMA", 0, 255, int)
+            return True
+
+        # SAT-LUMA slider +LEFT / +RIGHT
+        if event_key == "-SAT-LUMA-" and event_suffix in ("LEFT", "RIGHT"):
+            delta = -1 if event_suffix == "LEFT" else 1
+            cur = int(values.get("-SAT-LUMA-", 0))
+            val = max(0, min(255, cur + delta))
+            window["-SAT-LUMA-"].update(value=val)
+            window["-SAT-LUMA-SPIN-"].update(value=str(val))
+            return True
+
     # BCSH slider/spin sync
     for _, k1, _, k2 in BCSH_NAMES:
         for k in (k1, k2):
@@ -610,3 +639,73 @@ def get_right_preview_image(snapshot, params: dict):
 
     full_img, _ = _build_colormap_with_axis(img_eff, title, xlabel, ylabel)
     return np.array(full_img)
+
+
+# ------------------------------------------------------------------ #
+# Keyboard bindings                                                  #
+# ------------------------------------------------------------------ #
+
+def _commit_bcsh_spin_to_slider(window: sg.Window, values: dict, spin_key: str):
+    """For BCSH spin +STEP / +ENTER: commit spin value to slider and update norm."""
+    try:
+        val = int(values.get(spin_key, "256"))
+    except (ValueError, TypeError):
+        return
+    val = max(0, min(511, val))
+    slider_key = spin_key.replace("-SPIN-", "-")
+    window[slider_key].update(value=val)
+
+
+def _step_bcsh_slider(window: sg.Window, values: dict, slider_key: str, delta: int):
+    """For BCSH slider +LEFT / +RIGHT: step the slider value by delta."""
+    cur = int(values.get(slider_key, 256))
+    val = max(0, min(511, cur + delta))
+    spin_key = slider_key[:-1] + "-SPIN-"
+    window[slider_key].update(value=val)
+    window[spin_key].update(value=str(val))
+
+
+def bind_keyboard_events(window: sg.Window):
+    """Bind keyboard events (arrows, Enter, step) on all CSC sliders and spins."""
+    for _, k1, _, k2 in BCSH_NAMES:
+        for bcsh_key in (k1, k2):
+            slider_key = f"-BCSH-{bcsh_key}-"
+            spin_key = f"-BCSH-{bcsh_key}-SPIN-"
+            # Spin: Return / KP_Enter to commit, command for step
+            try:
+                window[spin_key].bind("<Return>", "+ENTER")
+                window[spin_key].bind("<KP_Enter>", "+ENTER")
+                window[spin_key].Widget.configure(
+                    command=lambda wk=window, sk=spin_key: wk.write_event_value(f"{sk}+STEP", None)
+                )
+            except Exception:
+                pass
+            # Slider: Left/Right arrow to step, Button-1 to focus
+            try:
+                sw = window[slider_key].Widget
+                sw.configure(takefocus=1)
+                sw.bind("<Button-1>", lambda e, w=sw: w.focus_set(), add="+")
+                sw.bind("<Left>", lambda e, wk=window, sk=slider_key: wk.write_event_value(f"{sk}+LEFT", None))
+                sw.bind("<Right>", lambda e, wk=window, sk=slider_key: wk.write_event_value(f"{sk}+RIGHT", None))
+            except Exception:
+                pass
+
+    # SAT-LUMA spin
+    try:
+        window["-SAT-LUMA-SPIN-"].bind("<Return>", "+ENTER")
+        window["-SAT-LUMA-SPIN-"].bind("<KP_Enter>", "+ENTER")
+        window["-SAT-LUMA-SPIN-"].Widget.configure(
+            command=lambda wk=window: wk.write_event_value("-SAT-LUMA-SPIN-+STEP", None)
+        )
+    except Exception:
+        pass
+
+    # SAT-LUMA slider
+    try:
+        sw = window["-SAT-LUMA-"].Widget
+        sw.configure(takefocus=1)
+        sw.bind("<Button-1>", lambda e, w=sw: w.focus_set(), add="+")
+        sw.bind("<Left>", lambda e, wk=window: wk.write_event_value("-SAT-LUMA-+LEFT", None))
+        sw.bind("<Right>", lambda e, wk=window: wk.write_event_value("-SAT-LUMA-+RIGHT", None))
+    except Exception:
+        pass

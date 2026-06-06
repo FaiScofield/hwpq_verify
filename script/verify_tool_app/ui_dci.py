@@ -317,7 +317,7 @@ def build_controls() -> list:
         _build_numeric_control_row("BS Set Point", "-BS-", "-BS-SLIDER-", 80, 0, 255),
         _build_numeric_control_row("WS Set Point", "-WS-", "-WS-SLIDER-", 80, 0, 255),
         _build_numeric_control_row("CLAHE Local Ratio", "-CLAHE-R-", "-CLAHE-R-SLIDER-", 19, 0, 32),
-        _build_numeric_control_row("CLAHE Clip Value", "-CLAHE-C-", "-CLAHE-C-SLIDER-", 1.0, 0.0, 8.0, resolution=0.1),
+        _build_numeric_control_row("CLAHE Clip Value", "-CLAHE-C-", "-CLAHE-C-SLIDER-", 1.0, 0.0, 3.0, resolution=0.1),
     ]
 
 
@@ -353,6 +353,17 @@ DCI_SPIN_DEFAULTS = {
 
 def handle_dci_event(event: str, values: dict, window: sg.Window) -> bool:
     """Handle DCI-specific events. Returns True if consumed."""
+    # -- Keyboard suffix events (bind_keyboard_events) - step before exact match --
+    if "+" in event:
+        event_key, _, event_suffix = event.rpartition("+")
+        if event_key.endswith("-SLIDER-") and event_suffix in ("LEFT", "RIGHT"):
+            delta = -1 if event_suffix == "LEFT" else 1
+            _step_dci_slider(window, values, event_key, delta)
+            return True
+        if not event_key.endswith("-SLIDER-") and event_suffix in ("STEP", "ENTER"):
+            _commit_dci_spin_to_slider(window, values, event_key)
+            return True
+
     # Slider/spin sync
     for spin_key, slider_key in DCI_SLIDER_KEYS:
         if event == slider_key:
@@ -606,3 +617,75 @@ def get_right_preview_image(snapshot, params: dict):
         mapped = _apply_1d_lut(data, lut_data, in_depth)
 
     return (mapped, fmt)
+
+
+# ------------------------------------------------------------------ #
+# Keyboard bindings                                                  #
+# ------------------------------------------------------------------ #
+
+# DCI slider parameters: (min, max, resolution)
+_DCI_SLIDER_PARAMS = {
+    "-CFHE-SLIDER-": (0, 64, 1),
+    "-BS-SLIDER-": (0, 255, 1),
+    "-WS-SLIDER-": (0, 255, 1),
+    "-CLAHE-R-SLIDER-": (0, 32, 1),
+    "-CLAHE-C-SLIDER-": (0.0, 3.0, 0.1),
+}
+
+
+def _step_dci_slider(window: sg.Window, values: dict, slider_key: str, delta: int):
+    """For DCI slider +LEFT / +RIGHT: step by resolution."""
+    params = _DCI_SLIDER_PARAMS.get(slider_key)
+    if params is None:
+        return
+    _min, _max, resolution = params
+    try:
+        cur = float(values.get(slider_key, 0))
+    except (ValueError, TypeError):
+        return
+    val = cur + delta * resolution
+    # Clamp using a small epsilon to avoid float drift
+    val = max(_min, min(_max, val))
+    if resolution >= 1:
+        val = int(round(val))
+    window[slider_key].update(value=val)
+    # Sync spin
+    for spin_key, s_key in DCI_SLIDER_KEYS:
+        if s_key == slider_key:
+            window[spin_key].update(value=val)
+            break
+
+
+def _commit_dci_spin_to_slider(window: sg.Window, values: dict, spin_key: str):
+    """For DCI spin +STEP / +ENTER: commit spin value to slider."""
+    try:
+        val = float(values.get(spin_key, 0))
+    except (ValueError, TypeError):
+        return
+    for s_key, slider_key in DCI_SLIDER_KEYS:
+        if s_key == spin_key:
+            window[slider_key].update(value=val)
+            break
+
+
+def bind_keyboard_events(window: sg.Window):
+    """Bind keyboard events (arrows, Enter, step) on all DCI sliders and spins."""
+    for spin_key, slider_key in DCI_SLIDER_KEYS:
+        # Spin: Return / KP_Enter to commit, command for step
+        try:
+            window[spin_key].bind("<Return>", "+ENTER")
+            window[spin_key].bind("<KP_Enter>", "+ENTER")
+            window[spin_key].Widget.configure(
+                command=lambda wk=window, sk=spin_key: wk.write_event_value(f"{sk}+STEP", None)
+            )
+        except Exception:
+            pass
+        # Slider: Left/Right arrow to step, Button-1 to focus
+        try:
+            sw = window[slider_key].Widget
+            sw.configure(takefocus=1)
+            sw.bind("<Button-1>", lambda e, w=sw: w.focus_set(), add="+")
+            sw.bind("<Left>", lambda e, wk=window, sk=slider_key: wk.write_event_value(f"{sk}+LEFT", None))
+            sw.bind("<Right>", lambda e, wk=window, sk=slider_key: wk.write_event_value(f"{sk}+RIGHT", None))
+        except Exception:
+            pass
