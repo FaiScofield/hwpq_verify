@@ -7,6 +7,7 @@ real-time parameter adjustment, and live image preview.
 Entry point:  python pq_verify_tool.py
 """
 
+import argparse
 import io
 import os
 import re
@@ -36,8 +37,8 @@ from verify_tool_app.ui_io import (
     CLRSPC_DISPLAY_RGB,
     IMAGE_EXTENSIONS,
     build_controls as build_io_controls,
+    init_module as init_io,
     handle_io_event,
-    update_clrspc_for_fmt,
     read_io_params,
     get_fmt_from_display,
     get_clrspc_from_display,
@@ -52,6 +53,7 @@ from verify_tool_app.ui_csc import (
     read_params as read_csc_params,
     process as process_csc,
     get_right_preview_image as csc_right_preview,
+    right_preview_mouse_motion as csc_right_preview_mouse_motion,
 )
 
 from verify_tool_app.ui_dci import (
@@ -184,10 +186,14 @@ _last_out_format: int | None = None
 _last_out_frame_size: int = 0
 
 
-def _register_modules():
-    """Explicitly register all available modules."""
-    global REGISTERED_MODULES
-    REGISTERED_MODULES = {
+def _register_modules(modules=None):
+    """Register selected modules.
+
+    Args:
+        modules: Iterable of module tags to register. If None, registers all.
+    """
+    global REGISTERED_MODULES, pipeline_order, pipeline_enabled
+    all_modules = {
         "csc": {
             "tag": "csc",
             "label": CSC_TAB_LABEL,
@@ -195,7 +201,9 @@ def _register_modules():
             "read_params": read_csc_params,
             "process": process_csc,
             "get_right_preview_image": csc_right_preview,
+            "right_preview_mouse_motion": csc_right_preview_mouse_motion,
             "handle_event": handle_csc_event,
+            "init": lambda w: _init_module(w, "csc"),
         },
         "dci": {
             "tag": "dci",
@@ -204,7 +212,9 @@ def _register_modules():
             "read_params": read_dci_params,
             "process": process_dci,
             "get_right_preview_image": dci_right_preview,
+            "right_preview_mouse_motion": None,
             "handle_event": handle_dci_event,
+            "init": lambda w: _init_module(w, "dci"),
         },
         "shp": {
             "tag": "shp",
@@ -213,9 +223,19 @@ def _register_modules():
             "read_params": read_shp_params,
             "process": process_shp,
             "get_right_preview_image": shp_right_preview,
+            "right_preview_mouse_motion": None,
             "handle_event": handle_shp_event,
+            "init": lambda w: _init_module(w, "shp"),
         },
     }
+
+    if modules is not None:
+        selected = set(modules)
+        REGISTERED_MODULES = {tag: all_modules[tag] for tag in selected if tag in all_modules}
+        pipeline_order = [tag for tag in pipeline_order if tag in selected]
+        pipeline_enabled = {tag for tag in pipeline_enabled if tag in selected}
+    else:
+        REGISTERED_MODULES = dict(all_modules)
 
 
 # ------------------------------------------------------------------ #
@@ -224,6 +244,11 @@ def _register_modules():
 
 def _build_pipeline_bar() -> list:
     """Build the left-side vertical pipeline control bar."""
+    tip_map = {
+        "csc": "CSC: 色彩空间转换与BCSH校色",
+        "dci": "DCI: 动态对比度增强",
+        "shp": "SHP: 锐化处理",
+    }
     rows = []
     for tag in pipeline_order:
         mod = REGISTERED_MODULES[tag]
@@ -234,10 +259,13 @@ def _build_pipeline_bar() -> list:
                 default=enabled,
                 key=f"-PIPE-ENABLE-{tag}-",
                 enable_events=True,
-                size=(3, 1),
+                size=(4, 1),
+                tooltip=tip_map.get(tag, f"启用/禁用 {mod['label']} 处理模块"),
             ),
-            sg.Button("▲", key=f"-PIPE-UP-{tag}-", size=(1, 1)),
-            sg.Button("▼", key=f"-PIPE-DOWN-{tag}-", size=(1, 1)),
+            sg.Button("▲", key=f"-PIPE-UP-{tag}-", size=(2, 1),
+                      tooltip="上移此模块（调整Pipeline执行顺序）"),
+            sg.Button("▼", key=f"-PIPE-DOWN-{tag}-", size=(2, 1),
+                      tooltip="下移此模块（调整Pipeline执行顺序）"),
         ])
     return [sg.Frame("Pipeline", rows, key="-PIPELINE-FRAME-")]
 
@@ -299,6 +327,7 @@ def _build_preview_layout() -> list:
                     readonly=True, border_width=0,
                     disabled_readonly_background_color=sg.theme_background_color(),
                     disabled_readonly_text_color=sg.theme_text_color(),
+                    tooltip="当前左预览图像在窗口中的显示尺寸（宽×高）",
                 ),
                 sg.Text("Position", size=(12, 1)),
                 sg.Input(
@@ -306,6 +335,7 @@ def _build_preview_layout() -> list:
                     readonly=True, border_width=0,
                     disabled_readonly_background_color=sg.theme_background_color(),
                     disabled_readonly_text_color=sg.theme_text_color(),
+                    tooltip="鼠标所在像素坐标及像素值信息；按空格键可冻结/解冻",
                 ),
             ],
             [
@@ -315,6 +345,7 @@ def _build_preview_layout() -> list:
                     readonly=True, border_width=0,
                     disabled_readonly_background_color=sg.theme_background_color(),
                     disabled_readonly_text_color=sg.theme_text_color(),
+                    tooltip="输入图像在鼠标位置(R,G,B)像素值",
                 ),
                 sg.Text("Output Pixel", size=(12, 1)),
                 sg.Input(
@@ -322,6 +353,7 @@ def _build_preview_layout() -> list:
                     readonly=True, border_width=0,
                     disabled_readonly_background_color=sg.theme_background_color(),
                     disabled_readonly_text_color=sg.theme_text_color(),
+                    tooltip="处理输出图像在鼠标位置的(R,G,B)像素值",
                 ),
             ],
         ], expand_x=True)],
@@ -329,28 +361,37 @@ def _build_preview_layout() -> list:
             sg.Column([
                 [
                     sg.Frame("Left Preview", [
-                        [sg.Image(key="-LEFT-PREVIEW-", background_color="gray")]
+                        [sg.Image(key="-LEFT-PREVIEW-", background_color="gray",
+                                  tooltip="左预览区：显示Pipeline处理输出图像；鼠标悬停查看像素值，按空格冻结")]
                     ], key="-LEFT-PREVIEW-FRAME-", expand_x=True, expand_y=True),
                 ],
             ], expand_x=True, expand_y=True),
             sg.Column([
                 [
                     sg.Frame("Right Preview", [
-                        [sg.Image(key="-RIGHT-PREVIEW-", background_color="gray")]
+                        [sg.Image(key="-RIGHT-PREVIEW-", background_color="gray",
+                                  tooltip="右预览区：显示当前模块辅助分析图（CSC饱和度/色相图 或 DCI曲线图）；按空格冻结")]
                     ], key="-RIGHT-PREVIEW-FRAME-", expand_x=True, expand_y=True),
                 ],
             ], expand_x=True, expand_y=True),
             sg.Column([
-                [sg.Checkbox("Show Left Input", key="-SHOW-INPUT-", default=False, enable_events=True)],
-                [sg.Button("Save Left Image", key="-SAVE-LEFT-IMAGE-")],
-                [sg.Checkbox("Show Right Input", key="-SHOW-RIGHT-INPUT-", default=False, enable_events=True)],
-                [sg.Button("Save Right Image", key="-SAVE-RIGHT-IMAGE-")],
+                [sg.Checkbox("Show Left Input", key="-SHOW-INPUT-", default=False,
+                             enable_events=True,
+                             tooltip="勾选后在左预览区显示原始输入图像")],
+                [sg.Button("Save Left Image", key="-SAVE-LEFT-IMAGE-",
+                           tooltip="保存左预览区图像到文件")],
+                [sg.Checkbox("Show Right Input", key="-SHOW-RIGHT-INPUT-", default=False,
+                             enable_events=True,
+                             tooltip="勾选后在右预览区显示原始输入图像")],
+                [sg.Button("Save Right Image", key="-SAVE-RIGHT-IMAGE-",
+                           tooltip="保存右预览区图像到文件")],
             ], vertical_alignment="top", pad=(8, 0)),
         ],
         [sg.Input("", key="-STATUS-", text_color="gray", size=(80, 1), readonly=True,
                   border_width=0,
                   disabled_readonly_background_color=sg.theme_background_color(),
-                  disabled_readonly_text_color=sg.theme_text_color())],
+                  disabled_readonly_text_color=sg.theme_text_color(),
+                  tooltip="状态栏：显示当前操作结果和处理信息")],
     ]
 
 
@@ -991,29 +1032,57 @@ def main():
     global _pixel_info_frozen, _mouse_pos, _scale_factor, _current_display_data, _right_scale_factor, _right_display_data, _right_input_data, _right_frozen
     global _left_display_size, _INPUT_IMAGE, _last_out_format, _last_out_frame_size, pipeline_order, pipeline_enabled, _SNAPSHOTS
 
-    _register_modules()
+    # Parse command-line arguments for module selection
+    parser = argparse.ArgumentParser(description="PQ Verify Tool - ISP Pipeline Verification")
+    parser.add_argument("--all", action="store_true", help="register all modules")
+    parser.add_argument("--csc", action="store_true", help="register CSC module")
+    parser.add_argument("--dci", action="store_true", help="register DCI module")
+    parser.add_argument("--shp", action="store_true", help="register SHP module")
+    parser.add_argument("--disable-pipeline", action="store_true", help="hide pipeline bar and dump checkbox")
+    args = parser.parse_args()
+
+    # Determine which modules to register
+    if args.all:
+        _register_modules()  # register all
+    elif any([args.csc, args.dci, args.shp]):
+        selected = []
+        if args.csc:
+            selected.append("csc")
+        if args.dci:
+            selected.append("dci")
+        if args.shp:
+            selected.append("shp")
+        _register_modules(selected)
+    else:
+        _register_modules()  # default: register all
 
     sg.theme("SystemDefault")
 
-    # Build tab layout
-    tab_group = sg.TabGroup([[
-        sg.Tab(IO_TAB_LABEL, build_io_controls()),
-        sg.Tab(CSC_TAB_LABEL, build_csc_controls()),
-        sg.Tab(DCI_TAB_LABEL, build_dci_controls()),
-        sg.Tab(SHP_TAB_LABEL, build_shp_controls()),
-    ]], expand_x=True, key="-TAB-GROUP-")
+    # Build tab layout dynamically based on registered modules
+    tabs = [sg.Tab(IO_TAB_LABEL, build_io_controls())]
+    for tag in pipeline_order:
+        mod = REGISTERED_MODULES[tag]
+        tabs.append(sg.Tab(mod["label"], mod["build_controls"]()))
+    tab_group = sg.TabGroup([tabs], expand_x=True, key="-TAB-GROUP-")
 
     # Build full layout
-    layout = [
-        [
-            tab_group,
-            sg.Column([
-                _build_pipeline_bar(),
-                [sg.Checkbox("dump", key="-DUMP-", default=False)],
-            ], vertical_alignment="top"),
-        ],
-        *_build_preview_layout(),
-    ]
+    if args.disable_pipeline:
+        layout = [
+            [tab_group],
+            *_build_preview_layout(),
+        ]
+    else:
+        layout = [
+            [
+                sg.Column([
+                    _build_pipeline_bar(),
+                    [sg.Checkbox("dump", key="-DUMP-", default=False,
+                                 tooltip="保存各模块处理结果到输出目录")],
+                ], vertical_alignment="top"),
+                tab_group,
+            ],
+            *_build_preview_layout(),
+        ]
     # rows.append([sg.Checkbox("dump", key="-DUMP-", default=False)])
 
     window = sg.Window(
@@ -1048,14 +1117,10 @@ def main():
             window.write_event_value("-LEFT-PREVIEW-RESIZE-", (w, h))
     window["-LEFT-PREVIEW-FRAME-"].Widget.bind("<Configure>", _on_left_frame_resize)
 
-    # Bind slider keyboard for DCI/SHP
-    _bind_sliders(window)
-
-    # Initial colorspace sync
-    _init_clrspc_sync(window)
-
-    # Initial BCSH norm labels
-    _init_bcsh_norm(window)
+    # Initialize registered modules (bind events + norm labels)
+    init_io(window)
+    for tag in pipeline_order:
+        REGISTERED_MODULES[tag]["init"](window)
 
     # Event loop
     while True:
@@ -1215,44 +1280,22 @@ def main():
     window.close()
 
 
-def _init_clrspc_sync(window: sg.Window):
-    """Sync initial colorspace combos to match default format on startup."""
-    from verify_tool_app.ui_io import DEFAULT_FMT_DISPLAY
-    update_clrspc_for_fmt(window, {}, "-IN-CLR-", DEFAULT_FMT_DISPLAY)
-    update_clrspc_for_fmt(window, {}, "-OUT-CLR-", DEFAULT_FMT_DISPLAY)
+def _init_module(window: sg.Window, tag: str):
+    """Initialize a registered module: bind keyboard events and sync norm labels."""
+    from verify_tool_app.ui_helpers import sync_all_norms
 
-
-def _init_bcsh_norm(window: sg.Window):
-    """Initialize BCSH norm labels to default values on startup."""
-    from csc.csc_ui import get_bcsh_norm_value
-    from csc.run_csc import get_default_bcsh_raw_values
-    from verify_tool_app.ui_csc import BCSH_NAMES, ALGO_RK_HW_CSC
-    algo_type = ALGO_RK_HW_CSC
-    defaults = get_default_bcsh_raw_values(algo_type)
-    key_name_map = {
-        "bright": "brightness", "contrast": "contrast",
-        "sat": "saturation", "hue": "hue",
-        "r_gain": "r_gain", "r_offset": "r_offset",
-        "g_gain": "g_gain", "g_offset": "g_offset",
-        "b_gain": "b_gain", "b_offset": "b_offset",
-    }
-    for _, k1, _, k2 in BCSH_NAMES:
-        for k in (k1, k2):
-            config_key = key_name_map.get(k, k)
-            default_val = defaults.get(config_key, 256)
-            norm = get_bcsh_norm_value(k, default_val, algo_type)
-            window[f"-BCSH-{k}-NORM-"].update(value=norm)
-
-
-def _bind_sliders(window: sg.Window):
-    """Bind keyboard events on all module slider/spin widgets."""
-    from verify_tool_app.ui_csc import bind_keyboard_events as bind_csc
-    from verify_tool_app.ui_dci import bind_keyboard_events as bind_dci
-    from verify_tool_app.ui_shp import bind_keyboard_events as bind_shp
-
-    bind_csc(window)
-    bind_dci(window)
-    bind_shp(window)
+    if tag == "csc":
+        from verify_tool_app.ui_csc import bind_keyboard_events, CSC_SLIDER_SPIN_PAIRS
+        bind_keyboard_events(window)
+        sync_all_norms(window, {}, CSC_SLIDER_SPIN_PAIRS)
+    elif tag == "dci":
+        from verify_tool_app.ui_dci import bind_keyboard_events, DCI_SLIDER_SPIN_PAIRS
+        bind_keyboard_events(window)
+        sync_all_norms(window, {}, DCI_SLIDER_SPIN_PAIRS)
+    elif tag == "shp":
+        from verify_tool_app.ui_shp import bind_keyboard_events, SHP_SLIDER_SPIN_PAIRS
+        bind_keyboard_events(window)
+        sync_all_norms(window, {}, SHP_SLIDER_SPIN_PAIRS)
 
 
 if __name__ == "__main__":

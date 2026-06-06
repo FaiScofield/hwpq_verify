@@ -154,32 +154,42 @@ def build_controls() -> list:
     layout = [
         [
             sg.Text("Input File", size=IO_LABEL_SIZE),
-            sg.Input("F:/data/512x428_test_image_many_pattern_nv24.yuv", key="-INPUT-FILE-", size=(46, 1), enable_events=True),
+            sg.Input("F:/data/512x428_test_image_many_pattern_nv24.yuv", key="-INPUT-FILE-", size=(46, 1), enable_events=True,
+                     tooltip="输入YUV/RGB原始数据文件路径；支持拖拽或浏览选择"),
             sg.FileBrowse(size=IO_BUTTON_SIZE),
-            sg.Button("Reload", key="-RELOAD-", size=IO_BUTTON_SIZE),
+            sg.Button("Reload", key="-RELOAD-", size=IO_BUTTON_SIZE,
+                      tooltip="重新加载输入文件并自动推断格式与分辨率"),
         ],
         [
             sg.Text("Output Dir", size=IO_LABEL_SIZE),
-            sg.Input("D:\\RkDefaultDumpData\\", key="-OUTPUT-DIR-", size=(46, 1)),
+            sg.Input("D:\\RkDefaultDumpData\\", key="-OUTPUT-DIR-", size=(46, 1),
+                     tooltip="模块处理dump结果的输出目录"),
             sg.FolderBrowse(size=IO_BUTTON_SIZE),
-            sg.Button("Open Dir", key="-OPEN-DIR-OUTPUT-", size=IO_BUTTON_SIZE),
+            sg.Button("Open Dir", key="-OPEN-DIR-OUTPUT-", size=IO_BUTTON_SIZE,
+                      tooltip="在资源管理器中打开输出目录"),
         ],
         [
             sg.Text("Config File", size=IO_LABEL_SIZE),
-            sg.Input("", key="-CONFIG-PATH-", size=(46, 1)),
+            sg.Input("", key="-CONFIG-PATH-", size=(46, 1),
+                     tooltip="DCI/SHP模块的硬件寄存器配置文件路径"),
             sg.FileBrowse(size=IO_BUTTON_SIZE),
-            sg.Button("Open Dir", key="-OPEN-DIR-CONFIG-", size=IO_BUTTON_SIZE),
+            sg.Button("Open Dir", key="-OPEN-DIR-CONFIG-", size=IO_BUTTON_SIZE,
+                      tooltip="在资源管理器中打开配置文件所在目录"),
         ],
         [sg.HorizontalSeparator()],
         [
             sg.Text("Width", size=(8, 1)),
-            sg.Input("1920", key="-WIDTH-", size=(8, 1), enable_events=True),
+            sg.Input("1920", key="-WIDTH-", size=(8, 1), enable_events=True,
+                     tooltip="图像宽度（像素）"),
             sg.Text("Height", size=(8, 1)),
-            sg.Input("1080", key="-HEIGHT-", size=(8, 1), enable_events=True),
+            sg.Input("1080", key="-HEIGHT-", size=(8, 1), enable_events=True,
+                     tooltip="图像高度（像素）"),
             sg.Text("Frame Num", size=(8, 1)),
-            sg.Input("1", key="-FRAME-NUM-", size=(8, 1), readonly=True),
+            sg.Input("1", key="-FRAME-NUM-", size=(8, 1), readonly=True,
+                     tooltip="YUV文件中包含的总帧数（根据文件尺寸自动计算）"),
             sg.Text("Frame Idx", size=(8, 1)),
-            sg.Input("0", key="-FRAME-IDX-", size=(8, 1)),
+            sg.Input("0", key="-FRAME-IDX-", size=(8, 1),
+                     tooltip="读取第几帧（从0开始）"),
         ],
         [
             sg.Text("Input Format", size=IO_FMT_LABEL_SIZE),
@@ -190,6 +200,7 @@ def build_controls() -> list:
                 readonly=True,
                 size=IO_FMT_COMBO_SIZE,
                 enable_events=True,
+                tooltip="输入数据的像素格式（RGB/YUV、8bit/10bit/10Packed等）",
             ),
             sg.Text("Input Colorsp", size=IO_CLR_LABEL_SIZE),
             sg.Combo(
@@ -199,6 +210,7 @@ def build_controls() -> list:
                 readonly=True,
                 size=IO_CLR_COMBO_SIZE,
                 enable_events=True,
+                tooltip="输入数据的色彩空间（RGB_Limited/Full 或 BT601/709/2020）",
             ),
         ],
         [
@@ -210,6 +222,7 @@ def build_controls() -> list:
                 readonly=True,
                 size=IO_FMT_COMBO_SIZE,
                 enable_events=True,
+                tooltip="期望输出的像素格式",
             ),
             sg.Text("Output Colorsp", size=IO_CLR_LABEL_SIZE),
             sg.Combo(
@@ -219,6 +232,7 @@ def build_controls() -> list:
                 readonly=True,
                 size=IO_CLR_COMBO_SIZE,
                 enable_events=True,
+                tooltip="期望输出的色彩空间",
             ),
         ],
         [
@@ -227,6 +241,7 @@ def build_controls() -> list:
                 key="-USE-SET-COLOR-",
                 default=False,
                 enable_events=True,
+                tooltip="启用后使用自定义纯色代替文件作为输入图像数据",
             ),
             sg.Input(
                 "128 128 128",
@@ -235,6 +250,7 @@ def build_controls() -> list:
                 disabled=True,
                 enable_events=True,
                 disabled_readonly_background_color=sg.theme_background_color(),
+                tooltip="自定义RGB纯色值，三个整数用空格分隔（如 128 128 128）",
             ),
             sg.Text("Stream Depth"),
             sg.Combo(
@@ -242,6 +258,7 @@ def build_controls() -> list:
                 default_value="10bit",
                 key="-STREAM-DEPTH-",
                 readonly=True,
+                tooltip="Pipeline数据流精度：8bit输入自动左移提升到10bit；10bit输出可选降位到8bit",
             ),
         ],
     ]
@@ -412,3 +429,9 @@ def _guess_input_params(values: dict, window: sg.Window):
         values["-WIDTH-"] = m_res.group(1)
         window["-HEIGHT-"].update(value=m_res.group(2))
         values["-HEIGHT-"] = m_res.group(2)
+
+
+def init_module(window: sg.Window):
+    """Initialize I/O tab: sync colorspace combos to match default format."""
+    update_clrspc_for_fmt(window, {}, "-IN-CLR-", DEFAULT_FMT_DISPLAY)
+    update_clrspc_for_fmt(window, {}, "-OUT-CLR-", DEFAULT_FMT_DISPLAY)

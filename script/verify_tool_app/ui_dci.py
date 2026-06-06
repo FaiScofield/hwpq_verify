@@ -241,8 +241,10 @@ def _build_numeric_control_row(
     max_value,
     resolution: float = 1.0,
     label_size: tuple = (22, 1),
+    tooltip: str = "",
+    norm_key: str = None,
 ) -> list:
-    """Build a synchronized spinbox + slider + reset button control row."""
+    """Build a synchronized spinbox + slider + norm text + reset button control row."""
     steps = int(round((max_value - min_value) / resolution))
     spin_values = [
         round(min_value + i * resolution, 1 if resolution < 1 else 0)
@@ -253,7 +255,7 @@ def _build_numeric_control_row(
 
     reset_key = f"{slider_key}-RESET-"
 
-    return [
+    row = [
         sg.Text(label, size=label_size),
         sg.Slider(
             range=(min_value, max_value),
@@ -264,6 +266,7 @@ def _build_numeric_control_row(
             key=slider_key,
             enable_events=True,
             disable_number_display=True,
+            tooltip=tooltip,
         ),
         sg.Spin(
             spin_values,
@@ -271,9 +274,16 @@ def _build_numeric_control_row(
             size=(8, 1),
             key=spin_key,
             enable_events=True,
+            tooltip=tooltip,
         ),
-        sg.Button("Reset", key=reset_key, size=(6, 1)),
     ]
+    if norm_key is not None:
+        row.append(sg.Text("", size=(8, 1), key=norm_key, justification="left"))
+    row.append(
+        sg.Button("Reset", key=reset_key, size=(6, 1),
+                  tooltip=f"重置{label}为默认值"),
+    )
+    return row
 
 
 def build_controls() -> list:
@@ -282,25 +292,31 @@ def build_controls() -> list:
     return [
         [
             sg.Text("DCI EXE", size=(10, 1)),
-            sg.Input(default_exe, key="-DCI-EXE-", size=(46, 1)),
+            sg.Input(default_exe, key="-DCI-EXE-", size=(46, 1),
+                     tooltip="DCI硬件模块可执行文件路径"),
             sg.FileBrowse(
                 file_types=(("Executable", "*.exe"),),
                 target="-DCI-EXE-",
                 size=(8, 1),
             ),
-            sg.Button("Open Dir", key="-DCI-OPEN-EXE-DIR-", size=(8, 1)),
+            sg.Button("Open Dir", key="-DCI-OPEN-EXE-DIR-", size=(8, 1),
+                      tooltip="在资源管理器中打开DCI EXE所在目录"),
         ],
         [
             sg.Text("DCI Audit Dir", size=(10, 1)),
-            sg.Input("D:\\RkDefaultDumpData\\dci_audit_smoke", key="-DCI-AUDIT-DIR-", size=(46, 1)),
+            sg.Input("D:\\RkDefaultDumpData\\dci_audit_smoke", key="-DCI-AUDIT-DIR-", size=(46, 1),
+                     tooltip="DCI审计参考数据目录"),
             sg.FolderBrowse(target="-DCI-AUDIT-DIR-", size=(8, 1)),
-            sg.Button("Open Dir", key="-DCI-OPEN-AUDIT-DIR-", size=(8, 1)),
+            sg.Button("Open Dir", key="-DCI-OPEN-AUDIT-DIR-", size=(8, 1),
+                      tooltip="在资源管理器中打开DCI审计目录"),
         ],
         [sg.HorizontalSeparator()],
         [
-            sg.Checkbox("Enable Audit", default=False, key="-AUDIT-ENABLE-"),
+            sg.Checkbox("Enable Audit", default=False, key="-AUDIT-ENABLE-",
+                        tooltip="启用DCI处理结果审计（与参考数据对比）"),
             sg.Text("Tag", size=(4, 1)),
-            sg.Input("ui_live", size=(20, 1), key="-TAG-"),
+            sg.Input("ui_live", size=(20, 1), key="-TAG-",
+                     tooltip="审计标签名，用于区分不同测试用例"),
             sg.Text("Show Median Result", size=(14, 1)),
             sg.Combo(
                 ["None", "Global_CF", "Global_HE", "Global_CF_HE", "Global_BWS", "Global_All", "Local_CLAHE"],
@@ -309,22 +325,36 @@ def build_controls() -> list:
                 readonly=True,
                 size=(12, 1),
                 enable_events=True,
+                tooltip="右预览区显示的DCI中间结果类型",
             ),
         ],
         [
             sg.Text("Node Mask", size=(10, 1)),
-            sg.Input("0", size=(8, 1), key="-NODEMASK-"),
+            sg.Input("0", size=(8, 1), key="-NODEMASK-",
+                     tooltip="DCI节点掩码（控制哪些节点参与处理）"),
             sg.Text("Export Mask", size=(11, 1)),
-            sg.Input("0", size=(8, 1), key="-EXPORTMASK-"),
+            sg.Input("0", size=(8, 1), key="-EXPORTMASK-",
+                     tooltip="DCI导出掩码（控制导出哪些中间结果）"),
             sg.Text("Debug Dump Mask", size=(14, 1)),
-            sg.Input("0", size=(8, 1), key="-DUMPMASK-"),
+            sg.Input("0", size=(8, 1), key="-DUMPMASK-",
+                     tooltip="DCI调试dump掩码（控制dump哪些调试数据）"),
         ],
         [sg.HorizontalSeparator()],
-        _build_numeric_control_row("CF/HE Ratio", "-CFHE-", "-CFHE-SLIDER-", 32, 0, 64),
-        _build_numeric_control_row("BS Set Point", "-BS-", "-BS-SLIDER-", 80, 0, 255),
-        _build_numeric_control_row("WS Set Point", "-WS-", "-WS-SLIDER-", 80, 0, 255),
-        _build_numeric_control_row("CLAHE Local Ratio", "-CLAHE-R-", "-CLAHE-R-SLIDER-", 19, 0, 32),
-        _build_numeric_control_row("CLAHE Clip Value", "-CLAHE-C-", "-CLAHE-C-SLIDER-", 1.0, 0.0, 3.0, resolution=0.1),
+        _build_numeric_control_row("CF/HE Ratio", "-CFHE-", "-CFHE-SLIDER-", 32, 0, 64,
+                                   norm_key="-CFHE-NORM-",
+                                   tooltip="CF/HE比例控制（0~64，默认32）"),
+        _build_numeric_control_row("BS Set Point", "-BS-", "-BS-SLIDER-", 80, 0, 255,
+                                   norm_key="-BS-NORM-",
+                                   tooltip="黑电平设置点（0~255，默认80）"),
+        _build_numeric_control_row("WS Set Point", "-WS-", "-WS-SLIDER-", 80, 0, 255,
+                                   norm_key="-WS-NORM-",
+                                   tooltip="白电平设置点（0~255，默认80）"),
+        _build_numeric_control_row("CLAHE Local Ratio", "-CLAHE-R-", "-CLAHE-R-SLIDER-", 19, 0, 32,
+                                   norm_key="-CLAHE-R-NORM-",
+                                   tooltip="CLAHE局部对比度比例（0~32，默认19）"),
+        _build_numeric_control_row("CLAHE Clip Value", "-CLAHE-C-", "-CLAHE-C-SLIDER-", 1.0, 0.0, 3.0, resolution=0.1,
+                                   norm_key="-CLAHE-C-NORM-",
+                                   tooltip="CLAHE裁剪阈值（0.0~3.0，默认1.0）"),
     ]
 
 
@@ -333,11 +363,26 @@ def build_controls() -> list:
 # ------------------------------------------------------------------ #
 
 DCI_SLIDER_SPIN_PAIRS = [
-    SliderSpinConfig("-CFHE-", "-CFHE-SLIDER-", 0, 64, 32, 1),
-    SliderSpinConfig("-BS-", "-BS-SLIDER-", 0, 255, 80, 1),
-    SliderSpinConfig("-WS-", "-WS-SLIDER-", 0, 255, 80, 1),
-    SliderSpinConfig("-CLAHE-R-", "-CLAHE-R-SLIDER-", 0, 32, 19, 1),
-    SliderSpinConfig("-CLAHE-C-", "-CLAHE-C-SLIDER-", 0.0, 3.0, 1.0, 0.1),
+    SliderSpinConfig("-CFHE-", "-CFHE-SLIDER-", 0, 64, 32, 1,
+                     norm_key="-CFHE-NORM-",
+                     norm_func=lambda v, _: f"{v/64:.2f}",
+                     reset_key="-CFHE-SLIDER--RESET-"),
+    SliderSpinConfig("-BS-", "-BS-SLIDER-", 0, 255, 80, 1,
+                     norm_key="-BS-NORM-",
+                     norm_func=lambda v, _: f"{v/255:.3f}",
+                     reset_key="-BS-SLIDER--RESET-"),
+    SliderSpinConfig("-WS-", "-WS-SLIDER-", 0, 255, 80, 1,
+                     norm_key="-WS-NORM-",
+                     norm_func=lambda v, _: f"{v/255:.3f}",
+                     reset_key="-WS-SLIDER--RESET-"),
+    SliderSpinConfig("-CLAHE-R-", "-CLAHE-R-SLIDER-", 0, 32, 19, 1,
+                     norm_key="-CLAHE-R-NORM-",
+                     norm_func=lambda v, _: f"{v/32:.3f}",
+                     reset_key="-CLAHE-R-SLIDER--RESET-"),
+    SliderSpinConfig("-CLAHE-C-", "-CLAHE-C-SLIDER-", 0.0, 3.0, 1.0, 0.1,
+                     norm_key="-CLAHE-C-NORM-",
+                     norm_func=lambda v, _: f"{v:.1f}",
+                     reset_key="-CLAHE-C-SLIDER--RESET-"),
 ]
 
 
@@ -350,17 +395,11 @@ def handle_dci_event(event: str, values: dict, window: sg.Window) -> bool:
     # Slider/spin sync
     for pair in DCI_SLIDER_SPIN_PAIRS:
         if event == pair.slider_key:
-            sync_slider_to_spin(window, values, pair.slider_key, pair.spin_key, pair.step)
+            sync_slider_to_spin(window, values, pair.slider_key, pair.spin_key, pair.step, pair)
             return True
         if event == pair.spin_key:
-            sync_spin_to_slider(window, values, pair.spin_key, pair.slider_key)
+            sync_spin_to_slider(window, values, pair.spin_key, pair.slider_key, pair)
             return True
-
-    # Reset buttons
-    if event.endswith("-RESET-"):
-        slider_key = event.replace("-RESET-", "")
-        _reset_numeric_control(window, slider_key)
-        return True
 
     # Open Dir buttons
     if event in ("-DCI-OPEN-EXE-DIR-", "-DCI-OPEN-AUDIT-DIR-"):
@@ -377,15 +416,6 @@ def handle_dci_event(event: str, values: dict, window: sg.Window) -> bool:
         return True
 
     return False
-
-
-def _reset_numeric_control(window: sg.Window, slider_key: str):
-    """Reset a slider (and its spin) to the default value defined in the pair."""
-    for pair in DCI_SLIDER_SPIN_PAIRS:
-        if pair.slider_key == slider_key:
-            window[pair.slider_key].update(value=pair.def_val)
-            window[pair.spin_key].update(value=pair.def_val)
-            break
 
 
 def _open_dci_dir(values: dict, event: str, window: sg.Window):

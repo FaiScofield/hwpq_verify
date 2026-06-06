@@ -18,6 +18,7 @@ from verify_tool_app.ui_helpers import (
     handle_keyboard_event,
     sync_slider_to_spin,
     sync_spin_to_slider,
+    sync_all_norms,
 )
 
 from get_csc_coef_hsv import (
@@ -79,15 +80,22 @@ BCSH_NAMES = [
 
 # SliderSpinConfig pairs generated from BCSH_NAMES
 CSC_SLIDER_SPIN_PAIRS: list[SliderSpinConfig] = []
-_BCSH_KEY_LOOKUP: dict[str, str] = {}  # slider_key -> short name for norm sync
 for _label1, _key1, _label2, _key2 in BCSH_NAMES:
     for _k in (_key1, _key2):
         pair = SliderSpinConfig(
-            f"-BCSH-{_k}-SPIN-", f"-BCSH-{_k}-", 0, 511, 256
+            spin_key=f"-BCSH-{_k}-SPIN-",
+            slider_key=f"-BCSH-{_k}-",
+            min_val=0, max_val=511, def_val=256,
+            norm_key=f"-BCSH-{_k}-NORM-",
+            norm_func=lambda v, vals, k=_k: _bcsh_norm_func(k, v, vals),
         )
         CSC_SLIDER_SPIN_PAIRS.append(pair)
-        _BCSH_KEY_LOOKUP[pair.slider_key] = _k
-        _BCSH_KEY_LOOKUP[pair.spin_key] = _k
+
+
+def _bcsh_norm_func(key: str, raw_val: float, values: dict) -> str:
+    """Compute normalized BCSH display string from raw slider value."""
+    algo_type = values.get("-BCSH-ALGO-TYPE-", ALGO_RK_HW_CSC)
+    return get_bcsh_norm_value(key, int(raw_val), algo_type)
 
 
 # ------------------------------------------------------------------ #
@@ -250,6 +258,18 @@ def _build_colormap_with_axis(img_eff, title, xlabel, ylabel):
 
 def _build_bcsh_layout() -> list:
     """Build the BCSH parameter control rows."""
+    tooltips = {
+        "bright": "亮度调整（0~511，256为原始值）",
+        "contrast": "对比度调整（0~511，256为原始值）",
+        "sat": "饱和度调整（0~511，256为原始值）",
+        "hue": "色相调整（0~511，256为原始值，对应0度）",
+        "r_gain": "红色通道增益（0~511，256为原始值）",
+        "r_offset": "红色通道偏移（0~511，256为零偏移）",
+        "g_gain": "绿色通道增益（0~511，256为原始值）",
+        "g_offset": "绿色通道偏移（0~511，256为零偏移）",
+        "b_gain": "蓝色通道增益（0~511，256为原始值）",
+        "b_offset": "蓝色通道偏移（0~511，256为零偏移）",
+    }
     rows = []
     for n1, k1, n2, k2 in BCSH_NAMES:
         rows.append([
@@ -258,10 +278,12 @@ def _build_bcsh_layout() -> list:
                 range=(0, 511), default_value=256, orientation="h",
                 size=(15, 15), key=f"-BCSH-{k1}-", enable_events=True,
                 disable_number_display=True,
+                tooltip=tooltips.get(k1, f"调整{k1}参数（0~511）"),
             ),
             sg.Spin(
                 [str(i) for i in range(512)], initial_value="256",
                 key=f"-BCSH-{k1}-SPIN-", size=(5, 1),
+                tooltip=tooltips.get(k1, f"直接输入{k1}数值（0~511）"),
             ),
             sg.Text("", size=(8, 1), key=f"-BCSH-{k1}-NORM-", justification="left"),
             sg.Text(n2, size=(10, 1)),
@@ -269,10 +291,12 @@ def _build_bcsh_layout() -> list:
                 range=(0, 511), default_value=256, orientation="h",
                 size=(15, 15), key=f"-BCSH-{k2}-", enable_events=True,
                 disable_number_display=True,
+                tooltip=tooltips.get(k2, f"调整{k2}参数（0~511）"),
             ),
             sg.Spin(
                 [str(i) for i in range(512)], initial_value="256",
                 key=f"-BCSH-{k2}-SPIN-", size=(5, 1),
+                tooltip=tooltips.get(k2, f"直接输入{k2}数值（0~511）"),
             ),
             sg.Text("", size=(8, 1), key=f"-BCSH-{k2}-NORM-", justification="left"),
         ])
@@ -288,7 +312,8 @@ def _build_sathue_frame() -> list:
                 [
                     [
                         sg.Checkbox(
-                            "Show Color Map", key="-SAT-SHOW-MAP-", size=(12, 1), default=False, enable_events=True
+                            "Show Color Map", key="-SAT-SHOW-MAP-", size=(12, 1), default=False, enable_events=True,
+                            tooltip="启用后右预览区显示饱和度/色相色度图"
                         ),
                         sg.Combo(
                             ["YUV", "RGB"],
@@ -297,11 +322,13 @@ def _build_sathue_frame() -> list:
                             readonly=True,
                             size=(12, 1),
                             enable_events=True,
+                            tooltip="色度图色彩空间：YUV模式或RGB模式",
                         ),
                     ],
                     [
                         sg.Checkbox(
-                            "Set Src Color", key="-SAT-SET-COLOR-", size=(12, 1), default=False, enable_events=True
+                            "Set Src Color", key="-SAT-SET-COLOR-", size=(12, 1), default=False, enable_events=True,
+                            tooltip="启用在色度图上点击选色，将所选色值设为CSC输入颜色"
                         ),
                         sg.Input(
                             "",
@@ -309,6 +336,7 @@ def _build_sathue_frame() -> list:
                             size=(12, 1),
                             disabled=True,
                             disabled_readonly_background_color=sg.theme_background_color(),
+                            tooltip="当前色度图选中色值（Y,U,V 或 R,G,B）",
                         ),
                     ],
                     [
@@ -321,8 +349,10 @@ def _build_sathue_frame() -> list:
                             key="-SAT-LUMA-",
                             enable_events=True,
                             disable_number_display=True,
+                            tooltip="色度图的亮度/明度值（0~255）",
                         ),
-                        sg.Spin([str(i) for i in range(256)], initial_value="204", key="-SAT-LUMA-SPIN-", size=(5, 1)),
+                        sg.Spin([str(i) for i in range(256)], initial_value="204", key="-SAT-LUMA-SPIN-", size=(5, 1),
+                                tooltip="直接输入亮度/明度值（0~255）"),
                     ],
                 ],
                 expand_x=True,
@@ -365,20 +395,24 @@ def build_controls() -> list:
                 ALGO_TYPE_OPTIONS, default_value=ALGO_RK_HW_CSC,
                 key="-BCSH-ALGO-TYPE-", readonly=True,
                 enable_events=True,
+                tooltip="CSC算法类型：RK_HW_CSC 或 SW_CSC",
             ),
             sg.Text("Precision"),
             sg.Combo(
                 [str(v) for v in PRECISION_VALUES], default_value="10",
                 key="-PRECISION-", readonly=True,
                 enable_events=True,
+                tooltip="CSC计算精度（bit数，越大越精确）",
             ),
             sg.Text("Channel Swap (VOP)"),
             sg.Combo(
                 CHANNEL_SWAP_TYPES, default_value="None",
                 key="-CHANNEL-SWAP-", readonly=True,
                 enable_events=True,
+                tooltip="VOP通道交换模式：None=不交换，VOP=UV交换",
             ),
-            sg.Button("Reset BCSH", key="-RESET-BCSH-"),
+            sg.Button("Reset BCSH", key="-RESET-BCSH-",
+                      tooltip="将所有BCSH参数重置为默认值256"),
         ],
     ]
     csc_config_rows.extend(_build_bcsh_layout())
@@ -405,10 +439,8 @@ def build_controls() -> list:
 
 def handle_csc_event(event: str, values: dict, window: sg.Window) -> bool:
     """Handle CSC-specific events. Returns True if consumed."""
-    # Keyboard suffix events via shared handler
+    # Keyboard suffix events + reset button clicks via shared handler
     if handle_keyboard_event(event, values, window, CSC_SLIDER_SPIN_PAIRS):
-        # After keyboard step/commit, sync norm labels
-        _sync_bcsh_norms_all(window, values)
         return True
 
     # SAT-LUMA keyboard events (single special pair)
@@ -422,12 +454,10 @@ def handle_csc_event(event: str, values: dict, window: sg.Window) -> bool:
     # BCSH slider/spin direct sync
     for pair in CSC_SLIDER_SPIN_PAIRS:
         if event == pair.slider_key:
-            sync_slider_to_spin(window, values, pair.slider_key, pair.spin_key, pair.step)
-            _sync_bcsh_norm(window, values, _BCSH_KEY_LOOKUP[pair.slider_key])
+            sync_slider_to_spin(window, values, pair.slider_key, pair.spin_key, pair.step, pair)
             return True
         if event == pair.spin_key:
-            sync_spin_to_slider(window, values, pair.spin_key, pair.slider_key)
-            _sync_bcsh_norm(window, values, _BCSH_KEY_LOOKUP[pair.spin_key])
+            sync_spin_to_slider(window, values, pair.spin_key, pair.slider_key, pair)
             return True
 
     if event == "-RESET-BCSH-":
@@ -462,21 +492,6 @@ def handle_csc_event(event: str, values: dict, window: sg.Window) -> bool:
 _current_algo_type = ALGO_RK_HW_CSC
 
 
-def _sync_bcsh_norm(window: sg.Window, values: dict, key: str):
-    """Update a single BCSH norm label based on current slider value."""
-    algo_type = values.get("-BCSH-ALGO-TYPE-", ALGO_RK_HW_CSC)
-    val = int(values.get(f"-BCSH-{key}-", 256))
-    norm = get_bcsh_norm_value(key, val, algo_type)
-    window[f"-BCSH-{key}-NORM-"].update(value=norm)
-
-
-def _sync_bcsh_norms_all(window: sg.Window, values: dict):
-    """Update all BCSH norm labels."""
-    for _, k1, _, k2 in BCSH_NAMES:
-        for k in (k1, k2):
-            _sync_bcsh_norm(window, values, k)
-
-
 def _handle_algo_type_switch(window: sg.Window, values: dict):
     """Handle algo type switch and remap RGB gain values."""
     global _current_algo_type
@@ -488,17 +503,11 @@ def _handle_algo_type_switch(window: sg.Window, values: dict):
         remapped = remap_rgb_gain_value_for_algo_switch(current_value, old_algo_type, new_algo_type)
         window[slider_key].update(value=remapped)
         window[f"-BCSH-{gain_key}-SPIN-"].update(value=str(remapped))
-        norm = get_bcsh_norm_value(gain_key, remapped, new_algo_type)
-        window[f"-BCSH-{gain_key}-NORM-"].update(value=norm)
         values[slider_key] = remapped
         values[f"-BCSH-{gain_key}-SPIN-"] = str(remapped)
-    # Update all norm labels for the new algo type
-    for _, k1, _, k2 in BCSH_NAMES:
-        for k in (k1, k2):
-            raw_val = int(values[f"-BCSH-{k}-"])
-            norm = get_bcsh_norm_value(k, raw_val, new_algo_type)
-            window[f"-BCSH-{k}-NORM-"].update(value=norm)
     _current_algo_type = new_algo_type
+    # Refresh all norm labels for the new algo type
+    sync_all_norms(window, values, CSC_SLIDER_SPIN_PAIRS)
 
 
 def _sync_sathue_slider_spin(window: sg.Window, values: dict, suffix: str,
@@ -534,8 +543,8 @@ def _reset_bcsh(window: sg.Window, values: dict = None):
         default_val = defaults.get(config_key, 256)
         window[f"-BCSH-{ui_key}-"].update(value=default_val)
         window[f"-BCSH-{ui_key}-SPIN-"].update(value=str(default_val))
-        norm = get_bcsh_norm_value(ui_key, default_val, algo_type)
-        window[f"-BCSH-{ui_key}-NORM-"].update(value=norm)
+    # Refresh all norm labels
+    sync_all_norms(window, values, CSC_SLIDER_SPIN_PAIRS)
 
 
 # ------------------------------------------------------------------ #
@@ -638,6 +647,9 @@ def get_right_preview_image(snapshot, params: dict):
     full_img, _ = _build_colormap_with_axis(img_eff, title, xlabel, ylabel)
     return np.array(full_img)
 
+def right_preview_mouse_motion():
+    # todo
+    return None
 
 # ------------------------------------------------------------------ #
 # Keyboard bindings                                                  #

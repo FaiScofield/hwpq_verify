@@ -1,9 +1,14 @@
 """
 Shared slider+spin keyboard binding and event dispatch utilities.
+
+Supports optional extensions per pair:
+  - norm_key + norm_func: auto-display a normalized value on a Text widget.
+  - reset_key: auto-handle reset button click to restore def_val.
 """
 
 from __future__ import annotations
 from collections import namedtuple
+from typing import Callable
 
 import PySimpleGUI as sg
 
@@ -13,9 +18,16 @@ import PySimpleGUI as sg
 
 SliderSpinConfig = namedtuple(
     "SliderSpinConfig",
-    ["spin_key", "slider_key", "min_val", "max_val", "def_val", "step"],
-    defaults=(None, 1),
+    [
+        "spin_key", "slider_key", "min_val", "max_val", "def_val", "step",
+        "norm_key", "norm_func", "reset_key",
+    ],
+    defaults=(1, None, None, None),
 )
+# norm_func signature: Callable[[float, dict], str]
+#   - arg0: current raw slider value
+#   - arg1: window values dict (for reading context like algo_type combo)
+#   - returns: string to display in norm_key Text widget
 
 # ------------------------------------------------------------------ #
 # Keyboard binding                                                   #
@@ -62,10 +74,22 @@ def handle_keyboard_event(
     window: sg.Window,
     pairs: list[SliderSpinConfig],
 ) -> bool:
-    """Handle +LEFT/+RIGHT/+STEP/+ENTER suffix events for slider/spin pairs.
+    """Handle +LEFT/+RIGHT/+STEP/+ENTER suffix events and reset button clicks.
 
     Returns True if the event was consumed, False otherwise.
     """
+    # Reset button clicks
+    reset_map = {p.reset_key: p for p in pairs if p.reset_key}
+    if event in reset_map:
+        pair = reset_map[event]
+        window[pair.slider_key].update(value=pair.def_val)
+        spin_display = str(pair.def_val) if pair.step < 1 else int(pair.def_val)
+        window[pair.spin_key].update(value=spin_display)
+        values[pair.slider_key] = pair.def_val
+        values[pair.spin_key] = spin_display
+        _sync_norm(window, values, pair)
+        return True
+
     if "+" not in event:
         return False
 
@@ -104,6 +128,7 @@ def _step_slider(
     window[config.spin_key].update(value=spin_display)
     values[slider_key] = val
     values[config.spin_key] = spin_display
+    _sync_norm(window, values, config)
 
 
 def _commit_spin(
@@ -121,7 +146,30 @@ def _commit_spin(
     if config.step >= 1:
         val = int(round(val))
     window[config.slider_key].update(value=val)
-    values[slider_key] = val
+    values[config.slider_key] = val
+    _sync_norm(window, values, config)
+
+
+# ------------------------------------------------------------------ #
+# Norm sync helpers                                                  #
+# ------------------------------------------------------------------ #
+
+def _sync_norm(window: sg.Window, values: dict, config: SliderSpinConfig):
+    """Update norm label Text widget if norm_key and norm_func are configured."""
+    if config.norm_key is None or config.norm_func is None:
+        return
+    raw_val = values.get(config.slider_key, config.def_val)
+    try:
+        norm_val = config.norm_func(float(raw_val), values)
+    except Exception:
+        return
+    window[config.norm_key].update(value=norm_val)
+
+
+def sync_all_norms(window: sg.Window, values: dict, pairs: list[SliderSpinConfig]):
+    """Refresh all norm labels for the given pairs."""
+    for pair in pairs:
+        _sync_norm(window, values, pair)
 
 
 # ------------------------------------------------------------------ #
@@ -129,22 +177,28 @@ def _commit_spin(
 # ------------------------------------------------------------------ #
 
 def sync_slider_to_spin(window: sg.Window, values: dict,
-                        slider_key: str, spin_key: str, step: float = 1.0):
-    """When slider value changes directly (drag), update spinbox."""
+                        slider_key: str, spin_key: str, step: float = 1.0,
+                        config: SliderSpinConfig = None):
+    """When slider value changes directly (drag), update spinbox and optional norm."""
     cur = values.get(slider_key, 0)
     if step >= 1:
         cur = int(round(float(cur)))
     display_val = str(cur) if step < 1 else cur
     window[spin_key].update(value=display_val)
     values[spin_key] = display_val
+    if config is not None:
+        _sync_norm(window, values, config)
 
 
 def sync_spin_to_slider(window: sg.Window, values: dict,
-                        spin_key: str, slider_key: str):
-    """When spin value changes directly, update slider."""
+                        spin_key: str, slider_key: str,
+                        config: SliderSpinConfig = None):
+    """When spin value changes directly, update slider and optional norm."""
     try:
         val = float(values.get(spin_key, 0))
     except (ValueError, TypeError):
         return
     window[slider_key].update(value=val)
     values[slider_key] = val
+    if config is not None:
+        _sync_norm(window, values, config)
