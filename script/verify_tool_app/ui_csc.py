@@ -547,9 +547,10 @@ def read_params(values: dict) -> dict:
     params = {}
     for _, k1, _, k2 in BCSH_NAMES:
         for k in (k1, k2):
+            slider_key = f"-BCSH-{k}-"
             try:
-                params[k] = int(values.get(f"-BCSH-{k}-SPIN-", "256"))
-            except ValueError:
+                params[k] = int(values.get(slider_key, 256))
+            except (ValueError, TypeError):
                 params[k] = BCSH_DEFAULT.get(k, 256)
     params["algo_type"] = values.get("-BCSH-ALGO-TYPE-", ALGO_RK_HW_CSC)
     try:
@@ -558,7 +559,7 @@ def read_params(values: dict) -> dict:
         params["precision"] = 10
 
     # Sat/Hue params (hue/sat from BCSH)
-    params["sat_luma"] = int(values.get("-SAT-LUMA-", "204"))
+    params["sat_luma"] = int(float(values.get("-SAT-LUMA-", "204")))
     params["sat_show_map"] = values.get("-SAT-SHOW-MAP-", False)
     params["bcsh_hue"] = params.get("hue", 256)
     params["bcsh_sat"] = params.get("sat", 256)

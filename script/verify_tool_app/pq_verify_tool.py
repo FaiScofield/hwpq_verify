@@ -284,6 +284,7 @@ _right_input_data = None      # (planar, fmt) input data before right-side proce
 _right_frozen = False         # independent freeze for right preview
 _right_mouse_pos = None
 _left_display_size = (0, 0)   # (w, h) of the displayed left preview image in pixels
+_last_left_frame_size = (0, 0)  # last Frame size used for re-render throttle
 
 
 def _build_preview_layout() -> list:
@@ -404,6 +405,20 @@ def _update_status(window: sg.Window, text: str, color: str = "gray"):
         window["-STATUS-"].Widget.configure(foreground=color)
     except Exception:
         pass
+
+
+def _maybe_render_left_on_resize(window: sg.Window, fw: int, fh: int) -> bool:
+    """Re-render left preview if frame size changed significantly. Returns True if re-rendered."""
+    global _last_left_frame_size
+    last_w, last_h = _last_left_frame_size
+    if abs(fw - last_w) < 15 and abs(fh - last_h) < 15:
+        return False
+    _last_left_frame_size = (fw, fh)
+    if _current_display_data is not None:
+        planar, fmt = _current_display_data
+        _update_left_preview(window, planar, fmt)
+        return True
+    return False
 
 
 def _update_left_preview(window: sg.Window, planar: np.ndarray, fmt: int, tag: str = ""):
@@ -1025,6 +1040,14 @@ def main():
     window["-RIGHT-PREVIEW-"].bind("<Leave>", "+LEAVE")
     window["-RIGHT-PREVIEW-"].Widget.bind("<space>", lambda e: window.write_event_value("-RIGHT-PREVIEW-SPACE-", None))
 
+    # Bind <Configure> on preview FRAMES (not Image, which doesn't expand)
+    def _on_left_frame_resize(e):
+        w = e.width
+        h = e.height
+        if w > 1 and h > 1:
+            window.write_event_value("-LEFT-PREVIEW-RESIZE-", (w, h))
+    window["-LEFT-PREVIEW-FRAME-"].Widget.bind("<Configure>", _on_left_frame_resize)
+
     # Bind slider keyboard for DCI/SHP
     _bind_sliders(window)
 
@@ -1091,6 +1114,14 @@ def main():
         if event == "-RIGHT-PREVIEW-+LEAVE":
             if not _right_frozen:
                 _clear_pixel_info(window)
+            continue
+
+        # Re-render left preview on frame resize (throttled by 15px)
+        if event == "-LEFT-PREVIEW-RESIZE-":
+            fw, fh = values[event]
+            if _maybe_render_left_on_resize(window, fw, fh):
+                pass  # printed inside _maybe_render_left_on_resize
+            print(f"[resize] Left preview frame: {fw}x{fh}")
             continue
 
         # Space to freeze/unfreeze pixel info — independent per preview

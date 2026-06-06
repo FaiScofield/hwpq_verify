@@ -100,7 +100,10 @@ def _step_slider(
     if config.step >= 1:
         val = int(round(val))
     window[slider_key].update(value=val)
-    window[config.spin_key].update(value=str(val) if config.step < 1 else val)
+    spin_display = str(val) if config.step < 1 else val
+    window[config.spin_key].update(value=spin_display)
+    values[slider_key] = val
+    values[config.spin_key] = spin_display
 
 
 def _commit_spin(
@@ -118,6 +121,7 @@ def _commit_spin(
     if config.step >= 1:
         val = int(round(val))
     window[config.slider_key].update(value=val)
+    values[slider_key] = val
 
 
 # ------------------------------------------------------------------ #
@@ -130,7 +134,9 @@ def sync_slider_to_spin(window: sg.Window, values: dict,
     cur = values.get(slider_key, 0)
     if step >= 1:
         cur = int(round(float(cur)))
-    window[spin_key].update(value=str(cur) if step < 1 else cur)
+    display_val = str(cur) if step < 1 else cur
+    window[spin_key].update(value=display_val)
+    values[spin_key] = display_val
 
 
 def sync_spin_to_slider(window: sg.Window, values: dict,
@@ -141,3 +147,4 @@ def sync_spin_to_slider(window: sg.Window, values: dict,
     except (ValueError, TypeError):
         return
     window[slider_key].update(value=val)
+    values[slider_key] = val
