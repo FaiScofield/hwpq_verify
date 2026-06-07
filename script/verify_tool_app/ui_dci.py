@@ -19,6 +19,7 @@ from csc.run_csc import read_raw_to_planar, write_planar_to_raw
 from verify_tool_app.ui_helpers import (
     SliderSpinConfig,
     bind_keyboard_events as _bind_kb_shared,
+    build_numeric_control_row,
     handle_keyboard_event,
     sync_slider_to_spin,
     sync_spin_to_slider,
@@ -232,59 +233,6 @@ def _apply_local_lut(input_data: np.ndarray, local_lut: list, in_depth: int) -> 
 # Layout                                                             #
 # ------------------------------------------------------------------ #
 
-def _build_numeric_control_row(
-    label: str,
-    spin_key: str,
-    slider_key: str,
-    default_value,
-    min_value,
-    max_value,
-    resolution: float = 1.0,
-    label_size: tuple = (22, 1),
-    tooltip: str = "",
-    norm_key: str = None,
-) -> list:
-    """Build a synchronized spinbox + slider + norm text + reset button control row."""
-    steps = int(round((max_value - min_value) / resolution))
-    spin_values = [
-        round(min_value + i * resolution, 1 if resolution < 1 else 0)
-        for i in range(steps + 1)
-    ]
-    if resolution >= 1:
-        spin_values = [int(v) for v in spin_values]
-
-    reset_key = f"{slider_key}-RESET-"
-
-    row = [
-        sg.Text(label, size=label_size),
-        sg.Slider(
-            range=(min_value, max_value),
-            default_value=default_value,
-            resolution=resolution,
-            orientation="h",
-            size=(24, 15),
-            key=slider_key,
-            enable_events=True,
-            disable_number_display=True,
-            tooltip=tooltip,
-        ),
-        sg.Spin(
-            spin_values,
-            initial_value=default_value,
-            size=(8, 1),
-            key=spin_key,
-            enable_events=True,
-            tooltip=tooltip,
-        ),
-    ]
-    if norm_key is not None:
-        row.append(sg.Text("", size=(8, 1), key=norm_key, justification="left"))
-    row.append(
-        sg.Button("Reset", key=reset_key, size=(6, 1),
-                  tooltip=f"重置{label}为默认值"),
-    )
-    return row
-
 
 def build_controls() -> list:
     """Build the DCI Config tab layout."""
@@ -340,19 +288,19 @@ def build_controls() -> list:
                      tooltip="DCI调试dump掩码（控制dump哪些调试数据）"),
         ],
         [sg.HorizontalSeparator()],
-        _build_numeric_control_row("CF/HE Ratio", "-CFHE-", "-CFHE-SLIDER-", 32, 0, 64,
+        build_numeric_control_row("CF/HE Ratio", "-CFHE-", "-CFHE-SLIDER-", 32, 0, 64,
                                    norm_key="-CFHE-NORM-",
                                    tooltip="CF/HE比例控制（0~64，默认32）"),
-        _build_numeric_control_row("BS Set Point", "-BS-", "-BS-SLIDER-", 80, 0, 255,
+        build_numeric_control_row("BS Set Point", "-BS-", "-BS-SLIDER-", 80, 0, 255,
                                    norm_key="-BS-NORM-",
                                    tooltip="黑电平设置点（0~255，默认80）"),
-        _build_numeric_control_row("WS Set Point", "-WS-", "-WS-SLIDER-", 80, 0, 255,
+        build_numeric_control_row("WS Set Point", "-WS-", "-WS-SLIDER-", 80, 0, 255,
                                    norm_key="-WS-NORM-",
                                    tooltip="白电平设置点（0~255，默认80）"),
-        _build_numeric_control_row("CLAHE Local Ratio", "-CLAHE-R-", "-CLAHE-R-SLIDER-", 19, 0, 32,
+        build_numeric_control_row("CLAHE Local Ratio", "-CLAHE-R-", "-CLAHE-R-SLIDER-", 19, 0, 32,
                                    norm_key="-CLAHE-R-NORM-",
                                    tooltip="CLAHE局部对比度比例（0~32，默认19）"),
-        _build_numeric_control_row("CLAHE Clip Value", "-CLAHE-C-", "-CLAHE-C-SLIDER-", 1.0, 0.0, 3.0, resolution=0.1,
+        build_numeric_control_row("CLAHE Clip Value", "-CLAHE-C-", "-CLAHE-C-SLIDER-", 1.0, 0.0, 3.0, resolution=0.1,
                                    norm_key="-CLAHE-C-NORM-",
                                    tooltip="CLAHE裁剪阈值（0.0~3.0，默认1.0）"),
     ]
@@ -470,6 +418,7 @@ def _preload_curves_on_dir_change(values: dict, window: sg.Window):
 def read_params(values: dict) -> dict:
     """Extract DCI module parameters from window values."""
     return {
+        "exe_path": values.get("-DCI-EXE-", ""),
         "audit_enable": values.get("-AUDIT-ENABLE-", False),
         "tag": values.get("-TAG-", "ui_live"),
         "nodemask": values.get("-NODEMASK-", "0"),
@@ -485,24 +434,40 @@ def read_params(values: dict) -> dict:
     }
 
 
-def process(input_data: np.ndarray, input_fmt: int, input_clrspc: int,
-            output_fmt: int, output_clrspc: int, params: dict,
-            io_params: dict):
-    """Run DCI processing via external dci_runner exe."""
+def process(src_frame, io_info: dict):
+    """Run DCI processing via external dci_runner exe.
+
+    Args:
+        src_frame: ImageFrame with input data, fmt, clrspc.
+        io_info: dict with "out_fmt", "out_clrspc", "elements",
+                 and common I/O metadata (config_path, width, height, etc.).
+
+    Returns:
+        (ok: bool, dst_frame: ImageFrame | str)
+    """
+    from verify_tool_app.pq_verify_tool import ImageFrame
+
     try:
-        exe_path = io_params.get("exe_path", "")
-        config_path = io_params.get("config_path", "")
-        output_dir = io_params.get("output_dir", tempfile.gettempdir())
-        width = io_params.get("width", 1920)
-        height = io_params.get("height", 1080)
+        params = read_params(io_info["elements"])
+        input_fmt = src_frame.fmt
+        input_clrspc = src_frame.clrspc
+        output_fmt = io_info["out_fmt"]
+        output_clrspc = io_info["out_clrspc"]
+
+        exe_path = params.get("exe_path", "")
+        config_path = io_info.get("config_path", "")
+        output_dir = io_info.get("output_dir", tempfile.gettempdir())
+        width = io_info.get("width", 1920)
+        height = io_info.get("height", 1080)
 
         # Resolve relative exe path
         exe_path = _resolve_exe_path(exe_path)
 
         if not exe_path or not os.path.isfile(exe_path):
-            return False, "DCI runner exe not found", input_fmt, input_clrspc
+            return False, "DCI runner exe not found"
 
         # Write input data to temp raw file
+        input_data = np.stack([src_frame.pyr, src_frame.pug, src_frame.pvb], axis=0)
         input_tmp = os.path.join(tempfile.gettempdir(), "_dci_input.raw")
         write_planar_to_raw(input_data, input_tmp, width, height, input_fmt)
 
@@ -523,8 +488,8 @@ def process(input_data: np.ndarray, input_fmt: int, input_clrspc: int,
             output_format=output_fmt,
             output_colorspace=output_clrspc,
             config_path=config_path,
-            frame_idx=io_params.get("frame_idx", 0),
-            frame_num=io_params.get("frame_num", 1),
+            frame_idx=io_info.get("frame_idx", 0),
+            frame_num=io_info.get("frame_num", 1),
             debug_dump_mask=int(float(params.get("dumpmask", "0"))),
             audit=DciAuditConfig(
                 enable=1 if params.get("audit_enable") else 0,
@@ -556,16 +521,18 @@ def process(input_data: np.ndarray, input_fmt: int, input_clrspc: int,
 
         if runner_result is None or runner_result.exit_code != 0:
             msg = runner_result.message if runner_result else result.stderr[:200]
-            return False, f"DCI runner failed: {msg}", input_fmt, input_clrspc
+            return False, f"DCI runner failed: {msg}"
 
         # Read back output
         output_data = read_raw_to_planar(output_file, width, height, output_fmt)
-        return True, output_data, output_fmt, output_clrspc
+        dst_frame = ImageFrame(output_data[0], output_data[1], output_data[2],
+                               output_fmt, output_clrspc)
+        return True, dst_frame
 
     except subprocess.TimeoutExpired:
-        return False, "DCI runner timeout", input_fmt, input_clrspc
+        return False, "DCI runner timeout"
     except Exception as e:
-        return False, str(e), input_fmt, input_clrspc
+        return False, str(e)
 
 
 def get_right_preview_image(snapshot, params: dict):

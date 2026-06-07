@@ -577,24 +577,28 @@ def read_params(values: dict) -> dict:
     return params
 
 
-def process(input_data: np.ndarray, input_fmt: int, input_clrspc: int,
-            output_fmt: int, output_clrspc: int, params: dict):
+def process(src_frame, io_info: dict):
     """Run CSC processing.
 
     Args:
-        input_data: Input planar numpy array (3, H, W).
-        input_fmt: Input pixel format code.
-        input_clrspc: Input colorspace code.
-        output_fmt: Output pixel format code.
-        output_clrspc: Output colorspace code.
-        params: CSC module parameters from read_params().
+        src_frame: ImageFrame with input data, fmt, clrspc.
+        io_info: dict with "out_fmt", "out_clrspc", "elements",
+                 and common I/O metadata.
 
     Returns:
-        (ok: bool, output_data: np.ndarray | str)
-        On success: (True, output_planar)
+        (ok: bool, dst_frame: ImageFrame | str)
+        On success: (True, dst_frame)
         On failure: (False, error_message)
     """
+    from verify_tool_app.pq_verify_tool import ImageFrame
+
     try:
+        input_fmt = src_frame.fmt
+        input_clrspc = src_frame.clrspc
+        output_fmt = io_info["out_fmt"]
+        output_clrspc = io_info["out_clrspc"]
+        params = read_params(io_info["elements"])
+
         in_depth = get_pixel_depth(input_fmt)
         out_depth = get_pixel_depth(output_fmt)
         pixel_depth = max(in_depth, out_depth)
@@ -615,15 +619,49 @@ def process(input_data: np.ndarray, input_fmt: int, input_clrspc: int,
             "b_offset": params.get("b_offset", 256),
         }, algo_type)
 
+        input_data = np.stack([src_frame.pyr, src_frame.pug, src_frame.pvb], axis=0)
+
         output_data, step1_coefs, step1_offset, step2_coefs, step2_offset = run_selected_algo(
             input_data, bcsh_config, pixel_depth, precision,
             algo_type, input_clrspc, output_clrspc,
             input_fmt, output_fmt,
         )
 
-        return True, output_data
+        dst_frame = ImageFrame(output_data[0], output_data[1], output_data[2],
+                               output_fmt, output_clrspc)
+
+        # Update CSC Coef Info UI
+        _update_coef_info(io_info, step1_coefs, step1_offset, step2_coefs, step2_offset)
+
+        return True, dst_frame
     except Exception as e:
         return False, str(e)
+
+
+def _update_coef_info(io_info: dict, step1_coefs, step1_offset, step2_coefs, step2_offset):
+    """Update the CSC Coef Info display on the UI."""
+    window = io_info.get("window")
+    if window is None:
+        return
+    try:
+        window["-STEP1-COEFS-"].update(_format_coef_array(step1_coefs))
+        window["-STEP1-OFFSET-"].update(_format_coef_array(step1_offset))
+        window["-STEP2-COEFS-"].update(_format_coef_array(step2_coefs))
+        window["-STEP2-OFFSET-"].update(_format_coef_array(step2_offset))
+    except Exception:
+        pass
+
+
+def _format_coef_array(arr) -> str:
+    """Format a numpy array or list as compact numeric string."""
+    if arr is None:
+        return "N/A"
+    if hasattr(arr, "flatten"):
+        arr = arr.flatten()
+    vals = [f"{int(v) if v == int(v) else v:.4f}" for v in arr[:18]]
+    if len(arr) > 18:
+        vals.append("...")
+    return "[" + ", ".join(vals) + "]"
 
 
 def get_right_preview_image(snapshot, params: dict):

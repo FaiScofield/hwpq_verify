@@ -37,7 +37,7 @@ from verify_tool_app.ui_io import (
     CLRSPC_DISPLAY_RGB,
     IMAGE_EXTENSIONS,
     build_controls as build_io_controls,
-    init_module as init_io,
+    init_module as init_io_module,
     handle_io_event,
     read_io_params,
     get_fmt_from_display,
@@ -81,18 +81,26 @@ from verify_tool_app.ui_shp import (
 class ImageFrame:
     """Image frame abstraction for pipeline data.
 
-    Encapsulates planar data, format, colorspace, and frame index.
+    Encapsulates planar channels (pyr/pug/pvb), format, colorspace, and frame index.
+    The three channels may have different resolutions for subsampled YUV formats:
+      - YUV422P: pyr (H,W), pug (H,W/2), pvb (H,W/2)
+      - YUV420P: pyr (H,W), pug (H/2,W/2), pvb (H/2,W/2)
     Internal format convention for pipeline processing:
-      8/10-bit RGB -> 0x2 (RGB_Planar) / 0x12 (RGB_Planar_10LSB)
-      8/10-bit YUV -> 0x3 (YUV444P_YU24) / 0x13 (YUV444P_10LSB)
+      8/10-bit RGB    -> 0x2 (RGB_Planar)   / 0x12 (RGB_Planar_10LSB)
+      8/10-bit YUV444 -> 0x3 (YUV444P_YU24) / 0x13 (YUV444P_10LSB)
+      8/10-bit YUV422 -> 0x6 (YUV422P_YU16) / 0x16 (YUV422P_10LSB)
+      8/10-bit YUV420 -> 0x8 (YUV420P_YU12) / 0x18 (YUV420P_10LSB)
     """
 
-    __slots__ = ("data", "fmt", "clrspc", "frame_idx")
+    __slots__ = ("pyr", "pug", "pvb", "fmt", "clrspc", "frame_idx")
 
-    def __init__(self, data: np.ndarray, fmt: int, clrspc: int, frame_idx: int = 0):
-        self.data = data          # planar (3, H, W)
-        self.fmt = fmt            # format code
-        self.clrspc = clrspc      # colorspace code
+    def __init__(self, pyr: np.ndarray, pug: np.ndarray, pvb: np.ndarray,
+                 fmt: int, clrspc: int, frame_idx: int = 0):
+        self.pyr = pyr          # Y or R channel (H, W)
+        self.pug = pug          # U or G channel (H_uv, W_uv)
+        self.pvb = pvb          # V or B channel (H_uv, W_uv)
+        self.fmt = fmt          # format code: 0x2/0x3/0x6/0x8(+0x10)
+        self.clrspc = clrspc    # colorspace code
         self.frame_idx = frame_idx
 
     # -- properties -------------------------------------------------- #
@@ -112,21 +120,46 @@ class ImageFrame:
 
     @property
     def height(self) -> int:
-        return int(self.data.shape[1])
+        return int(self.pyr.shape[0])
 
     @property
     def width(self) -> int:
-        return int(self.data.shape[2])
+        return int(self.pyr.shape[1])
+
+    @property
+    def uv_height(self) -> int:
+        """UV plane height (may differ from Y for YUV420)."""
+        return int(self.pug.shape[0])
+
+    @property
+    def uv_width(self) -> int:
+        """UV plane width (may differ from Y for YUV422/420)."""
+        return int(self.pug.shape[1])
 
     # -- helpers ----------------------------------------------------- #
 
     def copy(self) -> "ImageFrame":
-        """Shallow copy with a deep copy of the data array."""
-        return ImageFrame(self.data.copy(), self.fmt, self.clrspc, self.frame_idx)
+        """Shallow copy with a deep copy of the data arrays."""
+        return ImageFrame(
+            self.pyr.copy(), self.pug.copy(), self.pvb.copy(),
+            self.fmt, self.clrspc, self.frame_idx,
+        )
+
+    def planar_data(self) -> np.ndarray:
+        """Stack the three channels into a single (3, H, W) array.
+
+        Requires all three channels to have the same spatial dimensions.
+        Use for backwards-compatibility with legacy APIs.
+        """
+        return np.stack([self.pyr, self.pug, self.pvb], axis=0)
 
     def as_tuple(self) -> tuple:
-        """Return (data, fmt, clrspc) for backward-compatible module API."""
-        return (self.data, self.fmt, self.clrspc)
+        """Return (data, fmt, clrspc) for backward-compatible module API.
+
+        WARNING: stacks channels — only valid when all channels share
+        the same resolution (RGB, YUV444, or already upsampled).
+        """
+        return (self.planar_data(), self.fmt, self.clrspc)
 
     def _fmt_for_depth(self, target_10bit: bool) -> int:
         """Pick internal planar format code matching the YUV/RGB domain."""
@@ -140,25 +173,29 @@ class ImageFrame:
     def promote_to_10bit(self):
         """Promote 8-bit data to 10-bit by left-shifting 2 bits.
 
-        Updates data (uint8 -> uint16) and fmt (e.g. 0x2 -> 0x12).
+        Updates all three channels (uint8 -> uint16) and fmt (e.g. 0x2 -> 0x12).
         No-op if already 10-bit.
         """
         if self.depth >= 10:
             return self
-        self.data = (self.data.astype(np.uint16) << 2)
+        self.pyr = (self.pyr.astype(np.uint16) << 2)
+        self.pug = (self.pug.astype(np.uint16) << 2)
+        self.pvb = (self.pvb.astype(np.uint16) << 2)
         self.fmt = self._fmt_for_depth(target_10bit=True)
         return self
 
     def demote_to_8bit(self):
         """Demote 10-bit data to 8-bit with rounding (add 2 then >> 2).
 
-        Updates data (uint16 -> uint8) and fmt (e.g. 0x12 -> 0x2).
+        Updates all three channels (uint16 -> uint8) and fmt (e.g. 0x12 -> 0x2).
         No-op if already 8-bit.
         """
         if self.depth <= 8:
             return self
-        rounded = (self.data.astype(np.uint32) + 2) >> 2
-        self.data = rounded.astype(np.uint8)
+        for attr in ("pyr", "pug", "pvb"):
+            ch = getattr(self, attr)
+            rounded = (ch.astype(np.uint32) + 2) >> 2
+            setattr(self, attr, np.clip(rounded, 0, 255).astype(np.uint8))
         self.fmt = self._fmt_for_depth(target_10bit=False)
         return self
 
@@ -306,11 +343,12 @@ _mouse_pos = None
 _pixel_info_frozen = False
 _scale_factor = 1.0
 _right_scale_factor = 1.0
-_current_display_data = None  # (planar, fmt) currently shown in left preview
+_OUTPUT_IMAGE: ImageFrame | None = None  # last pipeline output frame shown in left preview
 _right_display_data = None    # (planar, fmt) currently shown in right preview
 _right_input_data = None      # (planar, fmt) input data before right-side processing
 _right_frozen = False         # independent freeze for right preview
 _right_mouse_pos = None
+_right_preview_tag: str = ""  # which module's right preview is currently shown
 _left_display_size = (0, 0)   # (w, h) of the displayed left preview image in pixels
 _last_left_frame_size = (0, 0)  # last Frame size used for re-render throttle
 
@@ -399,23 +437,43 @@ def _build_preview_layout() -> list:
 # Image helpers                                                      #
 # ------------------------------------------------------------------ #
 
-def _planar_to_rgb_pil(planar: np.ndarray, fmt: int, max_size: int = PREVIEW_MAX_HEIGHT):
-    """Convert a 3-plane planar array to a downscaled PIL RGB Image."""
-    data = planar.astype(np.float32)
+def _planar_to_rgb_pil(frame: ImageFrame, max_size: int = PREVIEW_MAX_HEIGHT):
+    """Convert an ImageFrame to a downscaled PIL RGB Image.
+
+    For subsampled YUV formats, UV channels are upsampled to Y resolution.
+    """
+    fmt = frame.fmt
     depth = get_pixel_depth(fmt)
+    pyr = frame.pyr.astype(np.float32)
+    pug = frame.pug.astype(np.float32)
+    pvb = frame.pvb.astype(np.float32)
+
+    # Upsample UV channels to Y resolution if needed (YUV422/420)
+    if is_yuv_format(fmt):
+        y_h, y_w = frame.height, frame.width
+        uv_h, uv_w = frame.uv_height, frame.uv_width
+        if uv_h != y_h or uv_w != y_w:
+            if uv_w != y_w:
+                # Horizontal upsampling for YUV422
+                pug = np.repeat(pug, y_w // uv_w, axis=1)
+                pvb = np.repeat(pvb, y_w // uv_w, axis=1)
+            if uv_h != y_h:
+                # Vertical upsampling for YUV420
+                pug = np.repeat(pug, y_h // uv_h, axis=0)
+                pvb = np.repeat(pvb, y_h // uv_h, axis=0)
 
     if is_yuv_format(fmt):
         max_val = float((1 << depth) - 1)
         uv_half = 1 << (depth - 1)
-        y = data[0]
-        cb = data[1] - uv_half
-        cr = data[2] - uv_half
+        y = pyr
+        cb = pug - uv_half
+        cr = pvb - uv_half
         r = np.clip(y + 1.5748 * cr, 0, max_val)
         g = np.clip(y - 0.187324 * cb - 0.468124 * cr, 0, max_val)
         b = np.clip(y + 1.8556 * cb, 0, max_val)
         rgb = np.stack([r, g, b], axis=0)
     else:
-        rgb = data
+        rgb = np.stack([pyr, pug, pvb], axis=0)
 
     if depth > 8:
         # Use integer division instead of >> which fails on float32 arrays
@@ -455,22 +513,21 @@ def _maybe_render_left_on_resize(window: sg.Window, fw: int, fh: int) -> bool:
     if abs(fw - last_w) < 15 and abs(fh - last_h) < 15:
         return False
     _last_left_frame_size = (fw, fh)
-    if _current_display_data is not None:
-        planar, fmt = _current_display_data
-        _update_left_preview(window, planar, fmt)
+    if _OUTPUT_IMAGE is not None:
+        _update_left_preview(window, _OUTPUT_IMAGE)
         return True
     return False
 
 
-def _update_left_preview(window: sg.Window, planar: np.ndarray, fmt: int, tag: str = ""):
+def _update_left_preview(window: sg.Window, frame: ImageFrame, tag: str = ""):
     """Update the left preview area with new image data."""
-    global _current_display_data, _scale_factor, _left_display_size
-    _current_display_data = (planar, fmt)
+    global _OUTPUT_IMAGE, _scale_factor, _left_display_size
+    _OUTPUT_IMAGE = frame
 
     # Scale image to fit available preview area, never exceeding original resolution.
     # _planar_to_rgb_pil compares max_size against max(img_width, img_height),
     # so we clamp to original's max dimension and the frame's min dimension.
-    orig_h, orig_w = planar.shape[1], planar.shape[2]
+    orig_h, orig_w = frame.height, frame.width
     try:
         frame_h = window["-LEFT-PREVIEW-FRAME-"].Widget.winfo_height()
         frame_w = window["-LEFT-PREVIEW-FRAME-"].Widget.winfo_width()
@@ -481,9 +538,8 @@ def _update_left_preview(window: sg.Window, planar: np.ndarray, fmt: int, tag: s
     except Exception:
         max_size = max(orig_w, orig_h)
 
-    img = _planar_to_rgb_pil(planar, fmt, max_size=max_size)
+    img = _planar_to_rgb_pil(frame, max_size=max_size)
     w, h = img.size
-    orig_h, orig_w = planar.shape[1], planar.shape[2]
     _scale_factor = h / orig_h if orig_h > 0 else 1.0
     _left_display_size = (w, h)
     window["-LEFT-PREVIEW-"].update(data=_pil_to_bytes(img))
@@ -498,18 +554,21 @@ def _update_right_preview(window: sg.Window, tag: str, snapshot: tuple, params: 
     so the displayed heights are always the same regardless of original
     resolutions.
     """
-    global _right_display_data, _right_scale_factor, _right_input_data
+    global _right_display_data, _right_scale_factor, _right_input_data, _right_preview_tag
+    _right_preview_tag = tag
     mod = REGISTERED_MODULES.get(tag)
     if mod is None:
         window["-RIGHT-PREVIEW-"].update(data=b"")
         _right_display_data = None
         _right_input_data = None
+        _right_preview_tag = ""
         return
     getter = mod.get("get_right_preview_image")
     if getter is None:
         window["-RIGHT-PREVIEW-"].update(data=b"")
         _right_display_data = None
         _right_input_data = None
+        _right_preview_tag = ""
         return
 
     # Store the input snapshot before right-side processing
@@ -525,7 +584,9 @@ def _update_right_preview(window: sg.Window, tag: str, snapshot: tuple, params: 
         elif isinstance(result, tuple) and len(result) == 2:
             # DCI returns (mapped_planar, fmt) tuple
             mapped_data, mapped_fmt = result
-            img = _planar_to_rgb_pil(mapped_data, mapped_fmt, max_size=99999)
+            tmp_frame = ImageFrame(mapped_data[0], mapped_data[1], mapped_data[2],
+                                   mapped_fmt, 0)
+            img = _planar_to_rgb_pil(tmp_frame, max_size=99999)
             _right_display_data = (mapped_data, mapped_fmt)
         elif isinstance(result, np.ndarray):
             img = Image.fromarray(result, "RGB") if result.ndim == 3 else Image.fromarray(result, "L").convert("RGB")
@@ -628,10 +689,11 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
             return False
         depth = get_pixel_depth(in_fmt)
         max_val = (1 << depth) - 1
-        data = np.zeros((3, h, w), dtype=np.uint16 if depth > 8 else np.uint8)
-        for i in range(3):
-            data[i, :, :] = int(np.clip(color_vals[i], 0, max_val))
-        _INPUT_IMAGE = ImageFrame(data, in_fmt, in_clrspc)
+        dtype = np.uint16 if depth > 8 else np.uint8
+        pyr = np.full((h, w), int(np.clip(color_vals[0], 0, max_val)), dtype=dtype)
+        pug = np.full((h, w), int(np.clip(color_vals[1], 0, max_val)), dtype=dtype)
+        pvb = np.full((h, w), int(np.clip(color_vals[2], 0, max_val)), dtype=dtype)
+        _INPUT_IMAGE = ImageFrame(pyr, pug, pvb, in_fmt, in_clrspc)
         _SNAPSHOTS.clear()
         if stream_10bit:
             _INPUT_IMAGE.promote_to_10bit()
@@ -651,15 +713,17 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
             im = PILImage.open(input_file).convert("RGB")
             w, h = im.size
             arr = np.asarray(im)
-            # Convert interleaved RGB (H, W, 3) to planar (3, H, W)
-            data = np.stack([arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]], axis=0).astype(np.uint8)
+            # Convert interleaved RGB (H, W, 3) to three planar channels
+            pyr = arr[:, :, 0].astype(np.uint8)
+            pug = arr[:, :, 1].astype(np.uint8)
+            pvb = arr[:, :, 2].astype(np.uint8)
             im.close()
             # Update width/height on UI to match actual image dimensions
             window["-WIDTH-"].update(value=str(w))
             window["-HEIGHT-"].update(value=str(h))
             values["-WIDTH-"] = str(w)
             values["-HEIGHT-"] = str(h)
-            _INPUT_IMAGE = ImageFrame(data, 0x0, in_clrspc)
+            _INPUT_IMAGE = ImageFrame(pyr, pug, pvb, 0x0, in_clrspc)
             _SNAPSHOTS.clear()
             if stream_10bit:
                 _INPUT_IMAGE.promote_to_10bit()
@@ -685,7 +749,7 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
         _update_status(window, f"Read error: {e}", color="red")
         return False
 
-    _INPUT_IMAGE = ImageFrame(data, in_fmt, in_clrspc)
+    _INPUT_IMAGE = ImageFrame(data[0], data[1], data[2], in_fmt, in_clrspc)
     _SNAPSHOTS.clear()
     if stream_10bit:
         _INPUT_IMAGE.promote_to_10bit()
@@ -693,11 +757,11 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
     return True
 
 
-def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
+def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = ""):
     """Execute the pipeline. If trigger_tag is set, only re-run from that module."""
     global _INPUT_IMAGE, _last_out_format, _last_out_frame_size
 
-    io_params = read_io_params(values)
+    io_params = read_io_params(window_elements)
 
     out_fmt = io_params["out_fmt"]
     out_clrspc = io_params["out_clrspc"]
@@ -705,7 +769,7 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
     height = io_params["height"]
 
     # Read stream depth for promotion / demotion decisions
-    stream_depth_str = values.get("-STREAM-DEPTH-", "8bit")
+    stream_depth_str = window_elements.get("-STREAM-DEPTH-", "8bit")
     stream_10bit = (stream_depth_str == "10bit")
     out_fmt_is_8bit = (get_pixel_depth(out_fmt) <= 8)
 
@@ -735,7 +799,7 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
             pass
         else:
             _SNAPSHOTS.clear()
-            if not _load_input_image(values, window):
+            if not _load_input_image(window_elements, window):
                 return
         upstream = _INPUT_IMAGE
 
@@ -747,7 +811,7 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
             if stream_10bit and out_fmt_is_8bit:
                 display_frame = _INPUT_IMAGE.copy()
                 display_frame.demote_to_8bit()
-            _update_left_preview(window, display_frame.data, display_frame.fmt)
+            _update_left_preview(window, display_frame)
         return
 
     # Determine start index
@@ -759,7 +823,7 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
             start_idx = 0
             upstream = _INPUT_IMAGE
             _SNAPSHOTS.clear()
-            if not _load_input_image(values, window):
+            if not _load_input_image(window_elements, window):
                 return
             upstream = _INPUT_IMAGE
 
@@ -783,39 +847,28 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
             current_frame = _SNAPSHOTS[snap_key]
             continue
 
-        params = mod["read_params"](values)
+        # Build unified io_info with common I/O metadata
+        io_info = {
+            "out_fmt": out_fmt,
+            "out_clrspc": out_clrspc,
+            "width": io_params["width"],
+            "height": io_params["height"],
+            "frame_idx": io_params["frame_idx"],
+            "frame_num": io_params["frame_num"],
+            "output_dir": output_dir,
+            "config_path": io_params["config_path"],
+            "stream_depth": 10 if stream_10bit else 8,
+            # window
+            "elements": window_elements,
+            "window": window,
+        }
 
-        if tag == "csc":
-            ok, result = mod["process"](
-                current_frame.data, current_frame.fmt, current_frame.clrspc,
-                out_fmt, out_clrspc, params,
-            )
-            if ok:
-                current_frame = ImageFrame(result, out_fmt, out_clrspc)
-            else:
-                _update_status(window, f"CSC error: {result}", color="red")
-                return
+        ok, result = mod["process"](current_frame, io_info)
+        if ok:
+            current_frame = result  # result is an ImageFrame
         else:
-            # DCI/SHP need io_params
-            full_io = {
-                "width": io_params["width"],
-                "height": io_params["height"],
-                "frame_idx": io_params["frame_idx"],
-                "frame_num": io_params["frame_num"],
-                "output_dir": output_dir,
-                "config_path": io_params["config_path"],
-                "exe_path": values.get("-DCI-EXE-", ""),
-                "sharpen_exe": values.get("-SHP-EXE-", ""),
-            }
-            ok, result, res_fmt, res_clrspc = mod["process"](
-                current_frame.data, current_frame.fmt, current_frame.clrspc,
-                out_fmt, out_clrspc, params, full_io,
-            )
-            if ok:
-                current_frame = ImageFrame(result, res_fmt, res_clrspc)
-            else:
-                _update_status(window, f"{tag.upper()} error: {result}", color="red")
-                return
+            _update_status(window, f"{tag.upper()} error: {result}", color="red")
+            return
 
         _SNAPSHOTS[tag] = current_frame.copy()
 
@@ -828,9 +881,9 @@ def _run_pipeline(values: dict, window: sg.Window, trigger_tag: str = ""):
     # Display final output
     final_tag = effective[-1] if effective else ""
     _update_status(window, f"Pipeline OK ({' → '.join(effective)})", color="green")
-    _update_left_preview(window, display_frame.data, display_frame.fmt, final_tag)
+    _update_left_preview(window, display_frame, final_tag)
     _update_right_preview(window, final_tag, display_frame.as_tuple(),
-                           REGISTERED_MODULES.get(final_tag, {}).get("read_params", lambda v: {})(values))
+                           REGISTERED_MODULES.get(final_tag, {}).get("read_params", lambda v: {})(window_elements))
 
 
 def _handle_mouse_motion(window: sg.Window, values: dict, event: str):
@@ -855,25 +908,31 @@ def _handle_mouse_motion(window: sg.Window, values: dict, event: str):
     # Get input pixel
     input_str = "(----, ----, ----)"
     if _INPUT_IMAGE is not None:
-        in_planar = _INPUT_IMAGE.data
         in_fmt = _INPUT_IMAGE.fmt
-        in_h, in_w = in_planar.shape[1], in_planar.shape[2]
+        in_h, in_w = _INPUT_IMAGE.height, _INPUT_IMAGE.width
+        uv_h, uv_w = _INPUT_IMAGE.uv_height, _INPUT_IMAGE.uv_width
         if 0 <= orig_x < in_w and 0 <= orig_y < in_h:
-            p0 = in_planar[0, orig_y, orig_x]
-            p1 = in_planar[1, orig_y, orig_x]
-            p2 = in_planar[2, orig_y, orig_x]
+            p0 = _INPUT_IMAGE.pyr[orig_y, orig_x]
+            # Handle subsampled UV coordinates for YUV422/420
+            uv_x = orig_x * uv_w // in_w if uv_w != in_w else orig_x
+            uv_y = orig_y * uv_h // in_h if uv_h != in_h else orig_y
+            p1 = _INPUT_IMAGE.pug[uv_y, uv_x]
+            p2 = _INPUT_IMAGE.pvb[uv_y, uv_x]
             fmt_label = "yuv" if is_yuv_format(in_fmt) else "rgb"
             input_str = f"{fmt_label}: ({p0:4d}, {p1:4d}, {p2:4d})"
 
     # Get output pixel
     output_str = "(----, ----, ----)"
-    if _current_display_data is not None:
-        out_planar, _ = _current_display_data
-        out_h, out_w = out_planar.shape[1], out_planar.shape[2]
+    if _OUTPUT_IMAGE is not None:
+        out_fmt = _OUTPUT_IMAGE.fmt
+        out_h, out_w = _OUTPUT_IMAGE.height, _OUTPUT_IMAGE.width
+        uv_h, uv_w = _OUTPUT_IMAGE.uv_height, _OUTPUT_IMAGE.uv_width
         if 0 <= orig_x < out_w and 0 <= orig_y < out_h:
-            p0 = out_planar[0, orig_y, orig_x]
-            p1 = out_planar[1, orig_y, orig_x]
-            p2 = out_planar[2, orig_y, orig_x]
+            p0 = _OUTPUT_IMAGE.pyr[orig_y, orig_x]
+            uv_x = orig_x * uv_w // out_w if uv_w != out_w else orig_x
+            uv_y = orig_y * uv_h // out_h if uv_h != out_h else orig_y
+            p1 = _OUTPUT_IMAGE.pug[uv_y, uv_x]
+            p2 = _OUTPUT_IMAGE.pvb[uv_y, uv_x]
             # Use I/O output format for the label, not the displayed data format
             io_out_fmt = get_fmt_from_display(values.get("-OUT-FMT-", DEFAULT_FMT_DISPLAY))
             fmt_label = "yuv" if is_yuv_format(io_out_fmt) else "rgb"
@@ -886,7 +945,12 @@ def _handle_mouse_motion(window: sg.Window, values: dict, event: str):
 
 
 def _handle_right_mouse_motion(window: sg.Window, values: dict, event: str):
-    """Handle mouse motion over right preview to update pixel info."""
+    """Handle mouse motion over right preview to update pixel info.
+
+    If the current right-preview module provides right_preview_mouse_motion,
+    delegates to it with image-center coordinates (0,0 = center, right/up positive).
+    Otherwise falls back to default pixel inspector.
+    """
     global _right_frozen, _right_mouse_pos
 
     if _right_frozen:
@@ -904,16 +968,34 @@ def _handle_right_mouse_motion(window: sg.Window, values: dict, event: str):
     orig_y = int(widget_y / _right_scale_factor)
     _right_mouse_pos = (orig_x, orig_y)
 
+    # Delegate to module-specific handler if available
+    if _right_preview_tag:
+        mod = REGISTERED_MODULES.get(_right_preview_tag)
+        if mod is not None:
+            handler = mod.get("right_preview_mouse_motion")
+            if handler is not None:
+                # Compute image-center coordinates (0,0=center, right/up positive)
+                rdh = _right_display_data
+                if rdh is not None:
+                    img_h, img_w = rdh[0].shape[1], rdh[0].shape[2]
+                    cx = orig_x - img_w // 2
+                    cy = img_h // 2 - orig_y
+                    handler(cx, cy, window, values)
+                return
+
+    # Default pixel inspector fallback
     # Get input pixel from input image
     input_str = "(----, ----, ----)"
     if _INPUT_IMAGE is not None:
-        in_planar = _INPUT_IMAGE.data
         in_fmt = _INPUT_IMAGE.fmt
-        in_h, in_w = in_planar.shape[1], in_planar.shape[2]
+        in_h, in_w = _INPUT_IMAGE.height, _INPUT_IMAGE.width
+        uv_h, uv_w = _INPUT_IMAGE.uv_height, _INPUT_IMAGE.uv_width
         if 0 <= orig_x < in_w and 0 <= orig_y < in_h:
-            p0 = in_planar[0, orig_y, orig_x]
-            p1 = in_planar[1, orig_y, orig_x]
-            p2 = in_planar[2, orig_y, orig_x]
+            p0 = _INPUT_IMAGE.pyr[orig_y, orig_x]
+            uv_x = orig_x * uv_w // in_w if uv_w != in_w else orig_x
+            uv_y = orig_y * uv_h // in_h if uv_h != in_h else orig_y
+            p1 = _INPUT_IMAGE.pug[uv_y, uv_x]
+            p2 = _INPUT_IMAGE.pvb[uv_y, uv_x]
             fmt_label = "yuv" if is_yuv_format(in_fmt) else "rgb"
             input_str = f"{fmt_label}: ({p0:4d}, {p1:4d}, {p2:4d})"
 
@@ -934,8 +1016,8 @@ def _handle_right_mouse_motion(window: sg.Window, values: dict, event: str):
     if _right_display_data is not None:
         rhs, rws = _right_display_data[0].shape[1], _right_display_data[0].shape[2]
         display_str = f"{rws}x{rhs} (scale={_right_scale_factor:.2f})"
-    if not display_str and _current_display_data is not None:
-        lh, lw = _current_display_data[0].shape[1], _current_display_data[0].shape[2]
+    if not display_str and _OUTPUT_IMAGE is not None:
+        lh, lw = _OUTPUT_IMAGE.height, _OUTPUT_IMAGE.width
         display_str = f"{lw}x{lh} (scale={_scale_factor:.2f})"
 
     freeze_status = "[Frozen]" if _right_frozen else "[Space to freeze]"
@@ -950,8 +1032,8 @@ def _clear_pixel_info(window: sg.Window):
     """Clear pixel info display unless either preview is frozen."""
     if _pixel_info_frozen or _right_frozen:
         return
-    window["-POSITION-INFO-"].update("")
-    window["-INPUT-PIXEL-INFO-"].update("(hover over image)")
+    window["-POSITION-INFO-"].update("(hover over image)")
+    window["-INPUT-PIXEL-INFO-"].update("")
     window["-OUTPUT-PIXEL-INFO-"].update("")
 
 
@@ -974,9 +1056,9 @@ def _refresh_right_preview_only(window: sg.Window, values: dict):
     _update_right_preview(window, last_tag, snap.as_tuple(), params)
 
 
-def _save_image(values: dict, window: sg.Window, display_data):
-    """Save the given display data (planar, fmt) to file."""
-    if display_data is None:
+def _save_image(values: dict, window: sg.Window, frame: ImageFrame | None):
+    """Save the given ImageFrame to file."""
+    if frame is None:
         _update_status(window, "No image to save", color="orange")
         return
 
@@ -987,17 +1069,17 @@ def _save_image(values: dict, window: sg.Window, display_data):
     if not file_path:
         return
 
-    planar, fmt = display_data
     ext = os.path.splitext(file_path)[1].lower()
 
     try:
         if ext in (".png", ".bmp"):
-            img = _planar_to_rgb_pil(planar, fmt, max_size=99999)
+            img = _planar_to_rgb_pil(frame, max_size=99999)
             img.save(file_path)
         elif ext in (".yuv", ".rgb"):
             width = int(values.get("-WIDTH-", "1920"))
             height = int(values.get("-HEIGHT-", "1080"))
-            write_planar_to_raw(planar, file_path, width, height, fmt)
+            planar = frame.planar_data()
+            write_planar_to_raw(planar, file_path, width, height, frame.fmt)
         else:
             _update_status(window, f"Unsupported format: {ext}", color="orange")
             return
@@ -1006,11 +1088,11 @@ def _save_image(values: dict, window: sg.Window, display_data):
         _update_status(window, f"Save error: {e}", color="red")
 
 
-def _update_right_preview_with_snapshot(window: sg.Window, planar: np.ndarray, fmt: int):
-    """Update right preview directly with the given planar data (for Show Right Input)."""
+def _update_right_preview_with_snapshot(window: sg.Window, frame: ImageFrame):
+    """Update right preview directly with the given ImageFrame (for Show Right Input)."""
     global _right_display_data, _right_scale_factor
-    _right_display_data = (planar, fmt)
-    img = _planar_to_rgb_pil(planar, fmt, max_size=99999)
+    _right_display_data = (frame.planar_data(), frame.fmt)
+    img = _planar_to_rgb_pil(frame, max_size=99999)
     # Match left preview display height
     left_disp_h = _left_display_size[1]
     if left_disp_h > 0 and img.size[1] > 0:
@@ -1029,7 +1111,7 @@ def _update_right_preview_with_snapshot(window: sg.Window, planar: np.ndarray, f
 
 def main():
     """Main entry point for PQ Verify Tool."""
-    global _pixel_info_frozen, _mouse_pos, _scale_factor, _current_display_data, _right_scale_factor, _right_display_data, _right_input_data, _right_frozen
+    global _pixel_info_frozen, _mouse_pos, _scale_factor, _OUTPUT_IMAGE, _right_scale_factor, _right_display_data, _right_input_data, _right_frozen
     global _left_display_size, _INPUT_IMAGE, _last_out_format, _last_out_frame_size, pipeline_order, pipeline_enabled, _SNAPSHOTS
 
     # Parse command-line arguments for module selection
@@ -1093,6 +1175,11 @@ def main():
         return_keyboard_events=True,
         size=(1300, 900),
     )
+    # focus window when opened
+    window.TKroot.attributes('-topmost', True)
+    window.TKroot.lift()
+    window.TKroot.focus_force()
+    window.TKroot.after(100, lambda: window.TKroot.attributes('-topmost', False))
 
     # Bind mouse events for pixel info
     window["-LEFT-PREVIEW-"].bind("<Motion>", "+MOTION")
@@ -1118,7 +1205,7 @@ def main():
     window["-LEFT-PREVIEW-FRAME-"].Widget.bind("<Configure>", _on_left_frame_resize)
 
     # Initialize registered modules (bind events + norm labels)
-    init_io(window)
+    init_io_module(window)
     for tag in pipeline_order:
         REGISTERED_MODULES[tag]["init"](window)
 
@@ -1213,7 +1300,7 @@ def main():
         # Show Left Input checkbox
         if event == "-SHOW-INPUT-":
             if values["-SHOW-INPUT-"] and _INPUT_IMAGE is not None:
-                _update_left_preview(window, _INPUT_IMAGE.data, _INPUT_IMAGE.fmt, "input")
+                _update_left_preview(window, _INPUT_IMAGE, "input")
             else:
                 # Show last output
                 effective = _get_effective_pipeline()
@@ -1221,13 +1308,16 @@ def main():
                     last = effective[-1]
                     snap = _SNAPSHOTS.get(last) or _INPUT_IMAGE
                     if snap:
-                        _update_left_preview(window, snap.data, snap.fmt, last)
+                        _update_left_preview(window, snap, last)
             continue
 
         # Show Right Input checkbox
         if event == "-SHOW-RIGHT-INPUT-":
             if values["-SHOW-RIGHT-INPUT-"] and _right_input_data is not None:
-                _update_right_preview_with_snapshot(window, _right_input_data[0], _right_input_data[1])
+                r_data, r_fmt = _right_input_data
+                if r_data is not None:
+                    tmp_frame = ImageFrame(r_data[0], r_data[1], r_data[2], r_fmt, 0)
+                    _update_right_preview_with_snapshot(window, tmp_frame)
             else:
                 # Refresh right preview from pipeline
                 _refresh_right_preview_only(window, values)
@@ -1235,12 +1325,15 @@ def main():
 
         # Save Left Image
         if event == "-SAVE-LEFT-IMAGE-":
-            _save_image(values, window, _current_display_data)
+            _save_image(values, window, _OUTPUT_IMAGE)
             continue
 
         # Save Right Image
         if event == "-SAVE-RIGHT-IMAGE-":
-            _save_image(values, window, _right_display_data)
+            if _right_display_data is not None:
+                r_data, r_fmt = _right_display_data
+                tmp_frame = ImageFrame(r_data[0], r_data[1], r_data[2], r_fmt, 0)
+                _save_image(values, window, tmp_frame)
             continue
 
         # Stream depth changed — reload input and re-run pipeline

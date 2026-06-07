@@ -154,7 +154,7 @@ def build_controls() -> list:
     layout = [
         [
             sg.Text("Input File", size=IO_LABEL_SIZE),
-            sg.Input("F:/data/512x428_test_image_many_pattern_nv24.yuv", key="-INPUT-FILE-", size=(46, 1), enable_events=True,
+            sg.Input("G:/Project/pq/inputs/512x428_test_image_many_pattern_nv24.yuv", key="-INPUT-FILE-", size=(46, 1), enable_events=True,
                      tooltip="输入YUV/RGB原始数据文件路径；支持拖拽或浏览选择"),
             sg.FileBrowse(size=IO_BUTTON_SIZE),
             sg.Button("Reload", key="-RELOAD-", size=IO_BUTTON_SIZE,
