@@ -7,6 +7,10 @@ Also contains shared constants (FORMAT_NAMES, CLRSPC_NAMES, etc.) used across mo
 
 import os
 import re
+import sys
+
+# Ensure the parent script/ package is importable
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import PySimpleGUI as sg
 

@@ -6,7 +6,11 @@ Sat/Hue test panel, and CSC processing logic.
 References csc/csc_ui.py and csc/run_csc.py implementations.
 """
 
+import sys
 from pathlib import Path
+
+# Ensure the parent script/ package is importable
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 from PIL import Image, ImageDraw

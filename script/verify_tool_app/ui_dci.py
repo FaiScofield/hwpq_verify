@@ -9,8 +9,12 @@ Right preview supports LUT-based median curve visualization from curves.json.
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+# Ensure the parent script/ package is importable
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 import PySimpleGUI as sg

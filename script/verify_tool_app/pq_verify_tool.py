@@ -222,6 +222,8 @@ _INPUT_IMAGE: ImageFrame | None = None
 _last_out_format: int | None = None
 _last_out_frame_size: int = 0
 
+_MIN_PREVIEW_SIZE = 300
+
 
 def _register_modules(modules=None):
     """Register selected modules.
@@ -508,37 +510,51 @@ def _update_status(window: sg.Window, text: str, color: str = "gray"):
 
 def _maybe_render_left_on_resize(window: sg.Window, fw: int, fh: int) -> bool:
     """Re-render left preview if frame size changed significantly. Returns True if re-rendered."""
-    global _last_left_frame_size
+    global _last_left_frame_size, _left_display_size
     last_w, last_h = _last_left_frame_size
     if abs(fw - last_w) < 15 and abs(fh - last_h) < 15:
         return False
     _last_left_frame_size = (fw, fh)
     if _OUTPUT_IMAGE is not None:
-        _update_left_preview(window, _OUTPUT_IMAGE)
+        # Avoid re-render cycle: if displayed image already fills at least
+        # one dimension of the new frame size, layout is settling; skip.
+        disp_w, disp_h = _left_display_size
+        if disp_w > 0 and disp_h > 0:
+            if abs(disp_w - fw) <= 15 or abs(disp_h - fh) <= 15:
+                return False
+        _update_left_preview(window, _OUTPUT_IMAGE, frame_w=fw, frame_h=fh)
         return True
     return False
 
 
-def _update_left_preview(window: sg.Window, frame: ImageFrame, tag: str = ""):
-    """Update the left preview area with new image data."""
+def _update_left_preview(window: sg.Window, frame: ImageFrame, tag: str = "",
+                         frame_w: int = None, frame_h: int = None):
+    """Update the left preview area with new image data.
+
+    Args:
+        frame_w, frame_h: Pre-queried frame dimensions (from resize event).
+            If None, queried via winfo.
+    """
     global _OUTPUT_IMAGE, _scale_factor, _left_display_size
     _OUTPUT_IMAGE = frame
 
-    # Scale image to fit available preview area, never exceeding original resolution.
-    # _planar_to_rgb_pil compares max_size against max(img_width, img_height),
-    # so we clamp to original's max dimension and the frame's min dimension.
     orig_h, orig_w = frame.height, frame.width
     try:
-        frame_h = window["-LEFT-PREVIEW-FRAME-"].Widget.winfo_height()
-        frame_w = window["-LEFT-PREVIEW-FRAME-"].Widget.winfo_width()
-        if frame_h < 100:
-            max_size = max(orig_w, orig_h)
+        fh = frame_h if frame_h is not None else window["-LEFT-PREVIEW-FRAME-"].Widget.winfo_height()
+        fw = frame_w if frame_w is not None else window["-LEFT-PREVIEW-FRAME-"].Widget.winfo_width()
+        if max(fh, fw) <= _MIN_PREVIEW_SIZE:
+            max_size = _MIN_PREVIEW_SIZE
         else:
-            max_size = min(frame_h, frame_w, max(orig_w, orig_h))
+            # Constrain image to fit within both frame dimensions to prevent resize cascade
+            w_ratio = fw / orig_w if orig_w > 0 else 1.0
+            h_ratio = fh / orig_h if orig_h > 0 else 1.0
+            ratio = min(w_ratio, h_ratio)
+            max_size = int(ratio * max(orig_w, orig_h))
+            max_size = max(max_size, _MIN_PREVIEW_SIZE) if _MIN_PREVIEW_SIZE > 0 else max_size
     except Exception:
         max_size = max(orig_w, orig_h)
 
-    img = _planar_to_rgb_pil(frame, max_size=max_size)
+    img = _planar_to_rgb_pil(frame, max_size)
     w, h = img.size
     _scale_factor = h / orig_h if orig_h > 0 else 1.0
     _left_display_size = (w, h)
@@ -1173,6 +1189,7 @@ def main():
         resizable=True,
         finalize=True,
         return_keyboard_events=True,
+        print_event_values=False,
         size=(1300, 900),
     )
     # focus window when opened
@@ -1272,8 +1289,7 @@ def main():
         if event == "-LEFT-PREVIEW-RESIZE-":
             fw, fh = values[event]
             if _maybe_render_left_on_resize(window, fw, fh):
-                pass  # printed inside _maybe_render_left_on_resize
-            print(f"[resize] Left preview frame: {fw}x{fh}")
+                print(f"[resize] Left preview frame: {fw}x{fh}")
             continue
 
         # Space to freeze/unfreeze pixel info — independent per preview
