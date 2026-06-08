@@ -2,60 +2,16 @@
 #define __dci_API_H__
 
 #include "rkvop_model_verify_com.h"
+#include <stdint.h>
 // #include "rk3576_vop_regs.h"
 
 typedef void *dci_handle_t;
 
-#define DCI_CLAHE_OVERRIDE_INVALID_INT (-1)
-#define DCI_CLAHE_OVERRIDE_INVALID_F32 (-1.0f)
-
-#define DCI_AUDIT_TAG_MAX_LEN  256
-#define DCI_AUDIT_PATH_MAX_LEN 2048
-
-#define DCI_AUDIT_NODE_INPUT    (1u << 0)
-#define DCI_AUDIT_NODE_CF       (1u << 1)
-#define DCI_AUDIT_NODE_HE       (1u << 2)
-#define DCI_AUDIT_NODE_CF_HE    (1u << 3)
-#define DCI_AUDIT_NODE_BWS      (1u << 4)
-#define DCI_AUDIT_NODE_LOCAL    (1u << 5)
-#define DCI_AUDIT_NODE_PACK_PRE (1u << 6)
-
-#define DCI_AUDIT_EXPORT_MANIFEST      (1u << 0)
-#define DCI_AUDIT_EXPORT_METRICS_JSON  (1u << 1)
-#define DCI_AUDIT_EXPORT_CURVES_JSON   (1u << 2)
-#define DCI_AUDIT_EXPORT_HISTS_JSON    (1u << 3)
-#define DCI_AUDIT_EXPORT_RAW_META_JSON (1u << 4)
-
 typedef struct {
-    int          platform;
-    unsigned int debug_dump_mask; // 0 disables temp dumps, 0xff keeps all dumps
-    char         debug_path[2048];
+    int         platform;
+    uint32_t    debug_dump_mask; // 0 disables temp dumps, 0xff keeps all dumps
+    char        debug_path[2048];
 } dci_init_param_t;
-
-typedef struct {
-    int enable_cf_he_ratio_override;
-    int cf_he_ratio;
-    int enable_bs_set_point_override;
-    int bs_set_point;
-    int enable_ws_set_point_override;
-    int ws_set_point;
-    int enable_clahe_local_ratio_override;
-    int clahe_local_ratio;
-    int enable_clahe_clip_value_override;
-    float clahe_clip_value;
-} dci_audit_override_t;
-
-typedef struct {
-    int                  enable;
-    int                  static_only;
-    unsigned int         node_mask;
-    unsigned int         export_mask;
-    char                 tag[DCI_AUDIT_TAG_MAX_LEN];
-    char                 working_dir[DCI_AUDIT_PATH_MAX_LEN];
-    int                  save_snapshot;
-    char                 snapshot_dir[DCI_AUDIT_PATH_MAX_LEN];
-    dci_audit_override_t override_cfg;
-} dci_audit_param_t;
 
 typedef struct {
     int dci_enable;
@@ -68,24 +24,61 @@ typedef struct {
     int        frame_idx;
     int        frame_num;
     // input pixel format (10bit planar) for DCI, see pix_fmt. (PIX_YUV444P_10 or PIX_RGB101010)
-    int        pixel_format; // [O]
+    int        pixel_format; //[O] output for now
 
     /* config path */
     char config_path[2048];
     char reg_path[2048];
 
     /* optional parameter overrides, set to invalid values (-1) to use JSON defaults */
-    int   clahe_en;          // [0, (1)]
-    float clahe_clip_value;  // [0.0f, (1.0f), 2.0f], higher value means higher local effect
-    int   clahe_local_ratio; // [0, (19), 32], higher value means higher local effect and less global effect
-    float clahe_abld_ratio;  // [0.0f, (0.7), 1.0f], higher value means higher history effect
-    int   cf_gain_low;       // 5bit fixed, [0, (32)], 0 means no CF_low  effct
-    int   cf_gain_mid;       // 5bit fixed, [0, (32)], 0 means no CF_mid  effct
-    int   cf_gain_high;      // 5bit fixed, [0, (32)], 0 means no CF_high effct
-    int   cf_he_ratio;       // 6bit fixed, [0, (64)], 0 means no HE effct
+    struct {
+        int     gain_low;       // 32 norm, [0, (32)], 低亮度曲线增益
+        int     gain_mid;       // 32 norm, [0, (32)], 中亮度曲线增益
+        int     gain_high;      // 32 norm, [0, (32)], 高亮度曲线增益
+    } cf;
 
-    dci_audit_param_t audit;
+    struct {
+        int     splitPoint;   // [0, (125), 1023](rec), 直方图分隔点, on U10 domain, 代码内会移位到 8bit 域
+        float   leftClip;     // [0.01f, (1.0f)](rec), 左半直方图 clip 比例
+        float   rightClip;    // [0.01f, (1.0f)](rec), 右半直方图 clip 比例
+        int     overLap;      // [0, (16), 128](rec), 分隔点 overlap 宽度，取 ±overLap 两条曲线平均使过渡平滑
+    } he;
 
+    int         cf_he_ratio;  // 64 norm, [0, (64)], 0/64 means no CF/HE effct
+
+    struct {
+        int     enable;     // [0, 1], 0-禁用, 1-启用
+        int     set_point;  // [0, (80), 1023](rec), 黑场拉伸锚点, 10bit 域
+        int     ratio;      // 64 norm, [0, (64)], 拉伸强度, 0 表示不拉伸
+        int     overlap;    // 64 norm, [(0), 64], 锚点 overlap 宽度
+    } bs;
+
+    struct {
+        int     enable;     // [0, 1], 0-禁用, 1-启用
+        int     set_point;  // [0, (80), 1023](rec), 白场拉伸锚点, 10bit 域
+        int     ratio;      // 64 norm, [0, (64)], 拉伸强度, 0 表示不拉伸
+        int     overlap;    // 64 norm, [(0), 64], 锚点 overlap 宽度
+    } ws;
+
+    struct {
+        int     enable;         // range: [0, (1)], def: 1, 局部 CLAHE 使能
+        float   clip_value;     // range: [0.0, 2.0], def: 1.0, 直方图 clip 强度, 越大局部效果越强
+        int     local_ratio;    // range: [0, 32], def: 19, local/global 插值结果融合比例
+        float   left_alpha;     // range: [0.1, 10.0],def: 3.0, 暗部 clip 增益
+        float   left_ThrLmin;   // range: [0.0, 1.0], def: 0.5, 暗部 clip 下界
+        float   left_ThrLmax;   // range: [0.5, 5.0], def: 2.3, 暗部 clip 上界
+        float   left_lumRatio;  // range: [0.0, 1.0], def: 0.7, 暗部 block 的 clip 缩放
+        float   right_alpha;    // range: [0.1, 10.0],def: 1.5, 亮部 clip 增益
+        float   right_ThrRmin;  // range: [0.0, 1.0], def: 0.7, 亮部 clip 下界
+        float   right_ThrRmax;  // range: [0.5, 6.0], def: 3.0, 亮部 clip 上界
+    } clahe;
+
+    struct {
+        int     enable;                // range: [0, 1], def: 1
+        int     saturation_w;          // range: [0, 64], def: 56, 饱和度权重, 对应硬件 saturation_w
+        int     adj_luma_coring_zero;  // range: [0, 1023], def: 8, 色度门限下界
+        int     adj_luma_coring_thrd;  // range: [0, 1023], def: 16, 色度门限上界
+    } ca;
 } dci_proc_param_t;
 
 #ifdef __cplusplus
@@ -97,6 +90,8 @@ int dciVerifyInit(dci_handle_t *handle, dci_init_param_t *init_param);
 int dciVerifyDeinit(dci_handle_t handle);
 
 int dciVerifyProc(dci_handle_t handle, dci_proc_param_t *proc_params);
+
+int dciSetDefaultParams(dci_proc_param_t *proc_params);
 
 #ifdef __cplusplus
 }

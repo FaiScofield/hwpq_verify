@@ -15,10 +15,12 @@ import draw_global_lut as dgl
 data_dir = "V:/ai-contrast/9681Aicontrast/"
 dci_exe = "G:/Codes/gerrit_projects/hwpq_verify/output/bin/dci_verify_demo.exe"
 # config_file = "G:/Codes/gerrit_projects/hwpq_verify/data/vdpp_vop_config_3572.json"
-# dci_exe = "G:/Codes/RkVopAlgos_git/pub_lib/ModelVerify/AMD64/bin/dci_sim_exe.exe"
+# dci_exe = "G:/Codes/RkVopAlgos/pub_lib/ModelVerify/AMD64/bin/dci_sim_exe.exe"
 config_file = "G:/Codes/gerrit_projects/hwpq_verify/data/dci_config_3572.json"
-do_single_img_sim = "pdf2"
-suffix = ""
+do_single_img_sim = ""
+suffix = "_CfHeRatio64"
+# custum_args = "--cf_gain_low 0 --cf_gain_mid 0 --cf_gain_high 0 --cf_he_ratio 64"
+custum_args = ""
 draw_curve=False
 
 def parse_args():
@@ -29,10 +31,9 @@ def parse_args():
     parser.add_argument("--peaking_gain", type=int, default=150, help="Peaking gain, recommended range [0, 1023].")
     return parser.parse_args()
 
-
 def do_dci_sim(data_dir, clahe_clip=1.0, clahe_lce=19, peaking_gain=150):
     """Run DCI simulation for all matching PNG files in the target directory."""
-    output_dir = os.path.join(data_dir, "dci_sim6_again")
+    output_dir = os.path.join(data_dir, "dci_sim6_fix")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     # 获取 data_dir 下所有 xxx_off.png 文件
@@ -53,17 +54,17 @@ def do_dci_sim(data_dir, clahe_clip=1.0, clahe_lce=19, peaking_gain=150):
             continue
 
         # 生成输出文件路径
-        out_file = os.path.join(output_dir, f"{base_name}_rk_peaking{peaking_gain}_clip{clahe_clip}_lce{clahe_lce}.png")
+        out_file = os.path.join(output_dir, f"{base_name}_rk_peaking{peaking_gain}_clip{clahe_clip}_lce{clahe_lce}{suffix}.png")
 
         # 执行 dci_sim_exe 转换
         cmd = (
             f'{dci_exe} -i "{png_file}" -o "{out_file}" -c "{config_file}" -m 0 '
-            f'--clahe_clip_value {clahe_clip} --clahe_local_ratio {clahe_lce} --shp_type 1 --shp_peaking_gain {peaking_gain} --dump 0xf0'
+            f'--clahe_clip_value {clahe_clip} --clahe_local_ratio {clahe_lce} --shp_type 1 --shp_peaking_gain {peaking_gain} --dump 0xf0 {custum_args}'
         )
 
         # input_file = f'{output_dir}/pdf2_input_1920x1080_yuv444p10l.yuv'
-        # out_file = os.path.join(output_dir, f"{base_name}_rk_yuv44410pl_{suffix}.yuv")
-        # cmd = f'{dci_exe} -i "{input_file}" -o "{out_file}" -c "{config_file}" -m 0 -f 0x13 --dump 0xf0'
+        # out_file = os.path.join(output_dir, f"{base_name}_rk_yuv444p10l{suffix}.yuv")
+        # cmd = f'{dci_exe} -i "{input_file}" -o "{out_file}" -c "{config_file}" -m 0 -f 0x13 --dump 0xf0 --clahe_clip_value {clahe_clip} --clahe_local_ratio {clahe_lce} --shp_type 1 --dump 0xf0 --cf_gain_low 0 --cf_gain_mid 0 --cf_gain_high 0 --cf_he_ratio 64'
         # print(f"转换：{file_name} -> {base_name}_lce{lce}.png")
         utl.run_cmd(cmd, showOutput=True, showCmd=True)
 
@@ -73,15 +74,15 @@ def do_dci_sim(data_dir, clahe_clip=1.0, clahe_lce=19, peaking_gain=150):
             local_lut_path = f'{output_dir}/VOP_pos3_DCI_Local_LUT_frame0.txt'
             global_hist_path = f'{output_dir}/vdpp_hist_data_global_unpacked.bin'
             local_hist_path = f'{output_dir}/vdpp_hist_data_local_unpacked.bin'
-            pic_global_out = f'{output_dir}/{base_name}_hist_and_global_lut_{suffix}.png'
-            pic_local_out = f'{output_dir}/{base_name}_hist_and_local_lut_{suffix}.png'
+            pic_global_out = f'{output_dir}/{base_name}_rk_hist_and_global_lut{suffix}.png'
+            pic_local_out = f'{output_dir}/{base_name}_rk_hist_and_local_lut{suffix}.png'
             multi_lut_specs = [
                 (f'{output_dir}/VOP_pos1_DCI_CF_LUT_frm0.txt', "CF LUT"),
                 (f'{output_dir}/VOP_pos2_DCI_HE_LUT_frm0.txt', "HE LUT"),
                 (f'{output_dir}/VOP_pos3_DCI_Global_LUT_CFHE_frm0.txt', "Global LUT CFHE"),
                 (f'{output_dir}/VOP_pos4_DCI_Global_LUT_WS_frm0.txt', "Global LUT WS"),
             ]
-            multi_lut_output_path = f'{output_dir}/{base_name}_he_bs_global_lut_{suffix}.png'
+            multi_lut_output_path = f'{output_dir}/{base_name}_rk_he_bs_global_lut{suffix}.png'
             dgl.draw_combined_plot(global_lut_path, global_hist_path, pic_global_out)
             dgl.draw_local_combined_plot(local_lut_path, local_hist_path, pic_local_out)
             dgl.draw_multi_lut_plot(multi_lut_specs, multi_lut_output_path, f"{base_name} CF/HE/CF+HE/BS LUTs")
