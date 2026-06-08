@@ -125,8 +125,7 @@ static int get_cmd_config_addition(int argc, char *const argv[], struct cmd_conf
         case 6:  config->cf_gain_high = strtol(optarg, NULL, 10); break;
         case 7:  config->cf_he_ratio = strtol(optarg, NULL, 10); break;
         case 8:  config->shp_type = strtol(optarg, NULL, 10); break;
-        case 9:  config->shp_type = strtol(optarg, NULL, 10); break;
-        case 10: config->shp_peaking_gain = strtol(optarg, NULL, 10); break;
+        case 9: config->shp_peaking_gain = strtol(optarg, NULL, 10); break;
         default: break;
         }
         LOGI(" - get %dth option: %s = %s\n", idx, g_cmd_args_options_dci[idx].name, optarg);
@@ -440,6 +439,33 @@ static int dump_rgb888_buffer(const char *output_dir, const char *tag, int frame
     return ret;
 }
 
+
+/**
+ * @brief Dump a planar 10-bit RGB frame into an stb image file.
+ */
+static int write_rgb10bit_stb_image(const char *filename, const void *buffer, int width, int height, int dither,
+    const char *output_dir, int dump_flag, int frame_idx)
+{
+    const int rgb_stride = width * 3;
+    uint8_t *rgb_data = (uint8_t *)malloc((size_t)rgb_stride * height);
+    if (!rgb_data) {
+        return -1;
+    }
+
+    int ret = imgcvt_from_planar_10bit_lsb((uint16_t const *)buffer, rgb_data, width, height, width * 2, height,
+        rgb_stride, height, RGB888, false, dither);
+    if (ret == 0) {
+        if (VERIFY_DBG_DUMP_ENABLED(dump_flag, VERIFY_DBG_DUMP_MED_IMG)) {
+            ret = dump_rgb888_buffer(output_dir, "dci_dbg_input_stb", frame_idx, rgb_data, width, height);
+        }
+    }
+    if (ret == 0) {
+        ret = write_stb_image_auto(filename, width, height, 3, rgb_data, rgb_stride);
+    }
+    free(rgb_data);
+    return ret;
+}
+
 /* ------------------------------------------------------------------ */
 /* Entry point                                                        */
 /* ------------------------------------------------------------------ */
@@ -660,8 +686,6 @@ int run_as_demo(int argc, char *const argv[])
     bool is_src_stb_img = false;
     bool is_dst_stb_img = false;
     bool need_rgb_input_pack = false;
-    bool need_rgb_output = false;
-    bool need_sharp = false;
     bool enable_dump_med_img = false;
     bool can_calc_crc = false;
     int shp_type = 0;
@@ -724,17 +748,11 @@ int run_as_demo(int argc, char *const argv[])
         LOGE("stb image output currently requires an RGB-family dst_fmt\n");
         return -1;
     }
-    need_rgb_output = is_dst_stb_img || common_verify_imgfmt_is_rgb(config.dst_fmt);
-    shp_type = (config2.shp_type == SHP_OVERRIDE_INVALID_INT) ? 0 : config2.shp_type;
-    need_sharp = (shp_type == 1 || shp_type == 2);
+    shp_type = config2.shp_type;
     enable_dump_med_img = VERIFY_DBG_DUMP_ENABLED(config.dump_flag, VERIFY_DBG_DUMP_MED_IMG);
     if (shp_type < 0 || shp_type > 2) {
         LOGW("invalid --shp_type value: %d, expected 0/1/2\n", shp_type);
-        need_sharp = false;
-    }
-    if (need_sharp && config.config_file[0] == '\0') {
-        LOGE("sharp post-process requires config_file when --shp_type is enabled\n");
-        return -1;
+        shp_type = 0;
     }
 
     if (is_src_stb_img) {
@@ -795,11 +813,11 @@ int run_as_demo(int argc, char *const argv[])
     p_dst = calloc(frame_size_max, 1);
     if (need_rgb_input_pack)
         p_src_dci = calloc(frame_size_max, 1);
-    if (need_sharp)
+    if (shp_type > 0)
         p_shp = calloc(frame_size_max, 1);
-    if (need_rgb_output)
+    if (is_dst_stb_img)
         p_rgb = calloc(frame_size_max, 1);
-    if (!p_src || (need_rgb_input_pack && !p_src_dci) || !p_dst || (need_sharp && !p_shp) || (need_rgb_output && !p_rgb))
+    if (!p_src || (need_rgb_input_pack && !p_src_dci) || !p_dst || (shp_type > 0 && !p_shp) || (is_dst_stb_img && !p_rgb))
     {
         ret = -1;
         goto EXIT;
@@ -883,7 +901,7 @@ int run_as_demo(int argc, char *const argv[])
         goto EXIT;
     }
 
-    if (need_rgb_output) {
+    if (is_dst_stb_img) {
         ret = init_rgb_output_csc(&rgb_output_csc_mode, &rgb_output_csc_coef);
         if (ret) {
             LOGE("failed to init RGB output CSC! %d\n", ret);
@@ -950,7 +968,7 @@ int run_as_demo(int argc, char *const argv[])
             get_plane_pointers(p_src, config.src_wid, config.src_hgt, config.src_fmt, &p_src_y, &p_src_u, &p_src_v);
         }
         get_plane_pointers(p_dst, config.dst_wid, config.dst_hgt, dci_dst_fmt, &p_dst_y, &p_dst_u, &p_dst_v);
-        if (need_sharp) {
+        if (shp_type > 0) {
             get_plane_pointers(p_shp, config.dst_wid, config.dst_hgt, dci_dst_fmt, &p_shp_y, &p_shp_u, &p_shp_v);
         }
 
@@ -966,12 +984,12 @@ int run_as_demo(int argc, char *const argv[])
             break;
         }
         if (enable_dump_med_img) {
-            ret = dump_image_file(config.output_dir, "dci_dbg3_output_10bit", k, p_dst, config.dst_wid, config.dst_hgt,
+            ret = dump_image_file(config.output_dir, "dci_dbg3_output_dci_10bit", k, p_dst, config.dst_wid, config.dst_hgt,
                 config.dst_wid * 2, config.dst_hgt, YUV444P_10LSB, 10, config.dither_dn);
         }
 
         p_final_out = p_dst;
-        if (need_sharp) {
+        if (shp_type > 0) {
             if (shp_type == 1) {
                 fill_img_info(&shpfull_proc_param.src_info, config.dst_wid, config.dst_hgt, dci_dst_fmt, p_dst_y,
                     p_dst_u, p_dst_v);
@@ -1004,7 +1022,7 @@ int run_as_demo(int argc, char *const argv[])
             }
         }
 
-        if (need_rgb_output) {
+        if (is_dst_stb_img) {
             run_csc_with_coef_13bit(p_final_out, p_rgb, config.dst_wid, config.dst_hgt, &rgb_output_csc_coef,
                 &rgb_output_csc_mode);
             if (enable_dump_med_img) {
@@ -1012,11 +1030,10 @@ int run_as_demo(int argc, char *const argv[])
                     config.dst_hgt, config.dst_wid * 2, config.dst_hgt, RGB_PLANAR10LSB, 10, config.dither_dn);
             }
             p_final_out = p_rgb;
-        }
 
-        if (is_dst_stb_img) {
             /* Convert 10bit RGB planar to 8bit interleaved RGB before stb output. */
-            ret = write_stb_image_auto(config.output_file, config.dst_wid, config.dst_hgt, 3, p_final_out, config.dst_wid * 3);
+            ret = write_rgb10bit_stb_image(config.output_file, p_final_out, config.dst_wid, config.dst_hgt,
+                config.dither_dn, config.output_dir, config.dump_flag, k);
             if (ret)
                 break;
         }
