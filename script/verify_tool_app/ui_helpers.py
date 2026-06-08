@@ -20,7 +20,7 @@ SliderSpinConfig = namedtuple(
     "SliderSpinConfig",
     [
         "spin_key", "slider_key", "min_val", "max_val", "def_val", "step",
-        "norm_key", "norm_func", "reset_key",
+        "reset_key", "norm_key", "norm_func",
     ],
     defaults=(1, None, None, None),
 )
@@ -35,20 +35,20 @@ SliderSpinConfig = namedtuple(
 
 def build_numeric_control_row(
     label: str,
-    spin_key: str,
-    slider_key: str,
+    base_key_name: str,
     default_value,
     min_value,
     max_value,
     resolution: float = 1.0,
+    en_spin: bool = False,
+    en_norm_text: bool = False,
+    en_reset_btn: bool = False,
+    tooltip: str = "",
     label_size: tuple = (22, 1),
     slider_size: tuple = (28, 15),
     spin_size: tuple = (8, 1),
     norm_text_size: tuple = (8, 1),
-    reset_button_size: tuple = (6, 1),
-    tooltip: str = "",
-    norm_key: str = None,
-    reset_key: str = -1,  # -1 = auto-generate from slider_key; None = no button
+    reset_button_size: tuple = (6, 1)
 ) -> list:
     """Build a synchronized spinbox + slider + norm text + reset button control row.
 
@@ -64,9 +64,15 @@ def build_numeric_control_row(
     if resolution >= 1:
         spin_values = [int(v) for v in spin_values]
 
-    # Auto-generate reset_key if needed
-    if reset_key == -1:
-        reset_key = f"{slider_key}-RESET-"
+    # Auto-generate keys
+    if not base_key_name.startswith("-"):
+        base_key_name = "-" + base_key_name
+    if not base_key_name.endswith("-"):
+        base_key_name += "-"
+    slider_key = f"{base_key_name}SLIDER-"
+    spin_key = f"{base_key_name}SPIN-"
+    norm_key = f"{base_key_name}NORM-"
+    reset_key = f"{base_key_name}RESET-"
 
     row = [
         sg.Text(label, size=label_size),
@@ -81,18 +87,13 @@ def build_numeric_control_row(
             disable_number_display=True,
             tooltip=tooltip,
         ),
-        sg.Spin(
-            spin_values,
-            initial_value=default_value,
-            size=spin_size,
-            key=spin_key,
-            enable_events=True,
-            tooltip=tooltip,
-        ),
     ]
-    if norm_key is not None:
+    if en_spin:
+        row.append(sg.Spin(spin_values, initial_value=default_value, size=spin_size, key=spin_key,
+                           enable_events=True, tooltip=tooltip))
+    if en_norm_text:
         row.append(sg.Text("", size=norm_text_size, key=norm_key, justification="left"))
-    if reset_key is not None:
+    if en_reset_btn:
         row.append(sg.Button("Reset", key=reset_key, size=reset_button_size,
                              tooltip=f"Reset {label} to default"))
     return row

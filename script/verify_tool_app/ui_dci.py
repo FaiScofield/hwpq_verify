@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from collections import defaultdict
 
 # Ensure the parent script/ package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -19,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 import PySimpleGUI as sg
 
-from csc.run_csc import read_raw_to_planar, write_planar_to_raw
+from csc.run_csc import read_raw_to_planar
 from verify_tool_app.ui_helpers import (
     SliderSpinConfig,
     bind_keyboard_events as _bind_kb_shared,
@@ -48,6 +49,17 @@ DCI_LOCAL_HIST_CNT = 16        # entries per block LUT
 DCI_GLOBAL_HIST_CNT = 1024     # (1 << 10)
 DCI_MAX_LUMA = 1023
 DCI_BLOCK_GRID = 16            # 16x16 spatial grid
+
+# DCI Support image formats
+DCI_SUPPORT_IO_FORMATS = defaultdict(list, {
+    0x13: [0x13],
+    0x14: [0x14],
+    0x16: [0x16],
+    0x17: [0x17],
+    0x18: [0x18],
+    0x19: [0x19],
+    0x1A: [0x1A],
+})
 
 # Curves cache: {audit_dir_path: curves_dict}
 _CURVES_CACHE: dict[str, dict] = {}
@@ -253,25 +265,11 @@ def build_controls() -> list:
             ),
             sg.Button("Open Dir", key="-DCI-OPEN-EXE-DIR-", size=(8, 1),
                       tooltip="在资源管理器中打开DCI EXE所在目录"),
-        ],
-        [
-            sg.Text("DCI Audit Dir", size=(10, 1)),
-            sg.Input("D:\\RkDefaultDumpData\\dci_audit_smoke", key="-DCI-AUDIT-DIR-", size=(46, 1),
-                     tooltip="DCI审计参考数据目录"),
-            sg.FolderBrowse(target="-DCI-AUDIT-DIR-", size=(8, 1)),
-            sg.Button("Open Dir", key="-DCI-OPEN-AUDIT-DIR-", size=(8, 1),
-                      tooltip="在资源管理器中打开DCI审计目录"),
-        ],
-        [sg.HorizontalSeparator()],
-        [
-            sg.Checkbox("Enable Audit", default=False, key="-AUDIT-ENABLE-",
-                        tooltip="启用DCI处理结果审计（与参考数据对比）"),
-            sg.Text("Tag", size=(4, 1)),
-            sg.Input("ui_live", size=(20, 1), key="-TAG-",
-                     tooltip="审计标签名，用于区分不同测试用例"),
+            sg.Checkbox("Enable Dump", default=False, key="-DCI-DUMP-",
+                        tooltip="启用Dump功能"),
             sg.Text("Show Median Result", size=(14, 1)),
             sg.Combo(
-                ["None", "Global_CF", "Global_HE", "Global_CF_HE", "Global_BWS", "Global_All", "Local_CLAHE"],
+                ["None", "GLOAT_HIST_LUT", "Global_CF", "Global_HE", "Global_CF_HE", "Global_BWS", "Global_All", "Local_CLAHE"],
                 default_value="None",
                 key="-DCI-COMBO-MEDIAN-",
                 readonly=True,
@@ -280,66 +278,145 @@ def build_controls() -> list:
                 tooltip="右预览区显示的DCI中间结果类型",
             ),
         ],
-        [
-            sg.Text("Node Mask", size=(10, 1)),
-            sg.Input("0", size=(8, 1), key="-NODEMASK-",
-                     tooltip="DCI节点掩码（控制哪些节点参与处理）"),
-            sg.Text("Export Mask", size=(11, 1)),
-            sg.Input("0", size=(8, 1), key="-EXPORTMASK-",
-                     tooltip="DCI导出掩码（控制导出哪些中间结果）"),
-            sg.Text("Debug Dump Mask", size=(14, 1)),
-            sg.Input("0", size=(8, 1), key="-DUMPMASK-",
-                     tooltip="DCI调试dump掩码（控制dump哪些调试数据）"),
-        ],
         [sg.HorizontalSeparator()],
-        build_numeric_control_row("CF/HE Ratio", "-CFHE-", "-CFHE-SLIDER-", 32, 0, 64,
-                                   norm_key="-CFHE-NORM-",
-                                   tooltip="CF/HE比例控制（0~64，默认32）"),
-        build_numeric_control_row("BS Set Point", "-BS-", "-BS-SLIDER-", 80, 0, 255,
-                                   norm_key="-BS-NORM-",
-                                   tooltip="黑电平设置点（0~255，默认80）"),
-        build_numeric_control_row("WS Set Point", "-WS-", "-WS-SLIDER-", 80, 0, 255,
-                                   norm_key="-WS-NORM-",
-                                   tooltip="白电平设置点（0~255，默认80）"),
-        build_numeric_control_row("CLAHE Local Ratio", "-CLAHE-R-", "-CLAHE-R-SLIDER-", 19, 0, 32,
-                                   norm_key="-CLAHE-R-NORM-",
-                                   tooltip="CLAHE局部对比度比例（0~32，默认19）"),
-        build_numeric_control_row("CLAHE Clip Value", "-CLAHE-C-", "-CLAHE-C-SLIDER-", 1.0, 0.0, 3.0, resolution=0.1,
-                                   norm_key="-CLAHE-C-NORM-",
-                                   tooltip="CLAHE裁剪阈值（0.0~3.0，默认1.0）"),
+        [
+            sg.Frame("CF", [
+                build_numeric_control_row("Gain Low", "-CF-GL-", 32, 0, 32, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="低亮度预设曲线增益"),
+                build_numeric_control_row("Gain Mid", "-CF-GM-", 32, 0, 32, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="中亮度预设曲线增益"),
+                build_numeric_control_row("Gain High", "-CF-GH-", 32, 0, 32, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="高亮度预设曲线增益"),
+                build_numeric_control_row("CF/HE Ratio", "-CFHE-", 32, 0, 64, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CF/HE融合比例控制"),
+            ]),
+            sg.Frame("HE", [
+                build_numeric_control_row("Split Point ", "HE-SPLIT-", 125, 0, 1023, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="直方图分隔点"),
+                build_numeric_control_row("Left Clip", "-HE-LC-", 1.0, 0.01, 1.0, resolution=0.05, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="左半直方图clip比例"),
+                build_numeric_control_row("Right Clip", "-HE-RC-", 1.0, 0.01, 1.0, resolution=0.05, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="右半直方图clip比例"),
+                build_numeric_control_row("Overlap", "-HE-OVERLAP-", 16, 0, 128, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="分隔点overlap宽度"),
+            ]),
+            sg.Frame("BS", [
+                [sg.Checkbox("Enable", default=True, key="-BS-EN-", tooltip="启用BS处理")],
+                build_numeric_control_row("Set Point", "-BS-SP-", 80, 0, 1023, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="黑场拉伸锚点"),
+                build_numeric_control_row("Ratio", "-BS-RATIO-", 64, 0, 64, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="黑场拉伸强度"),
+                build_numeric_control_row("Overlap", "-BS-OVERLAP-", 64, 0, 64, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="黑场锚点overlap宽度"),
+            ]),
+            sg.Frame("WS", [
+                [sg.Checkbox("Enable", default=True, key="-WS-EN-", tooltip="启用WS处理")],
+                build_numeric_control_row("Set Point", "-WS-SP-", 80, 0, 1023, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="白场拉伸锚点"),
+                build_numeric_control_row("Ratio", "-WS-RATIO-", 64, 0, 64, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="白场拉伸强度"),
+                build_numeric_control_row("Overlap", "-WS-OVERLAP-", 64, 0, 64, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="白场锚点overlap宽度"),
+            ]),
+        ],
+        [sg.Frame("CLAHE", [
+            [sg.Checkbox("Enable", default=True, key="-CLAHE-EN-", tooltip="启用CLAHE处理"),
+             sg.Push(),
+             sg.Button("Reset CF", key="-RESET-CF-", tooltip="重置CF参数"),
+             sg.Button("Reset HE", key="-RESET-HE-", tooltip="重置HE参数"),
+             sg.Button("Reset BS", key="-RESET-BS-", tooltip="重置BS参数"),
+             sg.Button("Reset SW", key="-RESET-WS-", tooltip="重置WS参数"),
+             sg.Button("Reset CLAHE", key="-RESET-CLAHE-", tooltip="重置CLAHE参数"),
+            ],
+            [
+                *build_numeric_control_row("Clip Value", "-CLAHE-CV-", 1.0, 0.0, 3.0, resolution=0.1, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE裁剪阈值"),
+                *build_numeric_control_row("Local Ratio", "-CLAHE-LR-", 19, 0, 32, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE局部融合比例"),
+                *build_numeric_control_row("Left Alpha", "-CLAHE-LA-", 3.0, 0.1, 10.0, resolution=0.1, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE左半融合比例"),
+                *build_numeric_control_row("Left ThrLMin", "-CLAHE-LTMIN-", 0.5, 0.0, 1.0, resolution=0.1, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE左半阈值最小值"),
+            ],
+            [
+                *build_numeric_control_row("Left ThrLMax", "-CLAHE-LTMAX-", 2.3, 0.5, 5.0, resolution=0.1, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE左半阈值最大值"),
+                *build_numeric_control_row("Left Luma Ratio", "-CLAHE-LLR-", 3.0, 0.1, 10.0, resolution=0.1, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE左半融合比例"),
+                *build_numeric_control_row("Right ThrLMin", "-CLAHE-RTMIN-", 0.5, 0.0, 1.0, resolution=0.1, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE右半阈值最小值"),
+                *build_numeric_control_row("Right ThrLMax", "-CLAHE-RTMAX-", 2.3, 0.5, 5.0, resolution=0.1, en_spin=True,
+                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE右半阈值最大值"),
+            ],
+        ])],
     ]
-
 
 # ------------------------------------------------------------------ #
 # Event handling                                                     #
 # ------------------------------------------------------------------ #
 
-DCI_SLIDER_SPIN_PAIRS = [
-    SliderSpinConfig("-CFHE-", "-CFHE-SLIDER-", 0, 64, 32, 1,
-                     norm_key="-CFHE-NORM-",
-                     norm_func=lambda v, _: f"{v/64:.2f}",
-                     reset_key="-CFHE-SLIDER--RESET-"),
-    SliderSpinConfig("-BS-", "-BS-SLIDER-", 0, 255, 80, 1,
-                     norm_key="-BS-NORM-",
-                     norm_func=lambda v, _: f"{v/255:.3f}",
-                     reset_key="-BS-SLIDER--RESET-"),
-    SliderSpinConfig("-WS-", "-WS-SLIDER-", 0, 255, 80, 1,
-                     norm_key="-WS-NORM-",
-                     norm_func=lambda v, _: f"{v/255:.3f}",
-                     reset_key="-WS-SLIDER--RESET-"),
-    SliderSpinConfig("-CLAHE-R-", "-CLAHE-R-SLIDER-", 0, 32, 19, 1,
-                     norm_key="-CLAHE-R-NORM-",
-                     norm_func=lambda v, _: f"{v/32:.3f}",
-                     reset_key="-CLAHE-R-SLIDER--RESET-"),
-    SliderSpinConfig("-CLAHE-C-", "-CLAHE-C-SLIDER-", 0.0, 3.0, 1.0, 0.1,
-                     norm_key="-CLAHE-C-NORM-",
-                     norm_func=lambda v, _: f"{v:.1f}",
-                     reset_key="-CLAHE-C-SLIDER--RESET-"),
+# Per-module slider/spin pairs for group reset
+DCI_CF_PAIRS = [
+    SliderSpinConfig("-CF-GL-SPIN-", "-CF-GL-SLIDER-", 0, 32, 32, 1),
+    SliderSpinConfig("-CF-GM-SPIN-", "-CF-GM-SLIDER-", 0, 32, 32, 1),
+    SliderSpinConfig("-CF-GH-SPIN-", "-CF-GH-SLIDER-", 0, 32, 32, 1),
+    SliderSpinConfig("-CFHE-SPIN-", "-CFHE-SLIDER-", 0, 64, 32, 1),
 ]
+DCI_HE_PAIRS = [
+    SliderSpinConfig("-HE-SPLIT-SPIN-", "-HE-SPLIT-SLIDER-", 0, 1023, 125, 1),
+    SliderSpinConfig("-HE-LC-SPIN-", "-HE-LC-SLIDER-", 0.01, 1.0, 1.0, 0.01),
+    SliderSpinConfig("-HE-RC-SPIN-", "-HE-RC-SLIDER-", 0.01, 1.0, 1.0, 0.01),
+    SliderSpinConfig("-HE-OVERLAP-SPIN-", "-HE-OVERLAP-SLIDER-", 0, 128, 16, 1),
+]
+DCI_BS_PAIRS = [
+    SliderSpinConfig("-BS-SP-SPIN-", "-BS-SP-SLIDER-", 0, 1023, 80, 1),
+    SliderSpinConfig("-BS-RATIO-SPIN-", "-BS-RATIO-SLIDER-", 0, 64, 64, 1),
+    SliderSpinConfig("-BS-OVERLAP-SPIN-", "-BS-OVERLAP-SLIDER-", 0, 64, 64, 1),
+]
+DCI_WS_PAIRS = [
+    SliderSpinConfig("-WS-SP-SPIN-", "-WS-SP-SLIDER-", 0, 1023, 80, 1),
+    SliderSpinConfig("-WS-RATIO-SPIN-", "-WS-RATIO-SLIDER-", 0, 64, 64, 1),
+    SliderSpinConfig("-WS-OVERLAP-SPIN-", "-WS-OVERLAP-SLIDER-", 0, 64, 64, 1),
+]
+DCI_CLAHE_PAIRS = [
+    SliderSpinConfig("-CLAHE-CV-SPIN-", "-CLAHE-CV-SLIDER-", 0.0, 3.0, 1.0, 0.1),
+    SliderSpinConfig("-CLAHE-LR-SPIN-", "-CLAHE-LR-SLIDER-", 0, 32, 19, 1),
+    SliderSpinConfig("-CLAHE-LA-SPIN-", "-CLAHE-LA-SLIDER-", 0.1, 10.0, 3.0, 0.1),
+    SliderSpinConfig("-CLAHE-LTMIN-SPIN-", "-CLAHE-LTMIN-SLIDER-", 0.0, 1.0, 0.5, 0.1),
+    SliderSpinConfig("-CLAHE-LTMAX-SPIN-", "-CLAHE-LTMAX-SLIDER-", 0.5, 5.0, 2.3, 0.1),
+    SliderSpinConfig("-CLAHE-LLR-SPIN-", "-CLAHE-LLR-SLIDER-", 0.1, 10.0, 3.0, 0.1),
+    SliderSpinConfig("-CLAHE-RTMIN-SPIN-", "-CLAHE-RTMIN-SLIDER-", 0.0, 1.0, 0.5, 0.1),
+    SliderSpinConfig("-CLAHE-RTMAX-SPIN-", "-CLAHE-RTMAX-SLIDER-", 0.5, 5.0, 2.3, 0.1),
+]
+
+# Combined flat list for keyboard/sync dispatch
+DCI_SLIDER_SPIN_PAIRS = DCI_CF_PAIRS + DCI_HE_PAIRS + DCI_BS_PAIRS + DCI_WS_PAIRS + DCI_CLAHE_PAIRS
+
+
+def _reset_dci_slider_group(window: sg.Window, values: dict, pairs: list):
+    """Reset a group of slider/spin pairs to their default values."""
+    for pair in pairs:
+        window[pair.slider_key].update(value=pair.def_val)
+        display_val = int(pair.def_val) if pair.step >= 1 else pair.def_val
+        window[pair.spin_key].update(value=display_val)
+        values[pair.slider_key] = pair.def_val
+        values[pair.spin_key] = display_val
 
 
 def handle_dci_event(event: str, values: dict, window: sg.Window) -> bool:
     """Handle DCI-specific events. Returns True if consumed."""
+    # Group reset buttons
+    _RESET_DCI_MAP = {
+        "-RESET-CF-": DCI_CF_PAIRS,
+        "-RESET-HE-": DCI_HE_PAIRS,
+        "-RESET-BS-": DCI_BS_PAIRS,
+        "-RESET-WS-": DCI_WS_PAIRS,
+        "-RESET-CLAHE-": DCI_CLAHE_PAIRS,
+    }
+    if event in _RESET_DCI_MAP:
+        _reset_dci_slider_group(window, values, _RESET_DCI_MAP[event])
+        return True
+
     # Keyboard suffix events via shared handler
     if handle_keyboard_event(event, values, window, DCI_SLIDER_SPIN_PAIRS):
         return True
@@ -354,13 +431,8 @@ def handle_dci_event(event: str, values: dict, window: sg.Window) -> bool:
             return True
 
     # Open Dir buttons
-    if event in ("-DCI-OPEN-EXE-DIR-", "-DCI-OPEN-AUDIT-DIR-"):
+    if event in ("-DCI-OPEN-EXE-DIR-",):
         _open_dci_dir(values, event, window)
-        return True
-
-    # Audit dir changed → preload curves
-    if event in ("-DCI-AUDIT-DIR-",):
-        _preload_curves_on_dir_change(values, window)
         return True
 
     # COMBO MEDIAN change → invalidate right preview
@@ -400,41 +472,41 @@ def _open_dci_dir(values: dict, event: str, window: sg.Window):
                 pass
 
 
-def _preload_curves_on_dir_change(values: dict, window: sg.Window):
-    """Preload curves.json when audit dir changes. Show status."""
-    audit_dir = values.get("-DCI-AUDIT-DIR-", "").strip()
-    if not audit_dir:
-        return
-    curves = _load_curves(audit_dir)
-    if curves is not None:
-        keys_found = [k for k in ["g_cf", "g_he", "g_cf_he", "g_bws", "global_lut", "local_lut"] if k in curves]
-        screen_text = f"curves.json loaded: {', '.join(keys_found)}"
-        try:
-            window.TKroot.title(f"PQ Verify Tool - {screen_text}")
-        except Exception:
-            pass
-
-
-# ------------------------------------------------------------------ #
-# Module protocol                                                    #
-# ------------------------------------------------------------------ #
-
 def read_params(values: dict) -> dict:
     """Extract DCI module parameters from window values."""
     return {
         "exe_path": values.get("-DCI-EXE-", ""),
-        "audit_enable": values.get("-AUDIT-ENABLE-", False),
-        "tag": values.get("-TAG-", "ui_live"),
-        "nodemask": values.get("-NODEMASK-", "0"),
-        "exportmask": values.get("-EXPORTMASK-", "0"),
-        "dumpmask": values.get("-DUMPMASK-", "0"),
-        "cfhe_ratio": int(float(values.get("-CFHE-", "32"))),
-        "bs_set_point": int(float(values.get("-BS-", "80"))),
-        "ws_set_point": int(float(values.get("-WS-", "80"))),
-        "clahe_local_ratio": int(float(values.get("-CLAHE-R-", "19"))),
-        "clahe_clip_value": float(values.get("-CLAHE-C-", "1.0")),
         "combo_median": values.get("-DCI-COMBO-MEDIAN-", "None"),
-        "audit_dir": values.get("-DCI-AUDIT-DIR-", ""),
+        # CF
+        "cf_gain_low": int(float(values.get("-CF-GL-", "32"))),
+        "cf_gain_mid": int(float(values.get("-CF-GM-", "32"))),
+        "cf_gain_high": int(float(values.get("-CF-GH-", "32"))),
+        "cfhe_ratio": int(float(values.get("-CFHE-", "32"))),
+        # HE
+        "he_split_point": int(float(values.get("HE-SPLIT-", "125"))),
+        "he_left_clip": float(values.get("-HE-LC-", "1.0")),
+        "he_right_clip": float(values.get("-HE-RC-", "1.0")),
+        "he_overlap": int(float(values.get("-HE-OVERLAP-", "16"))),
+        # BS
+        "bs_enable": values.get("-BS-EN-", True),
+        "bs_set_point": int(float(values.get("-BS-SP-", "80"))),
+        "bs_ratio": int(float(values.get("-BS-RATIO-", "64"))),
+        "bs_overlap": int(float(values.get("-BS-OVERLAP-", "64"))),
+        # WS
+        "ws_enable": values.get("-WS-EN-", True),
+        "ws_set_point": int(float(values.get("-WS-SP-", "80"))),
+        "ws_ratio": int(float(values.get("-WS-RATIO-", "64"))),
+        "ws_overlap": int(float(values.get("-WS-OVERLAP-", "64"))),
+        # CLAHE
+        "clahe_enable": values.get("-CLAHE-EN-", True),
+        "clahe_clip_value": float(values.get("-CLAHE-CV-", "1.0")),
+        "clahe_local_ratio": int(float(values.get("-CLAHE-LR-", "19"))),
+        "clahe_left_alpha": float(values.get("-CLAHE-LA-", "3.0")),
+        "clahe_left_thr_lmin": float(values.get("-CLAHE-LTMIN", "0.5")),
+        "clahe_left_thr_lmax": float(values.get("-CLAHE-LTMAX-", "2.3")),
+        "clahe_left_luma_ratio": float(values.get("-CLAHE-LLR-", "3.0")),
+        "clahe_right_thr_lmin": float(values.get("-CLAHE-RTMIN-", "0.5")),
+        "clahe_right_thr_lmax": float(values.get("-CLAHE-RTMAX-", "2.3")),
     }
 
 
@@ -470,62 +542,21 @@ def process(src_frame, io_info: dict):
         if not exe_path or not os.path.isfile(exe_path):
             return False, "DCI runner exe not found"
 
-        # Write input data to temp raw file
-        input_data = np.stack([src_frame.pyr, src_frame.pug, src_frame.pvb], axis=0)
-        input_tmp = os.path.join(tempfile.gettempdir(), "_dci_input.raw")
-        write_planar_to_raw(input_data, input_tmp, width, height, input_fmt)
+        # Write input channels raw (Y then U then V, each at native resolution)
+        input_tmp = os.path.join(tempfile.gettempdir(), f"_dci_input_{width}x{height}_fmt{input_fmt}.yuv")
+        with open(input_tmp, 'wb') as f:
+            src_frame.pyr.tofile(f)
+            src_frame.pug.tofile(f)
+            src_frame.pvb.tofile(f)
 
         # Write output to output_dir
-        output_file = os.path.join(output_dir, "dci_output.raw")
-        request_path = os.path.join(output_dir, "_dci_request.json")
-        result_path = os.path.join(output_dir, "_dci_result.json")
-
-        # Build request
-        request = DciRunnerRequest(
-            input_file=input_tmp,
-            output_file=output_file,
-            width=width,
-            height=height,
-            pixel_format=input_fmt,
-            input_format=input_fmt,
-            input_colorspace=input_clrspc,
-            output_format=output_fmt,
-            output_colorspace=output_clrspc,
-            config_path=config_path,
-            frame_idx=io_info.get("frame_idx", 0),
-            frame_num=io_info.get("frame_num", 1),
-            debug_dump_mask=int(float(params.get("dumpmask", "0"))),
-            audit=DciAuditConfig(
-                enable=1 if params.get("audit_enable") else 0,
-                node_mask=int(float(params.get("nodemask", "0"))),
-                export_mask=int(float(params.get("exportmask", "0"))),
-                tag=params.get("tag", "ui_live"),
-                override_cfg=DciAuditOverride(
-                    enable_cf_he_ratio_override=1,
-                    cf_he_ratio=params.get("cfhe_ratio", 32),
-                    enable_bs_set_point_override=1,
-                    bs_set_point=params.get("bs_set_point", 80),
-                    enable_ws_set_point_override=1,
-                    ws_set_point=params.get("ws_set_point", 80),
-                    enable_clahe_local_ratio_override=1,
-                    clahe_local_ratio=params.get("clahe_local_ratio", 19),
-                    enable_clahe_clip_value_override=1,
-                    clahe_clip_value=params.get("clahe_clip_value", 1.0),
-                ),
-            ),
-        )
-        write_runner_request(request, request_path)
+        output_file = os.path.join(output_dir, f"dci_output_{width}x{height}_fmt{output_fmt}.yuv")
 
         # Run the DCI executable
-        result = subprocess.run(
-            [exe_path, "--request", request_path, "--result", result_path],
-            check=False, capture_output=True, text=True, timeout=120,
-        )
-        runner_result = load_runner_result(result_path)
-
-        if runner_result is None or runner_result.exit_code != 0:
-            msg = runner_result.message if runner_result else result.stderr[:200]
-            return False, f"DCI runner failed: {msg}"
+        dci_args = f'--clahe_clip 1.5 --clahe_local_ratio 20'
+        shp_args = f'--shp_type 1 --shp_peaking_gain 150' # todo
+        cmd = f'{exe_path} -i {input_tmp} -w {width} -g {height} -f {input_fmt} -r {input_clrspc} -F 0x13 -R 0x5 -o {output_file} -c {config_path} -m 0 {dci_args} {shp_args}'
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=500)
 
         # Read back output
         output_data = read_raw_to_planar(output_file, width, height, output_fmt)

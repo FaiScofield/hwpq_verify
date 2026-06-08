@@ -8,6 +8,7 @@ Also contains shared constants (FORMAT_NAMES, CLRSPC_NAMES, etc.) used across mo
 import os
 import re
 import sys
+from collections import defaultdict
 
 # Ensure the parent script/ package is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -166,7 +167,7 @@ def build_controls() -> list:
         ],
         [
             sg.Text("Output Dir", size=IO_LABEL_SIZE),
-            sg.Input("D:\\RkDefaultDumpData\\", key="-OUTPUT-DIR-", size=(46, 1),
+            sg.Input("D:/RkDefaultDumpData/", key="-OUTPUT-DIR-", size=(46, 1),
                      tooltip="模块处理dump结果的输出目录"),
             sg.FolderBrowse(size=IO_BUTTON_SIZE),
             sg.Button("Open Dir", key="-OPEN-DIR-OUTPUT-", size=IO_BUTTON_SIZE,
@@ -174,7 +175,7 @@ def build_controls() -> list:
         ],
         [
             sg.Text("Config File", size=IO_LABEL_SIZE),
-            sg.Input("", key="-CONFIG-PATH-", size=(46, 1),
+            sg.Input("G:/Codes/gerrit_projects/hwpq_verify/data/dci_config_3572.json", key="-CONFIG-PATH-", size=(46, 1),
                      tooltip="DCI/SHP模块的硬件寄存器配置文件路径"),
             sg.FileBrowse(size=IO_BUTTON_SIZE),
             sg.Button("Open Dir", key="-OPEN-DIR-CONFIG-", size=IO_BUTTON_SIZE,

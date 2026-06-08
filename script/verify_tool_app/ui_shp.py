@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from collections import defaultdict
 
 # Ensure the parent script/ package is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -16,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import PySimpleGUI as sg
 
-from csc.run_csc import read_raw_to_planar, write_planar_to_raw
+from csc.run_csc import read_raw_to_planar
 from verify_tool_app.ui_helpers import (
     SliderSpinConfig,
     bind_keyboard_events as _bind_kb_shared,
@@ -28,58 +29,32 @@ from verify_tool_app.ui_helpers import (
 
 TAB_LABEL = "SHP"
 
+# SHP Support image formats
+SHP_SUPPORT_IO_FORMATS = defaultdict(
+    list, {0x13: [0x13], 0x14: [0x14], 0x16: [0x16], 0x17: [0x17], 0x18: [0x18], 0x19: [0x19], 0x1A: [0x1A]}
+)
 
 # ------------------------------------------------------------------ #
 # Layout                                                             #
 # ------------------------------------------------------------------ #
+
 
 def build_controls() -> list:
     """Build the SHP Config tab layout."""
     return [
         [
             sg.Text("SHP EXE", size=(10, 1)),
-            sg.Input(key="-SHP-EXE-", size=(52, 1),
-                     tooltip="SHP锐化硬件模块可执行文件路径"),
-            sg.FileBrowse(
-                file_types=(("Executable", "*.exe"),),
-                size=(8, 1),
-            ),
+            sg.Input(key="-SHP-EXE-", size=(52, 1), tooltip="SHP锐化硬件模块可执行文件路径"),
+            sg.FileBrowse(file_types=(("Executable", "*.exe"),), size=(8, 1)),
         ],
         [sg.HorizontalSeparator()],
-        [sg.Checkbox("Enable SHP", default=True, key="-SHP-ENABLE-",
-                     tooltip="启用锐化处理模块")],
-        build_numeric_control_row(
-            "Peaking Gain", "-SHP-PEAKING-GAIN-", "-SHP-PEAKING-GAIN-SLIDER-",
-            160, 0, 1024,
-            norm_key="-SHP-PEAKING-GAIN-NORM-",
-            reset_key="-SHP-PEAKING-GAIN-RESET-",
-            tooltip="Peaking锐化增益（0~1024，默认160）",
-        ),
-        [sg.Checkbox("Enable Coring", default=True, key="-SHP-CORING-ENABLE-",
-                     tooltip="启用Coring去噪（低于阈值的细节被抑制）")],
-        build_numeric_control_row(
-            "Coring Threshold", "-SHP-CORING-THRESHOLD-", "-SHP-CORING-THRESHOLD-SLIDER-",
-            0, 0, 255,
-            norm_key="-SHP-CORING-THRESHOLD-NORM-",
-            reset_key="-SHP-CORING-THRESHOLD-RESET-",
-            tooltip="Coring去噪阈值（0~255，默认0）",
-        ),
-        [sg.Checkbox("Enable Shoot Ctrl", default=True, key="-SHP-SHOOT-ENABLE-",
-                     tooltip="启用Shoot过冲/下冲控制")],
-        build_numeric_control_row(
-            "Shoot Over", "-SHP-SHOOT-OVER-", "-SHP-SHOOT-OVER-SLIDER-",
-            8, 0, 255,
-            norm_key="-SHP-SHOOT-OVER-NORM-",
-            reset_key="-SHP-SHOOT-OVER-RESET-",
-            tooltip="过冲抑制强度（0~255，默认8）",
-        ),
-        build_numeric_control_row(
-            "Shoot Under", "-SHP-SHOOT-UNDER-", "-SHP-SHOOT-UNDER-SLIDER-",
-            64, 0, 255,
-            norm_key="-SHP-SHOOT-UNDER-NORM-",
-            reset_key="-SHP-SHOOT-UNDER-RESET-",
-            tooltip="下冲抑制强度（0~255，默认64）",
-        ),
+        [sg.Checkbox("Enable SHP", default=True, key="-SHP-ENABLE-", tooltip="启用锐化处理模块")],
+        build_numeric_control_row("Peaking Gain", "-SHP-GAIN-", 160, 0, 1024, en_spin=True, tooltip="锐化强度"),
+        [sg.Checkbox("Enable Coring", default=True, key="-SHP-CORING-ENABLE-", tooltip="启用Coring去噪")],
+        build_numeric_control_row("Coring Threshold", "-SHP-CORINGTH-", 0, 0, 255, en_spin=True, tooltip="Coring去噪阈值"),
+        [sg.Checkbox("Enable Shoot Ctrl", default=True, key="-SHP-SHOOT-ENABLE-", tooltip="启用Shoot过冲/下冲控制")],
+        build_numeric_control_row("Shoot Over", "-SHP-SHOOT-OVER-", 8, 0, 255, en_spin=True, tooltip="过冲抑制强度"),
+        build_numeric_control_row("Shoot Under", "-SHP-SHOOT-UNDER-", 64, 0, 255, en_spin=True, tooltip="下冲抑制强度"),
     ]
 
 
@@ -88,26 +63,10 @@ def build_controls() -> list:
 # ------------------------------------------------------------------ #
 
 SHP_SLIDER_SPIN_PAIRS = [
-    SliderSpinConfig(spin_key="-SHP-PEAKING-GAIN-", slider_key="-SHP-PEAKING-GAIN-SLIDER-",
-                     min_val=0, max_val=1024, def_val=160, step=1,
-                     norm_key="-SHP-PEAKING-GAIN-NORM-",
-                     norm_func=lambda v, _: f"{v/1024:.3f}",
-                     reset_key="-SHP-PEAKING-GAIN-RESET-"),
-    SliderSpinConfig(spin_key="-SHP-CORING-THRESHOLD-", slider_key="-SHP-CORING-THRESHOLD-SLIDER-",
-                     min_val=0, max_val=255, def_val=0, step=1,
-                     norm_key="-SHP-CORING-THRESHOLD-NORM-",
-                     norm_func=lambda v, _: f"{v/255:.3f}",
-                     reset_key="-SHP-CORING-THRESHOLD-RESET-"),
-    SliderSpinConfig(spin_key="-SHP-SHOOT-OVER-", slider_key="-SHP-SHOOT-OVER-SLIDER-",
-                     min_val=0, max_val=255, def_val=8, step=1,
-                     norm_key="-SHP-SHOOT-OVER-NORM-",
-                     norm_func=lambda v, _: f"{v/255:.3f}",
-                     reset_key="-SHP-SHOOT-OVER-RESET-"),
-    SliderSpinConfig(spin_key="-SHP-SHOOT-UNDER-", slider_key="-SHP-SHOOT-UNDER-SLIDER-",
-                     min_val=0, max_val=255, def_val=64, step=1,
-                     norm_key="-SHP-SHOOT-UNDER-NORM-",
-                     norm_func=lambda v, _: f"{v/255:.3f}",
-                     reset_key="-SHP-SHOOT-UNDER-RESET-"),
+    SliderSpinConfig("-SHP-GAIN-SPIN-", "-SHP-GAIN-SLIDER-", 0, 1024, 160, 1),
+    SliderSpinConfig("-SHP-CORINGTH-SPIN-", "-SHP-CORINGTH-SLIDER-", 0, 255, 0, 1),
+    SliderSpinConfig("-SHP-SHOOT-OVER-SPIN-", "-SHP-SHOOT-OVER-SLIDER-", 0, 255, 8, 1),
+    SliderSpinConfig("-SHP-SHOOT-UNDER-SPIN-", "-SHP-SHOOT-UNDER-SLIDER-", 0, 255, 64, 1),
 ]
 
 
@@ -131,17 +90,18 @@ def handle_shp_event(event: str, values: dict, window: sg.Window) -> bool:
 # Module protocol                                                    #
 # ------------------------------------------------------------------ #
 
+
 def read_params(values: dict) -> dict:
     """Extract SHP module parameters from window values."""
     return {
         "sharpen_exe": values.get("-SHP-EXE-", ""),
         "enable": values.get("-SHP-ENABLE-", True),
-        "peaking_gain": int(values.get("-SHP-PEAKING-GAIN-", "160")),
+        "peaking_gain": int(values.get("-SHP-GAIN-SPIN-", 160)),
         "coring_enable": values.get("-SHP-CORING-ENABLE-", True),
-        "coring_threshold": int(values.get("-SHP-CORING-THRESHOLD-", "0")),
+        "coring_threshold": int(values.get("-SHP-CORINGTH-SPIN-", 0)),
         "shoot_enable": values.get("-SHP-SHOOT-ENABLE-", True),
-        "shoot_over": int(values.get("-SHP-SHOOT-OVER-", "8")),
-        "shoot_under": int(values.get("-SHP-SHOOT-UNDER-", "64")),
+        "shoot_over": int(values.get("-SHP-SHOOT-OVER-SPIN-", 8)),
+        "shoot_under": int(values.get("-SHP-SHOOT-UNDER-SPIN-", 64)),
     }
 
 
@@ -172,10 +132,12 @@ def process(src_frame, io_info: dict):
         width = io_info.get("width", 1920)
         height = io_info.get("height", 1080)
 
-        # Write input to temp raw
-        input_data = np.stack([src_frame.pyr, src_frame.pug, src_frame.pvb], axis=0)
+        # Write input channels raw (Y then U then V, each at native resolution)
         input_tmp = os.path.join(tempfile.gettempdir(), "_shp_input.raw")
-        write_planar_to_raw(input_data, input_tmp)
+        with open(input_tmp, 'wb') as f:
+            src_frame.pyr.tofile(f)
+            src_frame.pug.tofile(f)
+            src_frame.pvb.tofile(f)
 
         # Output file
         output_dir = io_info.get("output_dir", tempfile.gettempdir())
@@ -184,11 +146,16 @@ def process(src_frame, io_info: dict):
         # Build command line arguments
         cmd = [
             sharpen_exe,
-            "--input", input_tmp,
-            "--output", output_file,
-            "--width", str(width),
-            "--height", str(height),
-            "--format", str(input_fmt),
+            "--input",
+            input_tmp,
+            "--output",
+            output_file,
+            "--width",
+            str(width),
+            "--height",
+            str(height),
+            "--format",
+            str(input_fmt),
         ]
         if params.get("enable"):
             cmd.extend(["--peaking-gain", str(params["peaking_gain"])])
@@ -205,8 +172,7 @@ def process(src_frame, io_info: dict):
             return False, "Sharpen output file not created"
 
         output_data = read_raw_to_planar(output_file, width, height, output_fmt)
-        dst_frame = ImageFrame(output_data[0], output_data[1], output_data[2],
-                               output_fmt, output_clrspc)
+        dst_frame = ImageFrame(output_data[0], output_data[1], output_data[2], output_fmt, output_clrspc)
         return True, dst_frame
 
     except subprocess.TimeoutExpired:
@@ -223,6 +189,7 @@ def get_right_preview_image(snapshot, params: dict):
 # ------------------------------------------------------------------ #
 # Keyboard bindings                                                  #
 # ------------------------------------------------------------------ #
+
 
 def bind_keyboard_events(window: sg.Window):
     """Bind keyboard events on all SHP sliders and spins."""
