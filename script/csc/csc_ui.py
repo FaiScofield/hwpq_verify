@@ -1155,7 +1155,7 @@ def open_csc_ui(args=None):
         try:
             file_params = (input_file, w, h, ifmt)
             if planar_in_full is None or current_input_file_params != file_params:
-                planar_in_full = read_raw_to_planar(input_file, w, h, ifmt)
+                planar_in_full, _ = read_raw_to_planar(input_file, w, h, ifmt)
                 current_input_file_params = file_params
 
             # Calculate downsampling factors

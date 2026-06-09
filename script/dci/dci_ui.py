@@ -187,7 +187,7 @@ def _show_native_raw_preview(window: sg.Window, values: dict):
         return
 
     try:
-        planar = read_raw_to_planar(input_file, w, h, fmt)
+        planar, fmt = read_raw_to_planar(input_file, w, h, fmt, True)
     except Exception:
         return
 

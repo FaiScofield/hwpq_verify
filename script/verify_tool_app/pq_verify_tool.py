@@ -983,7 +983,7 @@ def _handle_mouse_motion(window: sg.Window, values: dict, event: str):
             p1 = _INPUT_IMAGE.pug[uv_y, uv_x]
             p2 = _INPUT_IMAGE.pvb[uv_y, uv_x]
             fmt_label = "yuv" if is_yuv_format(in_fmt) else "rgb"
-            input_str = f"{fmt_label}: ({p0:4d}, {p1:4d}, {p2:4d})"
+            input_str = f"{fmt_label}-{in_fmt:X}: ({p0:4d}, {p1:4d}, {p2:4d})"
 
     # Get output pixel
     output_str = "(----, ----, ----)"
@@ -1000,7 +1000,7 @@ def _handle_mouse_motion(window: sg.Window, values: dict, event: str):
             # Use I/O output format for the label, not the displayed data format
             io_out_fmt = get_fmt_from_display(values.get("-OUT-FMT-", DEFAULT_FMT_DISPLAY))
             fmt_label = "yuv" if is_yuv_format(io_out_fmt) else "rgb"
-            output_str = f"{fmt_label}: ({p0:4d}, {p1:4d}, {p2:4d})"
+            output_str = f"{fmt_label}-{io_out_fmt:X}: ({p0:4d}, {p1:4d}, {p2:4d})"
 
     freeze_status = "[Frozen]" if _pixel_info_frozen else "[Space to freeze]"
     window["-POSITION-INFO-"].update(f"({orig_x:4d},{orig_y:4d}) {freeze_status}")

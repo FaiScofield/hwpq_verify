@@ -170,6 +170,7 @@ def process(src_frame, io_info: dict):
         input_clrspc = src_frame.clrspc
         output_fmt = io_info["out_fmt"]
         output_clrspc = io_info["out_clrspc"]
+        output_dir = io_info.get("output_dir", tempfile.gettempdir())
 
         sharpen_exe = params.get("sharpen_exe", "")
         if not sharpen_exe or not os.path.isfile(sharpen_exe):
@@ -179,15 +180,14 @@ def process(src_frame, io_info: dict):
         height = io_info.get("height", 1080)
 
         # Write input channels raw (Y then U then V, each at native resolution)
-        input_tmp = os.path.join(tempfile.gettempdir(), "_shp_input.raw")
+        input_tmp = os.path.join(output_dir, f"_shp_input_{width}x{height}_fmt{input_fmt}.yuv")
         with open(input_tmp, 'wb') as f:
             src_frame.pyr.tofile(f)
             src_frame.pug.tofile(f)
             src_frame.pvb.tofile(f)
 
         # Output file
-        output_dir = io_info.get("output_dir", tempfile.gettempdir())
-        output_file = os.path.join(output_dir, "shp_output.raw")
+        output_file = os.path.join(output_dir, f"shp_output_{width}x{height}_fmt{output_fmt}.yuv")
 
         # Build command line arguments
         cmd = [
@@ -217,7 +217,7 @@ def process(src_frame, io_info: dict):
         if not os.path.isfile(output_file):
             return False, "Sharpen output file not created"
 
-        output_data = read_raw_to_planar(output_file, width, height, output_fmt)
+        output_data, _ = read_raw_to_planar(output_file, width, height, output_fmt)
         dst_frame = ImageFrame(output_data[0], output_data[1], output_data[2], output_fmt, output_clrspc)
         return True, dst_frame
 

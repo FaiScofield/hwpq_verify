@@ -34,12 +34,6 @@ from verify_tool_app.ui_helpers import (
     sync_spin_to_slider,
 )
 
-from dci.dci_models import (
-    DciAuditConfig,
-    DciAuditOverride,
-    DciRunnerRequest,
-    write_runner_request,
-)
 from config_def.module_config_dci import DciUserConfig
 
 TAB_LABEL = "DCI"
@@ -639,7 +633,7 @@ def process(src_frame, io_info: dict):
             return False, "DCI runner exe not found"
 
         # Write input channels raw (Y then U then V, each at native resolution)
-        input_tmp = os.path.join(tempfile.gettempdir(), f"_dci_input_{width}x{height}_fmt{input_fmt}.yuv")
+        input_tmp = os.path.join(output_dir, f"_dci_input_{width}x{height}_fmt{input_fmt}.yuv")
         with open(input_tmp, 'wb') as f:
             src_frame.pyr.tofile(f)
             src_frame.pug.tofile(f)
@@ -649,13 +643,15 @@ def process(src_frame, io_info: dict):
         output_file = os.path.join(output_dir, f"dci_output_{width}x{height}_fmt{output_fmt}.yuv")
 
         # Run the DCI executable
-        dci_args = f'--clahe_clip 1.5 --clahe_local_ratio 20'
-        shp_args = f'--shp_type 1 --shp_peaking_gain 150' # todo
-        cmd = f'{exe_path} -i {input_tmp} -w {width} -g {height} -f {input_fmt} -r {input_clrspc} -F 0x13 -R 0x5 -o {output_file} -c {config_path} -m 0 {dci_args} {shp_args}'
-        result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=500)
+        cmd = f'{exe_path} -i {input_tmp} -w {width} -g {height} -f {input_fmt:x} -r {input_clrspc} -F 0x13 -R 0x5 -o {output_file} -c {config_path} -m 0'
+        try:
+            print(f"[DCI] About to run cmd '{cmd}'...")
+            subprocess.run(cmd, check=True, capture_output=False, text=False)
+        except subprocess.CalledProcessError as e:
+            print(f"[DCI] Run cmd '{cmd}' failed! {e.returncode}")
 
         # Read back output
-        output_data = read_raw_to_planar(output_file, width, height, output_fmt)
+        output_data, _ = read_raw_to_planar(output_file, width, height, output_fmt)
         dst_frame = ImageFrame(output_data[0], output_data[1], output_data[2],
                                output_fmt, output_clrspc)
         return True, dst_frame

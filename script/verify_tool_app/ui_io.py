@@ -184,10 +184,10 @@ def build_controls() -> list:
         [sg.HorizontalSeparator()],
         [
             sg.Text("Width", size=(8, 1)),
-            sg.Input("1920", key="-WIDTH-", size=(8, 1),
+            sg.Input("1280", key="-WIDTH-", size=(8, 1),
                      tooltip="图像宽度（像素）"),
             sg.Text("Height", size=(8, 1)),
-            sg.Input("1080", key="-HEIGHT-", size=(8, 1),
+            sg.Input("720", key="-HEIGHT-", size=(8, 1),
                      tooltip="图像高度（像素）"),
             sg.Text("Frame Num", size=(8, 1)),
             sg.Input("1", key="-FRAME-NUM-", size=(8, 1), readonly=True,
