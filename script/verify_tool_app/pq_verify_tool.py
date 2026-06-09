@@ -20,6 +20,8 @@ import numpy as np
 import PySimpleGUI as sg
 from PIL import Image
 
+LOGTAG = "PQTool"
+
 from csc.run_csc import (
     is_yuv_format,
     is_rgb_format,
@@ -75,6 +77,11 @@ from verify_tool_app.ui_shp import (
     process as process_shp,
     get_right_preview_image as shp_right_preview,
     SHP_SUPPORT_IO_FORMATS,
+)
+
+from verify_tool_app.ui_helpers import (
+    STATUS_ERROR, STATUS_OK, STATUS_WARNING,
+    LINE, update_status,
 )
 
 # ------------------------------------------------------------------ #
@@ -504,15 +511,6 @@ def _pil_to_bytes(img: Image.Image) -> bytes:
     return bio.getvalue()
 
 
-def _update_status(window: sg.Window, text: str, color: str = "gray"):
-    """Update the status bar with text and color."""
-    window["-STATUS-"].update(value=text)
-    try:
-        window["-STATUS-"].Widget.configure(foreground=color)
-    except Exception:
-        pass
-
-
 def _maybe_render_left_on_resize(window: sg.Window, fw: int, fh: int) -> bool:
     """Re-render left preview if frame size changed significantly. Returns True if re-rendered."""
     global _last_left_frame_size, _left_display_size
@@ -698,15 +696,14 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
     h = io_params["height"]
     in_fmt = io_params["in_fmt"]
     in_clrspc = io_params["in_clrspc"]
-
     stream_depth_str = values.get("-STREAM-DEPTH-", "8bit")
     stream_10bit = (stream_depth_str == "10bit")
-
     use_set_color = values.get("-USE-SET-COLOR-", False)
+
     if use_set_color:
         color_vals = _parse_color_input(values.get("-SET-COLOR-INPUT-", ""))
         if color_vals is None:
-            _update_status(window, "Invalid set-color input", color="orange")
+            update_status(window, LOGTAG, LINE(), "Invalid set-color input", level=STATUS_WARNING)
             return False
         depth = get_pixel_depth(in_fmt)
         max_val = (1 << depth) - 1
@@ -731,13 +728,13 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
         _SNAPSHOTS.clear()
         if stream_10bit:
             _INPUT_IMAGE.promote_to_10bit()
-        _update_status(window, f"Set color ({' '.join(str(v) for v in color_vals)}) applied", color="green")
+        update_status(window, LOGTAG, LINE(), f"Set color ({' '.join(str(v) for v in color_vals)}) applied", level=STATUS_OK)
         return True
 
     # Read input files
     input_file = io_params["input_file"]
     if not input_file or not os.path.isfile(input_file):
-        _update_status(window, "No input file selected", color="orange")
+        update_status(window, LOGTAG, LINE(), "No input file selected", level=STATUS_WARNING)
         return False
 
     # Handle image files (PNG/JPG/JPEG/BMP) via PIL, treat as RGB888
@@ -762,10 +759,10 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
             _SNAPSHOTS.clear()
             if stream_10bit:
                 _INPUT_IMAGE.promote_to_10bit()
-            _update_status(window, f"Loaded image: {os.path.basename(input_file)} ({w}x{h})", color="green")
+            update_status(window, LOGTAG, LINE(), f"Loaded image: {os.path.basename(input_file)} ({w}x{h})", level=STATUS_OK)
             return True
         except Exception as e:
-            _update_status(window, f"Image read error: {e}", color="red")
+            update_status(window, LOGTAG, LINE(), f"Image read error: {e}", level=STATUS_ERROR)
             return False
 
     expected_size = 0
@@ -776,30 +773,19 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
 
     actual_size = os.path.getsize(input_file)
     if expected_size > 0 and actual_size < expected_size:
-        _update_status(window, "File too small for frame size", color="orange")
+        update_status(window, LOGTAG, LINE(), "File too small for frame size", level=STATUS_WARNING)
 
     try:
         data, in_fmt = read_raw_to_planar(input_file, w, h, in_fmt, repeat_to_444=False)
     except Exception as e:
-        _update_status(window, f"Read error: {e}", color="red")
+        update_status(window, LOGTAG, LINE(), f"Read error: {e}", level=STATUS_ERROR)
         return False
-
-    # read_raw_to_planar upsamples UV for YUV422/420 to uniform resolution.
-    # Restore native UV resolution so ImageFrame stores canonical dimensions.
-    # if is_yuv_format(in_fmt):
-    #     base = in_fmt & 0xF
-    #     if base in (0x6, 0x7):         # YUV422
-    #         data[1] = data[1][:, ::2].copy()
-    #         data[2] = data[2][:, ::2].copy()
-    #     elif base in (0x8, 0x9):       # YUV420
-    #         data[1] = data[1][::2, ::2].copy()
-    #         data[2] = data[2][::2, ::2].copy()
 
     _INPUT_IMAGE = ImageFrame(data[0], data[1], data[2], in_fmt, in_clrspc)
     _SNAPSHOTS.clear()
     if stream_10bit:
         _INPUT_IMAGE.promote_to_10bit()
-    _update_status(window, f"Loaded: {os.path.basename(input_file)}", color="green")
+    update_status(window, LOGTAG, LINE(), f"Loaded: {os.path.basename(input_file)}", level=STATUS_OK)
     return True
 
 
@@ -882,7 +868,7 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
             upstream = _INPUT_IMAGE
 
     if upstream is None:
-        _update_status(window, "No input data", color="orange")
+        update_status(window, LOGTAG, LINE(), "No input data", level=STATUS_WARNING)
         return
 
     current_frame = upstream
@@ -892,7 +878,7 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
         tag = effective[i]
         mod = REGISTERED_MODULES.get(tag)
         if mod is None:
-            _update_status(window, f"Module '{tag}' not registered", color="orange")
+            update_status(window, LOGTAG, LINE(), f"Module '{tag}' not registered", level=STATUS_WARNING)
             continue
 
         snap_key = tag
@@ -905,8 +891,8 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
         supported_formats = mod.get("supported_formats", {})
         cur_fmt = current_frame.fmt
         if cur_fmt not in supported_formats:
-            _update_status(window,
-                f"{tag}: unsupported input format 0x{cur_fmt:X}", color="red")
+            update_status(window, LOGTAG, LINE(),
+                f"{tag}: unsupported input format 0x{cur_fmt:X}", level=STATUS_ERROR)
             return
         supported_outputs = supported_formats[cur_fmt]
 
@@ -916,10 +902,10 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
             module_out_fmt = out_fmt
             module_out_clrspc = out_clrspc
             if module_out_fmt not in supported_outputs:
-                _update_status(window,
-                    f"{tag}: I/O output 0x{module_out_fmt:X} not supported "
+                update_status(window, LOGTAG, LINE(),
+                    f"I/O output 0x{module_out_fmt:X} not supported "
                     f"(supports: {[f'0x{f:X}' for f in supported_outputs]})",
-                    color="red")
+                    level=STATUS_ERROR)
                 return
         else:
             module_out_fmt = _pick_output_format(supported_outputs, stream_10bit)
@@ -935,7 +921,7 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
             "output_dir": output_dir,
             "config_path": io_params["config_path"],
             "stream_depth": 10 if stream_10bit else 8,
-            "values": window_elements,
+            "elements": window_elements,
             "window": window,
         }
 
@@ -945,7 +931,7 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
             # if i == (len(effective) - 1) and stream_10bit and out_fmt_is_8bit:
             #     current_frame.demote_to_8bit()
         else:
-            _update_status(window, f"{tag.upper()} error: {result}", color="red")
+            update_status(window, LOGTAG, LINE(), f"{tag.upper()} error: {result}", level=STATUS_ERROR)
             return
 
         _SNAPSHOTS[tag] = current_frame.copy()
@@ -958,7 +944,7 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
 
     # Display final output
     final_tag = effective[-1] if effective else ""
-    _update_status(window, f"Pipeline OK ({' → '.join(effective)})", color="green")
+    update_status(window, LOGTAG, LINE(), f"Pipeline OK ({' → '.join(effective)})", level=STATUS_OK)
     _update_left_preview(window, display_frame, final_tag)
     _update_right_preview(window, final_tag, display_frame.as_tuple(),
                           REGISTERED_MODULES.get(final_tag, {}).get("read_params", lambda v: {})(window_elements))
@@ -1137,7 +1123,7 @@ def _refresh_right_preview_only(window: sg.Window, values: dict):
 def _save_image(values: dict, window: sg.Window, frame: ImageFrame | None):
     """Save the given ImageFrame to file."""
     if frame is None:
-        _update_status(window, "No image to save", color="orange")
+        update_status(window, LOGTAG, LINE(), "No image to save", level=STATUS_WARNING)
         return
 
     file_path = sg.popup_get_file(
@@ -1159,11 +1145,11 @@ def _save_image(values: dict, window: sg.Window, frame: ImageFrame | None):
             planar = frame.planar_data()
             write_planar_to_raw(planar, file_path, width, height, frame.fmt)
         else:
-            _update_status(window, f"Unsupported format: {ext}", color="orange")
+            update_status(window, LOGTAG, LINE(), f"Unsupported format: {ext}", level=STATUS_WARNING)
             return
-        _update_status(window, f"Saved: {file_path}", color="green")
+        update_status(window, LOGTAG, LINE(), f"Saved: {file_path}", level=STATUS_OK)
     except Exception as e:
-        _update_status(window, f"Save error: {e}", color="red")
+        update_status(window, LOGTAG, LINE(), f"Save error: {e}", level=STATUS_ERROR)
 
 
 def _update_right_preview_with_snapshot(window: sg.Window, frame: ImageFrame):

@@ -22,6 +22,30 @@ def LINE() -> int:
     return inspect.currentframe().f_back.f_lineno
 
 # ------------------------------------------------------------------ #
+# Status bar helper                                                  #
+# ------------------------------------------------------------------ #
+
+# Status level constants
+STATUS_NORM    = 0
+STATUS_OK      = 1
+STATUS_WARNING = 2
+STATUS_ERROR   = 3
+
+# Level → color mapping
+_STATUS_COLORS = {
+    STATUS_NORM:    "gray",
+    STATUS_OK:      "#88FF88",
+    STATUS_WARNING: "#FFAA44",
+    STATUS_ERROR:   "#FF8888",
+}
+
+def update_status(window: sg.Window, module: str, line: int, msg: str, level: int = STATUS_NORM):
+    """Update status bar with [module:line] prefix and level-based color."""
+    color = _STATUS_COLORS.get(level, "gray")
+    window["-STATUS-"].update(value=f"[{module}:{line}] {msg}", text_color=color)
+    print(f"[{module}:{line}] {msg}")
+
+# ------------------------------------------------------------------ #
 # SliderSpinConfig                                                   #
 # ------------------------------------------------------------------ #
 

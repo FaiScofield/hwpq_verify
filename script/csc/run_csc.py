@@ -188,24 +188,30 @@ def get_frame_size(width, height, fmt):
 
 
 def read_raw_to_planar(filepath, width, height, fmt, repeat_to_444=False):
-    """Read raw image file and return planar numpy array (3, H, W)"""
+    """Read raw image file and return planar data.
+
+    When repeat_to_444 is True (default), returns a 3D numpy array (3, H, W).
+    When repeat_to_444 is False and the format is YUV422/YUV420, returns a list
+    of three 2D arrays with per-channel native resolutions.
+    """
     base_fmt = fmt & 0xF
     bpe = get_bytes_per_element(fmt)
     dtype = np.uint16 if bpe == 2 else np.uint8
     depth = get_pixel_depth(fmt)
 
     raw = np.fromfile(filepath, dtype=dtype)
-    planar = np.zeros((3, height, width), dtype=dtype)
     max_val = (1 << depth) - 1
 
     if base_fmt == 0x0:
         rgb = raw[: height * width * 3].reshape(height, width, 3)
+        planar = np.zeros((3, height, width), dtype=dtype)
         planar[0] = rgb[:, :, 0]
         planar[1] = rgb[:, :, 1]
         planar[2] = rgb[:, :, 2]
         fmt = 0x2
     elif base_fmt == 0x1:
         rgba = raw[: height * width * 4].reshape(height, width, 4)
+        planar = np.zeros((3, height, width), dtype=dtype)
         planar[0] = rgba[:, :, 0]
         planar[1] = rgba[:, :, 1]
         planar[2] = rgba[:, :, 2]
@@ -220,12 +226,14 @@ def read_raw_to_planar(filepath, width, height, fmt, repeat_to_444=False):
         y_size = height * width
         y = raw[:y_size].reshape(height, width)
         uv = raw[y_size : y_size + y_size * 2].reshape(height, width, 2)
+        planar = np.zeros((3, height, width), dtype=dtype)
         planar[0] = y
         planar[1] = uv[:, :, 0]
         planar[2] = uv[:, :, 1]
         fmt = 0x3
     elif base_fmt == 0x5:
         vuy = raw[: height * width * 3].reshape(height, width, 3)
+        planar = np.zeros((3, height, width), dtype=dtype)
         planar[0] = vuy[:, :, 2]
         planar[1] = vuy[:, :, 1]
         planar[2] = vuy[:, :, 0]
@@ -236,17 +244,25 @@ def read_raw_to_planar(filepath, width, height, fmt, repeat_to_444=False):
         y = raw[:y_size].reshape(height, width)
         u = raw[y_size : y_size + uv_size].reshape(height, width // 2)
         v = raw[y_size + uv_size : y_size + 2 * uv_size].reshape(height, width // 2)
-        planar[0] = y
-        planar[1] = _resample_yuv422(u, width) if repeat_to_444 else u
-        planar[2] = _resample_yuv422(v, width) if repeat_to_444 else v
+        if repeat_to_444:
+            planar = np.zeros((3, height, width), dtype=dtype)
+            planar[0] = y
+            planar[1] = _resample_yuv422(u, width)
+            planar[2] = _resample_yuv422(v, width)
+        else:
+            planar = [y, u, v]
         fmt = 0x3 if repeat_to_444 else 0x6
     elif base_fmt == 0x7:
         y_size = height * width
         y = raw[:y_size].reshape(height, width)
         uv = raw[y_size : y_size + y_size].reshape(height, width // 2, 2)
-        planar[0] = y
-        planar[1] = _resample_yuv422(uv[:, :, 0], width) if repeat_to_444 else uv[:, :, 0]
-        planar[2] = _resample_yuv422(uv[:, :, 1], width) if repeat_to_444 else uv[:, :, 1]
+        if repeat_to_444:
+            planar = np.zeros((3, height, width), dtype=dtype)
+            planar[0] = y
+            planar[1] = _resample_yuv422(uv[:, :, 0], width)
+            planar[2] = _resample_yuv422(uv[:, :, 1], width)
+        else:
+            planar = [y, uv[:, :, 0], uv[:, :, 1]]
         fmt = 0x3 if repeat_to_444 else 0x6
     elif base_fmt == 0x8:
         y_size = height * width
@@ -254,19 +270,28 @@ def read_raw_to_planar(filepath, width, height, fmt, repeat_to_444=False):
         y = raw[:y_size].reshape(height, width)
         u = raw[y_size : y_size + uv_size].reshape(height // 2, width // 2)
         v = raw[y_size + uv_size : y_size + 2 * uv_size].reshape(height // 2, width // 2)
-        planar[0] = y
-        planar[1] = _resample_yuv420(u, height, width) if repeat_to_444 else u
-        planar[2] = _resample_yuv420(v, height, width) if repeat_to_444 else v
+        if repeat_to_444:
+            planar = np.zeros((3, height, width), dtype=dtype)
+            planar[0] = y
+            planar[1] = _resample_yuv420(u, height, width)
+            planar[2] = _resample_yuv420(v, height, width)
+        else:
+            planar = [y, u, v]
         fmt = 0x3 if repeat_to_444 else 0x8
     elif base_fmt == 0x9:
         y_size = height * width
         y = raw[:y_size].reshape(height, width)
         uv = raw[y_size : y_size + (height // 2) * width].reshape(height // 2, width // 2, 2)
-        planar[0] = y
-        planar[1] = _resample_yuv420(uv[:, :, 0], height, width) if repeat_to_444 else uv[:, :, 0]
-        planar[2] = _resample_yuv420(uv[:, :, 1], height, width) if repeat_to_444 else uv[:, :, 1]
+        if repeat_to_444:
+            planar = np.zeros((3, height, width), dtype=dtype)
+            planar[0] = y
+            planar[1] = _resample_yuv420(uv[:, :, 0], height, width)
+            planar[2] = _resample_yuv420(uv[:, :, 1], height, width)
+        else:
+            planar = [y, uv[:, :, 0], uv[:, :, 1]]
         fmt = 0x3 if repeat_to_444 else 0x8
     elif base_fmt == 0xA:
+        planar = np.zeros((3, height, width), dtype=dtype)
         y = raw[: height * width].reshape(height, width)
         planar[0] = y
         planar[1] = max_val if is_yuv_format(fmt) else 0
@@ -276,7 +301,10 @@ def read_raw_to_planar(filepath, width, height, fmt, repeat_to_444=False):
         raise ValueError(f"Unsupported base format: 0x{base_fmt:X}")
 
     if bpe == 2:
-        planar = planar.astype(np.uint16)
+        if isinstance(planar, list):
+            planar = [ch.astype(np.uint16) for ch in planar]
+        else:
+            planar = planar.astype(np.uint16)
         fmt += 0x10
 
     return planar, fmt

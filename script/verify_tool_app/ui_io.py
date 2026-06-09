@@ -159,7 +159,7 @@ def build_controls() -> list:
     layout = [
         [
             sg.Text("Input File", size=IO_LABEL_SIZE),
-            sg.Input("G:/Project/pq/inputs/512x428_test_image_many_pattern_nv24.yuv", key="-INPUT-FILE-", size=(46, 1), enable_events=True,
+            sg.Input("G:/Project/pq/inputs/old_town_cross_720p50_yuv444p_fr0_8bit.yuv", key="-INPUT-FILE-", size=(46, 1), enable_events=True,
                      tooltip="输入YUV/RGB原始数据文件路径；支持拖拽或浏览选择"),
             sg.FileBrowse(size=IO_BUTTON_SIZE),
             sg.Button("Reload", key="-RELOAD-", size=IO_BUTTON_SIZE,
@@ -184,10 +184,10 @@ def build_controls() -> list:
         [sg.HorizontalSeparator()],
         [
             sg.Text("Width", size=(8, 1)),
-            sg.Input("1920", key="-WIDTH-", size=(8, 1), enable_events=True,
+            sg.Input("1920", key="-WIDTH-", size=(8, 1),
                      tooltip="图像宽度（像素）"),
             sg.Text("Height", size=(8, 1)),
-            sg.Input("1080", key="-HEIGHT-", size=(8, 1), enable_events=True,
+            sg.Input("1080", key="-HEIGHT-", size=(8, 1),
                      tooltip="图像高度（像素）"),
             sg.Text("Frame Num", size=(8, 1)),
             sg.Input("1", key="-FRAME-NUM-", size=(8, 1), readonly=True,
@@ -290,7 +290,7 @@ def handle_io_event(event: str, values: dict, window: sg.Window) -> bool:
     if event == "-OUT-CLR-":
         return True
 
-    if event in ("-WIDTH-", "-HEIGHT-"):
+    if event in ("-WIDTH-+ENTER", "-HEIGHT-+ENTER"):
         _recalc_frame_num(values, window)
         return True
 
@@ -440,6 +440,10 @@ def _guess_input_params(values: dict, window: sg.Window):
 
 
 def init_module(window: sg.Window):
-    """Initialize I/O tab: sync colorspace combos to match default format."""
+    """Initialize I/O tab: sync colorspace combos and bind Enter key to WIDTH/HEIGHT."""
     update_clrspc_for_fmt(window, {}, "-IN-CLR-", DEFAULT_FMT_DISPLAY)
     update_clrspc_for_fmt(window, {}, "-OUT-CLR-", DEFAULT_FMT_DISPLAY)
+    window["-WIDTH-"].bind("<Return>", "+ENTER")
+    window["-WIDTH-"].bind("<KP_Enter>", "+ENTER")
+    window["-HEIGHT-"].bind("<Return>", "+ENTER")
+    window["-HEIGHT-"].bind("<KP_Enter>", "+ENTER")

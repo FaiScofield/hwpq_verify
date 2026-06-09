@@ -20,6 +20,9 @@ from csc.run_csc import read_raw_to_planar
 from verify_tool_app.ui_helpers import (
     SliderSpinConfig,
     LINE,
+    STATUS_ERROR,
+    STATUS_OK,
+    update_status as update_status,
     bind_keyboard_events as _bind_kb_shared,
     build_numeric_control_row,
     handle_keyboard_event,
@@ -28,21 +31,6 @@ from verify_tool_app.ui_helpers import (
 )
 
 TAB_LABEL = "SHP"
-
-# ------------------------------------------------------------------ #
-# Status bar helpers                                                 #
-# ------------------------------------------------------------------ #
-_ERR_COLOR = "#FF8888"
-_OK_COLOR = "#88FF88"
-
-def _set_status_error(window: sg.Window, line: int, msg: str):
-    """Show error message on status bar with module name and line number."""
-    window["-STATUS-"].update(value=f"[{TAB_LABEL}:{line}] {msg}", text_color=_ERR_COLOR)
-
-def _set_status_ok(window: sg.Window, line: int, msg: str):
-    """Show success message on status bar with module name and line number."""
-    window["-STATUS-"].update(value=f"[{TAB_LABEL}:{line}] {msg}", text_color=_OK_COLOR)
-
 
 # SHP Support image formats
 SHP_SUPPORT_IO_FORMATS = defaultdict(
@@ -132,13 +120,13 @@ def handle_shp_event(event: str, values: dict, window: sg.Window) -> bool:
     if event == "-SHP-SAVE-CFG-":
         config_path = values.get("-CONFIG-PATH-", "").strip()
         if not config_path:
-            _set_status_error(window, LINE(), "No config file path specified")
+            update_status(window, "SHP", LINE(), "No config file path specified", level=STATUS_ERROR)
             return True
         try:
             _save_shp_config_from_ui(values, config_path)
-            _set_status_ok(window, LINE(), f"Config saved to {config_path}")
+            update_status(window, "SHP", LINE(), f"Config saved to {config_path}", level=STATUS_OK)
         except Exception as e:
-            _set_status_error(window, LINE(), str(e))
+            update_status(window, "SHP", LINE(), str(e), level=STATUS_ERROR)
         return True
 
     return False
