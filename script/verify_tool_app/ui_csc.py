@@ -12,6 +12,7 @@ from collections import defaultdict
 
 # Ensure the parent script/ package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]/"csc"))
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -19,6 +20,7 @@ import PySimpleGUI as sg
 
 from verify_tool_app.ui_helpers import (
     SliderSpinConfig,
+    LINE,
     bind_keyboard_events as _bind_kb_shared,
     handle_keyboard_event,
     sync_slider_to_spin,
@@ -26,7 +28,23 @@ from verify_tool_app.ui_helpers import (
     sync_all_norms,
 )
 
-from get_csc_coef_hsv import (
+TAB_LABEL = "CSC"
+
+# ------------------------------------------------------------------ #
+# Status bar helpers                                                 #
+# ------------------------------------------------------------------ #
+_ERR_COLOR = "#FF8888"
+_OK_COLOR = "#88FF88"
+
+def _set_status_error(window: sg.Window, line: int, msg: str):
+    """Show error message on status bar with module name and line number."""
+    window["-STATUS-"].update(value=f"[{TAB_LABEL}:{line}] {msg}", text_color=_ERR_COLOR)
+
+def _set_status_ok(window: sg.Window, line: int, msg: str):
+    """Show success message on status bar with module name and line number."""
+    window["-STATUS-"].update(value=f"[{TAB_LABEL}:{line}] {msg}", text_color=_OK_COLOR)
+
+from csc.get_csc_coef_hsv import (
     ALGO_RK_HW_CSC,
     ALGO_RK_SW_CSC,
     ALGO_EVIDEO_CSC,
@@ -47,7 +65,6 @@ from csc.csc_ui import (
     RGB_GAIN_KEYS,
 )
 
-TAB_LABEL = "CSC"
 
 # CSC Support image formats
 CSC_SUPPORT_IO_FORMATS = defaultdict(list, {
@@ -444,6 +461,8 @@ def build_controls() -> list:
             ),
             sg.Button("Reset BCSH", key="-RESET-BCSH-",
                       tooltip="将所有BCSH参数重置为默认值256"),
+            sg.Button("Save Config", key="-CSC-SAVE-CFG-",
+                      tooltip="保存配置参数到json配置文件"),
         ],
     ]
     csc_config_rows.extend(_build_bcsh_layout())
@@ -493,6 +512,19 @@ def handle_csc_event(event: str, values: dict, window: sg.Window) -> bool:
 
     if event == "-RESET-BCSH-":
         _reset_bcsh(window, values)
+        return True
+
+    # Save Config button — write UI values to CONFIG-PATH json file
+    if event == "-CSC-SAVE-CFG-":
+        config_path = values.get("-CONFIG-PATH-", "").strip()
+        if not config_path:
+            _set_status_error(window, LINE(), "No config file path specified")
+            return True
+        try:
+            _save_csc_config_from_ui(values, config_path)
+            _set_status_ok(window, LINE(), f"Config saved to {config_path}")
+        except Exception as e:
+            _set_status_error(window, LINE(), str(e))
         return True
 
     # Algo type switch with RGB gain remap
@@ -628,11 +660,20 @@ def process(src_frame, io_info: dict):
         input_clrspc = src_frame.clrspc
         output_fmt = io_info["out_fmt"]
         output_clrspc = io_info["out_clrspc"]
+        stream_depth = io_info["stream_depth"]
         params = read_params(io_info["elements"])
 
+        # in_depth/out_depth/stream_depth cases:
+        # 8/8/8 case: 8->8->8->8 (no support yet)
+        # 8/8/10 case: 8->10->10->8
+        # 8/10/10 case: 8->10->10->10
+        # 10/8/10 case: 10->10->10->8
+        # 10/10/10 case: 10->10->10->10
         in_depth = get_pixel_depth(input_fmt)
         out_depth = get_pixel_depth(output_fmt)
         pixel_depth = max(in_depth, out_depth)
+        csc_out_fmt = output_fmt + 0x10 if stream_depth > out_depth else output_fmt
+        assert(stream_depth == in_depth)
 
         algo_type = normalize_algo_type(params.get("algo_type", ALGO_RK_HW_CSC))
         precision = params.get("precision", 10)
@@ -655,11 +696,11 @@ def process(src_frame, io_info: dict):
         output_data, step1_coefs, step1_offset, step2_coefs, step2_offset = run_selected_algo(
             input_data, bcsh_config, pixel_depth, precision,
             algo_type, input_clrspc, output_clrspc,
-            input_fmt, output_fmt,
+            input_fmt, csc_out_fmt,
         )
 
         dst_frame = ImageFrame(output_data[0], output_data[1], output_data[2],
-                               output_fmt, output_clrspc)
+                               csc_out_fmt, output_clrspc)
 
         # Update CSC Coef Info UI
         _update_coef_info(io_info, step1_coefs, step1_offset, step2_coefs, step2_offset)
@@ -719,6 +760,60 @@ def get_right_preview_image(snapshot, params: dict):
 def right_preview_mouse_motion():
     # todo
     return None
+
+
+# ------------------------------------------------------------------ #
+# Save Config                                                        #
+# ------------------------------------------------------------------ #
+
+# Map UI BCSH keys to CscConfig attribute names
+_CSC_UI_KEY_TO_ATTR = {
+    "bright":     "cscBrightness",
+    "contrast":   "cscContrast",
+    "sat":        "cscSaturation",
+    "hue":        "cscHue",
+    "r_gain":     "cscRGain",
+    "r_offset":   "cscROffset",
+    "g_gain":     "cscGGain",
+    "g_offset":   "cscGOffset",
+    "b_gain":     "cscBGain",
+    "b_offset":   "cscBOffset",
+}
+
+
+def _save_csc_config_from_ui(values: dict, config_path: str):
+    """Save current CSC UI control values to a JSON config file via CscConfig."""
+    from config_def.module_config_csc import CscConfig
+
+    cfg = CscConfig()
+
+    # Populate BCSH params from UI slider values
+    for ui_key, attr_name in _CSC_UI_KEY_TO_ATTR.items():
+        slider_key = f"-BCSH-{ui_key}-"
+        val = int(values.get(slider_key, 256))
+        setattr(cfg, attr_name, val)
+
+    # Algo type → convert mode index
+    algo_type = values.get("-BCSH-ALGO-TYPE-", ALGO_RK_HW_CSC)
+    import csc.get_csc_coefs as csc_core
+    mode_map = {v: k for k, v in csc_core.g_supported_standard_convert_modes.items()}
+    for i, key in enumerate(csc_core.g_supported_standard_convert_modes.keys()):
+        if csc_core.g_supported_standard_convert_modes[key] == algo_type:
+            cfg.cscConvertMode = i
+            break
+
+    # Precision
+    try:
+        cfg.cscCoefPrecision = int(values.get("-PRECISION-", "10"))
+    except ValueError:
+        cfg.cscCoefPrecision = 10
+
+    # Update computed coefficients
+    cfg.update_csc_coefs()
+
+    # Save to file
+    cfg.dump(config_path)
+
 
 # ------------------------------------------------------------------ #
 # Keyboard bindings                                                  #

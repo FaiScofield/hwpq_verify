@@ -142,7 +142,7 @@ def get_bytes_per_element(fmt):
     return 1
 
 
-def _resample_horizontal(channel, target_w):
+def _resample_yuv422(channel, target_w):
     """Resample a channel to target width by duplicating each column"""
     h, w = channel.shape
     if w == target_w:
@@ -151,7 +151,7 @@ def _resample_horizontal(channel, target_w):
     return np.repeat(channel, ratio, axis=1)
 
 
-def _resample_hv(channel, target_h, target_w):
+def _resample_yuv420(channel, target_h, target_w):
     """Resample a channel to target height and width by duplicating"""
     h, w = channel.shape
     if h == target_h and w == target_w:
@@ -187,9 +187,9 @@ def get_frame_size(width, height, fmt):
     return elements * bpe
 
 
-def read_raw_to_planar(filepath, width, height, fmt):
+def read_raw_to_planar(filepath, width, height, fmt, repeat_to_444=False):
     """Read raw image file and return planar numpy array (3, H, W)"""
-    base = fmt & 0xF
+    base_fmt = fmt & 0xF
     bpe = get_bytes_per_element(fmt)
     dtype = np.uint16 if bpe == 2 else np.uint8
     depth = get_pixel_depth(fmt)
@@ -198,76 +198,88 @@ def read_raw_to_planar(filepath, width, height, fmt):
     planar = np.zeros((3, height, width), dtype=dtype)
     max_val = (1 << depth) - 1
 
-    if base == 0x0:
+    if base_fmt == 0x0:
         rgb = raw[: height * width * 3].reshape(height, width, 3)
         planar[0] = rgb[:, :, 0]
         planar[1] = rgb[:, :, 1]
         planar[2] = rgb[:, :, 2]
-    elif base == 0x1:
+        fmt = 0x2
+    elif base_fmt == 0x1:
         rgba = raw[: height * width * 4].reshape(height, width, 4)
         planar[0] = rgba[:, :, 0]
         planar[1] = rgba[:, :, 1]
         planar[2] = rgba[:, :, 2]
-    elif base == 0x2:
+        fmt = 0x2
+    elif base_fmt == 0x2:
         planar = raw[: 3 * height * width].reshape(3, height, width)
-    elif base == 0x3:
+        fmt = 0x2
+    elif base_fmt == 0x3:
         planar = raw[: 3 * height * width].reshape(3, height, width)
-    elif base == 0x4:
+        fmt = 0x3
+    elif base_fmt == 0x4:
         y_size = height * width
         y = raw[:y_size].reshape(height, width)
         uv = raw[y_size : y_size + y_size * 2].reshape(height, width, 2)
         planar[0] = y
         planar[1] = uv[:, :, 0]
         planar[2] = uv[:, :, 1]
-    elif base == 0x5:
+        fmt = 0x3
+    elif base_fmt == 0x5:
         vuy = raw[: height * width * 3].reshape(height, width, 3)
         planar[0] = vuy[:, :, 2]
         planar[1] = vuy[:, :, 1]
         planar[2] = vuy[:, :, 0]
-    elif base == 0x6:
+        fmt = 0x3
+    elif base_fmt == 0x6:
         y_size = height * width
         uv_size = height * (width // 2)
         y = raw[:y_size].reshape(height, width)
         u = raw[y_size : y_size + uv_size].reshape(height, width // 2)
         v = raw[y_size + uv_size : y_size + 2 * uv_size].reshape(height, width // 2)
         planar[0] = y
-        planar[1] = _resample_horizontal(u, width)
-        planar[2] = _resample_horizontal(v, width)
-    elif base == 0x7:
+        planar[1] = _resample_yuv422(u, width) if repeat_to_444 else u
+        planar[2] = _resample_yuv422(v, width) if repeat_to_444 else v
+        fmt = 0x3 if repeat_to_444 else 0x6
+    elif base_fmt == 0x7:
         y_size = height * width
         y = raw[:y_size].reshape(height, width)
         uv = raw[y_size : y_size + y_size].reshape(height, width // 2, 2)
         planar[0] = y
-        planar[1] = _resample_horizontal(uv[:, :, 0], width)
-        planar[2] = _resample_horizontal(uv[:, :, 1], width)
-    elif base == 0x8:
+        planar[1] = _resample_yuv422(uv[:, :, 0], width) if repeat_to_444 else uv[:, :, 0]
+        planar[2] = _resample_yuv422(uv[:, :, 1], width) if repeat_to_444 else uv[:, :, 1]
+        fmt = 0x3 if repeat_to_444 else 0x6
+    elif base_fmt == 0x8:
         y_size = height * width
         uv_size = (height // 2) * (width // 2)
         y = raw[:y_size].reshape(height, width)
         u = raw[y_size : y_size + uv_size].reshape(height // 2, width // 2)
         v = raw[y_size + uv_size : y_size + 2 * uv_size].reshape(height // 2, width // 2)
         planar[0] = y
-        planar[1] = _resample_hv(u, height, width)
-        planar[2] = _resample_hv(v, height, width)
-    elif base == 0x9:
+        planar[1] = _resample_yuv420(u, height, width) if repeat_to_444 else u
+        planar[2] = _resample_yuv420(v, height, width) if repeat_to_444 else v
+        fmt = 0x3 if repeat_to_444 else 0x8
+    elif base_fmt == 0x9:
         y_size = height * width
         y = raw[:y_size].reshape(height, width)
         uv = raw[y_size : y_size + (height // 2) * width].reshape(height // 2, width // 2, 2)
         planar[0] = y
-        planar[1] = _resample_hv(uv[:, :, 0], height, width)
-        planar[2] = _resample_hv(uv[:, :, 1], height, width)
-    elif base == 0xA:
+        planar[1] = _resample_yuv420(uv[:, :, 0], height, width) if repeat_to_444 else uv[:, :, 0]
+        planar[2] = _resample_yuv420(uv[:, :, 1], height, width) if repeat_to_444 else uv[:, :, 1]
+        fmt = 0x3 if repeat_to_444 else 0x8
+    elif base_fmt == 0xA:
         y = raw[: height * width].reshape(height, width)
         planar[0] = y
         planar[1] = max_val if is_yuv_format(fmt) else 0
         planar[2] = planar[1].copy()
+        fmt = 0xA
     else:
-        raise ValueError(f"Unsupported base format: 0x{base:X}")
+        raise ValueError(f"Unsupported base format: 0x{base_fmt:X}")
 
     if bpe == 2:
         planar = planar.astype(np.uint16)
+        fmt += 0x10
 
-    return planar
+    return planar, fmt
 
 
 def write_planar_to_raw(planar, filepath, width, height, fmt):
@@ -609,7 +621,7 @@ def run_cli(args):
     mode_str = build_csc_mode_str(input_clrspc, output_clrspc)
     print(f"CSC mode: {mode_str}")
 
-    planar_in = read_raw_to_planar(input_file, width, height, input_fmt)
+    planar_in, input_fmt = read_raw_to_planar(input_file, width, height, input_fmt)
 
     csc_config = CscCoefConfig()
     csc_config.csc_mode = parse_csc_mode_str(mode_str)

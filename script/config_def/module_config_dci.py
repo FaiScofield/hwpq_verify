@@ -64,84 +64,7 @@ class DciConfig(ModuleConfigCore):
     def __init__(self, name: str = "DCI", platform: str = "unknown"):
         super().__init__(name, platform)
 
-        # ## for vdpp_hist_cnt
-        # self.hist_pre_vhsd_mode = 0  # 0-MANUAL_CONFIG, 1-AUTO_CONFIG
-        # self.hist_hsd_mode = 0  # 0-disable, 1-x2
-        # self.hist_vsd_mode = 0  # 0-disable, 1-x2, 2-x4
-
-        # ## for vop_dci_interp
-        # self.ctrl_enable = 1
-        # self.ctrl_vopIn_csc_range = 1  # 0-LIMIT, 1-FULL
-        # self.ctrl_vop_srand_seed = -1
-        # self.ctrl_dci_CF_HE_ratio = 64
-        # self.ctrl_dci_ACT_area_l = 0
-        # self.ctrl_dci_ACT_area_r = 0
-        # self.ctrl_dci_ACT_area_u = 0
-        # self.ctrl_dci_ACT_area_d = 0
-        # self.ctrl_reg_ctrl_mode = 0
-        # self.ctrl_reg_file_path = ""
-        # self.ctrl_lut_file_path = ""
-
-        # self.cf_dciWgtCoef_low = np.zeros(33, dtype=np.uint16)
-        # self.cf_dciWgtCoef_mid = np.zeros(33, dtype=np.uint16)
-        # self.cf_dciWgtCoef_high = np.zeros(33, dtype=np.uint16)
-        # self.cf_dciWeight_low = np.zeros(32, dtype=np.uint16)
-        # self.cf_dciWeight_mid = np.zeros(32, dtype=np.uint16)
-        # self.cf_dciWeight_high = np.zeros(32, dtype=np.uint16)
-        # self.cf_gain_low = 32
-        # self.cf_gain_mid = 32
-        # self.cf_gain_high = 32
-        # self.cf_hist_cor_thr0 = 0
-        # self.cf_hist_cor_thr1 = 0
-        # self.cf_hist_cor_thr2 = 0
-
-        # self.he_split_point = 125
-        # self.he_left_clip = 1.0
-        # self.he_right_clip = 1.0
-        # self.he_overlap = 16
-
-        # self.bs_enable = 0
-        # self.bs_set_point = 80
-        # self.bs_ratio = 64
-        # self.bs_overlap = 0
-
-        # self.ws_enable = 0
-        # self.ws_set_point = 80
-        # self.ws_ratio = 64
-        # self.ws_overlap = 8
-
-        # self.clahe_en = 1
-        # self.clahe_clip_value = 1.0
-        # self.clahe_local_ratio = 19
-        # self.clahe_left_alpha = 3.0
-        # self.clahe_left_ThrLmin = 0.5
-        # self.clahe_left_ThrLmax = 2.3
-        # self.clahe_left_lumRatio = 0.7
-        # self.clahe_right_alpha = 1.5
-        # self.clahe_right_ThrRmin = 0.7
-        # self.clahe_right_ThrRmax = 3.0
-
-        # self.abld_hist_abld_ratio = 8
-        # self.abld_clahe_abld_ratio = 0.93
-        # self.abld_hist_wgt_high = 0
-        # self.abld_hist_wgt_mid = 0
-        # self.abld_hist_wgt_low = 0
-        # self.abld_metricAbldCoef0 = 8
-        # self.abld_metricAbldCoef1 = 8
-        # self.abld_metricAbldCoef2 = 8
-        # self.abld_minLuma = 0
-        # self.abld_maxLuma = 1023
-        # self.abld_minLuma_abld_ratio = 26
-        # self.abld_maxLuma_abld_ratio = 26
-        # self.abld_scd_flag = 1
-        # self.abld_scd_thr = 896
-        # self.abld_clahe_scd_thr_max = 896
-        # self.abld_clahe_scd_thr_min = 38
-
-        # self.ca_enable = 1
-        # self.ca_saturation_w = 56
-        # self.ca_adj_luma_coring_zero = 8
-        # self.ca_adj_luma_coring_thrd = 16
+        # self.user_config = DciUserConfig()
 
         ## for RK3572 VOP HW regs config
         self.vdpp_config = DciHWParam_VDPP(self.platform)
@@ -347,6 +270,349 @@ class DciConfig(ModuleConfigCore):
         self.vop_config.dci_locat_ratio = np.random.randint(0, 32, size=16 * 16, dtype=np.uint8)
         self.vop_config.dci_global_lut = np.random.randint(0, 1023, size=256, dtype=np.uint16)
         self.logger.info(f"generated a random config with seed={seed}")
+        return True
+
+class DciUserConfig(ModuleConfigCore):
+    def __init__(self, name: str = "DCI", platform: str = "unknown"):
+        super().__init__(name, platform)
+
+        ## for vdpp_hist_cnt
+        self.hist_pre_vhsd_mode = 0  # 0-MANUAL_CONFIG, 1-AUTO_CONFIG
+        self.hist_hsd_mode = 0  # 0-disable, 1-x2
+        self.hist_vsd_mode = 0  # 0-disable, 1-x2, 2-x4
+
+        ## for vop_dci_interp
+        self.ctrl_enable = 1
+        self.ctrl_vopIn_csc_range = 1  # 0-LIMIT, 1-FULL
+        self.ctrl_vop_srand_seed = -1
+        self.ctrl_dci_CF_HE_ratio = 64
+        self.ctrl_dci_ACT_area_l = 0
+        self.ctrl_dci_ACT_area_r = 0
+        self.ctrl_dci_ACT_area_u = 0
+        self.ctrl_dci_ACT_area_d = 0
+        self.ctrl_reg_ctrl_mode = 0
+        self.ctrl_reg_file_path = ""
+        self.ctrl_lut_file_path = ""
+
+        self.cf_dciWgtCoef_low = np.zeros(33, dtype=np.uint16)
+        self.cf_dciWgtCoef_mid = np.zeros(33, dtype=np.uint16)
+        self.cf_dciWgtCoef_high = np.zeros(33, dtype=np.uint16)
+        self.cf_dciWeight_low = np.zeros(32, dtype=np.uint16)
+        self.cf_dciWeight_mid = np.zeros(32, dtype=np.uint16)
+        self.cf_dciWeight_high = np.zeros(32, dtype=np.uint16)
+        self.cf_gain_low = 32
+        self.cf_gain_mid = 32
+        self.cf_gain_high = 32
+        self.cf_hist_cor_thr0 = 0
+        self.cf_hist_cor_thr1 = 0
+        self.cf_hist_cor_thr2 = 0
+
+        self.he_split_point = 125
+        self.he_left_clip = 1.0
+        self.he_right_clip = 1.0
+        self.he_overlap = 16
+
+        self.bs_enable = 0
+        self.bs_set_point = 80
+        self.bs_ratio = 64
+        self.bs_overlap = 0
+
+        self.ws_enable = 0
+        self.ws_set_point = 80
+        self.ws_ratio = 64
+        self.ws_overlap = 8
+
+        self.clahe_en = 1
+        self.clahe_clip_value = 1.0
+        self.clahe_local_ratio = 19
+        self.clahe_left_alpha = 3.0
+        self.clahe_left_ThrLmin = 0.5
+        self.clahe_left_ThrLmax = 2.3
+        self.clahe_left_lumRatio = 0.7
+        self.clahe_right_alpha = 1.5
+        self.clahe_right_ThrRmin = 0.7
+        self.clahe_right_ThrRmax = 3.0
+
+        self.abld_hist_abld_ratio = 8
+        self.abld_clahe_abld_ratio = 0.93
+        self.abld_hist_wgt_high = 0
+        self.abld_hist_wgt_mid = 0
+        self.abld_hist_wgt_low = 0
+        self.abld_metricAbldCoef0 = 8
+        self.abld_metricAbldCoef1 = 8
+        self.abld_metricAbldCoef2 = 8
+        self.abld_minLuma = 0
+        self.abld_maxLuma = 1023
+        self.abld_minLuma_abld_ratio = 26
+        self.abld_maxLuma_abld_ratio = 26
+        self.abld_scd_flag = 1
+        self.abld_scd_thr = 896
+        self.abld_clahe_scd_thr_max = 896
+        self.abld_clahe_scd_thr_min = 38
+
+        self.ca_enable = 1
+        self.ca_saturation_w = 56
+        self.ca_adj_luma_coring_zero = 8
+        self.ca_adj_luma_coring_thrd = 16
+
+    # ------------------------------------------------------------------ #
+    # dump / load — JSON I/O                                             #
+    # ------------------------------------------------------------------ #
+
+    def _to_dict(self) -> dict:
+        """Serialize to the nested dict matching dci_config JSON structure."""
+        return {
+            "s_vdpp_hist_cnt": {
+                "i_pre_vhsd_mode_auto_config": self.hist_pre_vhsd_mode,
+                "dci_hsd_mode": self.hist_hsd_mode,
+                "dci_vsd_mode": self.hist_vsd_mode,
+            },
+            "s_vop_dci_interp_params": {
+                "s_vop_dci_ctrl": {
+                    "i_dciEnable": self.ctrl_enable,
+                    "i_vopIn_csc_range": self.ctrl_vopIn_csc_range,
+                    "i_vop_srand_seed": self.ctrl_vop_srand_seed,
+                    "i_dci_CF_HE_ratio": self.ctrl_dci_CF_HE_ratio,
+                    "i_dci_ACT_area_l": self.ctrl_dci_ACT_area_l,
+                    "i_dci_ACT_area_r": self.ctrl_dci_ACT_area_r,
+                    "i_dci_ACT_area_u": self.ctrl_dci_ACT_area_u,
+                    "i_dci_ACT_area_d": self.ctrl_dci_ACT_area_d,
+                },
+                "s_curve_fitting_params": {
+                    "t_dciWgtCoef_low": NoIndent(self.cf_dciWgtCoef_low.tolist()),
+                    "t_dciWgtCoef_mid": NoIndent(self.cf_dciWgtCoef_mid.tolist()),
+                    "t_dciWgtCoef_high": NoIndent(self.cf_dciWgtCoef_high.tolist()),
+                    "t_dciWeight_low": NoIndent(self.cf_dciWeight_low.tolist()),
+                    "t_dciWeight_mid": NoIndent(self.cf_dciWeight_mid.tolist()),
+                    "t_dciWeight_high": NoIndent(self.cf_dciWeight_high.tolist()),
+                    "i_gain_low": self.cf_gain_low,
+                    "i_gain_mid": self.cf_gain_mid,
+                    "i_gain_high": self.cf_gain_high,
+                    "i_hist_cor_thr0": self.cf_hist_cor_thr0,
+                    "i_hist_cor_thr1": self.cf_hist_cor_thr1,
+                    "i_hist_cor_thr2": self.cf_hist_cor_thr2,
+                },
+                "s_he_params": {
+                    "i_dci_HE_splitPoint": self.he_split_point,
+                    "i_dci_HE_leftClip": self.he_left_clip,
+                    "i_dci_HE_rightClip": self.he_right_clip,
+                    "i_dci_HE_overLap": self.he_overlap,
+                },
+                "s_bs_params": {
+                    "i_dci_BS_enable": self.bs_enable,
+                    "i_dci_BS_set_point": self.bs_set_point,
+                    "i_dci_BS_ratio": self.bs_ratio,
+                    "i_dci_BS_overlap": self.bs_overlap,
+                },
+                "s_ws_params": {
+                    "i_dci_WS_enable": self.ws_enable,
+                    "i_dci_WS_set_point": self.ws_set_point,
+                    "i_dci_WS_ratio": self.ws_ratio,
+                    "i_dci_WS_overlap": self.ws_overlap,
+                },
+                "s_clahe_params": {
+                    "i_dci_CLAHE_en": self.clahe_en,
+                    "i_dci_CLAHE_clip_value": self.clahe_clip_value,
+                    "i_dci_CLAHE_LocalRatio": self.clahe_local_ratio,
+                    "i_left_alpha": self.clahe_left_alpha,
+                    "i_left_ThrLmin": self.clahe_left_ThrLmin,
+                    "i_left_ThrLmax": self.clahe_left_ThrLmax,
+                    "i_left_lumRatio": self.clahe_left_lumRatio,
+                    "i_right_alpha": self.clahe_right_alpha,
+                    "i_right_ThrRmin": self.clahe_right_ThrRmin,
+                    "i_right_ThrRmax": self.clahe_right_ThrRmax,
+                },
+                "s_time_abld_params": {
+                    "i_dci_hist_abld_ratio": self.abld_hist_abld_ratio,
+                    "i_dci_clahe_abld_ratio": self.abld_clahe_abld_ratio,
+                    "i_dci_hist_wgt_high": self.abld_hist_wgt_high,
+                    "i_dci_hist_wgt_mid": self.abld_hist_wgt_mid,
+                    "i_dci_hist_wgt_low": self.abld_hist_wgt_low,
+                    "i_dci_metricAbldCoef0": self.abld_metricAbldCoef0,
+                    "i_dci_metricAbldCoef1": self.abld_metricAbldCoef1,
+                    "i_dci_metricAbldCoef2": self.abld_metricAbldCoef2,
+                    "i_dci_minLuma": self.abld_minLuma,
+                    "i_dci_maxLuma": self.abld_maxLuma,
+                    "i_dci_minLuma_abld_ratio": self.abld_minLuma_abld_ratio,
+                    "i_dci_maxLuma_abld_ratio": self.abld_maxLuma_abld_ratio,
+                    "i_scd_flag": self.abld_scd_flag,
+                    "i_dci_scd_thr": self.abld_scd_thr,
+                    "i_dci_clahe_scd_thr_max": self.abld_clahe_scd_thr_max,
+                    "i_dci_clahe_scd_thr_min": self.abld_clahe_scd_thr_min,
+                },
+                "s_color_adjust_params": {
+                    "i_dci_CA_enable": self.ca_enable,
+                    "i_dci_CA_saturation_w": self.ca_saturation_w,
+                    "i_dci_CA_adj_luma_coring_zero": self.ca_adj_luma_coring_zero,
+                    "i_dci_CA_adj_luma_coring_thrd": self.ca_adj_luma_coring_thrd,
+                },
+            },
+        }
+
+    def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
+        """Write config to a JSON file or print to stdout."""
+        data = self._to_dict()
+        if not filename:
+            self.pretty_print_dict("dci", data, indent=2, pretty_array_stdout=pretty_array_stdout)
+            return True
+        try:
+            json_data = json.dumps(data, indent=4, ensure_ascii=False, cls=CompactArrayEncoder)
+            with open(filename, "w") as f:
+                f.write(json_data)
+            self.logger.info(f"User config saved to '{filename}'")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to save config: {e}")
+            return False
+
+    def load(self, filename: str) -> bool:
+        """Load config from a JSON file.
+
+        Accepts both full config files (with global_param / pq_tuning_param)
+        and standalone DCI section dumps.
+        """
+        if not os.path.exists(filename):
+            self.logger.error(f"Config file '{filename}' not found")
+            return False
+
+        try:
+            with open(filename, "r") as f:
+                root = json.load(f)
+
+            # Unwrap from pq_tuning_param -> dci if present
+            data = root
+            if "pq_tuning_param" in root and "dci" in root["pq_tuning_param"]:
+                data = root["pq_tuning_param"]["dci"]
+            elif "s_vdpp_hist_cnt" not in data and "s_vop_dci_interp_params" not in data:
+                self.logger.error(f"No DCI config section found in '{filename}'")
+                return False
+
+            # s_vdpp_hist_cnt
+            vdpp = data.get("s_vdpp_hist_cnt", {})
+            self.hist_pre_vhsd_mode = vdpp.get("i_pre_vhsd_mode_auto_config", self.hist_pre_vhsd_mode)
+            self.hist_hsd_mode = vdpp.get("dci_hsd_mode", self.hist_hsd_mode)
+            self.hist_vsd_mode = vdpp.get("dci_vsd_mode", self.hist_vsd_mode)
+
+            # s_vop_dci_interp_params
+            interp = data.get("s_vop_dci_interp_params", {})
+
+            ctrl = interp.get("s_vop_dci_ctrl", {})
+            self.ctrl_enable = ctrl.get("i_dciEnable", self.ctrl_enable)
+            self.ctrl_vopIn_csc_range = ctrl.get("i_vopIn_csc_range", self.ctrl_vopIn_csc_range)
+            self.ctrl_vop_srand_seed = ctrl.get("i_vop_srand_seed", self.ctrl_vop_srand_seed)
+            self.ctrl_dci_CF_HE_ratio = ctrl.get("i_dci_CF_HE_ratio", self.ctrl_dci_CF_HE_ratio)
+            self.ctrl_dci_ACT_area_l = ctrl.get("i_dci_ACT_area_l", self.ctrl_dci_ACT_area_l)
+            self.ctrl_dci_ACT_area_r = ctrl.get("i_dci_ACT_area_r", self.ctrl_dci_ACT_area_r)
+            self.ctrl_dci_ACT_area_u = ctrl.get("i_dci_ACT_area_u", self.ctrl_dci_ACT_area_u)
+            self.ctrl_dci_ACT_area_d = ctrl.get("i_dci_ACT_area_d", self.ctrl_dci_ACT_area_d)
+
+            cf = interp.get("s_curve_fitting_params", {})
+            self._load_array(cf, "t_dciWgtCoef_low", self.cf_dciWgtCoef_low)
+            self._load_array(cf, "t_dciWgtCoef_mid", self.cf_dciWgtCoef_mid)
+            self._load_array(cf, "t_dciWgtCoef_high", self.cf_dciWgtCoef_high)
+            self._load_array(cf, "t_dciWeight_low", self.cf_dciWeight_low)
+            self._load_array(cf, "t_dciWeight_mid", self.cf_dciWeight_mid)
+            self._load_array(cf, "t_dciWeight_high", self.cf_dciWeight_high)
+            self.cf_gain_low = cf.get("i_gain_low", self.cf_gain_low)
+            self.cf_gain_mid = cf.get("i_gain_mid", self.cf_gain_mid)
+            self.cf_gain_high = cf.get("i_gain_high", self.cf_gain_high)
+            self.cf_hist_cor_thr0 = cf.get("i_hist_cor_thr0", self.cf_hist_cor_thr0)
+            self.cf_hist_cor_thr1 = cf.get("i_hist_cor_thr1", self.cf_hist_cor_thr1)
+            self.cf_hist_cor_thr2 = cf.get("i_hist_cor_thr2", self.cf_hist_cor_thr2)
+
+            he = interp.get("s_he_params", {})
+            self.he_split_point = he.get("i_dci_HE_splitPoint", self.he_split_point)
+            self.he_left_clip = he.get("i_dci_HE_leftClip", self.he_left_clip)
+            self.he_right_clip = he.get("i_dci_HE_rightClip", self.he_right_clip)
+            self.he_overlap = he.get("i_dci_HE_overLap", self.he_overlap)
+
+            bs = interp.get("s_bs_params", {})
+            self.bs_enable = bs.get("i_dci_BS_enable", self.bs_enable)
+            self.bs_set_point = bs.get("i_dci_BS_set_point", self.bs_set_point)
+            self.bs_ratio = bs.get("i_dci_BS_ratio", self.bs_ratio)
+            self.bs_overlap = bs.get("i_dci_BS_overlap", self.bs_overlap)
+
+            ws = interp.get("s_ws_params", {})
+            self.ws_enable = ws.get("i_dci_WS_enable", self.ws_enable)
+            self.ws_set_point = ws.get("i_dci_WS_set_point", self.ws_set_point)
+            self.ws_ratio = ws.get("i_dci_WS_ratio", self.ws_ratio)
+            self.ws_overlap = ws.get("i_dci_WS_overlap", self.ws_overlap)
+
+            clahe = interp.get("s_clahe_params", {})
+            self.clahe_en = clahe.get("i_dci_CLAHE_en", self.clahe_en)
+            self.clahe_clip_value = clahe.get("i_dci_CLAHE_clip_value", self.clahe_clip_value)
+            self.clahe_local_ratio = clahe.get("i_dci_CLAHE_LocalRatio", self.clahe_local_ratio)
+            self.clahe_left_alpha = clahe.get("i_left_alpha", self.clahe_left_alpha)
+            self.clahe_left_ThrLmin = clahe.get("i_left_ThrLmin", self.clahe_left_ThrLmin)
+            self.clahe_left_ThrLmax = clahe.get("i_left_ThrLmax", self.clahe_left_ThrLmax)
+            self.clahe_left_lumRatio = clahe.get("i_left_lumRatio", self.clahe_left_lumRatio)
+            self.clahe_right_alpha = clahe.get("i_right_alpha", self.clahe_right_alpha)
+            self.clahe_right_ThrRmin = clahe.get("i_right_ThrRmin", self.clahe_right_ThrRmin)
+            self.clahe_right_ThrRmax = clahe.get("i_right_ThrRmax", self.clahe_right_ThrRmax)
+
+            abld = interp.get("s_time_abld_params", {})
+            self.abld_hist_abld_ratio = abld.get("i_dci_hist_abld_ratio", self.abld_hist_abld_ratio)
+            self.abld_clahe_abld_ratio = abld.get("i_dci_clahe_abld_ratio", self.abld_clahe_abld_ratio)
+            self.abld_hist_wgt_high = abld.get("i_dci_hist_wgt_high", self.abld_hist_wgt_high)
+            self.abld_hist_wgt_mid = abld.get("i_dci_hist_wgt_mid", self.abld_hist_wgt_mid)
+            self.abld_hist_wgt_low = abld.get("i_dci_hist_wgt_low", self.abld_hist_wgt_low)
+            self.abld_metricAbldCoef0 = abld.get("i_dci_metricAbldCoef0", self.abld_metricAbldCoef0)
+            self.abld_metricAbldCoef1 = abld.get("i_dci_metricAbldCoef1", self.abld_metricAbldCoef1)
+            self.abld_metricAbldCoef2 = abld.get("i_dci_metricAbldCoef2", self.abld_metricAbldCoef2)
+            self.abld_minLuma = abld.get("i_dci_minLuma", self.abld_minLuma)
+            self.abld_maxLuma = abld.get("i_dci_maxLuma", self.abld_maxLuma)
+            self.abld_minLuma_abld_ratio = abld.get("i_dci_minLuma_abld_ratio", self.abld_minLuma_abld_ratio)
+            self.abld_maxLuma_abld_ratio = abld.get("i_dci_maxLuma_abld_ratio", self.abld_maxLuma_abld_ratio)
+            self.abld_scd_flag = abld.get("i_scd_flag", self.abld_scd_flag)
+            self.abld_scd_thr = abld.get("i_dci_scd_thr", self.abld_scd_thr)
+            self.abld_clahe_scd_thr_max = abld.get("i_dci_clahe_scd_thr_max", self.abld_clahe_scd_thr_max)
+            self.abld_clahe_scd_thr_min = abld.get("i_dci_clahe_scd_thr_min", self.abld_clahe_scd_thr_min)
+
+            ca = interp.get("s_color_adjust_params", {})
+            self.ca_enable = ca.get("i_dci_CA_enable", self.ca_enable)
+            self.ca_saturation_w = ca.get("i_dci_CA_saturation_w", self.ca_saturation_w)
+            self.ca_adj_luma_coring_zero = ca.get("i_dci_CA_adj_luma_coring_zero", self.ca_adj_luma_coring_zero)
+            self.ca_adj_luma_coring_thrd = ca.get("i_dci_CA_adj_luma_coring_thrd", self.ca_adj_luma_coring_thrd)
+
+            self.version = f"loaded_{os.path.basename(filename)}"
+            self.logger.info(f"Config loaded from '{filename}'")
+            return True
+        except Exception as e:
+            tb = traceback.extract_tb(e.__traceback__)[-1]
+            self.logger.error(f"Load config failed in {os.path.basename(tb.filename)}-{tb.lineno}: {e}")
+            return False
+
+    @staticmethod
+    def _load_array(src: dict, key: str, dst: np.ndarray):
+        """Load a JSON array into an existing NumPy array placeholder."""
+        if key in src:
+            arr = np.asarray(src[key], dtype=dst.dtype)
+            dst[: len(arr)] = arr
+
+    # ------------------------------------------------------------------ #
+    # Abstract method stubs                                              #
+    # ------------------------------------------------------------------ #
+
+    def check(self) -> bool:
+        # Validate curve fitting array lengths
+        expected_sizes = [
+            (self.cf_dciWgtCoef_low, 33, "cf_dciWgtCoef_low"),
+            (self.cf_dciWgtCoef_mid, 33, "cf_dciWgtCoef_mid"),
+            (self.cf_dciWgtCoef_high, 33, "cf_dciWgtCoef_high"),
+            (self.cf_dciWeight_low, 32, "cf_dciWeight_low"),
+            (self.cf_dciWeight_mid, 32, "cf_dciWeight_mid"),
+            (self.cf_dciWeight_high, 32, "cf_dciWeight_high"),
+        ]
+        for arr, expected_len, name in expected_sizes:
+            if len(arr) != expected_len:
+                self.logger.error(f"check failed: {name} length={len(arr)}, expected={expected_len}")
+                self.valid = False
+                return False
+        self.valid = True
+        return True
+
+    def gen(self, seed: int = 114514, **kwargs) -> bool:
+        self.randSeed = seed
         return True
 
 

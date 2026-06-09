@@ -35,7 +35,7 @@ from verify_tool_app.ui_io import (
     FMT_DISPLAY,
     DEFAULT_FMT_DISPLAY,
     CLRSPC_DISPLAY_RGB,
-    IMAGE_EXTENSIONS,
+    STB_IMAGE_EXTENSIONS,
     build_controls as build_io_controls,
     init_module as init_io_module,
     handle_io_event,
@@ -54,6 +54,7 @@ from verify_tool_app.ui_csc import (
     process as process_csc,
     get_right_preview_image as csc_right_preview,
     right_preview_mouse_motion as csc_right_preview_mouse_motion,
+    CSC_SUPPORT_IO_FORMATS,
 )
 
 from verify_tool_app.ui_dci import (
@@ -63,6 +64,7 @@ from verify_tool_app.ui_dci import (
     read_params as read_dci_params,
     process as process_dci,
     get_right_preview_image as dci_right_preview,
+    DCI_SUPPORT_IO_FORMATS,
 )
 
 from verify_tool_app.ui_shp import (
@@ -72,6 +74,7 @@ from verify_tool_app.ui_shp import (
     read_params as read_shp_params,
     process as process_shp,
     get_right_preview_image as shp_right_preview,
+    SHP_SUPPORT_IO_FORMATS,
 )
 
 # ------------------------------------------------------------------ #
@@ -181,7 +184,7 @@ class ImageFrame:
         self.pyr = (self.pyr.astype(np.uint16) << 2)
         self.pug = (self.pug.astype(np.uint16) << 2)
         self.pvb = (self.pvb.astype(np.uint16) << 2)
-        self.fmt = self._fmt_for_depth(target_10bit=True)
+        self.fmt |= 0x10 # change to 10-bit format
         return self
 
     def demote_to_8bit(self):
@@ -243,6 +246,7 @@ def _register_modules(modules=None):
             "right_preview_mouse_motion": csc_right_preview_mouse_motion,
             "handle_event": handle_csc_event,
             "init": lambda w: _init_module(w, "csc"),
+            "supported_formats": CSC_SUPPORT_IO_FORMATS,
         },
         "dci": {
             "tag": "dci",
@@ -254,6 +258,7 @@ def _register_modules(modules=None):
             "right_preview_mouse_motion": None,
             "handle_event": handle_dci_event,
             "init": lambda w: _init_module(w, "dci"),
+            "supported_formats": DCI_SUPPORT_IO_FORMATS,
         },
         "shp": {
             "tag": "shp",
@@ -265,6 +270,7 @@ def _register_modules(modules=None):
             "right_preview_mouse_motion": None,
             "handle_event": handle_shp_event,
             "init": lambda w: _init_module(w, "shp"),
+            "supported_formats": SHP_SUPPORT_IO_FORMATS,
         },
     }
 
@@ -430,8 +436,7 @@ def _build_preview_layout() -> list:
         [sg.Input("", key="-STATUS-", text_color="gray", size=(80, 1), readonly=True,
                   border_width=0,
                   disabled_readonly_background_color=sg.theme_background_color(),
-                  disabled_readonly_text_color=sg.theme_text_color(),
-                  tooltip="状态栏：显示当前操作结果和处理信息")],
+                  disabled_readonly_text_color=sg.theme_text_color())],
     ]
 
 
@@ -706,9 +711,22 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
         depth = get_pixel_depth(in_fmt)
         max_val = (1 << depth) - 1
         dtype = np.uint16 if depth > 8 else np.uint8
+
+        # Compute UV resolution for subsampled YUV formats
+        if is_yuv_format(in_fmt):
+            base = in_fmt & 0xF
+            if base in (0x6, 0x7):
+                uv_h, uv_w = h, w // 2      # YUV422
+            elif base in (0x8, 0x9):
+                uv_h, uv_w = h // 2, w // 2  # YUV420
+            else:
+                uv_h, uv_w = h, w            # YUV444
+        else:
+            uv_h, uv_w = h, w                # RGB
+
         pyr = np.full((h, w), int(np.clip(color_vals[0], 0, max_val)), dtype=dtype)
-        pug = np.full((h, w), int(np.clip(color_vals[1], 0, max_val)), dtype=dtype)
-        pvb = np.full((h, w), int(np.clip(color_vals[2], 0, max_val)), dtype=dtype)
+        pug = np.full((uv_h, uv_w), int(np.clip(color_vals[1], 0, max_val)), dtype=dtype)
+        pvb = np.full((uv_h, uv_w), int(np.clip(color_vals[2], 0, max_val)), dtype=dtype)
         _INPUT_IMAGE = ImageFrame(pyr, pug, pvb, in_fmt, in_clrspc)
         _SNAPSHOTS.clear()
         if stream_10bit:
@@ -716,6 +734,7 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
         _update_status(window, f"Set color ({' '.join(str(v) for v in color_vals)}) applied", color="green")
         return True
 
+    # Read input files
     input_file = io_params["input_file"]
     if not input_file or not os.path.isfile(input_file):
         _update_status(window, "No input file selected", color="orange")
@@ -723,7 +742,7 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
 
     # Handle image files (PNG/JPG/JPEG/BMP) via PIL, treat as RGB888
     ext = os.path.splitext(input_file)[1].lower()
-    if ext in IMAGE_EXTENSIONS:
+    if ext in STB_IMAGE_EXTENSIONS:
         try:
             from PIL import Image as PILImage
             im = PILImage.open(input_file).convert("RGB")
@@ -760,10 +779,21 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
         _update_status(window, "File too small for frame size", color="orange")
 
     try:
-        data = read_raw_to_planar(input_file, w, h, in_fmt)
+        data, in_fmt = read_raw_to_planar(input_file, w, h, in_fmt, repeat_to_444=False)
     except Exception as e:
         _update_status(window, f"Read error: {e}", color="red")
         return False
+
+    # read_raw_to_planar upsamples UV for YUV422/420 to uniform resolution.
+    # Restore native UV resolution so ImageFrame stores canonical dimensions.
+    # if is_yuv_format(in_fmt):
+    #     base = in_fmt & 0xF
+    #     if base in (0x6, 0x7):         # YUV422
+    #         data[1] = data[1][:, ::2].copy()
+    #         data[2] = data[2][:, ::2].copy()
+    #     elif base in (0x8, 0x9):       # YUV420
+    #         data[1] = data[1][::2, ::2].copy()
+    #         data[2] = data[2][::2, ::2].copy()
 
     _INPUT_IMAGE = ImageFrame(data[0], data[1], data[2], in_fmt, in_clrspc)
     _SNAPSHOTS.clear()
@@ -771,6 +801,14 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
         _INPUT_IMAGE.promote_to_10bit()
     _update_status(window, f"Loaded: {os.path.basename(input_file)}", color="green")
     return True
+
+
+def _pick_output_format(supported_list: list, prefer_10bit: bool) -> int:
+    """Pick a format from supported outputs matching the desired bit depth."""
+    for f in supported_list:
+        if (get_pixel_depth(f) >= 10) == prefer_10bit:
+            return f
+    return supported_list[0]  # fallback
 
 
 def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = ""):
@@ -863,10 +901,33 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
             current_frame = _SNAPSHOTS[snap_key]
             continue
 
-        # Build unified io_info with common I/O metadata
+        # Validate input format and determine per-module output
+        supported_formats = mod.get("supported_formats", {})
+        cur_fmt = current_frame.fmt
+        if cur_fmt not in supported_formats:
+            _update_status(window,
+                f"{tag}: unsupported input format 0x{cur_fmt:X}", color="red")
+            return
+        supported_outputs = supported_formats[cur_fmt]
+
+        is_last = (i == len(effective) - 1)
+        if is_last:
+            # Last module must produce I/O tab's output format
+            module_out_fmt = out_fmt
+            module_out_clrspc = out_clrspc
+            if module_out_fmt not in supported_outputs:
+                _update_status(window,
+                    f"{tag}: I/O output 0x{module_out_fmt:X} not supported "
+                    f"(supports: {[f'0x{f:X}' for f in supported_outputs]})",
+                    color="red")
+                return
+        else:
+            module_out_fmt = _pick_output_format(supported_outputs, stream_10bit)
+            module_out_clrspc = out_clrspc
+
         io_info = {
-            "out_fmt": out_fmt,
-            "out_clrspc": out_clrspc,
+            "out_fmt": module_out_fmt,
+            "out_clrspc": module_out_clrspc,
             "width": io_params["width"],
             "height": io_params["height"],
             "frame_idx": io_params["frame_idx"],
@@ -874,14 +935,15 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
             "output_dir": output_dir,
             "config_path": io_params["config_path"],
             "stream_depth": 10 if stream_10bit else 8,
-            # window
-            "elements": window_elements,
+            "values": window_elements,
             "window": window,
         }
 
         ok, result = mod["process"](current_frame, io_info)
         if ok:
             current_frame = result  # result is an ImageFrame
+            # if i == (len(effective) - 1) and stream_10bit and out_fmt_is_8bit:
+            #     current_frame.demote_to_8bit()
         else:
             _update_status(window, f"{tag.upper()} error: {result}", color="red")
             return
@@ -899,7 +961,7 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
     _update_status(window, f"Pipeline OK ({' → '.join(effective)})", color="green")
     _update_left_preview(window, display_frame, final_tag)
     _update_right_preview(window, final_tag, display_frame.as_tuple(),
-                           REGISTERED_MODULES.get(final_tag, {}).get("read_params", lambda v: {})(window_elements))
+                          REGISTERED_MODULES.get(final_tag, {}).get("read_params", lambda v: {})(window_elements))
 
 
 def _handle_mouse_motion(window: sg.Window, values: dict, event: str):
@@ -1358,6 +1420,13 @@ def main():
             _run_pipeline(values, window)
             continue
 
+        # Load DCI config to UI when config path changes via FileBrowse
+        if event == "-BROWSE-CONFIG-":
+            from verify_tool_app.ui_dci import _load_dci_config_to_ui
+            config_path = values.get("-CONFIG-PATH-", "").strip()
+            if config_path:
+                _load_dci_config_to_ui(window, values, config_path)
+
         # IO events
         if handle_io_event(event, values, window):
             if not event.startswith("-OPEN-DIR-"):
@@ -1366,14 +1435,14 @@ def main():
 
         # CSC events
         if handle_csc_event(event, values, window):
-            if event not in ("-SAT-SET-COLOR-",):
+            if event not in ("-SAT-SET-COLOR-", "-CSC-SAVE-CFG-"):
                 _run_pipeline(values, window, trigger_tag="csc")
             continue
 
         # DCI events
         if handle_dci_event(event, values, window):
             # UI-only events: don't trigger pipeline re-run
-            if event not in ("-DCI-OPEN-EXE-DIR-", "-DCI-OPEN-AUDIT-DIR-", "-DCI-AUDIT-DIR-"):
+            if event not in ("-DCI-OPEN-EXE-DIR-", "-DCI-OPEN-AUDIT-DIR-", "-DCI-AUDIT-DIR-", "-DCI-SAVE-CFG-"):
                 if not event.endswith("-RESET-"):
                     _run_pipeline(values, window, trigger_tag="dci")
             # Refresh right preview for COMBO MEDIAN or audit dir changes
@@ -1383,7 +1452,8 @@ def main():
 
         # SHP events
         if handle_shp_event(event, values, window):
-            _run_pipeline(values, window, trigger_tag="shp")
+            if event != "-SHP-SAVE-CFG-":
+                _run_pipeline(values, window, trigger_tag="shp")
             continue
 
     window.close()
@@ -1398,9 +1468,13 @@ def _init_module(window: sg.Window, tag: str):
         bind_keyboard_events(window)
         sync_all_norms(window, {}, CSC_SLIDER_SPIN_PAIRS)
     elif tag == "dci":
-        from verify_tool_app.ui_dci import bind_keyboard_events, DCI_SLIDER_SPIN_PAIRS
+        from verify_tool_app.ui_dci import bind_keyboard_events, DCI_SLIDER_SPIN_PAIRS, _load_dci_config_to_ui
         bind_keyboard_events(window)
         sync_all_norms(window, {}, DCI_SLIDER_SPIN_PAIRS)
+        # Load DCI config from default config path on initialization
+        config_path = window["-CONFIG-PATH-"].get().strip()
+        if config_path:
+            _load_dci_config_to_ui(window, {}, config_path)
     elif tag == "shp":
         from verify_tool_app.ui_shp import bind_keyboard_events, SHP_SLIDER_SPIN_PAIRS
         bind_keyboard_events(window)

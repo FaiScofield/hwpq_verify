@@ -4,7 +4,6 @@ SHP (Sharpen) module tab for PQ Test Tool.
 Provides sharpen controls (peaking gain, coring, shoot over/under).
 Processing is done via external sharpen executable.
 """
-
 import os
 import subprocess
 import sys
@@ -20,6 +19,7 @@ import PySimpleGUI as sg
 from csc.run_csc import read_raw_to_planar
 from verify_tool_app.ui_helpers import (
     SliderSpinConfig,
+    LINE,
     bind_keyboard_events as _bind_kb_shared,
     build_numeric_control_row,
     handle_keyboard_event,
@@ -28,6 +28,21 @@ from verify_tool_app.ui_helpers import (
 )
 
 TAB_LABEL = "SHP"
+
+# ------------------------------------------------------------------ #
+# Status bar helpers                                                 #
+# ------------------------------------------------------------------ #
+_ERR_COLOR = "#FF8888"
+_OK_COLOR = "#88FF88"
+
+def _set_status_error(window: sg.Window, line: int, msg: str):
+    """Show error message on status bar with module name and line number."""
+    window["-STATUS-"].update(value=f"[{TAB_LABEL}:{line}] {msg}", text_color=_ERR_COLOR)
+
+def _set_status_ok(window: sg.Window, line: int, msg: str):
+    """Show success message on status bar with module name and line number."""
+    window["-STATUS-"].update(value=f"[{TAB_LABEL}:{line}] {msg}", text_color=_OK_COLOR)
+
 
 # SHP Support image formats
 SHP_SUPPORT_IO_FORMATS = defaultdict(
@@ -45,7 +60,11 @@ def build_controls() -> list:
         [
             sg.Text("SHP EXE", size=(10, 1)),
             sg.Input(key="-SHP-EXE-", size=(52, 1), tooltip="SHP锐化硬件模块可执行文件路径"),
-            sg.FileBrowse(file_types=(("Executable", "*.exe"),), size=(8, 1)),
+            sg.FileBrowse(file_types=(("Executable", "*.exe"),)),
+            sg.Button("Open Dir", key="-SHP-OPEN-EXE-DIR-",
+                      tooltip="在资源管理器中打开EXE所在目录"),
+            sg.Button("Save Config", key="-SHP-SAVE-CFG-",
+                      tooltip="保存配置参数到json配置文件"),
         ],
         [sg.HorizontalSeparator()],
         [sg.Checkbox("Enable SHP", default=True, key="-SHP-ENABLE-", tooltip="启用锐化处理模块")],
@@ -70,6 +89,31 @@ SHP_SLIDER_SPIN_PAIRS = [
 ]
 
 
+def _save_shp_config_from_ui(values: dict, config_path: str):
+    """Save SHP UI values to CONFIG-PATH json file using SharpConfig."""
+    from config_def.module_config_sharp import SharpConfig
+
+    cfg = SharpConfig()
+
+    # Try loading existing config; if it fails, use a fresh default
+    if os.path.isfile(config_path):
+        cfg.load(config_path)
+
+    # Overlay SHP UI simplified params onto SharpConfig fields
+    cfg.s_peaking.i_peakingGain = int(values.get("-SHP-GAIN-SLIDER-", 160))
+    cfg.s_sharp_en_ctrl.i_peaking_coring_en = 1 if values.get("-SHP-CORING-ENABLE-", False) else 0
+    cfg.s_sharp_en_ctrl.i_shoot_ctrl_en = 1 if values.get("-SHP-SHOOT-ENABLE-", False) else 0
+
+    coring_thr = int(values.get("-SHP-CORINGTH-SLIDER-", 0))
+    for i in range(8):
+        cfg.s_peaking.t_CoringThreshold[i] = coring_thr
+
+    cfg.s_shootCtrl.i_Alpha_over = int(values.get("-SHP-SHOOT-OVER-SLIDER-", 8))
+    cfg.s_shootCtrl.i_Alpha_under = int(values.get("-SHP-SHOOT-UNDER-SLIDER-", 64))
+
+    cfg.dump(config_path)
+
+
 def handle_shp_event(event: str, values: dict, window: sg.Window) -> bool:
     """Handle SHP-specific events. Returns True if consumed."""
     # Keyboard suffix events via shared handler
@@ -83,6 +127,20 @@ def handle_shp_event(event: str, values: dict, window: sg.Window) -> bool:
         if event == pair.spin_key:
             sync_spin_to_slider(window, values, pair.spin_key, pair.slider_key, pair)
             return True
+
+    # Save Config button — write UI values to CONFIG-PATH json file via SharpConfig
+    if event == "-SHP-SAVE-CFG-":
+        config_path = values.get("-CONFIG-PATH-", "").strip()
+        if not config_path:
+            _set_status_error(window, LINE(), "No config file path specified")
+            return True
+        try:
+            _save_shp_config_from_ui(values, config_path)
+            _set_status_ok(window, LINE(), f"Config saved to {config_path}")
+        except Exception as e:
+            _set_status_error(window, LINE(), str(e))
+        return True
+
     return False
 
 

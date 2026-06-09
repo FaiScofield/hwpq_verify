@@ -10,7 +10,16 @@ from __future__ import annotations
 from collections import namedtuple
 from typing import Callable
 
+import inspect
 import PySimpleGUI as sg
+
+# ------------------------------------------------------------------ #
+# Utility: get caller line number                                    #
+# ------------------------------------------------------------------ #
+
+def LINE() -> int:
+    """Return the line number of the caller."""
+    return inspect.currentframe().f_back.f_lineno
 
 # ------------------------------------------------------------------ #
 # SliderSpinConfig                                                   #

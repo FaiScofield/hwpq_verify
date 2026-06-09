@@ -90,7 +90,7 @@ IO_FMT_COMBO_SIZE = (26, 1)
 IO_CLR_COMBO_SIZE = (20, 1)
 IO_BUTTON_SIZE = (8, 1)
 
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp"}
+STB_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp"}
 
 TAB_LABEL = "I/O"
 
@@ -177,7 +177,7 @@ def build_controls() -> list:
             sg.Text("Config File", size=IO_LABEL_SIZE),
             sg.Input("G:/Codes/gerrit_projects/hwpq_verify/data/dci_config_3572.json", key="-CONFIG-PATH-", size=(46, 1),
                      tooltip="DCI/SHP模块的硬件寄存器配置文件路径"),
-            sg.FileBrowse(size=IO_BUTTON_SIZE),
+            sg.FileBrowse(target="-CONFIG-PATH-", key="-BROWSE-CONFIG-", size=IO_BUTTON_SIZE),
             sg.Button("Open Dir", key="-OPEN-DIR-CONFIG-", size=IO_BUTTON_SIZE,
                       tooltip="在资源管理器中打开配置文件所在目录"),
         ],
@@ -319,6 +319,10 @@ def handle_io_event(event: str, values: dict, window: sg.Window) -> bool:
         _recalc_frame_num(values, window)
         return True
 
+    if event == "-BROWSE-CONFIG-":
+        # Config file selected via FileBrowse — trigger pipeline re-run
+        return True
+
     if event.startswith("-OPEN-DIR-"):
         _open_containing_folder(values, event, window)
         return True
@@ -361,7 +365,7 @@ def _recalc_frame_num(values: dict, window: sg.Window):
 
     # Image files are compressed; always treated as a single frame
     ext = os.path.splitext(input_file)[1].lower()
-    if ext in IMAGE_EXTENSIONS:
+    if ext in STB_IMAGE_EXTENSIONS:
         window["-FRAME-NUM-"].update(value="1")
         values["-FRAME-NUM-"] = "1"
         return
@@ -395,22 +399,21 @@ def _guess_input_params(values: dict, window: sg.Window):
     basename = os.path.basename(input_file).lower()
     ext = os.path.splitext(basename)[1]
 
-    if ext in IMAGE_EXTENSIONS:
+    if ext in STB_IMAGE_EXTENSIONS:
         # Treat image files as RGB888
-        rgb_fmt = next((f for f in FMT_DISPLAY if f.startswith("0x0 ")), None)
-        if rgb_fmt:
-            window["-IN-FMT-"].update(value=rgb_fmt)
-            values["-IN-FMT-"] = rgb_fmt
-            update_clrspc_for_fmt(window, values, "-IN-CLR-", rgb_fmt)
+        rgb_fmt = 0x0
+        window["-IN-FMT-"].update(value=rgb_fmt)
+        values["-IN-FMT-"] = rgb_fmt
+        update_clrspc_for_fmt(window, values, "-IN-CLR-", rgb_fmt)
         # Read actual dimensions from image file
         try:
             from PIL import Image
             with Image.open(input_file) as im:
-                w, h_img = im.size
-                window["-WIDTH-"].update(value=str(w))
-                values["-WIDTH-"] = str(w)
-                window["-HEIGHT-"].update(value=str(h_img))
-                values["-HEIGHT-"] = str(h_img)
+                wid, hgt = im.size
+                window["-WIDTH-"].update(value=str(wid))
+                values["-WIDTH-"] = str(wid)
+                window["-HEIGHT-"].update(value=str(hgt))
+                values["-HEIGHT-"] = str(hgt)
         except Exception:
             pass
         return

@@ -23,19 +23,35 @@ import PySimpleGUI as sg
 from csc.run_csc import read_raw_to_planar
 from verify_tool_app.ui_helpers import (
     SliderSpinConfig,
+    LINE,
     bind_keyboard_events as _bind_kb_shared,
     build_numeric_control_row,
     handle_keyboard_event,
     sync_slider_to_spin,
     sync_spin_to_slider,
 )
+
+# ------------------------------------------------------------------ #
+# Status bar helpers                                                 #
+# ------------------------------------------------------------------ #
+_ERR_COLOR = "#FF8888"
+_OK_COLOR = "#88FF88"
+
+def _set_status_error(window: sg.Window, line: int, msg: str):
+    """Show error message on status bar with module name and line number."""
+    window["-STATUS-"].update(value=f"[{TAB_LABEL}:{line}] {msg}", text_color=_ERR_COLOR)
+
+def _set_status_ok(window: sg.Window, line: int, msg: str):
+    """Show success message on status bar with module name and line number."""
+    window["-STATUS-"].update(value=f"[{TAB_LABEL}:{line}] {msg}", text_color=_OK_COLOR)
+
 from dci.dci_models import (
     DciAuditConfig,
     DciAuditOverride,
     DciRunnerRequest,
     write_runner_request,
 )
-from dci.dci_runner import load_runner_result
+from config_def.module_config_dci import DciUserConfig
 
 TAB_LABEL = "DCI"
 
@@ -263,8 +279,10 @@ def build_controls() -> list:
                 target="-DCI-EXE-",
                 size=(8, 1),
             ),
-            sg.Button("Open Dir", key="-DCI-OPEN-EXE-DIR-", size=(8, 1),
-                      tooltip="在资源管理器中打开DCI EXE所在目录"),
+            sg.Button("Open Dir", key="-DCI-OPEN-EXE-DIR-",
+                      tooltip="在资源管理器中打开EXE所在目录"),
+            sg.Button("Save Config", key="-DCI-SAVE-CFG-",
+                      tooltip="保存配置参数到json配置文件"),
             sg.Checkbox("Enable Dump", default=False, key="-DCI-DUMP-",
                         tooltip="启用Dump功能"),
             sg.Text("Show Median Result", size=(14, 1)),
@@ -403,6 +421,82 @@ def _reset_dci_slider_group(window: sg.Window, values: dict, pairs: list):
         values[pair.spin_key] = display_val
 
 
+# Map DciUserConfig attribute -> UI slider/spin base key (build_numeric_control_row base).
+# Tuple: (config_attr, ui_base_key, is_float)
+_DCI_CONFIG_UI_MAP = [
+    ("cf_gain_low",           "-CF-GL-",     False),
+    ("cf_gain_mid",           "-CF-GM-",     False),
+    ("cf_gain_high",          "-CF-GH-",     False),
+    ("ctrl_dci_CF_HE_ratio",  "-CFHE-",      False),
+    ("he_split_point",        "-HE-SPLIT-",   False),
+    ("he_left_clip",          "-HE-LC-",     True),
+    ("he_right_clip",         "-HE-RC-",     True),
+    ("he_overlap",            "-HE-OVERLAP-", False),
+    ("bs_set_point",          "-BS-SP-",     False),
+    ("bs_ratio",              "-BS-RATIO-",  False),
+    ("bs_overlap",            "-BS-OVERLAP-", False),
+    ("ws_set_point",          "-WS-SP-",     False),
+    ("ws_ratio",              "-WS-RATIO-",  False),
+    ("ws_overlap",            "-WS-OVERLAP-", False),
+    ("clahe_clip_value",      "-CLAHE-CV-",  True),
+    ("clahe_local_ratio",     "-CLAHE-LR-",  False),
+    ("clahe_left_alpha",      "-CLAHE-LA-",  True),
+    ("clahe_left_ThrLmin",    "-CLAHE-LTMIN-", True),
+    ("clahe_left_ThrLmax",    "-CLAHE-LTMAX-", True),
+    ("clahe_left_lumRatio",   "-CLAHE-LLR-", True),
+    ("clahe_right_ThrRmin",   "-CLAHE-RTMIN-", True),
+    ("clahe_right_ThrRmax",   "-CLAHE-RTMAX-", True),
+]
+
+# Checkbox controls mapped to config attributes
+_DCI_CONFIG_CHECK_MAP = [
+    ("bs_enable",   "-BS-EN-"),
+    ("ws_enable",   "-WS-EN-"),
+    ("clahe_en",    "-CLAHE-EN-"),
+]
+
+
+def _load_dci_config_to_ui(window: sg.Window, values: dict, config_path: str):
+    """Load a DCI config JSON and populate UI controls."""
+    cfg = DciUserConfig()
+    if not cfg.load(config_path):
+        return  # load logs errors internally
+
+    # Populate slider/spin controls
+    for attr, base_key, is_float in _DCI_CONFIG_UI_MAP:
+        val = getattr(cfg, attr)
+        slider_key = f"{base_key}SLIDER-"
+        spin_key = f"{base_key}SPIN-"
+        window[slider_key].update(value=val)
+        display_val = val if is_float else int(val)
+        window[spin_key].update(value=display_val)
+        values[slider_key] = val
+        values[spin_key] = display_val
+
+    # Populate checkboxes
+    for attr, key in _DCI_CONFIG_CHECK_MAP:
+        val = bool(getattr(cfg, attr))
+        window[key].update(value=val)
+        values[key] = val
+
+
+def _save_dci_config_from_ui(values: dict, config_path: str):
+    """Save current UI control values to a DCI config JSON file."""
+    cfg = DciUserConfig()
+
+    # Collect slider/spin values
+    for attr, base_key, _is_float in _DCI_CONFIG_UI_MAP:
+        spin_key = f"{base_key}SPIN-"
+        val = values.get(spin_key, getattr(cfg, attr))
+        setattr(cfg, attr, val)
+
+    # Collect checkbox values
+    for attr, key in _DCI_CONFIG_CHECK_MAP:
+        setattr(cfg, attr, bool(values.get(key, getattr(cfg, attr))))
+
+    cfg.dump(config_path)
+
+
 def handle_dci_event(event: str, values: dict, window: sg.Window) -> bool:
     """Handle DCI-specific events. Returns True if consumed."""
     # Group reset buttons
@@ -433,6 +527,19 @@ def handle_dci_event(event: str, values: dict, window: sg.Window) -> bool:
     # Open Dir buttons
     if event in ("-DCI-OPEN-EXE-DIR-",):
         _open_dci_dir(values, event, window)
+        return True
+
+    # Save Config button — write UI values to CONFIG-PATH json file
+    if event == "-DCI-SAVE-CFG-":
+        config_path = values.get("-CONFIG-PATH-", "").strip()
+        if not config_path:
+            _set_status_error(window, LINE(), "No config file path specified")
+            return True
+        try:
+            _save_dci_config_from_ui(values, config_path)
+            _set_status_ok(window, LINE(), f"Config saved to {config_path}")
+        except Exception as e:
+            _set_status_error(window, LINE(), str(e))
         return True
 
     # COMBO MEDIAN change → invalidate right preview
