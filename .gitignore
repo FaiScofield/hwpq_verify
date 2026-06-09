@@ -1,6 +1,9 @@
-.cache
-.vscode
-.trae
+.cache/
+.vscode/
+.trae/
+.vite/
+.understand-anything/
+graphify-out/
 __pycache__
 *.lnk
 build/

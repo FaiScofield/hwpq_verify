@@ -492,13 +492,13 @@ int main(int argc, char *const argv[])
     struct cmd_config_addition_dci config2 = {0};
     ret = get_cmd_config_addition(argc, argv, &config2);
     LOGI("dump DCI config from cmd line:\n");
-    LOGI(" - clahe_en: %d\n", config2.clahe_en);
-    LOGI(" - clahe_clip_value: %.2f\n", config2.clahe_clip_value);
-    LOGI(" - clahe_local_ratio: %d\n", config2.clahe_local_ratio);
-    LOGI(" - cf_gain_low: %d\n", config2.cf_gain_low);
-    LOGI(" - cf_gain_mid: %d\n", config2.cf_gain_mid);
-    LOGI(" - cf_gain_high: %d\n", config2.cf_gain_high);
-    LOGI(" - cf_he_ratio: %d\n", config2.cf_he_ratio);
+    // LOGI(" - clahe_en: %d\n", config2.clahe_en);
+    // LOGI(" - clahe_clip_value: %.2f\n", config2.clahe_clip_value);
+    // LOGI(" - clahe_local_ratio: %d\n", config2.clahe_local_ratio);
+    // LOGI(" - cf_gain_low: %d\n", config2.cf_gain_low);
+    // LOGI(" - cf_gain_mid: %d\n", config2.cf_gain_mid);
+    // LOGI(" - cf_gain_high: %d\n", config2.cf_gain_high);
+    // LOGI(" - cf_he_ratio: %d\n", config2.cf_he_ratio);
     LOGI(" - shp_type: %d\n", config2.shp_type);
     LOGI(" - shp_peaking_gain: %d\n", config2.shp_peaking_gain);
 
