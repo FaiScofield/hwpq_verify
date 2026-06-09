@@ -3,11 +3,10 @@
  * @description: dci_verify_demo.cpp
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-15
- * @modify: 2026-05-26
+ * @modify: 2026-06-09
  */
 
 #include "dci_api.h"
-#include "dci_request_io.h"
 #include "sharp_full_api.h"
 #include "sharp_lite_api.h"
 #include "rockchip_post_csc.h"
@@ -47,7 +46,6 @@ struct cmd_config_addition_dci {
     int clahe_en;           // [0, (1)]
     float clahe_clip_value; // [0.0f, (1.0f), 2.0f], higher value means higher local effect
     int clahe_local_ratio;  // [0, (19), 32], higher value means higher local effect and less global effect
-    float clahe_abld_ratio; // [0.0f, (0.7), 1.0f], higher value means higher history effect
     int cf_gain_low;        // 5bit fixed, [0, (32)], 0 means no CF_low  effct
     int cf_gain_mid;        // 5bit fixed, [0, (32)], 0 means no CF_mid  effct
     int cf_gain_high;       // 5bit fixed, [0, (32)], 0 means no CF_high effct
@@ -67,7 +65,6 @@ static void print_usage_addition(void)
     LOGI("      --clahe_en           [val] | CLAHE enable flag, range: {0,1}\n");
     LOGI("      --clahe_clip_value   [val] | CLAHE clip value, default follows json config\n");
     LOGI("      --clahe_local_ratio  [val] | CLAHE local ratio, default follows json config\n");
-    LOGI("      --clahe_abld_ratio   [val] | CLAHE abld ratio, default follows json config\n");
     LOGI("      --cf_gain_low        [val] | CF gain low, range: 5bit fixed, default follows json config\n");
     LOGI("      --cf_gain_mid        [val] | CF gain mid, range: 5bit fixed, default follows json config\n");
     LOGI("      --cf_gain_high       [val] | CF gain high, range: 5bit fixed, default follows json config\n");
@@ -86,7 +83,6 @@ static int get_cmd_config_addition(int argc, char *const argv[], struct cmd_conf
         {(char *)"clahe_en",          ARG_REQ, 0, 0},
         {(char *)"clahe_clip_value",  ARG_REQ, 0, 0},
         {(char *)"clahe_local_ratio", ARG_REQ, 0, 0},
-        {(char *)"clahe_abld_ratio",  ARG_REQ, 0, 0},
         {(char *)"cf_gain_low",       ARG_REQ, 0, 0},
         {(char *)"cf_gain_mid",       ARG_REQ, 0, 0},
         {(char *)"cf_gain_high",      ARG_REQ, 0, 0},
@@ -96,21 +92,23 @@ static int get_cmd_config_addition(int argc, char *const argv[], struct cmd_conf
         {0,                           0,       0, 0}
     };
 
-    config->clahe_en = DCI_CLAHE_OVERRIDE_INVALID_INT;
-    config->clahe_clip_value = DCI_CLAHE_OVERRIDE_INVALID_F32;
-    config->clahe_local_ratio = DCI_CLAHE_OVERRIDE_INVALID_INT;
-    config->clahe_abld_ratio = DCI_CLAHE_OVERRIDE_INVALID_F32;
-    config->cf_gain_low = DCI_CLAHE_OVERRIDE_INVALID_INT;
-    config->cf_gain_mid = DCI_CLAHE_OVERRIDE_INVALID_INT;
-    config->cf_gain_high = DCI_CLAHE_OVERRIDE_INVALID_INT;
-    config->cf_he_ratio = DCI_CLAHE_OVERRIDE_INVALID_INT;
-    config->shp_type = SHP_OVERRIDE_INVALID_INT;
-    config->shp_peaking_gain = SHP_OVERRIDE_INVALID_INT;
+    config->clahe_en = -1;
+    config->clahe_clip_value = -1.0f;
+    config->clahe_local_ratio = -1;
+    config->cf_gain_low = -1;
+    config->cf_gain_mid = -1;
+    config->cf_gain_high = -1;
+    config->cf_he_ratio = -1;
+    config->shp_type = -1;
+    config->shp_peaking_gain = -1;
 
+    // Reset optind to re-scan from argv[1], so that all options work regardless of position.
     optind = 1;
+    // Suppress "unrecognized option" noise from common options via opterr=0.
+    opterr = 0;
     int opt = -1;
     int idx = -1;
-    while ((opt = getopt_long(argc, argv, "-", g_cmd_args_options_dci, &idx)) != -1) {
+    while ((opt = getopt_long_only(argc, argv, "-", g_cmd_args_options_dci, &idx)) != -1) {
         if (opt != 0) {
             continue;
         }
@@ -119,13 +117,12 @@ static int get_cmd_config_addition(int argc, char *const argv[], struct cmd_conf
         case 0:  config->clahe_en = strtol(optarg, NULL, 10); break;
         case 1:  config->clahe_clip_value = strtod(optarg, NULL); break;
         case 2:  config->clahe_local_ratio = strtol(optarg, NULL, 10); break;
-        case 3:  config->clahe_abld_ratio = strtod(optarg, NULL); break;
-        case 4:  config->cf_gain_low = strtol(optarg, NULL, 10); break;
-        case 5:  config->cf_gain_mid = strtol(optarg, NULL, 10); break;
-        case 6:  config->cf_gain_high = strtol(optarg, NULL, 10); break;
-        case 7:  config->cf_he_ratio = strtol(optarg, NULL, 10); break;
-        case 8:  config->shp_type = strtol(optarg, NULL, 10); break;
-        case 9: config->shp_peaking_gain = strtol(optarg, NULL, 10); break;
+        case 3:  config->cf_gain_low = strtol(optarg, NULL, 10); break;
+        case 4:  config->cf_gain_mid = strtol(optarg, NULL, 10); break;
+        case 5:  config->cf_gain_high = strtol(optarg, NULL, 10); break;
+        case 6:  config->cf_he_ratio = strtol(optarg, NULL, 10); break;
+        case 7:  config->shp_type = strtol(optarg, NULL, 10); break;
+        case 8: config->shp_peaking_gain = strtol(optarg, NULL, 10); break;
         default: break;
         }
         LOGI(" - get %dth option: %s = %s\n", idx, g_cmd_args_options_dci[idx].name, optarg);
@@ -346,40 +343,6 @@ static void get_plane_pointers(void *buffer, int width, int height, int fmt, voi
 /* Library struct translation                                         */
 /* ------------------------------------------------------------------ */
 
-static void dci_fill_init_param(const dci_runner_request_t& request, dci_init_param_t *init_param)
-{
-    memset(init_param, 0, sizeof(*init_param));
-    init_param->platform = request.platform;
-    init_param->debug_dump_mask = static_cast<unsigned int>(request.debug_dump_mask);
-    snprintf(init_param->debug_path, sizeof(init_param->debug_path), "%s", request.debug_path.c_str());
-}
-
-static void dci_fill_proc_param(const dci_runner_request_t& request, dci_proc_param_t *proc_param, uint8_t *src_buf,
-    uint8_t *dst_buf, int width, int height, int bits)
-{
-    memset(proc_param, 0, sizeof(*proc_param));
-    proc_param->dci_enable = 1;
-
-    /* Fill source image info */
-    fill_img_info_10bit_planar(&proc_param->src_info, src_buf, width, height, bits,
-        common_verify_imgfmt_is_yuv(request.pixel_format));
-
-    /* Fill destination image info (output buffer) */
-    fill_img_info_10bit_planar(&proc_param->dst_info, dst_buf, width, height, bits,
-        common_verify_imgfmt_is_yuv(request.pixel_format));
-
-    proc_param->frame_idx = request.frame_idx;
-    proc_param->frame_num = request.frame_num;
-
-    snprintf(proc_param->config_path, sizeof(proc_param->config_path), "%s", request.config_path.c_str());
-    snprintf(proc_param->reg_path, sizeof(proc_param->reg_path), "%s", request.reg_path.c_str());
-
-    proc_param->is_src_fullrange = request.is_src_fullrange;
-
-    /* Copy audit struct directly - field names must match the library ABI */
-    memcpy(&proc_param->audit, &request.audit, sizeof(proc_param->audit));
-}
-
 /**
  * @brief Build a file path for dumping intermediate image data.
  */
@@ -466,193 +429,7 @@ static int write_rgb10bit_stb_image(const char *filename, const void *buffer, in
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/* Entry point                                                        */
-/* ------------------------------------------------------------------ */
-
-int run_as_runner(int argc, char *const argv[])
-{
-    const char *request_path = nullptr;
-    const char *result_path = nullptr;
-
-    /* Parse CLI arguments using getopt */
-    int opt;
-    opterr = 0; // handle errors manually
-
-    // We only need to support --request and optionally --result for the runner mode
-    // We need to use getopt_long for long options
-    struct option long_options[] = {
-        {"request", required_argument, 0, 'r'},
-        {"result",  required_argument, 0, 'o'},
-        {0,         0,                 0, 0  }
-    };
-
-    // Reset optind to ensure correct parsing
-    optind = 1;
-
-    while ((opt = getopt_long(argc, argv, "r:o:", long_options, nullptr)) != -1) {
-        switch (opt) {
-        case 'r': request_path = optarg; break;
-        case 'o': result_path = optarg; break;
-        default:  break; // ignore other options, might be invalid
-        }
-    }
-
-    if (request_path == nullptr) {
-        fprintf(stderr, "usage: dci_verify_runner --request <file> [--result <file>]\n");
-        return 2;
-    }
-
-    /* Default result path next to request file */
-    std::string default_result_path;
-    if (result_path == nullptr) {
-        default_result_path = std::string(request_path);
-        size_t dot = default_result_path.rfind('.');
-        if (dot != std::string::npos)
-            default_result_path = default_result_path.substr(0, dot);
-        default_result_path += "_result.json";
-        result_path = default_result_path.c_str();
-    }
-
-    dci_runner_result_t result;
-    result.working_dir = "";
-
-    /* Step 1: Parse request JSON */
-    dci_runner_request_t request;
-    std::string error_msg;
-    if (!dci_load_runner_request(request_path, &request, &error_msg)) {
-        result.exit_code = 1;
-        result.status = "request_error";
-        result.message = error_msg;
-        dci_write_runner_result(result_path, result, nullptr);
-        fprintf(stderr, "request error: %s\n", error_msg.c_str());
-        return 1;
-    }
-
-    /* Step 2: Load input frame */
-    const int bits = common_verify_imgfmt_depth(request.pixel_format);
-    const int vir_w = request.width;
-    const int vir_h = request.height;
-    size_t frame_size = vir_w * vir_h * 4 * 2; // 4 channels x 16bpp
-    uint8_t *src_buf = (uint8_t *)malloc(frame_size);
-    if (!src_buf) {
-        result.exit_code = 1;
-        result.status = "request_error";
-        result.message = "memory allocation failed for input frame";
-        result.working_dir = request.audit.working_dir;
-        dci_write_runner_result(result_path, result, nullptr);
-        return 1;
-    }
-
-    FILE *fp_in = fopen(request.input_file.c_str(), "rb");
-    if (!fp_in || image_read_to_planar(fp_in, src_buf, request.frame_idx, request.width, request.height, request.width,
-                      request.height, request.pixel_format, bits, 0) != 0)
-    {
-        if (fp_in)
-            fclose(fp_in);
-        free(src_buf);
-        result.exit_code = 1;
-        result.status = "request_error";
-        result.message = "failed to read input frame";
-        result.working_dir = request.audit.working_dir;
-        dci_write_runner_result(result_path, result, nullptr);
-        return 1;
-    }
-    if (fp_in)
-        fclose(fp_in);
-
-    /* Allocate output buffer */
-    uint8_t *dst_buf = static_cast<uint8_t *>(calloc(1, frame_size));
-    if (!dst_buf) {
-        free(src_buf);
-        result.exit_code = 1;
-        result.status = "request_error";
-        result.message = "memory allocation failed for output buffer";
-        result.working_dir = request.audit.working_dir;
-        dci_write_runner_result(result_path, result, nullptr);
-        return 1;
-    }
-
-    /* Step 3: Fill init param and call dciVerifyInit */
-    dci_init_param_t init_param;
-    dci_fill_init_param(request, &init_param);
-
-    dci_handle_t handle = nullptr;
-    int ret = dciVerifyInit(&handle, &init_param);
-    if (ret != 0) {
-        free(src_buf);
-        free(dst_buf);
-        result.exit_code = ret;
-        result.status = "runtime_error";
-        result.message = "dciVerifyInit failed";
-        result.working_dir = request.audit.working_dir;
-        dci_write_runner_result(result_path, result, nullptr);
-        fprintf(stderr, "dciVerifyInit returned %d\n", ret);
-        return 1;
-    }
-
-    /* Step 4: Fill proc param and call dciVerifyProc */
-    dci_proc_param_t proc_param;
-    dci_fill_proc_param(request, &proc_param, src_buf, dst_buf, request.width, request.height, bits);
-
-    ret = dciVerifyProc(handle, &proc_param);
-
-    /* Step 5: Deinit */
-    dciVerifyDeinit(handle);
-
-    /* Step 6: Write output frame if requested */
-    if (ret == 0 && !request.output_file.empty()) {
-        FILE *fp_out = fopen(request.output_file.c_str(), "wb");
-        if (!fp_out || image_write_from_plannar(fp_out, dst_buf, 0, request.width, request.height, request.width,
-                           request.height, request.pixel_format, bits, 0) != 0)
-        {
-            fprintf(stderr, "warning: failed to write output frame\n");
-        }
-        if (fp_out)
-            fclose(fp_out);
-    }
-
-    /* Step 7: Write runner_result.json */
-    result.exit_code = ret;
-    result.status = (ret == 0) ? "ok" : "runtime_error";
-    result.message = (ret == 0) ? "dci request finished" : "dciVerifyProc failed";
-    result.working_dir = request.audit.working_dir;
-    dci_write_runner_result(result_path, result, nullptr);
-
-    /* Step 8: Copy runner_request.json into working_dir for traceability */
-    if (request.audit.working_dir[0] != '\0') {
-        std::string req_copy = std::string(request.audit.working_dir) + "/runner_request.json";
-        /* best-effort copy; don't fail if directory doesn't exist yet */
-        FILE *src = fopen(request_path, "rb");
-        FILE *dst = fopen(req_copy.c_str(), "wb");
-        if (src && dst) {
-            char ch;
-            while (fread(&ch, 1, 1, src) == 1)
-                fwrite(&ch, 1, 1, dst);
-        }
-        if (src)
-            fclose(src);
-        if (dst)
-            fclose(dst);
-    }
-
-    free(src_buf);
-    free(dst_buf);
-
-    if (ret != 0) {
-        fprintf(stderr, "dciVerifyProc returned %d\n", ret);
-        return 1;
-    }
-
-    return 0;
-}
-
-
-/* ------------------------------------------------------------------ */
-/* Demo mode (standard CLI arguments)                                 */
-/* ------------------------------------------------------------------ */
-
-int run_as_demo(int argc, char *const argv[])
+int main(int argc, char *const argv[])
 {
     void *p_src = NULL;
     void *p_src_dci = NULL;
@@ -718,7 +495,6 @@ int run_as_demo(int argc, char *const argv[])
     LOGI(" - clahe_en: %d\n", config2.clahe_en);
     LOGI(" - clahe_clip_value: %.2f\n", config2.clahe_clip_value);
     LOGI(" - clahe_local_ratio: %d\n", config2.clahe_local_ratio);
-    LOGI(" - clahe_abld_ratio: %.2f\n", config2.clahe_abld_ratio);
     LOGI(" - cf_gain_low: %d\n", config2.cf_gain_low);
     LOGI(" - cf_gain_mid: %d\n", config2.cf_gain_mid);
     LOGI(" - cf_gain_high: %d\n", config2.cf_gain_high);
@@ -824,18 +600,18 @@ int run_as_demo(int argc, char *const argv[])
     }
 
     /* create handler */
+    dciSetDefaultParams(&dci_proc_param);
     dci_proc_param.dci_enable = 1;
     dci_proc_param.dci_mode = config.mode >= 0 ? config.mode : 1;
     dci_proc_param.is_src_fullrange = common_verify_clrspc_is_full_range(config.src_clrspc);
     dci_proc_param.pixel_format = get_dci_pixel_format(config.src_fmt);
-    dci_proc_param.clahe_en = config2.clahe_en;
-    dci_proc_param.clahe_clip_value = config2.clahe_clip_value;
-    dci_proc_param.clahe_local_ratio = config2.clahe_local_ratio;
-    dci_proc_param.clahe_abld_ratio = config2.clahe_abld_ratio;
-    dci_proc_param.cf_gain_low = config2.cf_gain_low;
-    dci_proc_param.cf_gain_mid = config2.cf_gain_mid;
-    dci_proc_param.cf_gain_high = config2.cf_gain_high;
-    dci_proc_param.cf_he_ratio = config2.cf_he_ratio;
+    // dci_proc_param.clahe.enable = config2.clahe_en;
+    // dci_proc_param.clahe.clip_value = config2.clahe_clip_value;
+    // dci_proc_param.clahe.local_ratio = config2.clahe_local_ratio;
+    // dci_proc_param.cf.gain_low = config2.cf_gain_low;
+    // dci_proc_param.cf.gain_mid = config2.cf_gain_mid;
+    // dci_proc_param.cf.gain_high = config2.cf_gain_high;
+    // dci_proc_param.cf_he_ratio = config2.cf_he_ratio;
 
     dci_src_dump_fmt = common_verify_imgfmt_get_def_planar(config.src_fmt, 10);
     dci_init_param.platform = get_platform_id(config.platform_name);
@@ -1091,17 +867,4 @@ EXIT:
         LOGI("verify done. please check the output file: %s\n", config.output_file);
     }
     return ret;
-}
-
-int main(int argc, char *const argv[])
-{
-    // If --request is present, run as runner mode
-    for (int i = 1; i < argc; ++i) {
-        if (strcmp(argv[i], "--request") == 0) {
-            return run_as_runner(argc, argv);
-        }
-    }
-
-    // Otherwise, run as demo mode
-    return run_as_demo(argc, argv);
 }

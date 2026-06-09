@@ -6,8 +6,6 @@ include_directories(${CMAKE_CURRENT_LIST_DIR})
 
 set(DCI_VERIFY_SRC
     ${CMAKE_CURRENT_LIST_DIR}/dci_verify_demo.cpp
-    # ${CMAKE_CURRENT_LIST_DIR}/dci_verify_runner.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/dci_request_io.cpp
 )
 add_executable(dci_verify_demo ${DCI_VERIFY_SRC})
 target_link_libraries(dci_verify_demo

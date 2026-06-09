@@ -205,11 +205,11 @@ int common_verify_arg_dump_config(struct common_verify_cmd_config *config)
     LOGI(" - platform name: %s\n", config->platform_name);
     LOGI(" - src_wid: %d (%d)\n", config->src_wid, config->src_wid_vir);
     LOGI(" - src_hgt: %d (%d)\n", config->src_hgt, config->src_hgt_vir);
-    LOGI(" - src_fmt: %d (%s)\n", config->src_fmt, common_verify_imgfmt_name(config->src_fmt));
+    LOGI(" - src_fmt: %#x (%s)\n", config->src_fmt, common_verify_imgfmt_name(config->src_fmt));
     LOGI(" - src_clrspc: %d (%s)\n", config->src_clrspc, common_verify_clrspc_str(config->src_clrspc));
     LOGI(" - dst_wid: %d (%d)\n", config->dst_wid, config->dst_wid_vir);
     LOGI(" - dst_hgt: %d (%d)\n", config->dst_hgt, config->dst_hgt_vir);
-    LOGI(" - dst_fmt: %d (%s)\n", config->dst_fmt, common_verify_imgfmt_name(config->dst_fmt));
+    LOGI(" - dst_fmt: %#x (%s)\n", config->dst_fmt, common_verify_imgfmt_name(config->dst_fmt));
     LOGI(" - dst_clrspc: %d (%s)\n", config->dst_clrspc, common_verify_clrspc_str(config->dst_clrspc));
     LOGI(" - nb_frame: %d\n", config->nb_frame);
     LOGI(" - custom mode: %d\n", config->mode);

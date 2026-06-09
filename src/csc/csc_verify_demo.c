@@ -3,11 +3,7 @@
  * @description: csc_verify_demo.c
  * @author: vance.wu@rock-chips.com
  * @create: 2025-09-05
- * @history:
- *  - 2025-12-30 vance.wu: fix BCSH etc. options of cmd line arguments.
- *  - 2025-11-14 vance.wu: add CSC_Y2Y support for 8bit YUV420/422 formats.
- *  - 2025-10-15 vance.wu: add BSCH options of cmd line arguments.
- *  - 2025-09-10 vance.wu: print crc32 value for input/output data.
+ * @modify: 2026-06-09
  */
 
 #include "verify_img_io.h"
@@ -94,8 +90,10 @@ int get_cmd_config_addition(int argc, char *const argv[], struct cmd_config_addi
     config->bcsh_cfg.b_offset = 256;
     config->bcsh_cfg.csc_enable = 1;
 
-    /*! NOTE: need to reset 'optind' before parsing addition options */
+    // Reset optind to re-scan from argv[1], so that all options work regardless of position.
     optind = 1;
+    // Suppress "unrecognized option" noise from common options via opterr=0.
+    opterr = 0;
     int opt = -1;
     int idx = -1;
     while ((opt = getopt_long(argc, argv, "-M:D:P:d:O", g_cmd_args_options_csc, &idx)) != -1) {
