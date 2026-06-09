@@ -44,10 +44,11 @@ SHP_SUPPORT_IO_FORMATS = defaultdict(
 
 def build_controls() -> list:
     """Build the SHP Config tab layout."""
+    default_exe = "G:/Codes/RkVopAlgos_git/pub_lib/ModelVerify/AMD64/bin/sharp_full_sim_exe.exe"
     return [
         [
             sg.Text("SHP EXE", size=(10, 1)),
-            sg.Input(key="-SHP-EXE-", size=(52, 1), tooltip="SHP锐化硬件模块可执行文件路径"),
+            sg.Input(default_exe, key="-SHP-EXE-", size=(52, 1), tooltip="SHP锐化模块可执行文件"),
             sg.FileBrowse(file_types=(("Executable", "*.exe"),)),
             sg.Button("Open Dir", key="-SHP-OPEN-EXE-DIR-",
                       tooltip="在资源管理器中打开EXE所在目录"),
@@ -180,14 +181,14 @@ def process(src_frame, io_info: dict):
         height = io_info.get("height", 1080)
 
         # Write input channels raw (Y then U then V, each at native resolution)
-        input_tmp = os.path.join(output_dir, f"_shp_input_{width}x{height}_fmt{input_fmt}.yuv")
+        input_tmp = os.path.join(output_dir, f"_shp_input_{width}x{height}_fmt{input_fmt:#x}.yuv")
         with open(input_tmp, 'wb') as f:
             src_frame.pyr.tofile(f)
             src_frame.pug.tofile(f)
             src_frame.pvb.tofile(f)
 
         # Output file
-        output_file = os.path.join(output_dir, f"shp_output_{width}x{height}_fmt{output_fmt}.yuv")
+        output_file = os.path.join(output_dir, f"shp_output_{width}x{height}_fmt{output_fmt:#x}.yuv")
 
         # Build command line arguments
         cmd = [

@@ -30,6 +30,13 @@ from csc.run_csc import (
     read_raw_to_planar,
     write_planar_to_raw,
     FORMAT_NAMES,
+    build_bcsh_config_from_dict,
+    run_selected_algo,
+)
+
+from csc.get_csc_coef_hsv import (
+    ALGO_RK_HW_CSC,
+    normalize_algo_type,
 )
 
 from verify_tool_app.ui_io import (
@@ -305,7 +312,7 @@ def _build_pipeline_bar() -> list:
     for tag in pipeline_order:
         mod = REGISTERED_MODULES[tag]
         enabled = tag in pipeline_enabled
-        rows.append([
+        row = [
             sg.Checkbox(
                 mod["label"],
                 default=enabled,
@@ -314,11 +321,16 @@ def _build_pipeline_bar() -> list:
                 size=(4, 1),
                 tooltip=tip_map.get(tag, f"启用/禁用 {mod['label']} 处理模块"),
             ),
-            sg.Button("▲", key=f"-PIPE-UP-{tag}-", size=(2, 1),
-                      tooltip="上移此模块（调整Pipeline执行顺序）"),
-            sg.Button("▼", key=f"-PIPE-DOWN-{tag}-", size=(2, 1),
-                      tooltip="下移此模块（调整Pipeline执行顺序）"),
-        ])
+        ]
+        # CSC is always first, no position adjustment needed
+        if tag != "csc":
+            row.extend([
+                sg.Button("▲", key=f"-PIPE-UP-{tag}-", size=(2, 1),
+                          tooltip="上移此模块（调整Pipeline执行顺序）"),
+                sg.Button("▼", key=f"-PIPE-DOWN-{tag}-", size=(2, 1),
+                          tooltip="下移此模块（调整Pipeline执行顺序）"),
+            ])
+        rows.append(row)
     return [sg.Frame("Pipeline", rows, key="-PIPELINE-FRAME-")]
 
 
@@ -345,6 +357,26 @@ def _rebuild_pipeline_bar(window: sg.Window):
     # Sync checkbox state
     for tag in pipeline_order:
         window[f"-PIPE-ENABLE-{tag}-"].update(value=tag in pipeline_enabled)
+
+    # Update stream format state based on module count
+    _update_stream_format_state(window)
+
+
+def _update_stream_format_state(window: sg.Window):
+    """Enable/disable stream format control based on pipeline module count.
+
+    Single-module pipeline: disable + clear (stream format is ignored).
+    Multi-module pipeline: enable + set default if empty.
+    """
+    effective = _get_effective_pipeline()
+    if len(effective) <= 1:
+        window["-STREAM-FORMAT-"].update(value="", disabled=True)
+    else:
+        current = window["-STREAM-FORMAT-"].get()
+        if not current:
+            default = next(f for f in FMT_DISPLAY if f.startswith("0x13 "))
+            window["-STREAM-FORMAT-"].update(value=default)
+        window["-STREAM-FORMAT-"].update(disabled=False)
 
 
 # ------------------------------------------------------------------ #
@@ -538,13 +570,19 @@ def _update_left_preview(window: sg.Window, frame: ImageFrame, tag: str = "",
         frame_w, frame_h: Pre-queried frame dimensions (from resize event).
             If None, queried via winfo.
     """
-    global _OUTPUT_IMAGE, _scale_factor, _left_display_size
+    global _OUTPUT_IMAGE, _scale_factor, _left_display_size, _last_left_frame_size
     _OUTPUT_IMAGE = frame
 
     orig_h, orig_w = frame.height, frame.width
     try:
-        fh = frame_h if frame_h is not None else window["-LEFT-PREVIEW-FRAME-"].Widget.winfo_height()
-        fw = frame_w if frame_w is not None else window["-LEFT-PREVIEW-FRAME-"].Widget.winfo_width()
+        # Use cached frame dimensions when not explicitly provided to avoid
+        # layout feedback loop when toggling between images of different AR.
+        fh = frame_h if frame_h is not None else _last_left_frame_size[1]
+        fw = frame_w if frame_w is not None else _last_left_frame_size[0]
+        if fh <= 0 or fw <= 0:
+            fh = window["-LEFT-PREVIEW-FRAME-"].Widget.winfo_height()
+            fw = window["-LEFT-PREVIEW-FRAME-"].Widget.winfo_width()
+            _last_left_frame_size = (fw, fh) if fw > 0 and fh > 0 else _last_left_frame_size
         if max(fh, fw) <= _MIN_PREVIEW_SIZE:
             max_size = _MIN_PREVIEW_SIZE
         else:
@@ -696,8 +734,9 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
     h = io_params["height"]
     in_fmt = io_params["in_fmt"]
     in_clrspc = io_params["in_clrspc"]
-    stream_depth_str = values.get("-STREAM-DEPTH-", "8bit")
-    stream_10bit = (stream_depth_str == "10bit")
+    stream_fmt_str = values.get("-STREAM-FORMAT-", "")
+    stream_fmt = get_fmt_from_display(stream_fmt_str) if stream_fmt_str else 0x13
+    stream_10bit = (get_pixel_depth(stream_fmt) == 10)
     use_set_color = values.get("-USE-SET-COLOR-", False)
 
     if use_set_color:
@@ -789,12 +828,24 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
     return True
 
 
-def _pick_output_format(supported_list: list, prefer_10bit: bool) -> int:
-    """Pick a format from supported outputs matching the desired bit depth."""
-    for f in supported_list:
-        if (get_pixel_depth(f) >= 10) == prefer_10bit:
-            return f
-    return supported_list[0]  # fallback
+def _get_stream_clrspc(stream_fmt, in_fmt, in_clrspc, out_fmt, out_clrspc):
+    """Determine colorspace for the stream format carrier.
+
+    - RGB stream formats → always RGB_Full (1).
+    - YUV stream formats:
+      1. If input is YUV → Full-range variant of input colorspace.
+      2. Else if output is YUV → Full-range variant of output colorspace.
+      3. Otherwise → BT709_Full (5).
+    """
+    if is_rgb_format(stream_fmt):
+        return 1  # RGB_Full
+    # YUV stream format
+    if is_yuv_format(in_fmt):
+        # Full-range variant: Limited is even, Full is odd (Limited+1)
+        return in_clrspc + 1 if in_clrspc % 2 == 0 else in_clrspc
+    if is_yuv_format(out_fmt):
+        return out_clrspc + 1 if out_clrspc % 2 == 0 else out_clrspc
+    return 5  # BT709_Full
 
 
 def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = ""):
@@ -808,10 +859,12 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
     width = io_params["width"]
     height = io_params["height"]
 
-    # Read stream depth for promotion / demotion decisions
-    stream_depth_str = window_elements.get("-STREAM-DEPTH-", "8bit")
-    stream_10bit = (stream_depth_str == "10bit")
-    out_fmt_is_8bit = (get_pixel_depth(out_fmt) <= 8)
+    # Read stream format for multi-module pipeline carrier
+    stream_fmt_str = window_elements.get("-STREAM-FORMAT-", "")
+    stream_fmt = get_fmt_from_display(stream_fmt_str) if stream_fmt_str else 0x13
+    stream_10bit = (get_pixel_depth(stream_fmt) == 10)
+    stream_clrspc = _get_stream_clrspc(
+        stream_fmt, io_params["in_fmt"], io_params["in_clrspc"], out_fmt, out_clrspc)
 
     # Recalculate output frame size; force full pipeline reset if changed
     out_frame_size = get_frame_size(width, height, out_fmt)
@@ -845,13 +898,9 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
 
     effective = _get_effective_pipeline()
     if not effective:
-        # No modules enabled, show input (with stream-depth demotion if needed)
+        # No modules enabled, show input as-is
         if _INPUT_IMAGE is not None:
-            display_frame = _INPUT_IMAGE
-            if stream_10bit and out_fmt_is_8bit:
-                display_frame = _INPUT_IMAGE.copy()
-                display_frame.demote_to_8bit()
-            _update_left_preview(window, display_frame)
+            _update_left_preview(window, _INPUT_IMAGE)
         return
 
     # Determine start index
@@ -874,6 +923,37 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
     current_frame = upstream
     output_dir = io_params["output_dir"] or os.path.dirname(io_params["input_file"]) or "."
 
+    # For multi-module pipeline, convert input to stream format via CSC
+    # Skip if CSC is already the first module (user intends CSC to handle it)
+    if len(effective) >= 2 and current_frame.fmt != stream_fmt and effective[0] != "csc":
+        try:
+            orig_fmt = current_frame.fmt
+            in_depth = get_pixel_depth(current_frame.fmt)
+            s_depth = get_pixel_depth(stream_fmt)
+            pixel_depth = max(in_depth, s_depth)
+            algo_type = normalize_algo_type(ALGO_RK_HW_CSC)
+            bcsh_config = build_bcsh_config_from_dict({
+                "brightness": 256, "contrast": 256,
+                "saturation": 256, "hue": 256,
+                "r_gain": 256, "r_offset": 256,
+                "g_gain": 256, "g_offset": 256,
+                "b_gain": 256, "b_offset": 256,
+            }, algo_type)
+            input_data = np.stack([current_frame.pyr, current_frame.pug, current_frame.pvb], axis=0)
+            output_data, _, _, _, _ = run_selected_algo(
+                input_data, bcsh_config, pixel_depth, 10,
+                algo_type, current_frame.clrspc, stream_clrspc,
+                current_frame.fmt, stream_fmt,
+            )
+            current_frame = ImageFrame(output_data[0], output_data[1], output_data[2],
+                                      stream_fmt, stream_clrspc)
+            update_status(window, LOGTAG, LINE(),
+                f"Stream-fmt converted: 0x{orig_fmt:x} → 0x{stream_fmt:x}", level=STATUS_OK)
+        except Exception as e:
+            update_status(window, LOGTAG, LINE(),
+                f"Stream-fmt conversion failed: {e}", level=STATUS_ERROR)
+            return
+
     for i in range(start_idx, len(effective)):
         tag = effective[i]
         mod = REGISTERED_MODULES.get(tag)
@@ -892,24 +972,32 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
         cur_fmt = current_frame.fmt
         if cur_fmt not in supported_formats:
             update_status(window, LOGTAG, LINE(),
-                f"{tag}: unsupported input format 0x{cur_fmt:X}", level=STATUS_ERROR)
+                f"{tag}: unsupported input format 0x{cur_fmt:x}", level=STATUS_ERROR)
             return
         supported_outputs = supported_formats[cur_fmt]
 
         is_last = (i == len(effective) - 1)
-        if is_last:
-            # Last module must produce I/O tab's output format
+        if len(effective) >= 2:
+            # Multi-module pipeline: all modules output stream_fmt
+            # Final format conversion is handled post-loop via CSC
+            if stream_fmt not in supported_outputs:
+                update_status(window, LOGTAG, LINE(),
+                    f"{tag}: stream-fmt 0x{stream_fmt:x} not in supported outputs "
+                    f"(supports: {[f'0x{f:x}' for f in supported_outputs]})",
+                    level=STATUS_ERROR)
+                return
+            module_out_fmt = stream_fmt
+            module_out_clrspc = stream_clrspc
+        else:
+            # Single-module pipeline: use I/O tab's output format directly
             module_out_fmt = out_fmt
             module_out_clrspc = out_clrspc
             if module_out_fmt not in supported_outputs:
                 update_status(window, LOGTAG, LINE(),
-                    f"I/O output 0x{module_out_fmt:X} not supported "
-                    f"(supports: {[f'0x{f:X}' for f in supported_outputs]})",
+                    f"I/O output 0x{module_out_fmt:x} not supported "
+                    f"(supports: {[f'0x{f:x}' for f in supported_outputs]})",
                     level=STATUS_ERROR)
                 return
-        else:
-            module_out_fmt = _pick_output_format(supported_outputs, stream_10bit)
-            module_out_clrspc = out_clrspc
 
         io_info = {
             "out_fmt": module_out_fmt,
@@ -920,7 +1008,6 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
             "frame_num": io_params["frame_num"],
             "output_dir": output_dir,
             "config_path": io_params["config_path"],
-            "stream_depth": 10 if stream_10bit else 8,
             "elements": window_elements,
             "window": window,
         }
@@ -928,25 +1015,47 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
         ok, result = mod["process"](current_frame, io_info)
         if ok:
             current_frame = result  # result is an ImageFrame
-            # if i == (len(effective) - 1) and stream_10bit and out_fmt_is_8bit:
-            #     current_frame.demote_to_8bit()
         else:
             update_status(window, LOGTAG, LINE(), f"{tag.upper()} error: {result}", level=STATUS_ERROR)
             return
 
         _SNAPSHOTS[tag] = current_frame.copy()
 
-    # Apply stream-depth demotion after last module if output format is 8-bit
-    display_frame = current_frame
-    if stream_10bit and out_fmt_is_8bit:
-        display_frame = current_frame.copy()
-        display_frame.demote_to_8bit()
+    # Post-loop: for multi-module pipeline, convert to I/O tab's output format if different
+    if len(effective) >= 2 and current_frame.fmt != out_fmt:
+        try:
+            orig_fmt = current_frame.fmt
+            in_depth = get_pixel_depth(current_frame.fmt)
+            o_depth = get_pixel_depth(out_fmt)
+            pixel_depth = max(in_depth, o_depth)
+            algo_type = normalize_algo_type(ALGO_RK_HW_CSC)
+            bcsh_config = build_bcsh_config_from_dict({
+                "brightness": 256, "contrast": 256,
+                "saturation": 256, "hue": 256,
+                "r_gain": 256, "r_offset": 256,
+                "g_gain": 256, "g_offset": 256,
+                "b_gain": 256, "b_offset": 256,
+            }, algo_type)
+            input_data = np.stack([current_frame.pyr, current_frame.pug, current_frame.pvb], axis=0)
+            output_data, _, _, _, _ = run_selected_algo(
+                input_data, bcsh_config, pixel_depth, 10,
+                algo_type, current_frame.clrspc, out_clrspc,
+                current_frame.fmt, out_fmt,
+            )
+            current_frame = ImageFrame(output_data[0], output_data[1], output_data[2],
+                                      out_fmt, out_clrspc)
+            update_status(window, LOGTAG, LINE(),
+                f"Output-fmt converted: 0x{orig_fmt:x} → 0x{out_fmt:x}", level=STATUS_OK)
+        except Exception as e:
+            update_status(window, LOGTAG, LINE(),
+                f"Output-fmt conversion failed: {e}", level=STATUS_ERROR)
+            return
 
     # Display final output
     final_tag = effective[-1] if effective else ""
     update_status(window, LOGTAG, LINE(), f"Pipeline OK ({' → '.join(effective)})", level=STATUS_OK)
-    _update_left_preview(window, display_frame, final_tag)
-    _update_right_preview(window, final_tag, display_frame.as_tuple(),
+    _update_left_preview(window, current_frame, final_tag)
+    _update_right_preview(window, final_tag, current_frame.as_tuple(),
                           REGISTERED_MODULES.get(final_tag, {}).get("read_params", lambda v: {})(window_elements))
 
 
@@ -983,7 +1092,7 @@ def _handle_mouse_motion(window: sg.Window, values: dict, event: str):
             p1 = _INPUT_IMAGE.pug[uv_y, uv_x]
             p2 = _INPUT_IMAGE.pvb[uv_y, uv_x]
             fmt_label = "yuv" if is_yuv_format(in_fmt) else "rgb"
-            input_str = f"{fmt_label}-{in_fmt:X}: ({p0:4d}, {p1:4d}, {p2:4d})"
+            input_str = f"{fmt_label}-{in_fmt:#x}: ({p0:4d}, {p1:4d}, {p2:4d})"
 
     # Get output pixel
     output_str = "(----, ----, ----)"
@@ -1000,7 +1109,7 @@ def _handle_mouse_motion(window: sg.Window, values: dict, event: str):
             # Use I/O output format for the label, not the displayed data format
             io_out_fmt = get_fmt_from_display(values.get("-OUT-FMT-", DEFAULT_FMT_DISPLAY))
             fmt_label = "yuv" if is_yuv_format(io_out_fmt) else "rgb"
-            output_str = f"{fmt_label}-{io_out_fmt:X}: ({p0:4d}, {p1:4d}, {p2:4d})"
+            output_str = f"{fmt_label}-{io_out_fmt:#x}: ({p0:4d}, {p1:4d}, {p2:4d})"
 
     freeze_status = "[Frozen]" if _pixel_info_frozen else "[Space to freeze]"
     window["-POSITION-INFO-"].update(f"({orig_x:4d},{orig_y:4d}) {freeze_status}")
@@ -1274,6 +1383,9 @@ def main():
     for tag in pipeline_order:
         REGISTERED_MODULES[tag]["init"](window)
 
+    # Initialize stream format UI state based on current pipeline
+    _update_stream_format_state(window)
+
     # Event loop
     while True:
         event, values = window.read()
@@ -1288,6 +1400,7 @@ def main():
                 pipeline_enabled.add(tag)
             else:
                 pipeline_enabled.discard(tag)
+            _update_stream_format_state(window)
             _run_pipeline(values, window)
             continue
 
@@ -1400,8 +1513,8 @@ def main():
                 _save_image(values, window, tmp_frame)
             continue
 
-        # Stream depth changed — reload input and re-run pipeline
-        if event == "-STREAM-DEPTH-":
+        # Stream format changed — reload input and re-run pipeline
+        if event == "-STREAM-FORMAT-":
             _SNAPSHOTS.clear()
             _run_pipeline(values, window)
             continue

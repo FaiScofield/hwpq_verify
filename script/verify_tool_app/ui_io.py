@@ -75,7 +75,7 @@ FMT_OPTIONS = [
 ]
 CLRSPC_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7]
 
-FMT_DISPLAY = [f"0x{fmt:X} - {FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_OPTIONS]
+FMT_DISPLAY = [f"0x{fmt:x} - {FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_OPTIONS]
 CLRSPC_DISPLAY = [f"{clr} - {CLRSPC_NAMES[clr]}" for clr in CLRSPC_OPTIONS]
 CLRSPC_DISPLAY_RGB = [s for s in CLRSPC_DISPLAY if int(s.split(" ")[0]) in (0, 1)]
 CLRSPC_DISPLAY_YUV = [s for s in CLRSPC_DISPLAY if int(s.split(" ")[0]) in range(2, 8)]
@@ -241,6 +241,18 @@ def build_controls() -> list:
             ),
         ],
         [
+            sg.Text("Stream Format", size=IO_FMT_LABEL_SIZE),
+            sg.Combo(
+                FMT_DISPLAY,
+                default_value=next(f for f in FMT_DISPLAY if f.startswith("0x13 ")),
+                key="-STREAM-FORMAT-",
+                readonly=True,
+                size=IO_FMT_COMBO_SIZE,
+                enable_events=True,
+                tooltip="多模块Pipeline内部数据流格式载体（默认为YUV444P_10LSB）；单模块时忽略此选项",
+            ),
+        ],
+        [
             sg.Checkbox(
                 "Use Specified Color as Input",
                 key="-USE-SET-COLOR-",
@@ -256,14 +268,6 @@ def build_controls() -> list:
                 enable_events=True,
                 disabled_readonly_background_color=sg.theme_background_color(),
                 tooltip="自定义RGB纯色值，三个整数用空格分隔（如 128 128 128）",
-            ),
-            sg.Text("Stream Depth"),
-            sg.Combo(
-                ["8bit", "10bit"],
-                default_value="10bit",
-                key="-STREAM-DEPTH-",
-                readonly=True,
-                tooltip="Pipeline数据流精度：8bit输入自动左移提升到10bit；10bit输出可选降位到8bit",
             ),
         ],
     ]

@@ -649,20 +649,11 @@ def process(src_frame, io_info: dict):
         input_clrspc = src_frame.clrspc
         output_fmt = io_info["out_fmt"]
         output_clrspc = io_info["out_clrspc"]
-        stream_depth = io_info["stream_depth"]
         params = read_params(io_info["elements"])
 
-        # in_depth/out_depth/stream_depth cases:
-        # 8/8/8 case: 8->8->8->8 (no support yet)
-        # 8/8/10 case: 8->10->10->8
-        # 8/10/10 case: 8->10->10->10
-        # 10/8/10 case: 10->10->10->8
-        # 10/10/10 case: 10->10->10->10
         in_depth = get_pixel_depth(input_fmt)
         out_depth = get_pixel_depth(output_fmt)
         pixel_depth = max(in_depth, out_depth)
-        csc_out_fmt = output_fmt + 0x10 if stream_depth > out_depth else output_fmt
-        assert(stream_depth == in_depth)
 
         algo_type = normalize_algo_type(params.get("algo_type", ALGO_RK_HW_CSC))
         precision = params.get("precision", 10)
@@ -685,11 +676,11 @@ def process(src_frame, io_info: dict):
         output_data, step1_coefs, step1_offset, step2_coefs, step2_offset = run_selected_algo(
             input_data, bcsh_config, pixel_depth, precision,
             algo_type, input_clrspc, output_clrspc,
-            input_fmt, csc_out_fmt,
+            input_fmt, output_fmt,
         )
 
         dst_frame = ImageFrame(output_data[0], output_data[1], output_data[2],
-                               csc_out_fmt, output_clrspc)
+                               output_fmt, output_clrspc)
 
         # Update CSC Coef Info UI
         _update_coef_info(io_info, step1_coefs, step1_offset, step2_coefs, step2_offset)
@@ -719,8 +710,13 @@ def _format_coef_array(arr) -> str:
         return "N/A"
     if hasattr(arr, "flatten"):
         arr = arr.flatten()
-    vals = [f"{int(v) if v == int(v) else v:.4f}" for v in arr[:18]]
-    if len(arr) > 18:
+    is_int = arr.dtype.kind in ("i", "u") if hasattr(arr, "dtype") else all(
+        isinstance(v, (int, np.integer)) for v in arr)
+    if is_int:
+        vals = [str(int(v)) for v in arr[:9]]
+    else:
+        vals = [f"{float(v):.3f}" for v in arr[:9]]
+    if len(arr) > 9:
         vals.append("...")
     return "[" + ", ".join(vals) + "]"
 

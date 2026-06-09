@@ -251,12 +251,12 @@ def _apply_local_lut(input_data: np.ndarray, local_lut: list, in_depth: int) -> 
 
 def build_controls() -> list:
     """Build the DCI Config tab layout."""
-    default_exe = _get_default_exe_path()
+    default_exe = "G:/Codes/RkVopAlgos_git/pub_lib/ModelVerify/AMD64/bin/dci_sim_exe.exe"
     return [
         [
             sg.Text("DCI EXE", size=(10, 1)),
             sg.Input(default_exe, key="-DCI-EXE-", size=(46, 1),
-                     tooltip="DCI硬件模块可执行文件路径"),
+                     tooltip="DCI模块可执行文件路径"),
             sg.FileBrowse(
                 file_types=(("Executable", "*.exe"),),
                 target="-DCI-EXE-",
@@ -529,6 +529,10 @@ def handle_dci_event(event: str, values: dict, window: sg.Window) -> bool:
     if event == "-DCI-COMBO-MEDIAN-":
         return True
 
+    # Enable checkboxes — trigger pipeline re-run
+    if event in ("-DCI-DUMP-", "-BS-EN-", "-WS-EN-", "-CLAHE-EN-"):
+        return True
+
     return False
 
 
@@ -633,22 +637,22 @@ def process(src_frame, io_info: dict):
             return False, "DCI runner exe not found"
 
         # Write input channels raw (Y then U then V, each at native resolution)
-        input_tmp = os.path.join(output_dir, f"_dci_input_{width}x{height}_fmt{input_fmt}.yuv")
+        input_tmp = os.path.join(output_dir, f"_dci_input_{width}x{height}_fmt{input_fmt:#x}.yuv")
         with open(input_tmp, 'wb') as f:
             src_frame.pyr.tofile(f)
             src_frame.pug.tofile(f)
             src_frame.pvb.tofile(f)
 
         # Write output to output_dir
-        output_file = os.path.join(output_dir, f"dci_output_{width}x{height}_fmt{output_fmt}.yuv")
+        output_file = os.path.join(output_dir, f"dci_output_{width}x{height}_fmt{output_fmt:#x}.yuv")
 
         # Run the DCI executable
-        cmd = f'{exe_path} -i {input_tmp} -w {width} -g {height} -f {input_fmt:x} -r {input_clrspc} -F 0x13 -R 0x5 -o {output_file} -c {config_path} -m 0'
+        cmd = f'{exe_path} -i {input_tmp} -w {width} -g {height} -f {input_fmt:#x} -r {input_clrspc} -F {output_fmt:#x} -R 0x5 -o {output_file} -c {config_path} -m 0'
         try:
-            print(f"[DCI] About to run cmd '{cmd}'...")
+            print(f"[DCI] About to run cmd: {cmd}")
             subprocess.run(cmd, check=True, capture_output=False, text=False)
         except subprocess.CalledProcessError as e:
-            print(f"[DCI] Run cmd '{cmd}' failed! {e.returncode}")
+            return False, f"DCI runner failed (exit code {e.returncode})"
 
         # Read back output
         output_data, _ = read_raw_to_planar(output_file, width, height, output_fmt)

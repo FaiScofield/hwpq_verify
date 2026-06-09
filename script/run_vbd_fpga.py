@@ -85,7 +85,7 @@ def main(args):
 
             # run vbd
             utl.run_cmd(
-                f"{vbd_exe} -i {input_file0} -I {input_file1} -m {input_filem} -o {output_file} -O {output_folder} -w {target_wid} -g {target_hgt} -f {src_fmt_vbd:x} -F {dst_fmt_vbd:x} -c {output_crcfile2} --save_tile", False
+                f"{vbd_exe} -i {input_file0} -I {input_file1} -m {input_filem} -o {output_file} -O {output_folder} -w {target_wid} -g {target_hgt} -f {src_fmt_vbd:#x} -F {dst_fmt_vbd:#x} -c {output_crcfile2} --save_tile", False
             )
 
             # copy input tiles & mask file to output folder

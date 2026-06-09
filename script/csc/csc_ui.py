@@ -319,7 +319,7 @@ def open_csc_ui(args=None):
     sg.theme('SystemDefault')
 
     fmt_options = FMT_OPTIONS_8BIT + FMT_OPTIONS_10BIT
-    fmt_display = [f"0x{f:X} - {FORMAT_NAMES.get(f, 'Unknown')}" for f in fmt_options]
+    fmt_display = [f"0x{f:x} - {FORMAT_NAMES.get(f, 'Unknown')}" for f in fmt_options]
     clrspc_display_all = [f"{c} - {CLRSPC_NAMES[c]}" for c in CLRSPC_OPTIONS]
     clrspc_rgb = [s for s in clrspc_display_all if int(s.split(" ")[0]) in (0, 1)]
     clrspc_yuv = [s for s in clrspc_display_all if int(s.split(" ")[0]) in range(2, 8)]

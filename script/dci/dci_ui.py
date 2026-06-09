@@ -101,7 +101,7 @@ FMT_OPTIONS = [
     0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A,
 ]
 CLRSPC_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7]
-FMT_DISPLAY = [f"0x{fmt:X} - {FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_OPTIONS]
+FMT_DISPLAY = [f"0x{fmt:x} - {FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_OPTIONS]
 CLRSPC_DISPLAY = [f"{clr} - {CLRSPC_NAMES[clr]}" for clr in CLRSPC_OPTIONS]
 DEFAULT_FMT_DISPLAY = next(item for item in FMT_DISPLAY if item.startswith("0x0 "))
 DEFAULT_CLRSPC_DISPLAY = next(item for item in CLRSPC_DISPLAY if item.startswith("1 "))
