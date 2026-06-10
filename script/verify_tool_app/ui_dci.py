@@ -284,41 +284,50 @@ def build_controls() -> list:
         [
             sg.Frame("CF", [
                 build_numeric_control_row("Gain Low", "-CF-GL-", 32, 0, 32, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="低亮度预设曲线增益"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="低亮度预设曲线增益"),
                 build_numeric_control_row("Gain Mid", "-CF-GM-", 32, 0, 32, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="中亮度预设曲线增益"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="中亮度预设曲线增益"),
                 build_numeric_control_row("Gain High", "-CF-GH-", 32, 0, 32, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="高亮度预设曲线增益"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="高亮度预设曲线增益"),
                 build_numeric_control_row("CF/HE Ratio", "-CFHE-", 32, 0, 64, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CF/HE融合比例控制"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="CF/HE融合比例控制"),
             ]),
             sg.Frame("HE", [
                 build_numeric_control_row("Split Point ", "HE-SPLIT-", 125, 0, 1023, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="直方图分隔点"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="直方图分隔点"),
                 build_numeric_control_row("Left Clip", "-HE-LC-", 1.0, 0.01, 1.0, resolution=0.05, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="左半直方图clip比例"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="左半直方图clip比例"),
                 build_numeric_control_row("Right Clip", "-HE-RC-", 1.0, 0.01, 1.0, resolution=0.05, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="右半直方图clip比例"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="右半直方图clip比例"),
                 build_numeric_control_row("Overlap", "-HE-OVERLAP-", 16, 0, 128, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="分隔点overlap宽度"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="分隔点overlap宽度"),
             ]),
             sg.Frame("BS", [
                 [sg.Checkbox("Enable", default=True, key="-BS-EN-", enable_events=True, tooltip="启用BS处理")],
                 build_numeric_control_row("Set Point", "-BS-SP-", 80, 0, 1023, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="黑场拉伸锚点"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="黑场拉伸锚点"),
                 build_numeric_control_row("Ratio", "-BS-RATIO-", 64, 0, 64, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="黑场拉伸强度"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="黑场拉伸强度"),
                 build_numeric_control_row("Overlap", "-BS-OVERLAP-", 64, 0, 64, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="黑场锚点overlap宽度"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="黑场锚点overlap宽度"),
             ]),
             sg.Frame("WS", [
                 [sg.Checkbox("Enable", default=True, key="-WS-EN-", enable_events=True, tooltip="启用WS处理")],
                 build_numeric_control_row("Set Point", "-WS-SP-", 80, 0, 1023, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="白场拉伸锚点"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="白场拉伸锚点"),
                 build_numeric_control_row("Ratio", "-WS-RATIO-", 64, 0, 64, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="白场拉伸强度"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="白场拉伸强度"),
                 build_numeric_control_row("Overlap", "-WS-OVERLAP-", 64, 0, 64, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="白场锚点overlap宽度"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="白场锚点overlap宽度"),
+            ]),
+            sg.Frame("CA", [
+                [sg.Checkbox("Enable", default=True, key="-CA-EN-", enable_events=True, tooltip="启用CA处理")],
+                build_numeric_control_row("Saturation_w", "-CA-SATW-", 56, 0, 64, en_spin=True,
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="饱和度调整权重"),
+                build_numeric_control_row("Adj Coring", "-CA-CORING-", 8, 0, 255, en_spin=True,
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="亮度门限下限"),
+                build_numeric_control_row("Adj Threshold", "-CA-THRESH-", 16, 0, 255, en_spin=True,
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="亮度门限上限"),
             ]),
         ],
         [sg.Frame("CLAHE", [
@@ -328,27 +337,28 @@ def build_controls() -> list:
              sg.Button("Reset HE", key="-RESET-HE-", tooltip="重置HE参数"),
              sg.Button("Reset BS", key="-RESET-BS-", tooltip="重置BS参数"),
              sg.Button("Reset SW", key="-RESET-WS-", tooltip="重置WS参数"),
+             sg.Button("Reset CA", key="-RESET-CA-", tooltip="重置CA参数"),
              sg.Button("Reset CLAHE", key="-RESET-CLAHE-", tooltip="重置CLAHE参数"),
             ],
             [
                 *build_numeric_control_row("Clip Value", "-CLAHE-CV-", 1.0, 0.0, 3.0, resolution=0.1, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE裁剪阈值"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE裁剪阈值"),
                 *build_numeric_control_row("Local Ratio", "-CLAHE-LR-", 19, 0, 32, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE局部融合比例"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE局部融合比例"),
                 *build_numeric_control_row("Left Alpha", "-CLAHE-LA-", 3.0, 0.1, 10.0, resolution=0.1, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE左半融合比例"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE左半融合比例"),
                 *build_numeric_control_row("Left ThrLMin", "-CLAHE-LTMIN-", 0.5, 0.0, 1.0, resolution=0.1, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE左半阈值最小值"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE左半阈值最小值"),
             ],
             [
                 *build_numeric_control_row("Left ThrLMax", "-CLAHE-LTMAX-", 2.3, 0.5, 5.0, resolution=0.1, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE左半阈值最大值"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE左半阈值最大值"),
                 *build_numeric_control_row("Left Luma Ratio", "-CLAHE-LLR-", 3.0, 0.1, 10.0, resolution=0.1, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE左半融合比例"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE左半融合比例"),
                 *build_numeric_control_row("Right ThrLMin", "-CLAHE-RTMIN-", 0.5, 0.0, 1.0, resolution=0.1, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE右半阈值最小值"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE右半阈值最小值"),
                 *build_numeric_control_row("Right ThrLMax", "-CLAHE-RTMAX-", 2.3, 0.5, 5.0, resolution=0.1, en_spin=True,
-                                        label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE右半阈值最大值"),
+                                        label_size=(8,1), slider_size=(8,12), spin_size=(4,1), tooltip="CLAHE右半阈值最大值"),
             ],
         ])],
     ]
@@ -380,6 +390,11 @@ DCI_WS_PAIRS = [
     SliderSpinConfig("-WS-RATIO-SPIN-", "-WS-RATIO-SLIDER-", 0, 64, 64, 1),
     SliderSpinConfig("-WS-OVERLAP-SPIN-", "-WS-OVERLAP-SLIDER-", 0, 64, 64, 1),
 ]
+DCI_CA_PAIRS = [
+    SliderSpinConfig("-CA-SATW-SPIN-", "-CA-SATW-SLIDER-", 0, 64, 56, 1),
+    SliderSpinConfig("-CA-CORING-SPIN-", "-CA-CORING-SLIDER-", 0, 1023, 8, 1),
+    SliderSpinConfig("-CA-THRESH-SPIN-", "-CA-THRESH-SLIDER-", 0, 1023, 16, 1),
+]
 DCI_CLAHE_PAIRS = [
     SliderSpinConfig("-CLAHE-CV-SPIN-", "-CLAHE-CV-SLIDER-", 0.0, 3.0, 1.0, 0.1),
     SliderSpinConfig("-CLAHE-LR-SPIN-", "-CLAHE-LR-SLIDER-", 0, 32, 19, 1),
@@ -392,7 +407,7 @@ DCI_CLAHE_PAIRS = [
 ]
 
 # Combined flat list for keyboard/sync dispatch
-DCI_SLIDER_SPIN_PAIRS = DCI_CF_PAIRS + DCI_HE_PAIRS + DCI_BS_PAIRS + DCI_WS_PAIRS + DCI_CLAHE_PAIRS
+DCI_SLIDER_SPIN_PAIRS = DCI_CF_PAIRS + DCI_HE_PAIRS + DCI_BS_PAIRS + DCI_WS_PAIRS + DCI_CA_PAIRS + DCI_CLAHE_PAIRS
 
 
 def _reset_dci_slider_group(window: sg.Window, values: dict, pairs: list):
@@ -422,6 +437,9 @@ _DCI_CONFIG_UI_MAP = [
     ("ws_set_point",          "-WS-SP-",     False),
     ("ws_ratio",              "-WS-RATIO-",  False),
     ("ws_overlap",            "-WS-OVERLAP-", False),
+    ("ca_saturation_w",       "-CA-SATW-",   False),
+    ("ca_adj_luma_coring_zero", "-CA-CORING-", False),
+    ("ca_adj_luma_coring_thrd", "-CA-THRESH-", False),
     ("clahe_clip_value",      "-CLAHE-CV-",  True),
     ("clahe_local_ratio",     "-CLAHE-LR-",  False),
     ("clahe_left_alpha",      "-CLAHE-LA-",  True),
@@ -436,6 +454,7 @@ _DCI_CONFIG_UI_MAP = [
 _DCI_CONFIG_CHECK_MAP = [
     ("bs_enable",   "-BS-EN-"),
     ("ws_enable",   "-WS-EN-"),
+    ("ca_enable",   "-CA-EN-"),
     ("clahe_en",    "-CLAHE-EN-"),
 ]
 
@@ -495,6 +514,7 @@ def handle_dci_event(event: str, values: dict, window: sg.Window) -> bool:
         "-RESET-HE-": DCI_HE_PAIRS,
         "-RESET-BS-": DCI_BS_PAIRS,
         "-RESET-WS-": DCI_WS_PAIRS,
+        "-RESET-CA-": DCI_CA_PAIRS,
         "-RESET-CLAHE-": DCI_CLAHE_PAIRS,
     }
     if event in _RESET_DCI_MAP:
@@ -504,6 +524,7 @@ def handle_dci_event(event: str, values: dict, window: sg.Window) -> bool:
 
     # Keyboard suffix events via shared handler
     if handle_keyboard_event(event, values, window, DCI_SLIDER_SPIN_PAIRS):
+        _enforce_ca_thresh_ge_coring(window, values, event)
         _auto_save_dci_config(values, config_path)
         return True
 
@@ -511,12 +532,17 @@ def handle_dci_event(event: str, values: dict, window: sg.Window) -> bool:
     for pair in DCI_SLIDER_SPIN_PAIRS:
         if event == pair.slider_key:
             sync_slider_to_spin(window, values, pair.slider_key, pair.spin_key, pair.step, pair)
-            _auto_save_dci_config(values, config_path)
-            return True
+            break
         if event == pair.spin_key:
             sync_spin_to_slider(window, values, pair.spin_key, pair.slider_key, pair)
-            _auto_save_dci_config(values, config_path)
-            return True
+            break
+    else:
+        pair = None
+
+    if pair is not None:
+        _enforce_ca_thresh_ge_coring(window, values, event)
+        _auto_save_dci_config(values, config_path)
+        return True
 
     # Open Dir buttons
     if event in ("-DCI-OPEN-EXE-DIR-",):
@@ -547,7 +573,7 @@ def handle_dci_event(event: str, values: dict, window: sg.Window) -> bool:
         return True
 
     # Enable / Dump checkboxes — auto-save and trigger pipeline re-run
-    if event in ("-BS-EN-", "-WS-EN-", "-CLAHE-EN-"):
+    if event in ("-BS-EN-", "-WS-EN-", "-CA-EN-", "-CLAHE-EN-"):
         _auto_save_dci_config(values, config_path)
         return True
 
@@ -562,6 +588,27 @@ def _auto_save_dci_config(values, config_path):
         _save_dci_config_from_ui(values, config_path)
     except Exception:
         pass  # silent fail on auto-save, let exe report missing/bad config
+
+
+def _enforce_ca_thresh_ge_coring(window: sg.Window, values: dict, event: str) -> None:
+    """Ensure CA adj_threshold >= adj_coring_zero. Clamps threshold if needed."""
+    ca_keys = {"-CA-CORING-SLIDER-", "-CA-CORING-SPIN-",
+               "-CA-THRESH-SLIDER-", "-CA-THRESH-SPIN-"}
+    if event not in ca_keys:
+        return
+    try:
+        coring = int(float(values.get("-CA-CORING-SPIN-", 8)))
+        thresh = int(float(values.get("-CA-THRESH-SPIN-", 16)))
+    except (ValueError, TypeError):
+        return
+    if thresh >= coring:
+        return
+    # Clamp threshold up to coring value
+    thresh = coring
+    # window["-CA-THRESH-SLIDER-"].update(value=thresh)
+    # window["-CA-THRESH-SPIN-"].update(value=thresh)
+    # values["-CA-THRESH-SLIDER-"] = thresh
+    # values["-CA-THRESH-SPIN-"] = thresh
 
 
 def _open_dci_dir(values: dict, event: str, window: sg.Window):
@@ -621,6 +668,11 @@ def read_params(values: dict) -> dict:
         "ws_set_point": int(float(values.get("-WS-SP-", "80"))),
         "ws_ratio": int(float(values.get("-WS-RATIO-", "64"))),
         "ws_overlap": int(float(values.get("-WS-OVERLAP-", "64"))),
+        # CA
+        "ca_enable": values.get("-CA-EN-", True),
+        "ca_saturation_w": int(float(values.get("-CA-SATW-", "56"))),
+        "ca_adj_luma_coring_zero": int(float(values.get("-CA-CORING-", "8"))),
+        "ca_adj_luma_coring_thrd": int(float(values.get("-CA-THRESH-", "16"))),
         # CLAHE
         "clahe_enable": values.get("-CLAHE-EN-", True),
         "clahe_clip_value": float(values.get("-CLAHE-CV-", "1.0")),
