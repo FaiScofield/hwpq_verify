@@ -127,28 +127,34 @@ def update_clrspc_for_fmt(window: sg.Window, values: dict, clrspc_key: str, fmt_
 
 def get_fmt_from_display(display_str: str) -> int:
     """Extract format integer from display string like '0x9 - YUV420SP_NV12'."""
+    if display_str is None or display_str.strip() == "":
+        return -1
     return int(display_str.split(" ")[0], 16)
 
 
 def get_clrspc_from_display(display_str: str) -> int:
     """Extract colorspace integer from display string like '5 - BT709_Full'."""
+    if display_str is None or display_str.strip() == "":
+        return -1
     return int(display_str.split(" ")[0])
 
 
 def read_io_params(values: dict) -> dict:
     """Extract common I/O parameters from window values."""
+    stram_fmt = get_fmt_from_display(values.get("-STREAM-FMT-", "0x13"))
     return {
         "input_file": values.get("-INPUT-FILE-", "").strip(),
+        "output_dir": values.get("-OUTPUT-DIR-", "").strip(),
+        "config_path": values.get("-CONFIG-PATH-", "").strip(),
         "width": int(values.get("-WIDTH-", "1920")),
         "height": int(values.get("-HEIGHT-", "1080")),
+        "frame_num": int(values.get("-FRAME-NUM-", "1")),
+        "frame_idx": int(values.get("-FRAME-IDX-", "0")),
         "in_fmt": get_fmt_from_display(values.get("-IN-FMT-", DEFAULT_FMT_DISPLAY)),
         "in_clrspc": get_clrspc_from_display(values.get("-IN-CLR-", DEFAULT_CLRSPC_DISPLAY)),
         "out_fmt": get_fmt_from_display(values.get("-OUT-FMT-", DEFAULT_FMT_DISPLAY)),
         "out_clrspc": get_clrspc_from_display(values.get("-OUT-CLR-", DEFAULT_CLRSPC_DISPLAY)),
-        "output_dir": values.get("-OUTPUT-DIR-", "").strip(),
-        "config_path": values.get("-CONFIG-PATH-", "").strip(),
-        "frame_idx": int(values.get("-FRAME-IDX-", "0")),
-        "frame_num": int(values.get("-FRAME-NUM-", "1")),
+        "stream_fmt": str(stram_fmt) if stram_fmt >= 0 else "0x13",
         "use_set_color": values.get("-USE-SET-COLOR-", False),
         "set_color_input": values.get("-SET-COLOR-INPUT-", "").strip(),
     }
@@ -245,7 +251,7 @@ def build_controls() -> list:
             sg.Combo(
                 FMT_DISPLAY,
                 default_value=next(f for f in FMT_DISPLAY if f.startswith("0x13 ")),
-                key="-STREAM-FORMAT-",
+                key="-STREAM-FMT-",
                 readonly=True,
                 size=IO_FMT_COMBO_SIZE,
                 enable_events=True,

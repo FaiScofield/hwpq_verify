@@ -359,9 +359,9 @@ class DciUserConfig(ModuleConfigCore):
     # dump / load — JSON I/O                                             #
     # ------------------------------------------------------------------ #
 
-    def _to_dict(self) -> dict:
+    def _to_dict(self, add_pqtuning_header: bool = False) -> dict:
         """Serialize to the nested dict matching dci_config JSON structure."""
-        return {
+        dic = {
             "s_vdpp_hist_cnt": {
                 "i_pre_vhsd_mode_auto_config": self.hist_pre_vhsd_mode,
                 "dci_hsd_mode": self.hist_hsd_mode,
@@ -448,10 +448,12 @@ class DciUserConfig(ModuleConfigCore):
                 },
             },
         }
+        data = {"pq_tuning_param": {"dci": dic}} if add_pqtuning_header else dic
+        return data
 
     def dump(self, filename: str = "", pretty_array_stdout: int = 32) -> bool:
         """Write config to a JSON file or print to stdout."""
-        data = self._to_dict()
+        data = self._to_dict(add_pqtuning_header=True)
         if not filename:
             self.pretty_print_dict("dci", data, indent=2, pretty_array_stdout=pretty_array_stdout)
             return True

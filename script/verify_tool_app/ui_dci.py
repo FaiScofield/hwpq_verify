@@ -7,6 +7,7 @@ Right preview supports LUT-based median curve visualization from curves.json.
 """
 
 import json
+from ntpath import exists
 import os
 import subprocess
 import sys
@@ -266,18 +267,18 @@ def build_controls() -> list:
                       tooltip="在资源管理器中打开EXE所在目录"),
             sg.Button("Save Config", key="-DCI-SAVE-CFG-",
                       tooltip="保存配置参数到json配置文件"),
-            sg.Checkbox("Enable Dump", default=False, key="-DCI-DUMP-",
-                        tooltip="启用Dump功能"),
             sg.Text("Show Median Result", size=(14, 1)),
             sg.Combo(
-                ["None", "GLOAT_HIST_LUT", "Global_CF", "Global_HE", "Global_CF_HE", "Global_BWS", "Global_All", "Local_CLAHE"],
+                ["None", "Gloat_Hist_And_Lut", "Global_CF", "Global_HE", "Global_CF_HE", "Global_All(CF+HE+BWS)", "Local_CLAHE"],
                 default_value="None",
                 key="-DCI-COMBO-MEDIAN-",
                 readonly=True,
                 size=(12, 1),
                 enable_events=True,
-                tooltip="右预览区显示的DCI中间结果类型",
+                tooltip="右预览区显示的DCI中间结果类型（需要启用Dump功能）",
             ),
+            sg.Checkbox("Enable Dump", default=False, key="-DCI-DUMP-",
+                        tooltip="启用Dump功能"),
         ],
         [sg.HorizontalSeparator()],
         [
@@ -302,7 +303,7 @@ def build_controls() -> list:
                                         label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="分隔点overlap宽度"),
             ]),
             sg.Frame("BS", [
-                [sg.Checkbox("Enable", default=True, key="-BS-EN-", tooltip="启用BS处理")],
+                [sg.Checkbox("Enable", default=True, key="-BS-EN-", enable_events=True, tooltip="启用BS处理")],
                 build_numeric_control_row("Set Point", "-BS-SP-", 80, 0, 1023, en_spin=True,
                                         label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="黑场拉伸锚点"),
                 build_numeric_control_row("Ratio", "-BS-RATIO-", 64, 0, 64, en_spin=True,
@@ -311,7 +312,7 @@ def build_controls() -> list:
                                         label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="黑场锚点overlap宽度"),
             ]),
             sg.Frame("WS", [
-                [sg.Checkbox("Enable", default=True, key="-WS-EN-", tooltip="启用WS处理")],
+                [sg.Checkbox("Enable", default=True, key="-WS-EN-", enable_events=True, tooltip="启用WS处理")],
                 build_numeric_control_row("Set Point", "-WS-SP-", 80, 0, 1023, en_spin=True,
                                         label_size=(6,1), slider_size=(8,12), spin_size=(4,1), tooltip="白场拉伸锚点"),
                 build_numeric_control_row("Ratio", "-WS-RATIO-", 64, 0, 64, en_spin=True,
@@ -321,7 +322,7 @@ def build_controls() -> list:
             ]),
         ],
         [sg.Frame("CLAHE", [
-            [sg.Checkbox("Enable", default=True, key="-CLAHE-EN-", tooltip="启用CLAHE处理"),
+            [sg.Checkbox("Enable", default=True, key="-CLAHE-EN-", enable_events=True, tooltip="启用CLAHE处理"),
              sg.Push(),
              sg.Button("Reset CF", key="-RESET-CF-", tooltip="重置CF参数"),
              sg.Button("Reset HE", key="-RESET-HE-", tooltip="重置HE参数"),
@@ -481,7 +482,13 @@ def _save_dci_config_from_ui(values: dict, config_path: str):
 
 
 def handle_dci_event(event: str, values: dict, window: sg.Window) -> bool:
-    """Handle DCI-specific events. Returns True if consumed."""
+    """Handle DCI-specific events. Returns True if consumed.
+
+    All slider/spin/checkbox changes auto-save to the config JSON so
+    the external DCI runner exe picks up the latest parameters.
+    """
+    config_path = values.get("-CONFIG-PATH-", "").strip()
+
     # Group reset buttons
     _RESET_DCI_MAP = {
         "-RESET-CF-": DCI_CF_PAIRS,
@@ -492,19 +499,23 @@ def handle_dci_event(event: str, values: dict, window: sg.Window) -> bool:
     }
     if event in _RESET_DCI_MAP:
         _reset_dci_slider_group(window, values, _RESET_DCI_MAP[event])
+        _auto_save_dci_config(values, config_path)
         return True
 
     # Keyboard suffix events via shared handler
     if handle_keyboard_event(event, values, window, DCI_SLIDER_SPIN_PAIRS):
+        _auto_save_dci_config(values, config_path)
         return True
 
     # Slider/spin sync
     for pair in DCI_SLIDER_SPIN_PAIRS:
         if event == pair.slider_key:
             sync_slider_to_spin(window, values, pair.slider_key, pair.spin_key, pair.step, pair)
+            _auto_save_dci_config(values, config_path)
             return True
         if event == pair.spin_key:
             sync_spin_to_slider(window, values, pair.spin_key, pair.slider_key, pair)
+            _auto_save_dci_config(values, config_path)
             return True
 
     # Open Dir buttons
@@ -512,28 +523,45 @@ def handle_dci_event(event: str, values: dict, window: sg.Window) -> bool:
         _open_dci_dir(values, event, window)
         return True
 
-    # Save Config button — write UI values to CONFIG-PATH json file
+    # Save Config button — pop up file save dialog for save-as
     if event == "-DCI-SAVE-CFG-":
-        config_path = values.get("-CONFIG-PATH-", "").strip()
-        if not config_path:
-            update_status(window, "DCI", LINE(), "No config file path specified", level=STATUS_ERROR)
-            return True
-        try:
-            _save_dci_config_from_ui(values, config_path)
-            update_status(window, "DCI", LINE(), f"Config saved to {config_path}", level=STATUS_OK)
-        except Exception as e:
-            update_status(window, "DCI", LINE(), str(e), level=STATUS_ERROR)
+        save_path = sg.popup_get_file(
+            "Save DCI config as",
+            save_as=True,
+            file_types=(("JSON", "*.json"),),
+            default_extension=".json",
+            no_window=True,
+        )
+        if save_path:
+            try:
+                _save_dci_config_from_ui(values, save_path)
+                window["-CONFIG-PATH-"].update(value=save_path)
+                values["-CONFIG-PATH-"] = save_path
+                update_status(window, "DCI", LINE(), f"Config saved to {save_path}", level=STATUS_OK)
+            except Exception as e:
+                update_status(window, "DCI", LINE(), str(e), level=STATUS_ERROR)
         return True
 
     # COMBO MEDIAN change → invalidate right preview
     if event == "-DCI-COMBO-MEDIAN-":
         return True
 
-    # Enable checkboxes — trigger pipeline re-run
-    if event in ("-DCI-DUMP-", "-BS-EN-", "-WS-EN-", "-CLAHE-EN-"):
+    # Enable / Dump checkboxes — auto-save and trigger pipeline re-run
+    if event in ("-BS-EN-", "-WS-EN-", "-CLAHE-EN-"):
+        _auto_save_dci_config(values, config_path)
         return True
 
     return False
+
+
+def _auto_save_dci_config(values, config_path):
+    """Silently save DCI UI values to the config JSON file."""
+    if not config_path:
+        return
+    try:
+        _save_dci_config_from_ui(values, config_path)
+    except Exception:
+        pass  # silent fail on auto-save, let exe report missing/bad config
 
 
 def _open_dci_dir(values: dict, event: str, window: sg.Window):
@@ -570,7 +598,9 @@ def read_params(values: dict) -> dict:
     """Extract DCI module parameters from window values."""
     return {
         "exe_path": values.get("-DCI-EXE-", ""),
+        "dump_enable": values.get("-DCI-DUMP-", False),
         "combo_median": values.get("-DCI-COMBO-MEDIAN-", "None"),
+        "output_dir": values.get("-OUTPUT-DIR-", "").strip(),
         # CF
         "cf_gain_low": int(float(values.get("-CF-GL-", "32"))),
         "cf_gain_mid": int(float(values.get("-CF-GM-", "32"))),
@@ -646,8 +676,20 @@ def process(src_frame, io_info: dict):
         # Write output to output_dir
         output_file = os.path.join(output_dir, f"dci_output_{width}x{height}_fmt{output_fmt:#x}.yuv")
 
+        # Flush current UI values to a local config file so DCI exe reads latest params.
+        # On first run, copy the original config as a base to preserve non-DCI fields.
+        local_config_file = os.path.join(output_dir, "_dci_config.json")
+        if not exists(local_config_file) and config_path and exists(config_path):
+            subprocess.run(f"cp {config_path} {local_config_file}")
+        try:
+            _save_dci_config_from_ui(io_info["elements"], local_config_file)
+        except Exception as e:
+            return False, f"Failed to save DCI local config: {e}"
+
         # Run the DCI executable
-        cmd = f'{exe_path} -i {input_tmp} -w {width} -g {height} -f {input_fmt:#x} -r {input_clrspc} -F {output_fmt:#x} -R 0x5 -o {output_file} -c {config_path} -m 0'
+        cmd = f'{exe_path} -i {input_tmp} -w {width} -g {height} -f {input_fmt:#x} -r {input_clrspc} -F {output_fmt:#x} -R {output_clrspc} -o {output_file} -c {local_config_file} -m 0'
+        if params.get("dump_enable", False):
+            cmd += " --dump 0xff"
         try:
             print(f"[DCI] About to run cmd: {cmd}")
             subprocess.run(cmd, check=True, capture_output=False, text=False)
@@ -671,7 +713,7 @@ def get_right_preview_image(snapshot, params: dict):
 
     Args:
         snapshot: (data, fmt, clrspc) tuple from pipeline.
-        params: DCI module parameters (includes combo_median, audit_dir).
+        params: DCI module parameters (includes combo_median, output_dir).
 
     Returns:
         (mapped_planar, fmt) tuple or None if median is "None" or no data.
@@ -685,8 +727,10 @@ def get_right_preview_image(snapshot, params: dict):
     if curve_key is None:
         return None
 
-    audit_dir = params.get("audit_dir", "").strip()
-    curves = _load_curves(audit_dir)
+    output_dir = params.get("output_dir", "").strip()
+    if not output_dir or not os.path.isdir(output_dir):
+        return None
+    curves = _load_curves(output_dir)
     if curves is None:
         return None
 

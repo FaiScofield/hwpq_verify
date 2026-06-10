@@ -370,13 +370,13 @@ def _update_stream_format_state(window: sg.Window):
     """
     effective = _get_effective_pipeline()
     if len(effective) <= 1:
-        window["-STREAM-FORMAT-"].update(value="", disabled=True)
+        window["-STREAM-FMT-"].update(value="", disabled=True)
     else:
-        current = window["-STREAM-FORMAT-"].get()
+        current = window["-STREAM-FMT-"].get()
         if not current:
             default = next(f for f in FMT_DISPLAY if f.startswith("0x13 "))
-            window["-STREAM-FORMAT-"].update(value=default)
-        window["-STREAM-FORMAT-"].update(disabled=False)
+            window["-STREAM-FMT-"].update(value=default)
+        window["-STREAM-FMT-"].update(disabled=False)
 
 
 # ------------------------------------------------------------------ #
@@ -734,7 +734,7 @@ def _load_input_image(values: dict, window: sg.Window) -> bool:
     h = io_params["height"]
     in_fmt = io_params["in_fmt"]
     in_clrspc = io_params["in_clrspc"]
-    stream_fmt_str = values.get("-STREAM-FORMAT-", "")
+    stream_fmt_str = values.get("-STREAM-FMT-", "")
     stream_fmt = get_fmt_from_display(stream_fmt_str) if stream_fmt_str else 0x13
     stream_10bit = (get_pixel_depth(stream_fmt) == 10)
     use_set_color = values.get("-USE-SET-COLOR-", False)
@@ -860,9 +860,8 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
     height = io_params["height"]
 
     # Read stream format for multi-module pipeline carrier
-    stream_fmt_str = window_elements.get("-STREAM-FORMAT-", "")
+    stream_fmt_str = window_elements.get("-STREAM-FMT-", "")
     stream_fmt = get_fmt_from_display(stream_fmt_str) if stream_fmt_str else 0x13
-    stream_10bit = (get_pixel_depth(stream_fmt) == 10)
     stream_clrspc = _get_stream_clrspc(
         stream_fmt, io_params["in_fmt"], io_params["in_clrspc"], out_fmt, out_clrspc)
 
@@ -876,15 +875,28 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
 
     # Determine whether to re-run from trigger_tag or from scratch
     start_tag = trigger_tag if trigger_tag else ""
+    start_idx = 0
     if start_tag:
-        # Check if upstream snapshot exists
-        upstream: ImageFrame | None = _SNAPSHOTS.get(start_tag)
-        if upstream is None:
-            # Fall back to input
+        # Determine start_idx first, then get upstream from previous module
+        effective = _get_effective_pipeline()
+        try:
+            start_idx = effective.index(start_tag)
+        except ValueError:
+            start_idx = 0
             start_tag = ""
-        else:
-            # Invalidate downstream if needed
+
+        if start_tag:
+            # Invalidate from the trigger tag onwards
             _invalidate_from(start_tag)
+            # Upstream is the snapshot of the PREVIOUS module (or input image if first)
+            if start_idx > 0:
+                upstream = _SNAPSHOTS.get(effective[start_idx - 1])
+                if upstream is None:
+                    start_tag = ""
+            else:
+                upstream = _INPUT_IMAGE
+                if upstream is None:
+                    start_tag = ""
 
     if not start_tag:
         if out_fmt_changed and _INPUT_IMAGE is not None:
@@ -902,19 +914,6 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
         if _INPUT_IMAGE is not None:
             _update_left_preview(window, _INPUT_IMAGE)
         return
-
-    # Determine start index
-    start_idx = 0
-    if start_tag:
-        try:
-            start_idx = effective.index(start_tag)
-        except ValueError:
-            start_idx = 0
-            upstream = _INPUT_IMAGE
-            _SNAPSHOTS.clear()
-            if not _load_input_image(window_elements, window):
-                return
-            upstream = _INPUT_IMAGE
 
     if upstream is None:
         update_status(window, LOGTAG, LINE(), "No input data", level=STATUS_WARNING)
@@ -999,18 +998,13 @@ def _run_pipeline(window_elements: dict, window: sg.Window, trigger_tag: str = "
                     level=STATUS_ERROR)
                 return
 
-        io_info = {
+        io_info = io_params.copy()
+        io_info.update({
             "out_fmt": module_out_fmt,
             "out_clrspc": module_out_clrspc,
-            "width": io_params["width"],
-            "height": io_params["height"],
-            "frame_idx": io_params["frame_idx"],
-            "frame_num": io_params["frame_num"],
-            "output_dir": output_dir,
-            "config_path": io_params["config_path"],
             "elements": window_elements,
             "window": window,
-        }
+        })
 
         ok, result = mod["process"](current_frame, io_info)
         if ok:
@@ -1407,7 +1401,8 @@ def main():
         if event.startswith("-PIPE-UP-"):
             tag = event.replace("-PIPE-UP-", "").rstrip("-")
             idx = pipeline_order.index(tag)
-            if idx > 0:
+            # CSC is fixed at index 0, other modules cannot move above it
+            if idx > 1:
                 pipeline_order[idx], pipeline_order[idx - 1] = \
                     pipeline_order[idx - 1], pipeline_order[idx]
                 _rebuild_pipeline_bar(window)
@@ -1514,7 +1509,7 @@ def main():
             continue
 
         # Stream format changed — reload input and re-run pipeline
-        if event == "-STREAM-FORMAT-":
+        if event == "-STREAM-FMT-":
             _SNAPSHOTS.clear()
             _run_pipeline(values, window)
             continue
@@ -1542,8 +1537,7 @@ def main():
         if handle_dci_event(event, values, window):
             # UI-only events: don't trigger pipeline re-run
             if event not in ("-DCI-OPEN-EXE-DIR-", "-DCI-OPEN-AUDIT-DIR-", "-DCI-AUDIT-DIR-", "-DCI-SAVE-CFG-"):
-                if not event.endswith("-RESET-"):
-                    _run_pipeline(values, window, trigger_tag="dci")
+                _run_pipeline(values, window, trigger_tag="dci")
             # Refresh right preview for COMBO MEDIAN or audit dir changes
             if event in ("-DCI-COMBO-MEDIAN-", "-DCI-AUDIT-DIR-"):
                 _refresh_right_preview_only(window, values)
