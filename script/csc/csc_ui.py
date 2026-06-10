@@ -511,18 +511,18 @@ def open_csc_ui(args=None):
         [sg.Frame('Preview Info', [
             [
                 sg.Text('Display Size:', size=(10, 1)),
-                sg.Input('', key='-DISPLAY-SIZE-', size=(54, 1), readonly=True, border_width=0,
+                sg.Input('', key='-DISPLAY-SIZE-', size=(60, 1), readonly=True, border_width=0,
                          disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color()),
                 sg.Text('Position:', size=(10, 1)),
-                sg.Input('', key='-POSITION-INFO-', size=(54, 1), readonly=True, border_width=0,
+                sg.Input('', key='-POSITION-INFO-', size=(60, 1), readonly=True, border_width=0,
                          disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color()),
             ],
             [
                 sg.Text('Input Pixel:', size=(10, 1)),
-                sg.Input('', key='-INPUT-PIXEL-INFO-', size=(54, 1), readonly=True, border_width=0,
+                sg.Input('', key='-INPUT-PIXEL-INFO-', size=(60, 1), readonly=True, border_width=0,
                          disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color()),
                 sg.Text('Output Pixel:', size=(10, 1)),
-                sg.Input('', key='-OUTPUT-PIXEL-INFO-', size=(54, 1), readonly=True, border_width=0,
+                sg.Input('', key='-OUTPUT-PIXEL-INFO-', size=(60, 1), readonly=True, border_width=0,
                          disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color()),
             ],
         ], expand_x=True)],
@@ -1049,7 +1049,9 @@ def open_csc_ui(args=None):
                 window['-SAT-IMAGE-'].update(data=bio.getvalue())
 
     def _update_dual_lock_display():
-        """Update INPUT/OUTPUT/POSITION text for dual mode (left is the source-of-truth lock)."""
+        """Update INPUT/OUTPUT/POSITION text for dual mode (right colormap is the
+        source-of-truth lock for the Output line; left colormap is the source-of-truth
+        for the Input line and the Display Size "start" coordinate)."""
         if not sathue_left_locked or sathue_left_locked_pix is None or sathue_left_locked_input is None:
             return
         lx, ly = sathue_left_locked_pix
@@ -1058,19 +1060,33 @@ def open_csc_ui(args=None):
             _format_dual_input_str(sathue_left_colorspace, sathue_left_locked_input, out_pos, True))
         window['-OUTPUT-PIXEL-INFO-'].update(
             _format_dual_output_str(sathue_left_colorspace, sathue_left_locked_input, out_pos, True))
-        # Position: dual mode shows both sides as data coords
-        # "(xl, yl)/(xr, yr) [Frozen]".  (xl, yl) is the frozen pixel on the left
-        # colormap; (xr, yr) is the hue/sat-transformed output pixel projected onto
-        # the right colormap (which may be a different colorspace).
+        # Position: dual mode shows the right colormap trajectory.
+        # "(xs, ys) -> (xe, ye) [Frozen]"  where (xs, ys) is the frozen pixel on
+        # the right colormap and (xe, ye) is the hue/sat-transformed output pixel
+        # projected onto the right colormap (the right colormap may be in a different
+        # colorspace than the left one).
         xl = _pix_to_data_int(lx)
         yl = _pix_to_data_int(SAT_COLORMAP_SIZE - 1 - ly)
-        right_pos = _compute_dual_right_data_pos()
-        if right_pos is None:
-            pos_text = f"({xl:4d},{yl:4d})/(  n/a,  n/a) [Frozen]"
+        right_start = _compute_dual_right_frozen_data_pos()
+        right_end = _compute_dual_right_data_pos()
+        if right_start is None or right_end is None:
+            pos_text = "( n/a,  n/a) -> ( n/a,  n/a) [Frozen]"
         else:
-            xr, yr = right_pos
-            pos_text = f"({xl:4d},{yl:4d})/({int(round(xr)):4d},{int(round(yr)):4d}) [Frozen]"
+            xs, ys = right_start
+            xe, ye = right_end
+            pos_text = f"({int(round(xs)):4d},{int(round(ys)):4d}) -> ({int(round(xe)):4d},{int(round(ye)):4d}) [Frozen]"
         window['-POSITION-INFO-'].update(pos_text)
+        # Display Size in dual + frozen: show the left colormap trajectory
+        # "(xs, ys) -> (xe, ye) [Frozen]" where (xs, ys) is the left colormap frozen
+        # pixel and (xe, ye) is the left colormap pixel after one application of
+        # hue/sat.  When not frozen, fall back to the default W x H display.
+        left_end = _compute_dual_left_end_data_pos()
+        if left_end is None:
+            disp_size_text = f"({xl:4d},{yl:4d}) -> ( n/a,  n/a) [Frozen]"
+        else:
+            xe2, ye2 = left_end
+            disp_size_text = f"({xl:4d},{yl:4d}) -> ({int(round(xe2)):4d},{int(round(ye2)):4d}) [Frozen]"
+        window['-DISPLAY-SIZE-'].update(value=disp_size_text)
 
     def _compute_dual_right_data_pos():
         """Return (x_data, y_data) of the hue/sat-transformed output pixel on the
@@ -1093,6 +1109,51 @@ def open_csc_ui(args=None):
             out_yuv_data = _rgb_to_yuv_input((h2, s2, v2))
             cx = float(out_yuv_data[1])
             cy = float(out_yuv_data[2])
+        else:
+            return None
+        if -128.0 <= cx < 128.0 and -128.0 <= cy < 128.0:
+            return cx, cy
+        return None
+
+    def _compute_dual_right_frozen_data_pos():
+        """Return (x_data, y_data) of the right-colormap frozen pixel (the source
+        of the dual-mode Output line) projected onto the right colormap.
+
+        YUV=>RGB: sathue_right_locked_input is (H, S, V) -> HSV colormap (x, y).
+        RGB=>YUV: sathue_right_locked_input is (Y, Cb_signed, Cr_signed) -> YUV colormap (Cb, Cr)."""
+        right_invals = sathue_right_locked_input
+        if right_invals is None:
+            return None
+        if sathue_left_colorspace == 'YUV' and sathue_right_colorspace == 'RGB':
+            h, s, v = right_invals
+            cx = s * _DATA_RANGE_MAX * np.cos(np.radians(h))
+            cy = s * _DATA_RANGE_MAX * np.sin(np.radians(h))
+        elif sathue_left_colorspace == 'RGB' and sathue_right_colorspace == 'YUV':
+            cx = float(right_invals[1])
+            cy = float(right_invals[2])
+        else:
+            return None
+        if -128.0 <= cx < 128.0 and -128.0 <= cy < 128.0:
+            return cx, cy
+        return None
+
+    def _compute_dual_left_end_data_pos():
+        """Return (x_data, y_data) of the left-colormap frozen pixel after one
+        application of hue/sat, still on the left colormap.  Used for the
+        "Display Size" trajectory "(xs, ys) -> (xe, ye) [Frozen]" in dual mode.
+
+        YUV=>RGB (left=YUV): invals (Y, Cb, Cr) -> apply YUV hue/sat -> (Cb, Cr).
+        RGB=>YUV (left=HSV): invals (H, S, V) -> apply HSV hue/sat -> HSV colormap (x, y)."""
+        invals = sathue_left_locked_input
+        if invals is None:
+            return None
+        if sathue_left_colorspace == 'YUV':
+            y, cb2, cr2 = _apply_hue_sat_yuv(invals)
+            cx, cy = float(cb2), float(cr2)
+        elif sathue_left_colorspace == 'RGB':
+            h2, s2, v2 = _apply_hue_sat_hsv(invals)
+            cx = s2 * _DATA_RANGE_MAX * np.cos(np.radians(h2))
+            cy = s2 * _DATA_RANGE_MAX * np.sin(np.radians(h2))
         else:
             return None
         if -128.0 <= cx < 128.0 and -128.0 <= cy < 128.0:
@@ -1282,29 +1343,44 @@ def open_csc_ui(args=None):
         """Format the dual-mode Output Pixel line.  All printed Y/Cb/Cr values are
         in the pixel domain [0, 255]; all printed R/G/B values are 0-255 bytes.
 
-        With frozen pixel (same shape as Input line; the "input" side shows the
-        transformed pixel and the "=>" side shows it run through hue/sat once more):
+        With frozen pixel (right colormap is the source-of-truth, "以 RGB 像素为主"):
           YUV=>RGB : "Y(yi,ui,vi)/R(ri, gi, bi) => Y(yo,uo,vo)/R(ro,go,bo)"
+                  (Y_i, R_i) is the right-colormap frozen pixel expressed in the
+                  YUV and RGB colorspaces; (Y_o, R_o) is the hue/sat-transformed
+                  version of that same pixel.
           RGB=>YUV : "R(ri, gi, bi)/Y(yi,ui,vi) => R(ro,go,bo)/Y(yo,uo,vo)"
 
         Without frozen pixel: returns an empty string (caller clears the field)."""
         if not frozen:
             return ''
-        # Compute the transformed pixel directly via the hue/sat formula.
+        # The right colormap is the source-of-truth lock for the dual-mode Output
+        # line; the left colormap's frozen pixel only feeds the Input line.
+        right_invals = sathue_right_locked_input
+        if right_invals is None:
+            return ''
         if input_cs == 'YUV':
-            once_data = _apply_hue_sat_yuv(input_vals)
-            twice_data = _apply_hue_sat_yuv(once_data)
-        else:
-            once_hsv = _apply_hue_sat_hsv(input_vals)
-            once_data = _rgb_to_yuv_input(once_hsv)
-            twice_hsv = _apply_hue_sat_hsv(once_hsv)
-            twice_data = _rgb_to_yuv_input(twice_hsv)
-        yi_pix, ui_pix, vi_pix = _yuv_data_to_pixel_yuv(once_data)
-        yo_pix, uo_pix, vo_pix = _yuv_data_to_pixel_yuv(twice_data)
-        ri, gi, bi = _yuv_tuple_to_rgb_bytes(once_data)
-        ro, go, bo = _yuv_tuple_to_rgb_bytes(twice_data)
-        if input_cs == 'YUV':
+            # Right cs is RGB; sathue_right_locked_input is (H, S, V).
+            ri, gi, bi = _hsv_tuple_to_rgb_bytes(right_invals)
+            y_arr, cb_arr, cr_arr = _rgb2ycbcr(np.array([ri]), np.array([gi]), np.array([bi]))
+            yi_pix = int(np.clip(round(float(y_arr[0])), 0, 255))
+            ui_pix = int(np.clip(round(float(cb_arr[0])), 0, 255))
+            vi_pix = int(np.clip(round(float(cr_arr[0])), 0, 255))
+            # Apply hue/sat once on the right frozen pixel and project back.
+            h2, s2, v2 = _apply_hue_sat_hsv(right_invals)
+            ro_arr, go_arr, bo_arr = _hsv2rgb(np.array([h2]), np.array([s2]), np.array([v2]))
+            ro, go, bo = int(ro_arr[0]), int(go_arr[0]), int(bo_arr[0])
+            y2, cb2, cr2 = _rgb2ycbcr(np.array([float(ro)]), np.array([float(go)]), np.array([float(bo)]))
+            yo_pix = int(np.clip(round(float(y2[0])), 0, 255))
+            uo_pix = int(np.clip(round(float(cb2[0])), 0, 255))
+            vo_pix = int(np.clip(round(float(cr2[0])), 0, 255))
             return f"Y({yi_pix:3d},{ui_pix:3d},{vi_pix:3d})/R({ri:3d},{gi:3d},{bi:3d}) => Y({yo_pix:3d},{uo_pix:3d},{vo_pix:3d})/R({ro:3d},{go:3d},{bo:3d})"
+        # input_cs == 'RGB': left cs is RGB, right cs is YUV.
+        # sathue_right_locked_input is (Y, Cb_signed, Cr_signed).
+        yi_pix, ui_pix, vi_pix = _yuv_data_to_pixel_yuv(right_invals)
+        ri, gi, bi = _yuv_tuple_to_rgb_bytes(right_invals)
+        out_yuv_data = _apply_hue_sat_yuv(right_invals)
+        yo_pix, uo_pix, vo_pix = _yuv_data_to_pixel_yuv(out_yuv_data)
+        ro, go, bo = _yuv_tuple_to_rgb_bytes(out_yuv_data)
         return f"R({ri:3d},{gi:3d},{bi:3d})/Y({yi_pix:3d},{ui_pix:3d},{vi_pix:3d}) => R({ro:3d},{go:3d},{bo:3d})/Y({yo_pix:3d},{uo_pix:3d},{vo_pix:3d})"
 
     def _get_sathue_output_at(pix_x, pix_y, cs=None, img_eff=None):
@@ -1772,7 +1848,13 @@ def open_csc_ui(args=None):
                 window['-IMAGE-'].update(data=bio.getvalue(), size=(w, h))
             current_main_display_size = (w, h)
             if sat_preview_visible and current_main_display_size != old_main_display_size:
-                _render_sathue_display()
+                # In dual mode, -SAT-IMAGE- is owned by the dual colormap renderer
+                # (sathue_right_img_full / HSV or YUV colormap), so we must NOT
+                # re-render sathue_img_full (the stale single-mode colormap) here.
+                if sathue_mode == 'dual':
+                    _render_dual_main_previews(preserve=preserve_preview_size)
+                else:
+                    _render_sathue_display()
 
             iclr_disp = values['-IN-CLR-']
             oclr_disp = values['-OUT-CLR-']
@@ -1785,6 +1867,12 @@ def open_csc_ui(args=None):
             step2_coef_str = str(current_step2_coefs).replace('\n', ' ') if current_step2_coefs is not None else "None"
             step2_offset_str = str(current_step2_offset) if current_step2_offset is not None else "None"
             window['-DISPLAY-SIZE-'].update(value=f"{w}x{h} ({mode_desc})")
+            # In dual mode the "Display Size" field is repurposed to show the
+            # left-colormap trajectory "(xs, ys) -> (xe, ye) [Frozen]"; that
+            # update is owned by _update_dual_lock_display, so leave the
+            # default W x H text in place only when no frozen pixel is active.
+            if sathue_mode == 'dual' and sathue_left_locked:
+                _update_dual_lock_display()
             update_multiline_readonly(window, '-STEP1-COEFS-', step1_coef_str)
             update_multiline_readonly(window, '-STEP1-OFFSET-', step1_offset_str)
             update_multiline_readonly(window, '-STEP2-COEFS-', step2_coef_str)
