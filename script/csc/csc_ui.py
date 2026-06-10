@@ -21,6 +21,8 @@ from get_csc_coefs import (
     ColorSpace,
     get_csc_coefs,
     parse_csc_mode_str,
+    g_r2y_mat_bt709,
+    g_y2r_mat_bt709
 )
 from get_csc_coef_hsv import (
     ALGO_RK_HW_CSC,
@@ -62,6 +64,9 @@ UI_BCSH_KEY_TO_CONFIG_KEY = {
     "bright": "brightness",
     "sat": "saturation",
 }
+
+# VOP channel swap modes exposed in the BCSH Config tab.
+CHANNEL_SWAP_TYPES = ["None", "V1_SWAP", "V2_Y2R_R2R", "V2_R2Y_R2R", "V2_Y2R_Y2Y"]
 
 
 def _load_ui_font(size):
@@ -166,12 +171,23 @@ def _ycbcr2rgb(y, cb, cr):
     ycbcr = np.stack([np.asarray(y, dtype=np.float32),
                        np.asarray(cb, dtype=np.float32),
                        np.asarray(cr, dtype=np.float32)], axis=-1)
-    g_y2r = np.array([[1.0, 0.0, 1.5748], [1.0, -0.187324, -0.468124], [1.0, 1.8556, 0.0]], dtype=np.float32)
-    rgb = np.dot(ycbcr.reshape(-1, 3), g_y2r.T).reshape(ycbcr.shape)
+    rgb = np.dot(ycbcr.reshape(-1, 3), g_y2r_mat_bt709.T).reshape(ycbcr.shape)
     r = np.clip(rgb[..., 0] + 0.5, 0, 255).astype(np.uint8)
     g = np.clip(rgb[..., 1] + 0.5, 0, 255).astype(np.uint8)
     b = np.clip(rgb[..., 2] + 0.5, 0, 255).astype(np.uint8)
     return r, g, b
+
+
+def _rgb2ycbcr(r, g, b):
+    """Convert RGB (0-255) to YCbCr (BT.709), returns Y, Cb, Cr as float32 arrays (0-255)."""
+    rgb = np.stack([np.asarray(r, dtype=np.float32),
+                    np.asarray(g, dtype=np.float32),
+                    np.asarray(b, dtype=np.float32)], axis=-1)
+    ycbcr = np.dot(rgb.reshape(-1, 3), g_r2y_mat_bt709.T).reshape(rgb.shape)
+    y = ycbcr[..., 0]
+    cb = ycbcr[..., 1] + 128.0
+    cr = ycbcr[..., 2] + 128.0
+    return y, cb, cr
 
 
 def _rgb2hsv(r, g, b):
@@ -410,20 +426,25 @@ def open_csc_ui(args=None):
         ALGO_EVIDEO_CSC_PLAN_B,
     ]
     bcsh_tab_layout = [
-        *bcsh_layout,
         [sg.Text('Algo Type:', size=(8, 1)),
          sg.Combo(algo_type_options, default_value=ALGO_RK_HW_CSC, key='-BCSH-ALGO-TYPE-',
-                  readonly=True, size=(22, 1), enable_events=True),
-         sg.Push(),
-         sg.Button('Reset BCSH', key='-RESET-BCSH-')]
+                  readonly=True, size=(20, 1), enable_events=True),
+         sg.Text('Precision (0=float):', size=(14, 1)),
+         sg.Combo([str(v) for v in precision_values], default_value='10',
+                  key='-PRECISION-', readonly=True, size=(6, 1), enable_events=True),
+         sg.Text('Channel Swap (VOP):', size=(16, 1)),
+         sg.Combo(CHANNEL_SWAP_TYPES, default_value='None', key='-CHANNEL-SWAP-',
+                  readonly=True, size=(12, 1), enable_events=True),
+         sg.Button('Reset BCSH', key='-RESET-BCSH-')],
+        *bcsh_layout,
     ]
 
     preview_resize_threshold = 24
 
     sathue_tab_layout = [
         [sg.Text('Input Colorspace:', size=(14, 1)),
-         sg.Combo(['YUV', 'RGB'], default_value='YUV', key='-SAT-CLRSPC-',
-                  readonly=True, size=(6, 1), enable_events=True),
+         sg.Combo(['YUV', 'RGB', 'YUV=>RGB', 'RGB=>YUV'], default_value='YUV', key='-SAT-CLRSPC-',
+                  readonly=True, size=(14, 1), enable_events=True),
          sg.Text('Input Depth:', size=(10, 1)),
          sg.Text('8bit', key='-SAT-DEPTH-', size=(5, 1)),
          sg.Push(),
@@ -468,10 +489,7 @@ def open_csc_ui(args=None):
          sg.Text('Output Colorspace:', size=(14, 1)),
          sg.Combo(clrspc_rgb, default_value=clrspc_rgb[1], key='-OUT-CLR-',
                   readonly=True, size=(clrspc_combo_width, 1), enable_events=True)],
-        [sg.Text('Precision (0=float):', size=(16, 1)),
-         sg.Combo([str(v) for v in precision_values], default_value='10',
-                  key='-PRECISION-', readonly=True, size=(6, 1), enable_events=True),
-         sg.Text('Auto Pixel Depth:', size=(14, 1)),
+        [sg.Text('Auto Pixel Depth:', size=(14, 1)),
          sg.Text('8', key='-DISP-DEPTH-', size=(4, 1), font=('_', 10, 'bold'))]
     ]
 
@@ -492,19 +510,19 @@ def open_csc_ui(args=None):
         [sg.HorizontalSeparator()],
         [sg.Frame('Preview Info', [
             [
-                sg.Text('Display Size:', size=(12, 1)),
-                sg.Input('', key='-DISPLAY-SIZE-', size=(48, 1), readonly=True, border_width=0,
+                sg.Text('Display Size:', size=(10, 1)),
+                sg.Input('', key='-DISPLAY-SIZE-', size=(54, 1), readonly=True, border_width=0,
                          disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color()),
                 sg.Text('Position:', size=(10, 1)),
-                sg.Input('', key='-POSITION-INFO-', size=(48, 1), readonly=True, border_width=0,
+                sg.Input('', key='-POSITION-INFO-', size=(54, 1), readonly=True, border_width=0,
                          disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color()),
             ],
             [
-                sg.Text('Input Pixel:', size=(12, 1)),
-                sg.Input('', key='-INPUT-PIXEL-INFO-', size=(48, 1), readonly=True, border_width=0,
+                sg.Text('Input Pixel:', size=(10, 1)),
+                sg.Input('', key='-INPUT-PIXEL-INFO-', size=(54, 1), readonly=True, border_width=0,
                          disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color()),
                 sg.Text('Output Pixel:', size=(10, 1)),
-                sg.Input('', key='-OUTPUT-PIXEL-INFO-', size=(48, 1), readonly=True, border_width=0,
+                sg.Input('', key='-OUTPUT-PIXEL-INFO-', size=(54, 1), readonly=True, border_width=0,
                          disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_text_color()),
             ],
         ], expand_x=True)],
@@ -532,7 +550,7 @@ def open_csc_ui(args=None):
          ], key='-SAT-IMAGE-COL-', expand_y=True, element_justification='center', vertical_alignment='top', pad=((10, 0), 0), visible=False)]
     ]
 
-    window = sg.Window('CSC Test Tool v1.0', layout, resizable=True, finalize=True, return_keyboard_events=True)
+    window = sg.Window('CSC Test Tool v1.1', layout, resizable=True, finalize=True, return_keyboard_events=True)
     window.TKroot.attributes('-topmost', True)
     window.TKroot.lift()
     window.TKroot.focus_force()
@@ -584,21 +602,38 @@ def open_csc_ui(args=None):
     current_main_display_size = (400, 400)
 
     # Sat/Hue Test state
-    sathue_colorspace = 'YUV'
+    sathue_colorspace = 'YUV'  # legacy single-mode colorspace; mirrored to *_colorspace in single mode
+    sathue_mode = 'single'  # 'single' = right colormap only; 'dual' = left+right colormaps (YUV=>RGB / RGB=>YUV)
+    sathue_left_colorspace = 'YUV'
+    sathue_right_colorspace = 'YUV'
     sathue_luma_val = 204
     sathue_hue_val = 0
     sathue_sat_val = 1.0
-    sathue_img_eff = None       # effective colormap PIL Image (without axes)
-    sathue_img_full = None      # full image with axes, margin
+    sathue_img_eff = None       # effective colormap PIL Image (without axes); single-mode only
+    sathue_img_full = None      # full image with axes, margin; single-mode only
+    sathue_left_img_eff = None
+    sathue_left_img_full = None
+    sathue_right_img_eff = None
+    sathue_right_img_full = None
     sathue_margin = SAT_MARGIN
     sathue_locked = False
-    sathue_locked_pix = None    # (img_x, img_y) in effective coords
-    sathue_locked_input = None  # (c1, c2, c3) input values at lock point
+    sathue_locked_pix = None    # (img_x, img_y) in effective coords (single-mode)
+    sathue_locked_input = None  # (c1, c2, c3) input values at lock point (single-mode)
+    sathue_left_locked = False
+    sathue_left_locked_pix = None
+    sathue_left_locked_input = None
+    sathue_right_locked_pix = None
+    sathue_right_locked_input = None
     sathue_mouse_pos = None
-    sathue_display_scale = 1.0  # scale ratio applied to full_img for display
+    sathue_left_display_scale = 1.0
+    sathue_right_display_scale = 1.0
+    sathue_display_scale = 1.0  # scale ratio applied to full_img for display (single-mode)
     sathue_render_after_id = None  # tkinter after id for deferred render
     is_mouse_in_sathue = False
+    is_mouse_in_sathue_left = False
     sathue_set_color_enabled = False
+    sathue_left_mouse_pos = None
+    sathue_left_render_after_id = None
     planar_in_full = None
     current_input_file_params = None  # (input_file, w, h, ifmt)
 
@@ -620,49 +655,102 @@ def open_csc_ui(args=None):
         return nums[:3]
 
     def update_sathue_map(preserve_display_size=False):
-        """Regenerate the Sat/Hue colormap image and update the widget."""
+        """Regenerate the Sat/Hue colormap image(s) and update the widget(s).
+        Single mode: only -SAT-IMAGE- is updated. Dual mode: -LEFT-PREVIEW- and -SAT-IMAGE-
+        are both updated with their respective colormaps."""
         nonlocal sathue_img_eff, sathue_img_full, sathue_margin
         nonlocal sathue_display_scale
-        if sathue_colorspace == 'YUV':
-            img_eff = _build_colormap_yuv(sathue_luma_val)
-            title = f"YCbCr->RGB  (Y={sathue_luma_val})"
-            xlabel, ylabel = "Cb", "Cr"
-        else:
-            img_eff = _build_colormap_rgb(sathue_luma_val)
-            title = f"HSV->RGB  (V={sathue_luma_val})"
-            xlabel, ylabel = "S*cos(H)", "S*sin(H)"
-        sathue_img_eff = img_eff.copy()
+        nonlocal sathue_left_img_eff, sathue_left_img_full
+        nonlocal sathue_right_img_eff, sathue_right_img_full
 
-        # Draw locked-point circles
-        img_verbose = img_eff.copy()
-        draw_verbose = ImageDraw.Draw(img_verbose)
+        if sathue_mode == 'single':
+            if sathue_colorspace == 'YUV':
+                img_eff = _build_colormap_yuv(sathue_luma_val)
+                title = f"YCbCr->RGB  (Y={sathue_luma_val})"
+                xlabel, ylabel = "Cb", "Cr"
+            else:
+                img_eff = _build_colormap_rgb(sathue_luma_val)
+                title = f"HSV->RGB  (V={sathue_luma_val})"
+                xlabel, ylabel = "S*cos(H)", "S*sin(H)"
+            sathue_img_eff = img_eff.copy()
 
-        if sathue_locked and sathue_locked_pix is not None:
-            lx, ly = sathue_locked_pix
-            # Black circle at locked position (thick)
-            r = 5
-            for _ in range(2):
-                draw_verbose.ellipse([lx - r, ly - r, lx + r, ly + r], outline=(0, 0, 0))
-                r -= 1
-            # White circle at transformed position (thick)
-            out_pos = _compute_sathue_output_pos()
-            if out_pos is not None:
-                tx, ty = out_pos
+            # Draw locked-point circles
+            img_verbose = img_eff.copy()
+            draw_verbose = ImageDraw.Draw(img_verbose)
+
+            if sathue_locked and sathue_locked_pix is not None:
+                lx, ly = sathue_locked_pix
+                # Black circle at locked position (thick)
                 r = 5
                 for _ in range(2):
-                    draw_verbose.ellipse([tx - r, ty - r, tx + r, ty + r], outline=(255, 255, 255))
+                    draw_verbose.ellipse([lx - r, ly - r, lx + r, ly + r], outline=(0, 0, 0))
                     r -= 1
+                # White circle at transformed position (thick)
+                out_pos = _compute_sathue_output_pos()
+                if out_pos is not None:
+                    tx, ty = out_pos
+                    r = 5
+                    for _ in range(2):
+                        draw_verbose.ellipse([tx - r, ty - r, tx + r, ty + r], outline=(255, 255, 255))
+                        r -= 1
 
-            # Update locked pixel display
-            _update_sathue_lock_display()
+                # Update locked pixel display
+                _update_sathue_lock_display()
 
-        full_img, margin = _build_colormap_with_axis(img_verbose, title, xlabel, ylabel)
-        sathue_img_full = full_img
-        sathue_margin = margin
-        if preserve_display_size:
-            _update_sathue_image_content()
+            full_img, margin = _build_colormap_with_axis(img_verbose, title, xlabel, ylabel)
+            sathue_img_full = full_img
+            sathue_margin = margin
+            if preserve_display_size:
+                _update_sathue_image_content()
+            else:
+                _render_sathue_display()
         else:
-            _render_sathue_display()
+            # Dual mode: regenerate left and right colormaps independently.
+            # Luma sources:
+            #   - No frozen pixel: both sides use sathue_luma_val (the -SAT-LUMA- control).
+            #   - Left frozen: left side uses the frozen pixel's own Luma/Value; right side
+            #     uses the Luma/Value derived from the left frozen pixel converted to the
+            #     right colorspace. The -SAT-LUMA- control no longer drives the right side.
+            left_luma, right_luma = _resolve_dual_luma()
+
+            # Left colormap.
+            if sathue_left_colorspace == 'YUV':
+                left_eff = _build_colormap_yuv(left_luma)
+                left_title = f"YCbCr->RGB  (Y={left_luma})"
+                left_xl, left_yl = "Cb", "Cr"
+            else:
+                left_eff = _build_colormap_rgb(left_luma)
+                left_title = f"HSV->RGB  (V={left_luma})"
+                left_xl, left_yl = "S*cos(H)", "S*sin(H)"
+            sathue_left_img_eff = left_eff.copy()
+            left_verbose = left_eff.copy()
+            left_draw = ImageDraw.Draw(left_verbose)
+            if sathue_left_locked and sathue_left_locked_pix is not None:
+                _draw_locked_markers(left_draw, sathue_left_locked_pix,
+                                     sathue_left_locked_input, cs=sathue_left_colorspace)
+                _update_dual_lock_display()
+            sathue_left_img_full, _ = _build_colormap_with_axis(left_verbose, left_title, left_xl, left_yl)
+
+            # Right colormap.
+            if sathue_right_colorspace == 'YUV':
+                right_eff = _build_colormap_yuv(right_luma)
+                right_title = f"YCbCr->RGB  (Y={right_luma})"
+                right_xl, right_yl = "Cb", "Cr"
+            else:
+                right_eff = _build_colormap_rgb(right_luma)
+                right_title = f"HSV->RGB  (V={right_luma})"
+                right_xl, right_yl = "S*cos(H)", "S*sin(H)"
+            sathue_right_img_eff = right_eff.copy()
+            right_verbose = right_eff.copy()
+            right_draw = ImageDraw.Draw(right_verbose)
+            if sathue_right_locked_pix is not None and sathue_right_locked_input is not None:
+                _draw_locked_markers(right_draw, sathue_right_locked_pix,
+                                     sathue_right_locked_input, cs=sathue_right_colorspace)
+            sathue_right_img_full, sathue_margin = _build_colormap_with_axis(
+                right_verbose, right_title, right_xl, right_yl)
+
+            # Push to -IMAGE- and -SAT-IMAGE-.
+            _render_dual_main_previews(preserve=preserve_display_size)
 
     def _preview_size_changed_enough(last_size, new_size):
         """Return whether preview size changed enough to justify a redraw."""
@@ -682,10 +770,14 @@ def open_csc_ui(args=None):
             window['-SAT-IMAGE-'].update(data=b'')
             last_sat_preview_size = (0, 0)
 
-    def _set_sathue_color_lock(pixel_vals):
-        """Apply a typed color to Sat/Hue Test and lock both input/output markers."""
+    def _set_sathue_color_lock(pixel_vals, cs=None):
+        """Apply a typed color to Sat/Hue Test and lock both input/output markers.
+        Pass cs explicitly in dual mode (typically sathue_left_colorspace);
+        otherwise falls back to sathue_colorspace."""
+        if cs is None:
+            cs = sathue_colorspace
         nonlocal sathue_locked, sathue_locked_pix, sathue_locked_input, sathue_luma_val
-        if sathue_colorspace == 'YUV':
+        if cs == 'YUV':
             y_val = int(np.clip(pixel_vals[0], 0, 255))
             u_val = int(np.clip(pixel_vals[1], 0, 255))
             v_val = int(np.clip(pixel_vals[2], 0, 255))
@@ -719,6 +811,97 @@ def open_csc_ui(args=None):
         sathue_locked_pix = (lock_x, lock_y)
         update_sathue_map(preserve_display_size=False)
 
+    def _set_sathue_dual_color_lock(pixel_vals):
+        """Lock a typed color in dual mode: left colormap gets the parsed pixel, right colormap
+        receives the converted (other colorspace) equivalent at the same screen coords."""
+        nonlocal sathue_left_locked, sathue_left_locked_pix, sathue_left_locked_input
+        nonlocal sathue_right_locked_pix, sathue_right_locked_input
+        nonlocal sathue_luma_val
+        # Lock on the left side using the left colorspace.
+        _set_sathue_color_lock(list(pixel_vals), cs=sathue_left_colorspace)
+        sathue_left_locked = True
+        sathue_left_locked_pix = sathue_locked_pix
+        sathue_left_locked_input = sathue_locked_input
+        # Compute the equivalent in the right colorspace.
+        if sathue_left_colorspace == 'YUV' and sathue_right_colorspace == 'RGB':
+            right_input = _yuv_to_rgb_input(sathue_left_locked_input)
+        elif sathue_left_colorspace == 'RGB' and sathue_right_colorspace == 'YUV':
+            right_input = _rgb_to_yuv_input(sathue_left_locked_input)
+        else:
+            right_input = sathue_left_locked_input
+        right_x, right_y = _input_to_lock_pix(right_input, cs=sathue_right_colorspace)
+        sathue_right_locked_pix = (right_x, right_y)
+        sathue_right_locked_input = right_input
+        update_sathue_map(preserve_display_size=False)
+
+    def _clear_sathue_dual_color_lock():
+        """Clear all locks in dual mode."""
+        nonlocal sathue_left_locked, sathue_left_locked_pix, sathue_left_locked_input
+        nonlocal sathue_right_locked_pix, sathue_right_locked_input
+        nonlocal sathue_locked, sathue_locked_pix, sathue_locked_input
+        sathue_left_locked = False
+        sathue_left_locked_pix = None
+        sathue_left_locked_input = None
+        sathue_right_locked_pix = None
+        sathue_right_locked_input = None
+        sathue_locked = False
+        sathue_locked_pix = None
+        sathue_locked_input = None
+        update_sathue_map(preserve_display_size=True)
+
+    def _input_to_lock_pix(input_vals, cs):
+        """Convert an (input) tuple to (pix_x, pix_y) for the given colorspace."""
+        if cs == 'YUV':
+            _, cb, cr = input_vals
+            return _data_to_pix(cb), SAT_COLORMAP_SIZE - 1 - _data_to_pix(cr)
+        else:
+            hue, sat, val = input_vals
+            x = _data_to_pix(sat * _DATA_RANGE_MAX * np.cos(np.radians(hue)))
+            y = SAT_COLORMAP_SIZE - 1 - _data_to_pix(sat * _DATA_RANGE_MAX * np.sin(np.radians(hue)))
+            return x, y
+
+    def _yuv_to_rgb_input(yuv_input):
+        """Convert YUV input tuple (Y, Cb, Cr) to RGB (HSV) input tuple (H, S, V)."""
+        _, cb, cr = yuv_input
+        y_byte = int(np.clip(round(float(yuv_input[0])), 0, 255))
+        # _ycbcr2rgb is the BT.709 data-domain matrix; pass Cb/Cr directly without +128.
+        r, g, b = _ycbcr2rgb(np.array([y_byte]), np.array([cb]), np.array([cr]))
+        h_arr, s_arr, v_arr = _rgb2hsv(np.array([r[0]]), np.array([g[0]]), np.array([b[0]]))
+        return (float(h_arr[0]), float(s_arr[0]), float(v_arr[0]))
+
+    def _rgb_to_yuv_input(rgb_input):
+        """Convert RGB (HSV) input tuple (H, S, V) to YUV input tuple (Y, Cb, Cr)."""
+        h, s, v = rgb_input
+        r_arr, g_arr, b_arr = _hsv2rgb(np.array([h]), np.array([s]), np.array([v]))
+        y_arr, cb_arr, cr_arr = _rgb2ycbcr(np.array([r_arr[0]]), np.array([g_arr[0]]), np.array([b_arr[0]]))
+        return (float(y_arr[0]), float(cb_arr[0]) - 128.0, float(cr_arr[0]) - 128.0)
+
+    def _get_luma_from_input(input_vals, cs):
+        """Extract the Luma/Value byte (0..255) from a sat/hue input tuple in the given cs."""
+        if cs == 'YUV':
+            y = float(input_vals[0])
+        else:
+            y = float(input_vals[2]) * 255.0
+        return int(np.clip(round(y), 0, 255))
+
+    def _resolve_dual_luma():
+        """Return (left_luma, right_luma) for dual mode.
+        When left side has a frozen pixel, left luma comes from the frozen pixel itself
+        and right luma comes from the left frozen pixel converted to the right cs.
+        Otherwise both sides share sathue_luma_val."""
+        if sathue_left_locked and sathue_left_locked_input is not None:
+            left_luma = _get_luma_from_input(sathue_left_locked_input, sathue_left_colorspace)
+            if sathue_left_colorspace == sathue_right_colorspace:
+                right_luma = left_luma
+            elif sathue_left_colorspace == 'YUV' and sathue_right_colorspace == 'RGB':
+                converted = _yuv_to_rgb_input(sathue_left_locked_input)
+                right_luma = _get_luma_from_input(converted, 'RGB')
+            else:
+                converted = _rgb_to_yuv_input(sathue_left_locked_input)
+                right_luma = _get_luma_from_input(converted, 'YUV')
+            return left_luma, right_luma
+        return sathue_luma_val, sathue_luma_val
+
     def _clear_sathue_color_lock():
         """Disable the forced Sat/Hue color lock and restore hover mode."""
         nonlocal sathue_locked, sathue_locked_pix, sathue_locked_input
@@ -747,6 +930,14 @@ def open_csc_ui(args=None):
         display_img.save(bio, format='PNG')
         window['-SAT-IMAGE-'].update(data=bio.getvalue(), size=(display_w, display_h))
 
+    def _refresh_sathue_display():
+        """Unified entry point that routes to the right renderer based on sathue_mode.
+        Single mode -> -SAT-IMAGE- only. Dual mode -> -LEFT-PREVIEW- + -SAT-IMAGE-."""
+        if sathue_mode == 'dual':
+            _render_dual_main_previews(preserve=False)
+        else:
+            _render_sathue_display()
+
     def _update_sathue_image_content():
         """Refresh only the Sat/Hue preview image content while keeping its display size fixed."""
         if sathue_img_full is None or not sat_preview_visible:
@@ -759,15 +950,32 @@ def open_csc_ui(args=None):
         display_img.save(bio, format='PNG')
         window['-SAT-IMAGE-'].update(data=bio.getvalue())
 
-    def _compute_sathue_output_pos():
-        """Compute the output pixel coordinate after Hue/Saturation transform on locked input.
-        Returns (pix_x, pix_y) in effective coords, or None if out of range."""
-        if sathue_locked_input is None:
+    def _draw_locked_markers(draw, locked_pix, locked_input, cs):
+        """Draw black input circle and white output circle on the given draw context."""
+        if locked_pix is None or locked_input is None:
+            return
+        lx, ly = locked_pix
+        r = 5
+        for _ in range(2):
+            draw.ellipse([lx - r, ly - r, lx + r, ly + r], outline=(0, 0, 0))
+            r -= 1
+        out_pos = _compute_sathue_output_pos_for(cs, locked_input)
+        if out_pos is not None:
+            tx, ty = out_pos
+            r = 5
+            for _ in range(2):
+                draw.ellipse([tx - r, ty - r, tx + r, ty + r], outline=(255, 255, 255))
+                r -= 1
+
+    def _compute_sathue_output_pos_for(cs, locked_input):
+        """Compute the output pixel coordinate for a given (cs, locked_input) tuple.
+        Mirrors _compute_sathue_output_pos but decoupled from global sathue_locked_input."""
+        if locked_input is None:
             return None
-        c1, c2, c3 = sathue_locked_input
+        c1, c2, c3 = locked_input
         hue_deg = sathue_hue_val
         sat_scale = sathue_sat_val
-        if sathue_colorspace == 'YUV':
+        if cs == 'YUV':
             cb = c2
             cr = c3
             h_rad = np.radians(hue_deg)
@@ -789,24 +997,182 @@ def open_csc_ui(args=None):
             return tx, ty
         return None
 
-    def _get_sathue_input_at(pix_x, pix_y):
-        """Get the (c1, c2, c3) input values at pixel in effective coords."""
-        if sathue_colorspace == 'YUV':
-            Y = sathue_luma_val
+    def _render_dual_main_previews(preserve=False):
+        """Render the dual colormaps into -LEFT-PREVIEW- and -SAT-IMAGE- with matched sizing."""
+        nonlocal sathue_left_display_scale, sathue_right_display_scale
+        if sathue_left_img_full is None or sathue_right_img_full is None:
+            return
+        if not preserve:
+            preferred_side = current_main_display_size[1] if current_main_display_size[1] > 0 else 400
+            max_side = max(preferred_side, 1)
+            liw, lih = sathue_left_img_full.size
+            riw, rih = sathue_right_img_full.size
+            left_ratio = min(2.0, max_side / liw, max_side / lih)
+            right_ratio = min(2.0, max_side / riw, max_side / rih)
+            # Keep both sides at the same display scale to keep them aligned.
+            scale_ratio = min(left_ratio, right_ratio)
+            sathue_left_display_scale = scale_ratio
+            sathue_right_display_scale = scale_ratio
+            left_disp = sathue_left_img_full.resize(
+                (int(round(liw * scale_ratio)), int(round(lih * scale_ratio))),
+                Image.LANCZOS if hasattr(Image, 'LANCZOS') else Image.Resampling.LANCZOS)
+            bio = io.BytesIO()
+            left_disp.save(bio, format='PNG')
+            window['-IMAGE-'].update(data=bio.getvalue(),
+                                     size=(int(round(liw * scale_ratio)),
+                                           int(round(lih * scale_ratio))))
+        else:
+            # Preserve previous scale but refresh content.
+            liw, lih = sathue_left_img_full.size
+            left_disp = sathue_left_img_full.resize(
+                (max(int(round(liw * sathue_left_display_scale)), 1),
+                 max(int(round(lih * sathue_left_display_scale)), 1)),
+                Image.LANCZOS if hasattr(Image, 'LANCZOS') else Image.Resampling.LANCZOS)
+            bio = io.BytesIO()
+            left_disp.save(bio, format='PNG')
+            window['-IMAGE-'].update(data=bio.getvalue())
+
+        # Right side respects the -SAT-IMAGE-COL- visibility toggle.
+        if sat_preview_visible:
+            riw, rih = sathue_right_img_full.size
+            right_disp = sathue_right_img_full.resize(
+                (max(int(round(riw * sathue_right_display_scale)), 1),
+                 max(int(round(rih * sathue_right_display_scale)), 1)),
+                Image.LANCZOS if hasattr(Image, 'LANCZOS') else Image.Resampling.LANCZOS)
+            bio = io.BytesIO()
+            right_disp.save(bio, format='PNG')
+            if not preserve:
+                window['-SAT-IMAGE-'].update(data=bio.getvalue(),
+                                             size=(max(int(round(riw * sathue_right_display_scale)), 1),
+                                                   max(int(round(rih * sathue_right_display_scale)), 1)))
+            else:
+                window['-SAT-IMAGE-'].update(data=bio.getvalue())
+
+    def _update_dual_lock_display():
+        """Update INPUT/OUTPUT/POSITION text for dual mode (left is the source-of-truth lock)."""
+        if not sathue_left_locked or sathue_left_locked_pix is None or sathue_left_locked_input is None:
+            return
+        lx, ly = sathue_left_locked_pix
+        out_pos = _compute_sathue_output_pos(cs=sathue_left_colorspace, invals=sathue_left_locked_input)
+        window['-INPUT-PIXEL-INFO-'].update(
+            _format_dual_input_str(sathue_left_colorspace, sathue_left_locked_input, out_pos, True))
+        window['-OUTPUT-PIXEL-INFO-'].update(
+            _format_dual_output_str(sathue_left_colorspace, sathue_left_locked_input, out_pos, True))
+        # Position: dual mode shows both sides as data coords
+        # "(xl, yl)/(xr, yr) [Frozen]".  (xl, yl) is the frozen pixel on the left
+        # colormap; (xr, yr) is the hue/sat-transformed output pixel projected onto
+        # the right colormap (which may be a different colorspace).
+        xl = _pix_to_data_int(lx)
+        yl = _pix_to_data_int(SAT_COLORMAP_SIZE - 1 - ly)
+        right_pos = _compute_dual_right_data_pos()
+        if right_pos is None:
+            pos_text = f"({xl:4d},{yl:4d})/(  n/a,  n/a) [Frozen]"
+        else:
+            xr, yr = right_pos
+            pos_text = f"({xl:4d},{yl:4d})/({int(round(xr)):4d},{int(round(yr)):4d}) [Frozen]"
+        window['-POSITION-INFO-'].update(pos_text)
+
+    def _compute_dual_right_data_pos():
+        """Return (x_data, y_data) of the hue/sat-transformed output pixel on the
+        right colormap (in data coords, the same convention as the left side uses).
+        Returns None if the result is outside the valid [-128, 128) data range.
+        YUV=>RGB: invals (YUV) -> RGB bytes -> HSV -> (h2,s2,v2) -> HSV colormap (x,y).
+        RGB=>YUV: invals (HSV) -> (h2,s2,v2) -> YUV -> YUV colormap (Cb, Cr)."""
+        invals = sathue_left_locked_input
+        if invals is None:
+            return None
+        if sathue_left_colorspace == 'YUV' and sathue_right_colorspace == 'RGB':
+            r, g, b = _yuv_tuple_to_rgb_bytes(invals)
+            h_arr, s_arr, v_arr = _rgb2hsv(np.array([r]), np.array([g]), np.array([b]))
+            h, s, v = float(h_arr[0]), float(s_arr[0]), float(v_arr[0])
+            h2, s2, v2 = _apply_hue_sat_hsv((h, s, v))
+            cx = s2 * _DATA_RANGE_MAX * np.cos(np.radians(h2))
+            cy = s2 * _DATA_RANGE_MAX * np.sin(np.radians(h2))
+        elif sathue_left_colorspace == 'RGB' and sathue_right_colorspace == 'YUV':
+            h2, s2, v2 = _apply_hue_sat_hsv(invals)
+            out_yuv_data = _rgb_to_yuv_input((h2, s2, v2))
+            cx = float(out_yuv_data[1])
+            cy = float(out_yuv_data[2])
+        else:
+            return None
+        if -128.0 <= cx < 128.0 and -128.0 <= cy < 128.0:
+            return cx, cy
+        return None
+
+    def _compute_sathue_output_pos(cs=None, invals=None):
+        """Compute the output pixel coordinate after Hue/Saturation transform.
+        When invals is provided it is used directly (hover case); otherwise the
+        currently locked input (sathue_locked_input) is used.
+        Returns (pix_x, pix_y) in effective coords, or None if out of range.
+        Pass cs explicitly in dual mode; otherwise falls back to sathue_colorspace."""
+        if cs is None:
+            cs = sathue_colorspace
+        if invals is None:
+            if sathue_locked_input is None:
+                return None
+            invals = sathue_locked_input
+        c1, c2, c3 = invals
+        hue_deg = sathue_hue_val
+        sat_scale = sathue_sat_val
+        if cs == 'YUV':
+            cb = c2
+            cr = c3
+            h_rad = np.radians(hue_deg)
+            cb2 = sat_scale * (cb * np.cos(h_rad) - cr * np.sin(h_rad))
+            cr2 = sat_scale * (cb * np.sin(h_rad) + cr * np.cos(h_rad))
+            cb2 = np.clip(cb2, -128, 127)
+            cr2 = np.clip(cr2, -128, 127)
+            tx = _data_to_pix(cb2)
+            ty = _data_to_pix(-cr2)
+        else:
+            h = c1
+            s = float(c2)
+            h2 = (h + hue_deg) % 360
+            s2 = np.clip(s * sat_scale, 0.0, 1.0)
+            sx = _data_to_pix(s2 * _DATA_RANGE_MAX * np.cos(np.radians(h2)))
+            sy = _data_to_pix(-s2 * _DATA_RANGE_MAX * np.sin(np.radians(h2)))
+            tx, ty = sx, sy
+        if 0 <= tx < SAT_COLORMAP_SIZE and 0 <= ty < SAT_COLORMAP_SIZE:
+            return tx, ty
+        return None
+
+    def _get_sathue_input_at(pix_x, pix_y, cs=None):
+        """Get the (c1, c2, c3) input values at pixel in effective coords.
+        Pass cs explicitly in dual mode; otherwise falls back to sathue_colorspace.
+        In dual mode the Luma/Value used here matches the Luma/Value the colormap was
+        rendered with (i.e. resolved via _resolve_dual_luma for that side)."""
+        if cs is None:
+            cs = sathue_colorspace
+        # In dual mode pick the effective Luma/Value that this side's colormap was
+        # rendered with, so the resulting (Y, Cb, Cr) / (H, S, V) tuple is consistent
+        # with the pixels the user is hovering on.
+        if sathue_mode == 'dual':
+            left_luma, right_luma = _resolve_dual_luma()
+            if cs == sathue_left_colorspace:
+                eff_luma = left_luma
+            elif cs == sathue_right_colorspace:
+                eff_luma = right_luma
+            else:
+                eff_luma = sathue_luma_val
+        else:
+            eff_luma = sathue_luma_val
+        if cs == 'YUV':
             Cb = _pix_to_data_int(pix_x)
             Cr = _pix_to_data_int(SAT_COLORMAP_SIZE - 1 - pix_y)
-            return (Y, Cb, Cr)
+            return (eff_luma, Cb, Cr)
         else:
             cx = _pix_to_data(pix_x) / _DATA_RANGE_MAX
             cy = _pix_to_data(SAT_COLORMAP_SIZE - 1 - pix_y) / _DATA_RANGE_MAX
             H = (np.arctan2(cy, cx) * 180.0 / np.pi + 360.0) % 360.0
             S = np.sqrt(cx ** 2 + cy ** 2)
-            V = sathue_luma_val / 255.0
-            return (H, max(S, 0.0), V)
+            return (H, max(S, 0.0), eff_luma / 255.0)
 
-    def _format_sathue_input_str(invals):
-        """Format input pixel info string per the display template."""
-        if sathue_colorspace == 'YUV':
+    def _format_sathue_input_str(invals, cs=None):
+        """Format input pixel info string per the display template.
+        Pass cs explicitly in dual mode; otherwise falls back to sathue_colorspace."""
+        if cs is None:
+            cs = sathue_colorspace
+        if cs == 'YUV':
             y_val, cb, cr = int(round(invals[0])), int(round(invals[1])), int(round(invals[2]))
             return f"YCbCr({y_val:3d}, {cb:3d}, {cr:3d}) <=> YUV({y_val:3d}, {cb+128:3d}, {cr+128:3d})"
         else:
@@ -814,9 +1180,12 @@ def open_csc_ui(args=None):
             r, g, b = _hsv2rgb(np.array([h_val]), np.array([s_val]), np.array([v_val]))
             return f"HSV({h_val:3.1f}, {s_val:3.2f}, {v_val:3.2f}) <=> RGB({r[0]:3d}, {g[0]:3d}, {b[0]:3d})"
 
-    def _format_sathue_output_str(outvals):
-        """Format output pixel info string per the display template."""
-        if sathue_colorspace == 'YUV':
+    def _format_sathue_output_str(outvals, cs=None):
+        """Format output pixel info string per the display template.
+        Pass cs explicitly in dual mode; otherwise falls back to sathue_colorspace."""
+        if cs is None:
+            cs = sathue_colorspace
+        if cs == 'YUV':
             y_val, cb, cr = int(round(outvals[0])), int(round(outvals[1])), int(round(outvals[2]))
             return f"YCbCr({y_val:3d}, {cb:3d}, {cr:3d}) <=> YUV({y_val:3d}, {cb+128:3d}, {cr+128:3d})"
         else:
@@ -824,23 +1193,142 @@ def open_csc_ui(args=None):
             h_val, s_val, v_val = _rgb2hsv(np.array([r]), np.array([g]), np.array([b]))
             return f"HSV({h_val[0]:3.1f}, {s_val[0]:3.2f}, {v_val[0]:3.2f}) <=> RGB({r:3d}, {g:3d}, {b:3d})"
 
-    def _get_sathue_output_at(pix_x, pix_y):
+    def _yuv_tuple_to_rgb_bytes(yuv_input):
+        """Return (R, G, B) 0-255 ints for a YUV data-domain tuple
+        (Y, Cb_signed, Cr_signed) in [-128, 127].  The internal _ycbcr2rgb matrix
+        is built for that data domain, so the Cb/Cr must NOT be shifted by +128 here."""
+        y = float(yuv_input[0])
+        cb = float(yuv_input[1])
+        cr = float(yuv_input[2])
+        r, g, b = _ycbcr2rgb(np.array([y]), np.array([cb]), np.array([cr]))
+        return int(np.clip(r[0], 0, 255)), int(np.clip(g[0], 0, 255)), int(np.clip(b[0], 0, 255))
+
+    def _hsv_tuple_to_rgb_bytes(hsv_input):
+        """Return (R, G, B) 0-255 ints for an HSV input tuple (H, S, V[0..1])."""
+        h, s, v = hsv_input
+        r_arr, g_arr, b_arr = _hsv2rgb(np.array([h]), np.array([s]), np.array([v]))
+        return int(r_arr[0]), int(g_arr[0]), int(b_arr[0])
+
+    def _yuv_data_to_pixel_yuv(yuv_input):
+        """Return (Y, Cb_pix, Cr_pix) ints in pixel domain [0,255] for a YUV data tuple
+        (Y, Cb_signed, Cr_signed) in [-128, 127].  Y is unchanged; Cb/Cr get +128 offset."""
+        y_byte = int(np.clip(round(float(yuv_input[0])), 0, 255))
+        cb_byte = int(np.clip(round(float(yuv_input[1])) + 128.0, 0, 255))
+        cr_byte = int(np.clip(round(float(yuv_input[2])) + 128.0, 0, 255))
+        return y_byte, cb_byte, cr_byte
+
+    def _apply_hue_sat_yuv(yuv_input):
+        """Apply the current sathue hue/sat transform to a YUV data-domain tuple
+        (Y, Cb_signed, Cr_signed).  Returns (Y, cb2, cr2) still in the data domain."""
+        y = float(yuv_input[0])
+        cb = float(yuv_input[1])
+        cr = float(yuv_input[2])
+        h_rad = np.radians(sathue_hue_val)
+        sat_scale = sathue_sat_val
+        cb2 = np.clip(sat_scale * (cb * np.cos(h_rad) - cr * np.sin(h_rad)), -128.0, 127.0)
+        cr2 = np.clip(sat_scale * (cb * np.sin(h_rad) + cr * np.cos(h_rad)), -128.0, 127.0)
+        return y, cb2, cr2
+
+    def _apply_hue_sat_hsv(hsv_input):
+        """Apply the current sathue hue/sat transform to an HSV tuple (H, S, V[0..1]).
+        Returns (h2, s2, v2)."""
+        h, s, v = hsv_input
+        h2 = (float(h) + sathue_hue_val) % 360.0
+        s2 = float(np.clip(s * sathue_sat_val, 0.0, 1.0))
+        v2 = float(v)
+        return h2, s2, v2
+
+    def _format_dual_input_str(input_cs, input_vals, out_pos, frozen):
+        """Format the dual-mode Input Pixel line.  All printed Y/Cb/Cr values are in
+        the pixel domain [0, 255]; all printed R/G/B values are 0-255 bytes.
+
+        With frozen pixel:
+          YUV=>RGB : "Y(yi,ui,vi)/R(ri, gi, bi) => Y(yo,uo,vo)/R(ro,go,bo)"
+          RGB=>YUV : "R(ri, gi, bi)/Y(yi,ui,vi) => R(ro,go,bo)/Y(yo,uo,vo)"
+
+        Without frozen pixel (hover-only):
+          YUV=>RGB : "YCbCr(y,cb,cr) => YUV(y,u,v)"
+          RGB=>YUV : "HSV(h, s, v) => RGB(r,g,b)"
+
+        Lowercase letters inside parentheses are the per-channel pixel values."""
+        if input_cs == 'YUV':
+            y_pix, cb_pix, cr_pix = _yuv_data_to_pixel_yuv(input_vals)
+            ri, gi, bi = _yuv_tuple_to_rgb_bytes(input_vals)
+        else:
+            ri, gi, bi = _hsv_tuple_to_rgb_bytes(input_vals)
+            yuv_data = _rgb_to_yuv_input(input_vals)
+            y_pix, cb_pix, cr_pix = _yuv_data_to_pixel_yuv(yuv_data)
+
+        if not frozen:
+            if input_cs == 'YUV':
+                return f"YCbCr({y_pix:3d},{cb_pix:3d},{cr_pix:3d}) => YUV({y_pix:3d},{input_vals[1] + 128:3d},{input_vals[2] + 128:3d})"
+            return f"HSV({input_vals[0]:3.1f}, {input_vals[1]:3.2f}, {input_vals[2]:3.2f}) => RGB({ri:3d},{gi:3d},{bi:3d})"
+
+        # Frozen branch: compute the transformed pixel directly from input_vals via
+        # the hue/sat formula, NOT from the colormap (which is the un-transformed reference).
+        if input_cs == 'YUV':
+            out_yuv_data = _apply_hue_sat_yuv(input_vals)
+        else:
+            h2, s2, v2 = _apply_hue_sat_hsv(input_vals)
+            out_yuv_data = _rgb_to_yuv_input((h2, s2, v2))
+        yo_pix, uo_pix, vo_pix = _yuv_data_to_pixel_yuv(out_yuv_data)
+        ro, go, bo = _yuv_tuple_to_rgb_bytes(out_yuv_data)
+
+        if input_cs == 'YUV':
+            return f"Y({y_pix:3d},{cb_pix:3d},{cr_pix:3d})/R({ri:3d},{gi:3d},{bi:3d}) => Y({yo_pix:3d},{uo_pix:3d},{vo_pix:3d})/R({ro:3d},{go:3d},{bo:3d})"
+        return f"R({ri:3d},{gi:3d},{bi:3d})/Y({y_pix:3d},{cb_pix:3d},{cr_pix:3d}) => R({ro:3d},{go:3d},{bo:3d})/Y({yo_pix:3d},{uo_pix:3d},{vo_pix:3d})"
+
+    def _format_dual_output_str(input_cs, input_vals, out_pos, frozen):
+        """Format the dual-mode Output Pixel line.  All printed Y/Cb/Cr values are
+        in the pixel domain [0, 255]; all printed R/G/B values are 0-255 bytes.
+
+        With frozen pixel (same shape as Input line; the "input" side shows the
+        transformed pixel and the "=>" side shows it run through hue/sat once more):
+          YUV=>RGB : "Y(yi,ui,vi)/R(ri, gi, bi) => Y(yo,uo,vo)/R(ro,go,bo)"
+          RGB=>YUV : "R(ri, gi, bi)/Y(yi,ui,vi) => R(ro,go,bo)/Y(yo,uo,vo)"
+
+        Without frozen pixel: returns an empty string (caller clears the field)."""
+        if not frozen:
+            return ''
+        # Compute the transformed pixel directly via the hue/sat formula.
+        if input_cs == 'YUV':
+            once_data = _apply_hue_sat_yuv(input_vals)
+            twice_data = _apply_hue_sat_yuv(once_data)
+        else:
+            once_hsv = _apply_hue_sat_hsv(input_vals)
+            once_data = _rgb_to_yuv_input(once_hsv)
+            twice_hsv = _apply_hue_sat_hsv(once_hsv)
+            twice_data = _rgb_to_yuv_input(twice_hsv)
+        yi_pix, ui_pix, vi_pix = _yuv_data_to_pixel_yuv(once_data)
+        yo_pix, uo_pix, vo_pix = _yuv_data_to_pixel_yuv(twice_data)
+        ri, gi, bi = _yuv_tuple_to_rgb_bytes(once_data)
+        ro, go, bo = _yuv_tuple_to_rgb_bytes(twice_data)
+        if input_cs == 'YUV':
+            return f"Y({yi_pix:3d},{ui_pix:3d},{vi_pix:3d})/R({ri:3d},{gi:3d},{bi:3d}) => Y({yo_pix:3d},{uo_pix:3d},{vo_pix:3d})/R({ro:3d},{go:3d},{bo:3d})"
+        return f"R({ri:3d},{gi:3d},{bi:3d})/Y({yi_pix:3d},{ui_pix:3d},{vi_pix:3d}) => R({ro:3d},{go:3d},{bo:3d})/Y({yo_pix:3d},{uo_pix:3d},{vo_pix:3d})"
+
+    def _get_sathue_output_at(pix_x, pix_y, cs=None, img_eff=None):
         """Get the output values at pixel in effective coords.
         YUV mode: returns (Y, Cb, Cr). RGB mode: returns (R, G, B) 0-255.
-        Returns None if outside valid area."""
+        Returns None if outside valid area.
+        Pass cs / img_eff explicitly in dual mode; otherwise fall back to single-mode state."""
+        if cs is None:
+            cs = sathue_colorspace
+        if img_eff is None:
+            img_eff = sathue_img_eff
         if not (0 <= pix_x < SAT_COLORMAP_SIZE and 0 <= pix_y < SAT_COLORMAP_SIZE):
             return None
-        if sathue_img_eff is None:
+        if img_eff is None:
             return None
         # For HSV mode, outside circle is invalid
-        if sathue_colorspace == 'RGB':
+        if cs == 'RGB':
             cx = _pix_to_data(pix_x) / _DATA_RANGE_MAX
             cy = _pix_to_data(SAT_COLORMAP_SIZE - 1 - pix_y) / _DATA_RANGE_MAX
             if cx ** 2 + cy ** 2 > 1.0:
                 return None
-        px = sathue_img_eff.getpixel((pix_x, pix_y))
+        px = img_eff.getpixel((pix_x, pix_y))
         r, g, b = px[0], px[1], px[2]
-        if sathue_colorspace == 'YUV':
+        if cs == 'YUV':
             # Convert RGB back to YCbCr
             r_f = np.float32(r)
             g_f = np.float32(g)
@@ -1279,7 +1767,9 @@ def open_csc_ui(args=None):
 
             bio = io.BytesIO()
             img.save(bio, format='PNG')
-            window['-IMAGE-'].update(data=bio.getvalue(), size=(w, h))
+            # In dual mode, -IMAGE- is owned by the left colormap renderer; don't overwrite it.
+            if sathue_mode != 'dual':
+                window['-IMAGE-'].update(data=bio.getvalue(), size=(w, h))
             current_main_display_size = (w, h)
             if sat_preview_visible and current_main_display_size != old_main_display_size:
                 _render_sathue_display()
@@ -1443,29 +1933,80 @@ def open_csc_ui(args=None):
             _set_sat_preview_visible(values.get('-SAT-SHOW-MAP-', False))
             main_preview_size = _get_preview_widget_size('-MAIN-IMAGE-COL-')
             last_main_preview_size = main_preview_size
-            if current_planar_in is not None:
-                window.perform_long_operation(lambda: None, '-REDRAW-IMAGE-')
+            # Do NOT trigger -REDRAW-IMAGE- here. trigger_convert -> display_result
+            # would overwrite -IMAGE- with the input/output planar, which clobbers
+            # the left-side colormap in dual mode. Show Color Map only toggles the
+            # sat preview visibility and the colormap renderers below handle the rest.
             if sat_preview_visible:
-                window.TKroot.after(50, _render_sathue_display)
+                # Re-render the colormap(s) according to the current mode.
+                # In dual mode, regenerating the colormaps also re-applies the freeze markers.
+                if sathue_mode == 'dual':
+                    update_sathue_map(preserve_display_size=False)
+                else:
+                    window.TKroot.after(50, _render_sathue_display)
         elif event == '-SAT-SET-COLOR-':
             sathue_set_color_enabled = values.get('-SAT-SET-COLOR-', False)
             window['-SAT-COLOR-INPUT-'].update(disabled=not sathue_set_color_enabled)
             if sathue_set_color_enabled:
                 color_vals = parse_color_input(values.get('-SAT-COLOR-INPUT-', ''))
                 if color_vals is not None:
-                    _set_sathue_color_lock(color_vals)
+                    if sathue_mode == 'dual':
+                        _set_sathue_dual_color_lock(color_vals)
+                    else:
+                        _set_sathue_color_lock(color_vals)
             else:
-                _clear_sathue_color_lock()
+                if sathue_mode == 'dual':
+                    _clear_sathue_dual_color_lock()
+                else:
+                    _clear_sathue_color_lock()
         elif event == '-SAT-CLRSPC-':
-            sathue_colorspace = values['-SAT-CLRSPC-']
-            if sathue_set_color_enabled:
-                color_vals = parse_color_input(values.get('-SAT-COLOR-INPUT-', ''))
-                if color_vals is not None:
-                    _set_sathue_color_lock(color_vals)
-                    continue
-            if sathue_locked and sathue_locked_pix is not None:
-                sathue_locked_input = _get_sathue_input_at(*sathue_locked_pix)
-            update_sathue_map()
+            new_cs = values['-SAT-CLRSPC-']
+            if new_cs in ('YUV=>RGB', 'RGB=>YUV'):
+                # Enter dual mode. The actual dual-colormap rendering only happens once
+                # -SAT-SHOW-MAP- is enabled (see _refresh_sathue_display).
+                sathue_mode = 'dual'
+                sathue_left_colorspace = 'YUV' if new_cs == 'YUV=>RGB' else 'RGB'
+                sathue_right_colorspace = 'RGB' if new_cs == 'YUV=>RGB' else 'YUV'
+                # Reset all frozen markers.
+                sathue_locked = False
+                sathue_locked_pix = None
+                sathue_locked_input = None
+                sathue_left_locked = False
+                sathue_left_locked_pix = None
+                sathue_left_locked_input = None
+                sathue_right_locked_pix = None
+                sathue_right_locked_input = None
+                # Only render the dual colormaps if the user has already enabled Show Color Map.
+                if sat_preview_visible:
+                    update_sathue_map(preserve_display_size=False)
+                else:
+                    # Clear any stale single-mode colormap so the right pane is empty.
+                    window['-SAT-IMAGE-'].update(data=b'', size=(1, 1))
+                # Clear input/output text in case they show old values.
+                window['-INPUT-PIXEL-INFO-'].update('')
+                window['-OUTPUT-PIXEL-INFO-'].update('')
+                window['-POSITION-INFO-'].update('')
+            else:
+                # Single mode.
+                sathue_mode = 'single'
+                sathue_colorspace = new_cs
+                # Reset all frozen markers.
+                sathue_locked = False
+                sathue_locked_pix = None
+                sathue_locked_input = None
+                sathue_left_locked = False
+                sathue_left_locked_pix = None
+                sathue_left_locked_input = None
+                sathue_right_locked_pix = None
+                sathue_right_locked_input = None
+                if sathue_set_color_enabled:
+                    color_vals = parse_color_input(values.get('-SAT-COLOR-INPUT-', ''))
+                    if color_vals is not None:
+                        _set_sathue_color_lock(color_vals)
+                        continue
+                if sathue_locked and sathue_locked_pix is not None:
+                    sathue_locked_input = _get_sathue_input_at(*sathue_locked_pix)
+                update_sathue_map()
         elif event == '-SAT-LUMA-':
             sathue_luma_val = int(values['-SAT-LUMA-'])
             window['-SAT-LUMA-SPIN-'].update(value=str(sathue_luma_val))
@@ -1610,15 +2151,31 @@ def open_csc_ui(args=None):
 
                 trigger_convert(values)
         elif event == '-IMAGE-+ENTER':
-            is_mouse_in_image = True
-            is_mouse_in_sathue = False
-            if is_pixel_info_frozen and current_mouse_pos is not None:
-                update_pixel_info(window, current_mouse_pos[0], current_mouse_pos[1])
+            if sathue_mode == 'dual':
+                is_mouse_in_sathue_left = True
+                is_mouse_in_image = False
+                is_mouse_in_sathue = False
+                if sathue_left_locked:
+                    _update_dual_lock_display()
+            else:
+                is_mouse_in_image = True
+                is_mouse_in_sathue_left = False
+                if is_pixel_info_frozen and current_mouse_pos is not None:
+                    update_pixel_info(window, current_mouse_pos[0], current_mouse_pos[1])
         elif event == '-IMAGE-+LEAVE':
-            is_mouse_in_image = False
+            if sathue_mode == 'dual':
+                is_mouse_in_sathue_left = False
+                if not sathue_left_locked:
+                    window['-INPUT-PIXEL-INFO-'].update('(hover over image)')
+                    window['-OUTPUT-PIXEL-INFO-'].update('')
+                    window['-POSITION-INFO-'].update('')
+            else:
+                is_mouse_in_image = False
+                is_mouse_in_sathue_left = False
         elif event == '-SAT-IMAGE-+ENTER':
             is_mouse_in_sathue = True
             is_mouse_in_image = False
+            is_mouse_in_sathue_left = False
             if sathue_locked:
                 _update_sathue_lock_display()
         elif event == '-SAT-IMAGE-+LEAVE':
@@ -1630,7 +2187,26 @@ def open_csc_ui(args=None):
                 window['-OUTPUT-PIXEL-INFO-'].update('')
                 window['-POSITION-INFO-'].update('')
         elif event == '-IMAGE-+MOTION':
-            if current_planar_in is not None and not is_pixel_info_frozen:
+            if sathue_mode == 'dual':
+                # Dual mode: -IMAGE- displays the left colormap; route to sathue hover.
+                if sathue_left_locked:
+                    _update_dual_lock_display()
+                elif sathue_left_img_full is not None:
+                    e = window['-IMAGE-'].user_bind_event
+                    wx, wy = e.x, e.y
+                    eff_x = int(wx / sathue_left_display_scale) - sathue_margin
+                    eff_y = int(wy / sathue_left_display_scale) - sathue_margin
+                    if 0 <= eff_x < SAT_COLORMAP_SIZE and 0 <= eff_y < SAT_COLORMAP_SIZE:
+                        invals = _get_sathue_input_at(eff_x, eff_y, cs=sathue_left_colorspace)
+                        out_pos = _compute_sathue_output_pos(cs=sathue_left_colorspace, invals=invals)
+                        window['-INPUT-PIXEL-INFO-'].update(
+                            _format_dual_input_str(sathue_left_colorspace, invals, out_pos, sathue_left_locked))
+                        window['-OUTPUT-PIXEL-INFO-'].update(
+                            _format_dual_output_str(sathue_left_colorspace, invals, out_pos, sathue_left_locked))
+                        window['-POSITION-INFO-'].update(
+                            _format_sathue_pos_str(eff_x, eff_y, frozen=False))
+                        sathue_left_mouse_pos = (eff_x, eff_y)
+            elif current_planar_in is not None and not is_pixel_info_frozen:
                 e = window['-IMAGE-'].user_bind_event
                 # tkinter event coordinates are relative to the widget
                 widget_x, widget_y = e.x, e.y
@@ -1643,7 +2219,26 @@ def open_csc_ui(args=None):
                 current_mouse_pos = (orig_x, orig_y)
                 update_pixel_info(window, orig_x, orig_y)
         elif event == '-SAT-IMAGE-+MOTION':
-            if sathue_locked:
+            if sathue_mode == 'dual':
+                # Dual mode: -SAT-IMAGE- displays the right colormap; route to sathue hover.
+                if sathue_left_locked:
+                    _update_dual_lock_display()
+                elif sathue_right_img_full is not None:
+                    e = window['-SAT-IMAGE-'].user_bind_event
+                    wx, wy = e.x, e.y
+                    eff_x = int(wx / sathue_right_display_scale) - sathue_margin
+                    eff_y = int(wy / sathue_right_display_scale) - sathue_margin
+                    if 0 <= eff_x < SAT_COLORMAP_SIZE and 0 <= eff_y < SAT_COLORMAP_SIZE:
+                        invals = _get_sathue_input_at(eff_x, eff_y, cs=sathue_right_colorspace)
+                        out_pos = _compute_sathue_output_pos(cs=sathue_right_colorspace, invals=invals)
+                        window['-INPUT-PIXEL-INFO-'].update(
+                            _format_dual_input_str(sathue_right_colorspace, invals, out_pos, sathue_left_locked))
+                        window['-OUTPUT-PIXEL-INFO-'].update(
+                            _format_dual_output_str(sathue_right_colorspace, invals, out_pos, sathue_left_locked))
+                        window['-POSITION-INFO-'].update(
+                            _format_sathue_pos_str(eff_x, eff_y, frozen=False))
+                        sathue_mouse_pos = (eff_x, eff_y)
+            elif sathue_locked:
                 _update_sathue_lock_display()
             elif sathue_img_full is not None:
                 e = window['-SAT-IMAGE-'].user_bind_event
@@ -1662,6 +2257,55 @@ def open_csc_ui(args=None):
                     sathue_mouse_pos = (eff_x, eff_y)
 
         elif event == ' ':  # Space key
+            if sathue_mode == 'dual':
+                if sathue_set_color_enabled:
+                    continue
+                # Dual mode: left is the source-of-truth trigger.
+                if is_mouse_in_sathue_left and sathue_left_mouse_pos is not None:
+                    if sathue_left_locked:
+                        # Unlock both sides.
+                        sathue_left_locked = False
+                        sathue_left_locked_pix = None
+                        sathue_left_locked_input = None
+                        sathue_right_locked_pix = None
+                        sathue_right_locked_input = None
+                        sathue_locked = False
+                        sathue_locked_pix = None
+                        sathue_locked_input = None
+                        # Restore hover display using left colorspace.
+                        if sathue_left_mouse_pos is not None:
+                            invals = _get_sathue_input_at(*sathue_left_mouse_pos, cs=sathue_left_colorspace)
+                            out_pos = _compute_sathue_output_pos(cs=sathue_left_colorspace, invals=invals)
+                            window['-INPUT-PIXEL-INFO-'].update(
+                                _format_dual_input_str(sathue_left_colorspace, invals, out_pos, sathue_left_locked))
+                            window['-OUTPUT-PIXEL-INFO-'].update(
+                                _format_dual_output_str(sathue_left_colorspace, invals, out_pos, sathue_left_locked))
+                            window['-POSITION-INFO-'].update(
+                                _format_sathue_pos_str(*sathue_left_mouse_pos, frozen=False))
+                    else:
+                        # Lock left, mirror to right.
+                        eff_x, eff_y = sathue_left_mouse_pos
+                        sathue_left_locked = True
+                        sathue_left_locked_pix = (eff_x, eff_y)
+                        sathue_left_locked_input = _get_sathue_input_at(eff_x, eff_y, cs=sathue_left_colorspace)
+                        # Also keep the single-mode globals in sync so single-mode code paths work.
+                        sathue_locked = True
+                        sathue_locked_pix = (eff_x, eff_y)
+                        sathue_locked_input = sathue_left_locked_input
+                        # Compute mirrored input on the right colorspace and convert to (pix_x, pix_y).
+                        if sathue_left_colorspace == 'YUV' and sathue_right_colorspace == 'RGB':
+                            right_input = _yuv_to_rgb_input(sathue_left_locked_input)
+                        elif sathue_left_colorspace == 'RGB' and sathue_right_colorspace == 'YUV':
+                            right_input = _rgb_to_yuv_input(sathue_left_locked_input)
+                        else:
+                            right_input = sathue_left_locked_input
+                        rx, ry = _input_to_lock_pix(right_input, cs=sathue_right_colorspace)
+                        rx = int(np.clip(rx, 0, SAT_COLORMAP_SIZE - 1))
+                        ry = int(np.clip(ry, 0, SAT_COLORMAP_SIZE - 1))
+                        sathue_right_locked_pix = (rx, ry)
+                        sathue_right_locked_input = right_input
+                    update_sathue_map(preserve_display_size=False)
+                    continue
             if is_mouse_in_sathue and sathue_mouse_pos is not None:
                 if sathue_set_color_enabled:
                     continue
