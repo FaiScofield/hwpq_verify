@@ -398,8 +398,7 @@ _right_mouse_pos = None
 _right_preview_tag: str = ""  # which module's right preview is currently shown
 _left_display_size = (0, 0)   # (w, h) of the displayed left preview image in pixels
 _last_left_frame_size = (0, 0)  # last Frame size used for re-render throttle
-_mouse_on_left = False        # mouse is hovering over left preview
-_mouse_on_right = False       # mouse is hovering over right preview
+_preview_scale = 0.5           # current preview scale factor (matches slider default)
 
 
 def _build_preview_layout() -> list:
@@ -458,17 +457,17 @@ def _build_preview_layout() -> list:
                     sg.Frame("Left Preview", [
                         [sg.Image(key="-LEFT-PREVIEW-", background_color="gray",
                                   tooltip="左预览区：显示Pipeline处理输出图像；鼠标悬停查看像素值，按空格冻结")]
-                    ], key="-LEFT-PREVIEW-FRAME-", expand_x=True, expand_y=True),
+                    ], key="-LEFT-PREVIEW-FRAME-", expand_x=True),
                 ],
-            ], expand_x=True, expand_y=True),
+            ], expand_x=True),
             sg.Column([
                 [
                     sg.Frame("Right Preview", [
                         [sg.Image(key="-RIGHT-PREVIEW-", background_color="gray",
                                   tooltip="右预览区：显示当前模块辅助分析图（CSC饱和度/色相图 或 DCI曲线图）；按空格冻结")]
-                    ], key="-RIGHT-PREVIEW-FRAME-", expand_x=True, expand_y=True),
+                    ], key="-RIGHT-PREVIEW-FRAME-", expand_x=True),
                 ],
-            ], expand_x=True, expand_y=True),
+            ], expand_x=True),
             sg.Column([
                 [sg.Checkbox("Show Left Input", key="-SHOW-INPUT-", default=False,
                              enable_events=True,
@@ -480,6 +479,16 @@ def _build_preview_layout() -> list:
                              tooltip="勾选后在右预览区显示原始输入图像")],
                 [sg.Button("Save Right Image", key="-SAVE-RIGHT-IMAGE-",
                            tooltip="保存右预览区图像到文件")],
+                [sg.Slider(
+                            range=(0.1, 1.0),
+                            default_value=0.5,
+                            resolution=0.02,
+                            orientation="h",
+                            size=(12, 10),
+                            key="-PREVIEW-SCALE-",
+                            enable_events=True,
+                            # disable_number_display=False,
+                            tooltip="改变预览图像显示大小")],
             ], vertical_alignment="top", pad=(8, 0)),
         ],
         [sg.Input("", key="-STATUS-", text_color="gray", size=(80, 1), readonly=True,
@@ -593,15 +602,14 @@ def _update_left_preview(window: sg.Window, frame: ImageFrame, tag: str = "",
             fh = window["-LEFT-PREVIEW-FRAME-"].Widget.winfo_height()
             fw = window["-LEFT-PREVIEW-FRAME-"].Widget.winfo_width()
             _last_left_frame_size = (fw, fh) if fw > 0 and fh > 0 else _last_left_frame_size
-        if max(fh, fw) <= _MIN_PREVIEW_SIZE:
-            max_size = _MIN_PREVIEW_SIZE
+        # Preview scale slider controls the target display size; clamp into
+        # a safe range so the image never collapses to a 1-pixel line.
+        scale = max(0.05, min(1.0, float(_preview_scale)))
+        target_size = int(max(orig_w, orig_h) * scale)
+        if _MIN_PREVIEW_SIZE > 0:
+            max_size = max(target_size, _MIN_PREVIEW_SIZE)
         else:
-            # Constrain image to fit within both frame dimensions to prevent resize cascade
-            w_ratio = fw / orig_w if orig_w > 0 else 1.0
-            h_ratio = fh / orig_h if orig_h > 0 else 1.0
-            ratio = min(w_ratio, h_ratio)
-            max_size = int(ratio * max(orig_w, orig_h))
-            max_size = max(max_size, _MIN_PREVIEW_SIZE) if _MIN_PREVIEW_SIZE > 0 else max_size
+            max_size = target_size
     except Exception:
         max_size = max(orig_w, orig_h)
 
@@ -615,7 +623,7 @@ def _update_left_preview(window: sg.Window, frame: ImageFrame, tag: str = "",
     # Refresh pixel info when position is known, regardless of frozen state.
     # Frozen only locks the position — values always reflect the current frame.
     if _mouse_pos is not None:
-        _refresh_common_info_from_side(window, "left")
+        _refresh_output_pixel_info(window, _mouse_pos)
 
 
 def _update_right_preview(window: sg.Window, tag: str, snapshot: tuple, params: dict):
@@ -697,7 +705,7 @@ def _update_right_preview(window: sg.Window, tag: str, snapshot: tuple, params: 
 
     # Refresh input/output pixel info when position is known
     if _right_mouse_pos is not None:
-        _refresh_common_info_from_side(window, "right")
+        _refresh_right_pixel_info(window, _right_mouse_pos)
 
 
 def _get_left_preview_height(window: sg.Window) -> int | None:
@@ -1113,7 +1121,128 @@ def _handle_mouse_motion(window: sg.Window, values: dict, event: str):
     orig_x = int(widget_x / _scale_factor)
     orig_y = int(widget_y / _scale_factor)
     _mouse_pos = (orig_x, orig_y)
-    _refresh_common_info_from_side(window, "left")
+
+    # Get input pixel
+    input_str = "(----, ----, ----)"
+    if _INPUT_IMAGE is not None:
+        in_fmt = _INPUT_IMAGE.fmt
+        in_h, in_w = _INPUT_IMAGE.height, _INPUT_IMAGE.width
+        uv_h, uv_w = _INPUT_IMAGE.uv_height, _INPUT_IMAGE.uv_width
+        if 0 <= orig_x < in_w and 0 <= orig_y < in_h:
+            p0 = _INPUT_IMAGE.pyr[orig_y, orig_x]
+            # Handle subsampled UV coordinates for YUV422/420
+            uv_x = orig_x * uv_w // in_w if uv_w != in_w else orig_x
+            uv_y = orig_y * uv_h // in_h if uv_h != in_h else orig_y
+            p1 = _INPUT_IMAGE.pug[uv_y, uv_x]
+            p2 = _INPUT_IMAGE.pvb[uv_y, uv_x]
+            fmt_label = "yuv" if is_yuv_format(in_fmt) else "rgb"
+            input_str = f"{fmt_label}-{in_fmt:#x}: ({p0:4d}, {p1:4d}, {p2:4d})"
+
+    # Get output pixel
+    output_str = "(----, ----, ----)"
+    if _OUTPUT_IMAGE is not None:
+        out_fmt = _OUTPUT_IMAGE.fmt
+        out_h, out_w = _OUTPUT_IMAGE.height, _OUTPUT_IMAGE.width
+        uv_h, uv_w = _OUTPUT_IMAGE.uv_height, _OUTPUT_IMAGE.uv_width
+        if 0 <= orig_x < out_w and 0 <= orig_y < out_h:
+            p0 = _OUTPUT_IMAGE.pyr[orig_y, orig_x]
+            uv_x = orig_x * uv_w // out_w if uv_w != out_w else orig_x
+            uv_y = orig_y * uv_h // out_h if uv_h != out_h else orig_y
+            p1 = _OUTPUT_IMAGE.pug[uv_y, uv_x]
+            p2 = _OUTPUT_IMAGE.pvb[uv_y, uv_x]
+            # Use I/O output format for the label, not the displayed data format
+            io_out_fmt = get_fmt_from_display(values.get("-OUT-FMT-", DEFAULT_FMT_DISPLAY))
+            fmt_label = "yuv" if is_yuv_format(io_out_fmt) else "rgb"
+            output_str = f"{fmt_label}-{io_out_fmt:#x}: ({p0:4d}, {p1:4d}, {p2:4d})"
+
+    freeze_status = "[Frozen]" if _pixel_info_frozen else "[Space to freeze]"
+    window["-POSITION-INFO-"].update(f"({orig_x:4d},{orig_y:4d}) {freeze_status}")
+    window["-INPUT-PIXEL-INFO-"].update(input_str)
+    window["-OUTPUT-PIXEL-INFO-"].update(output_str)
+
+
+def _refresh_output_pixel_info(window: sg.Window, pos: tuple):
+    """Refresh input/output pixel and position info based on known mouse position.
+
+    Called whenever the left preview image is updated, regardless of frozen state.
+    Frozen only locks the position — values always reflect the current frame.
+    """
+    orig_x, orig_y = pos
+
+    # Input pixel
+    input_str = "(----, ----, ----)"
+    if _INPUT_IMAGE is not None:
+        in_fmt = _INPUT_IMAGE.fmt
+        in_h, in_w = _INPUT_IMAGE.height, _INPUT_IMAGE.width
+        uv_h, uv_w = _INPUT_IMAGE.uv_height, _INPUT_IMAGE.uv_width
+        if 0 <= orig_x < in_w and 0 <= orig_y < in_h:
+            p0 = _INPUT_IMAGE.pyr[orig_y, orig_x]
+            uv_x = orig_x * uv_w // in_w if uv_w != in_w else orig_x
+            uv_y = orig_y * uv_h // in_h if uv_h != in_h else orig_y
+            p1 = _INPUT_IMAGE.pug[uv_y, uv_x]
+            p2 = _INPUT_IMAGE.pvb[uv_y, uv_x]
+            fmt_label = "yuv" if is_yuv_format(in_fmt) else "rgb"
+            input_str = f"{fmt_label}-{in_fmt:#x}: ({p0:4d}, {p1:4d}, {p2:4d})"
+    window["-INPUT-PIXEL-INFO-"].update(input_str)
+
+    # Output pixel
+    output_str = "(----, ----, ----)"
+    if _OUTPUT_IMAGE is not None:
+        out_fmt = _OUTPUT_IMAGE.fmt
+        out_h, out_w = _OUTPUT_IMAGE.height, _OUTPUT_IMAGE.width
+        uv_h, uv_w = _OUTPUT_IMAGE.uv_height, _OUTPUT_IMAGE.uv_width
+        if 0 <= orig_x < out_w and 0 <= orig_y < out_h:
+            p0 = _OUTPUT_IMAGE.pyr[orig_y, orig_x]
+            uv_x = orig_x * uv_w // out_w if uv_w != out_w else orig_x
+            uv_y = orig_y * uv_h // out_h if uv_h != out_h else orig_y
+            p1 = _OUTPUT_IMAGE.pug[uv_y, uv_x]
+            p2 = _OUTPUT_IMAGE.pvb[uv_y, uv_x]
+            fmt_label = "yuv" if is_yuv_format(out_fmt) else "rgb"
+            output_str = f"{fmt_label}-{out_fmt:#x}: ({p0:4d}, {p1:4d}, {p2:4d})"
+    window["-OUTPUT-PIXEL-INFO-"].update(output_str)
+
+    # Position info
+    freeze_status = "[Frozen]" if _pixel_info_frozen else "[Space to freeze]"
+    window["-POSITION-INFO-"].update(f"({orig_x:4d},{orig_y:4d}) {freeze_status}")
+
+
+def _refresh_right_pixel_info(window: sg.Window, pos: tuple):
+    """Refresh input/output pixel info text based on frozen right-side mouse position.
+
+    Input pixel reads from _right_input_data (the snapshot fed to right preview).
+    Output pixel reads from _right_display_data (the right preview result).
+    """
+    orig_x, orig_y = pos
+
+    # Output pixel from right display data
+    output_str = "(----, ----, ----)"
+    if _right_display_data is not None:
+        out_planar, out_fmt = _right_display_data
+        out_h, out_w = out_planar.shape[1], out_planar.shape[2]
+        if 0 <= orig_x < out_w and 0 <= orig_y < out_h:
+            p0 = out_planar[0, orig_y, orig_x]
+            p1 = out_planar[1, orig_y, orig_x]
+            p2 = out_planar[2, orig_y, orig_x]
+            fmt_label = "yuv" if is_yuv_format(out_fmt) else "rgb"
+            output_str = f"{fmt_label}: ({p0:4d}, {p1:4d}, {p2:4d})"
+    window["-OUTPUT-PIXEL-INFO-"].update(output_str)
+
+    # Input pixel from right input data (snapshot before right-side processing)
+    input_str = "(----, ----, ----)"
+    if _right_input_data is not None:
+        in_planar, in_fmt = _right_input_data
+        in_h, in_w = in_planar.shape[1], in_planar.shape[2]
+        if 0 <= orig_x < in_w and 0 <= orig_y < in_h:
+            p0 = in_planar[0, orig_y, orig_x]
+            p1 = in_planar[1, orig_y, orig_x]
+            p2 = in_planar[2, orig_y, orig_x]
+            fmt_label = "yuv" if is_yuv_format(in_fmt) else "rgb"
+            input_str = f"{fmt_label}: ({p0:4d}, {p1:4d}, {p2:4d})"
+    window["-INPUT-PIXEL-INFO-"].update(input_str)
+
+    # Position info
+    freeze_status = "[Frozen]" if _right_frozen else "[Space to freeze]"
+    window["-POSITION-INFO-"].update(f"({orig_x:4d},{orig_y:4d}) {freeze_status}")
 
 
 def _handle_right_mouse_motion(window: sg.Window, values: dict, event: str):
@@ -1146,6 +1275,7 @@ def _handle_right_mouse_motion(window: sg.Window, values: dict, event: str):
         if mod is not None:
             handler = mod.get("right_preview_mouse_motion")
             if handler is not None:
+                # Compute image-center coordinates (0,0=center, right/up positive)
                 rdh = _right_display_data
                 if rdh is not None:
                     img_h, img_w = rdh[0].shape[1], rdh[0].shape[2]
@@ -1154,56 +1284,11 @@ def _handle_right_mouse_motion(window: sg.Window, values: dict, event: str):
                     handler(cx, cy, window, values)
                 return
 
-    _refresh_common_info_from_side(window, "right")
-
-
-def _refresh_common_info_from_side(window: sg.Window, side: str):
-    """Update Common Info widgets with pixel data from the specified side.
-
-    Args:
-        side: "left" or "right"
-    """
-    if side == "left":
-        pos = _mouse_pos
-        frozen = _pixel_info_frozen
-        input_data = _INPUT_IMAGE
-        output_data = _OUTPUT_IMAGE
-        scale = _scale_factor
-        disp_size = _left_display_size
-    else:
-        pos = _right_mouse_pos
-        frozen = _right_frozen
-        input_data = _right_input_data
-        output_data = _right_display_data
-        scale = _right_scale_factor
-        disp_size = None  # computed below
-
-    if pos is None:
-        window["-POSITION-INFO-"].update("(hover over image)")
-        window["-INPUT-PIXEL-INFO-"].update("")
-        window["-OUTPUT-PIXEL-INFO-"].update("")
-        return
-
-    orig_x, orig_y = pos
-    freeze_status = "[Frozen]" if frozen else "[Space to freeze]"
-    window["-POSITION-INFO-"].update(f"({orig_x:4d},{orig_y:4d}) {freeze_status}")
-
-    # Input pixel
+    # Default pixel inspector fallback
+    # Get input pixel from right input data (snapshot before processing)
     input_str = "(----, ----, ----)"
-    if side == "left" and input_data is not None:
-        in_fmt = input_data.fmt
-        in_h, in_w = input_data.height, input_data.width
-        uv_h, uv_w = input_data.uv_height, input_data.uv_width
-        if 0 <= orig_x < in_w and 0 <= orig_y < in_h:
-            p0 = input_data.pyr[orig_y, orig_x]
-            uv_x = orig_x * uv_w // in_w if uv_w != in_w else orig_x
-            uv_y = orig_y * uv_h // in_h if uv_h != in_h else orig_y
-            p1 = input_data.pug[uv_y, uv_x]
-            p2 = input_data.pvb[uv_y, uv_x]
-            fmt_label = "yuv" if is_yuv_format(in_fmt) else "rgb"
-            input_str = f"{fmt_label}-{in_fmt:#x}: ({p0:4d}, {p1:4d}, {p2:4d})"
-    elif side == "right" and input_data is not None:
-        in_planar, in_fmt = input_data
+    if _right_input_data is not None:
+        in_planar, in_fmt = _right_input_data
         in_h, in_w = in_planar.shape[1], in_planar.shape[2]
         if 0 <= orig_x < in_w and 0 <= orig_y < in_h:
             p0 = in_planar[0, orig_y, orig_x]
@@ -1211,24 +1296,11 @@ def _refresh_common_info_from_side(window: sg.Window, side: str):
             p2 = in_planar[2, orig_y, orig_x]
             fmt_label = "yuv" if is_yuv_format(in_fmt) else "rgb"
             input_str = f"{fmt_label}: ({p0:4d}, {p1:4d}, {p2:4d})"
-    window["-INPUT-PIXEL-INFO-"].update(input_str)
 
-    # Output pixel
+    # Get output pixel from right display data
     output_str = "(----, ----, ----)"
-    if side == "left" and output_data is not None:
-        out_fmt = output_data.fmt
-        out_h, out_w = output_data.height, output_data.width
-        uv_h, uv_w = output_data.uv_height, output_data.uv_width
-        if 0 <= orig_x < out_w and 0 <= orig_y < out_h:
-            p0 = output_data.pyr[orig_y, orig_x]
-            uv_x = orig_x * uv_w // out_w if uv_w != out_w else orig_x
-            uv_y = orig_y * uv_h // out_h if uv_h != out_h else orig_y
-            p1 = output_data.pug[uv_y, uv_x]
-            p2 = output_data.pvb[uv_y, uv_x]
-            fmt_label = "yuv" if is_yuv_format(out_fmt) else "rgb"
-            output_str = f"{fmt_label}-{out_fmt:#x}: ({p0:4d}, {p1:4d}, {p2:4d})"
-    elif side == "right" and output_data is not None:
-        out_planar, out_fmt = output_data
+    if _right_display_data is not None:
+        out_planar, out_fmt = _right_display_data
         out_h, out_w = out_planar.shape[1], out_planar.shape[2]
         if 0 <= orig_x < out_w and 0 <= orig_y < out_h:
             p0 = out_planar[0, orig_y, orig_x]
@@ -1236,47 +1308,31 @@ def _refresh_common_info_from_side(window: sg.Window, side: str):
             p2 = out_planar[2, orig_y, orig_x]
             fmt_label = "yuv" if is_yuv_format(out_fmt) else "rgb"
             output_str = f"{fmt_label}: ({p0:4d}, {p1:4d}, {p2:4d})"
-    window["-OUTPUT-PIXEL-INFO-"].update(output_str)
 
-    # Display size
-    if side == "left":
-        dw, dh = disp_size
-        if dw > 0:
-            window["-DISPLAY-SIZE-"].update(value=f"{dw}x{dh} (scale={scale:.2f})")
-    else:
-        if output_data is not None:
-            rhs, rws = output_data[0].shape[1], output_data[0].shape[2]
-            window["-DISPLAY-SIZE-"].update(value=f"{rws}x{rhs} (scale={scale:.2f})")
-        elif _OUTPUT_IMAGE is not None:
-            lh, lw = _OUTPUT_IMAGE.height, _OUTPUT_IMAGE.width
-            window["-DISPLAY-SIZE-"].update(value=f"{lw}x{lh} (scale={_scale_factor:.2f})")
+    # Get display size
+    display_str = ""
+    if _right_display_data is not None:
+        rhs, rws = _right_display_data[0].shape[1], _right_display_data[0].shape[2]
+        display_str = f"{rws}x{rhs} (scale={_right_scale_factor:.2f})"
+    if not display_str and _OUTPUT_IMAGE is not None:
+        lh, lw = _OUTPUT_IMAGE.height, _OUTPUT_IMAGE.width
+        display_str = f"{lw}x{lh} (scale={_scale_factor:.2f})"
+
+    freeze_status = "[Frozen]" if _right_frozen else "[Space to freeze]"
+    window["-POSITION-INFO-"].update(f"({orig_x:4d},{orig_y:4d}) {freeze_status}")
+    window["-INPUT-PIXEL-INFO-"].update(input_str)
+    window["-OUTPUT-PIXEL-INFO-"].update(output_str)
+    if display_str:
+        window["-DISPLAY-SIZE-"].update(value=display_str)
 
 
 def _clear_pixel_info(window: sg.Window):
     """Clear pixel info display unless either preview is frozen."""
     if _pixel_info_frozen or _right_frozen:
         return
-
-    if _mouse_on_left:
-        _refresh_common_info_from_side(window, "left")
-        return
-    if _mouse_on_right:
-        _refresh_common_info_from_side(window, "right")
-        return
-
     window["-POSITION-INFO-"].update("(hover over image)")
     window["-INPUT-PIXEL-INFO-"].update("")
     window["-OUTPUT-PIXEL-INFO-"].update("")
-
-
-def _show_left_pixel_info(window: sg.Window, values: dict):
-    """Show left-side pixel info on mouse enter (respecting frozen state)."""
-    _refresh_common_info_from_side(window, "left")
-
-
-def _show_right_pixel_info(window: sg.Window, values: dict):
-    """Show right-side pixel info on mouse enter (respecting frozen state)."""
-    _refresh_common_info_from_side(window, "right")
 
 
 def _refresh_right_preview_only(window: sg.Window, values: dict):
@@ -1351,7 +1407,7 @@ def _update_right_preview_with_snapshot(window: sg.Window, frame: ImageFrame):
         _right_scale_factor = 1.0
     window["-RIGHT-PREVIEW-"].update(data=_pil_to_bytes(img))
     if _right_mouse_pos is not None:
-        _refresh_common_info_from_side(window, "right")
+        _refresh_right_pixel_info(window, _right_mouse_pos)
 
 
 # ------------------------------------------------------------------ #
@@ -1362,6 +1418,7 @@ def main():
     """Main entry point for PQ Verify Tool."""
     global _pixel_info_frozen, _mouse_pos, _scale_factor, _OUTPUT_IMAGE, _right_scale_factor, _right_display_data, _right_input_data, _right_frozen
     global _left_display_size, _INPUT_IMAGE, _last_out_format, _last_out_frame_size, pipeline_order, pipeline_enabled, _SNAPSHOTS
+    global _preview_scale
 
     # Parse command-line arguments for module selection
     parser = argparse.ArgumentParser(description="PQ Verify Tool - ISP Pipeline Verification")
@@ -1436,13 +1493,19 @@ def main():
     window["-LEFT-PREVIEW-"].bind("<Enter>", "+ENTER")
     window["-LEFT-PREVIEW-"].bind("<Leave>", "+LEAVE")
 
+    # Bind keyboard events on left preview for pixel freeze
+    window["-LEFT-PREVIEW-"].Widget.configure(takefocus=1)
+    window["-LEFT-PREVIEW-"].Widget.bind("<Button-1>", lambda e: window["-LEFT-PREVIEW-"].Widget.focus_set())
+    window["-LEFT-PREVIEW-"].Widget.bind("<space>", lambda e: window.write_event_value("-LEFT-PREVIEW-SPACE-", None))
+    window["-LEFT-PREVIEW-"].Widget.focus_set()
+
     # Bind mouse events on right preview
     window["-RIGHT-PREVIEW-"].bind("<Motion>", "+MOTION")
     window["-RIGHT-PREVIEW-"].bind("<Enter>", "+ENTER")
     window["-RIGHT-PREVIEW-"].bind("<Leave>", "+LEAVE")
-
-    # Bind <space> at window level — freeze whichever preview the mouse is over
-    window.TKroot.bind("<space>", lambda e: window.write_event_value("-PREVIEW-SPACE-", None))
+    window["-RIGHT-PREVIEW-"].Widget.configure(takefocus=1)
+    window["-RIGHT-PREVIEW-"].Widget.bind("<Button-1>", lambda e: window["-RIGHT-PREVIEW-"].Widget.focus_set())
+    window["-RIGHT-PREVIEW-"].Widget.bind("<space>", lambda e: window.write_event_value("-RIGHT-PREVIEW-SPACE-", None))
 
     # Bind <Configure> on preview FRAMES (not Image, which doesn't expand)
     def _on_left_frame_resize(e):
@@ -1452,6 +1515,14 @@ def main():
             window.write_event_value("-LEFT-PREVIEW-RESIZE-", (w, h))
     window["-LEFT-PREVIEW-FRAME-"].Widget.bind("<Configure>", _on_left_frame_resize)
 
+    # Bind click-to-focus and arrow-key navigation on the preview-scale slider
+    # so it can be adjusted with the keyboard after the user clicks it.
+    psw = window["-PREVIEW-SCALE-"].Widget
+    psw.configure(takefocus=1)
+    psw.bind("<Button-1>", lambda e, w=psw: w.focus_set(), add="+")
+    psw.bind("<Left>", lambda e, wk=window: wk.write_event_value("-PREVIEW-SCALE-KEY-", -1))
+    psw.bind("<Right>", lambda e, wk=window: wk.write_event_value("-PREVIEW-SCALE-KEY-", 1))
+
     # Initialize registered modules (bind events + norm labels)
     init_io_module(window)
     for tag in pipeline_order:
@@ -1460,9 +1531,11 @@ def main():
     # Initialize stream format UI state based on current pipeline
     _update_stream_format_state(window)
 
+    # Reclaim focus for left preview after module init (sliders steal it)
+    window["-LEFT-PREVIEW-"].Widget.focus_set()
+
     # Event loop
     while True:
-        global _pixel_info_frozen, _right_frozen, _mouse_on_left, _mouse_on_right, _mouse_pos, _right_mouse_pos
         event, values = window.read()
 
         if event == sg.WIN_CLOSED:
@@ -1507,14 +1580,8 @@ def main():
             _handle_mouse_motion(window, values, event)
             continue
 
-        if event == "-LEFT-PREVIEW-+ENTER":
-            _mouse_on_left = True
-            _show_left_pixel_info(window, values)
-            continue
-
         if event == "-LEFT-PREVIEW-+LEAVE":
-            _mouse_on_left = False
-            if not _pixel_info_frozen and not _mouse_on_right:
+            if not _pixel_info_frozen:
                 _clear_pixel_info(window)
             continue
 
@@ -1523,14 +1590,8 @@ def main():
             _handle_right_mouse_motion(window, values, event)
             continue
 
-        if event == "-RIGHT-PREVIEW-+ENTER":
-            _mouse_on_right = True
-            _show_right_pixel_info(window, values)
-            continue
-
         if event == "-RIGHT-PREVIEW-+LEAVE":
-            _mouse_on_right = False
-            if not _right_frozen and not _mouse_on_left:
+            if not _right_frozen:
                 _clear_pixel_info(window)
             continue
 
@@ -1541,14 +1602,50 @@ def main():
                 print(f"[resize] Left preview frame: {fw}x{fh}")
             continue
 
-        # Space to freeze/unfreeze — applies to the preview the mouse is over
-        if event == "-PREVIEW-SPACE-":
-            if _mouse_on_left:
-                _pixel_info_frozen = not _pixel_info_frozen
-                _refresh_common_info_from_side(window, "left")
-            elif _mouse_on_right:
-                _right_frozen = not _right_frozen
-                _refresh_common_info_from_side(window, "right")
+        # Preview-scale slider: re-render left/right previews at the new size.
+        if event == "-PREVIEW-SCALE-":
+            try:
+                new_scale = float(values[event])
+            except (TypeError, ValueError):
+                continue
+            if abs(new_scale - _preview_scale) > 1e-6:
+                _preview_scale = new_scale
+                if _OUTPUT_IMAGE is not None:
+                    _update_left_preview(window, _OUTPUT_IMAGE)
+                _refresh_right_preview_only(window, values)
+            continue
+
+        # Keyboard arrow keys on the preview-scale slider (Left = shrink, Right = grow).
+        if event == "-PREVIEW-SCALE-KEY-":
+            direction = values[event]
+            try:
+                cur = float(values.get("-PREVIEW-SCALE-", _preview_scale))
+            except (TypeError, ValueError):
+                cur = _preview_scale
+            new_val = cur + direction * 0.02
+            new_val = max(0.1, min(1.0, round(round(new_val / 0.02) * 0.02, 2)))
+            window["-PREVIEW-SCALE-"].update(value=new_val)
+            continue
+
+        # Space to freeze/unfreeze pixel info — independent per preview
+        if event == "-LEFT-PREVIEW-SPACE-":
+            _pixel_info_frozen = not _pixel_info_frozen
+            status = "[Frozen]" if _pixel_info_frozen else "[Unfrozen]"
+            pos = window["-POSITION-INFO-"].get()
+            if _pixel_info_frozen:
+                window["-POSITION-INFO-"].update(pos.replace("[Space to freeze]", status))
+            else:
+                window["-POSITION-INFO-"].update(pos.replace("[Frozen]", status))
+            continue
+
+        if event == "-RIGHT-PREVIEW-SPACE-":
+            _right_frozen = not _right_frozen
+            status = "[Frozen]" if _right_frozen else "[Unfrozen]"
+            pos = window["-POSITION-INFO-"].get()
+            if _right_frozen:
+                window["-POSITION-INFO-"].update(pos.replace("[Space to freeze]", status))
+            else:
+                window["-POSITION-INFO-"].update(pos.replace("[Frozen]", status))
             continue
 
         # Show Left Input checkbox
