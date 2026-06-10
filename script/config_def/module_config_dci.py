@@ -369,7 +369,7 @@ class DciUserConfig(ModuleConfigCore):
             },
             "s_vop_dci_interp_params": {
                 "s_vop_dci_ctrl": {
-                    "i_dciEnable": self.ctrl_enable,
+                    "i_dciEnable": int(self.ctrl_enable),
                     "i_vopIn_csc_range": self.ctrl_vopIn_csc_range,
                     "i_vop_srand_seed": self.ctrl_vop_srand_seed,
                     "i_dci_CF_HE_ratio": self.ctrl_dci_CF_HE_ratio,
@@ -399,7 +399,7 @@ class DciUserConfig(ModuleConfigCore):
                     "i_dci_HE_overLap": self.he_overlap,
                 },
                 "s_bs_params": {
-                    "i_dci_BS_enable": self.bs_enable,
+                    "i_dci_BS_enable": int(self.bs_enable),
                     "i_dci_BS_set_point": self.bs_set_point,
                     "i_dci_BS_ratio": self.bs_ratio,
                     "i_dci_BS_overlap": self.bs_overlap,
@@ -411,7 +411,7 @@ class DciUserConfig(ModuleConfigCore):
                     "i_dci_WS_overlap": self.ws_overlap,
                 },
                 "s_clahe_params": {
-                    "i_dci_CLAHE_en": self.clahe_en,
+                    "i_dci_CLAHE_en": int(self.clahe_en),
                     "i_dci_CLAHE_clip_value": self.clahe_clip_value,
                     "i_dci_CLAHE_LocalRatio": self.clahe_local_ratio,
                     "i_left_alpha": self.clahe_left_alpha,
@@ -441,7 +441,7 @@ class DciUserConfig(ModuleConfigCore):
                     "i_dci_clahe_scd_thr_min": self.abld_clahe_scd_thr_min,
                 },
                 "s_color_adjust_params": {
-                    "i_dci_CA_enable": self.ca_enable,
+                    "i_dci_CA_enable": int(self.ca_enable),
                     "i_dci_CA_saturation_w": self.ca_saturation_w,
                     "i_dci_CA_adj_luma_coring_zero": self.ca_adj_luma_coring_zero,
                     "i_dci_CA_adj_luma_coring_thrd": self.ca_adj_luma_coring_thrd,
@@ -499,7 +499,7 @@ class DciUserConfig(ModuleConfigCore):
             interp = data.get("s_vop_dci_interp_params", {})
 
             ctrl = interp.get("s_vop_dci_ctrl", {})
-            self.ctrl_enable = ctrl.get("i_dciEnable", self.ctrl_enable)
+            self.ctrl_enable = int(ctrl.get("i_dciEnable", self.ctrl_enable))
             self.ctrl_vopIn_csc_range = ctrl.get("i_vopIn_csc_range", self.ctrl_vopIn_csc_range)
             self.ctrl_vop_srand_seed = ctrl.get("i_vop_srand_seed", self.ctrl_vop_srand_seed)
             self.ctrl_dci_CF_HE_ratio = ctrl.get("i_dci_CF_HE_ratio", self.ctrl_dci_CF_HE_ratio)
@@ -529,19 +529,19 @@ class DciUserConfig(ModuleConfigCore):
             self.he_overlap = he.get("i_dci_HE_overLap", self.he_overlap)
 
             bs = interp.get("s_bs_params", {})
-            self.bs_enable = bs.get("i_dci_BS_enable", self.bs_enable)
+            self.bs_enable = int(bs.get("i_dci_BS_enable", self.bs_enable))
             self.bs_set_point = bs.get("i_dci_BS_set_point", self.bs_set_point)
             self.bs_ratio = bs.get("i_dci_BS_ratio", self.bs_ratio)
             self.bs_overlap = bs.get("i_dci_BS_overlap", self.bs_overlap)
 
             ws = interp.get("s_ws_params", {})
-            self.ws_enable = ws.get("i_dci_WS_enable", self.ws_enable)
+            self.ws_enable = int(ws.get("i_dci_WS_enable", self.ws_enable))
             self.ws_set_point = ws.get("i_dci_WS_set_point", self.ws_set_point)
             self.ws_ratio = ws.get("i_dci_WS_ratio", self.ws_ratio)
             self.ws_overlap = ws.get("i_dci_WS_overlap", self.ws_overlap)
 
             clahe = interp.get("s_clahe_params", {})
-            self.clahe_en = clahe.get("i_dci_CLAHE_en", self.clahe_en)
+            self.clahe_en = int(clahe.get("i_dci_CLAHE_en", self.clahe_en))
             self.clahe_clip_value = clahe.get("i_dci_CLAHE_clip_value", self.clahe_clip_value)
             self.clahe_local_ratio = clahe.get("i_dci_CLAHE_LocalRatio", self.clahe_local_ratio)
             self.clahe_left_alpha = clahe.get("i_left_alpha", self.clahe_left_alpha)
@@ -571,7 +571,7 @@ class DciUserConfig(ModuleConfigCore):
             self.abld_clahe_scd_thr_min = abld.get("i_dci_clahe_scd_thr_min", self.abld_clahe_scd_thr_min)
 
             ca = interp.get("s_color_adjust_params", {})
-            self.ca_enable = ca.get("i_dci_CA_enable", self.ca_enable)
+            self.ca_enable = int(ca.get("i_dci_CA_enable", self.ca_enable))
             self.ca_saturation_w = ca.get("i_dci_CA_saturation_w", self.ca_saturation_w)
             self.ca_adj_luma_coring_zero = ca.get("i_dci_CA_adj_luma_coring_zero", self.ca_adj_luma_coring_zero)
             self.ca_adj_luma_coring_thrd = ca.get("i_dci_CA_adj_luma_coring_thrd", self.ca_adj_luma_coring_thrd)

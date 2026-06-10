@@ -34,7 +34,7 @@ STATUS_ERROR   = 3
 # Level → color mapping
 _STATUS_COLORS = {
     STATUS_NORM:    "gray",
-    STATUS_OK:      "#88FF88",
+    STATUS_OK:      "#67d283",
     STATUS_WARNING: "#FFAA44",
     STATUS_ERROR:   "#FF8888",
 }

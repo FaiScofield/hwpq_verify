@@ -411,10 +411,10 @@ def _guess_input_params(values: dict, window: sg.Window):
 
     if ext in STB_IMAGE_EXTENSIONS:
         # Treat image files as RGB888
-        rgb_fmt = 0x0
-        window["-IN-FMT-"].update(value=rgb_fmt)
-        values["-IN-FMT-"] = rgb_fmt
-        update_clrspc_for_fmt(window, values, "-IN-CLR-", rgb_fmt)
+        rgb_display = next(f for f in FMT_DISPLAY if f.startswith("0x0 "))
+        window["-IN-FMT-"].update(value=rgb_display)
+        values["-IN-FMT-"] = rgb_display
+        update_clrspc_for_fmt(window, values, "-IN-CLR-", rgb_display)
         # Read actual dimensions from image file
         try:
             from PIL import Image

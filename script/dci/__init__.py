@@ -1,1 +1,1 @@
-# DCI Layer 1 Python package
+# dci — DCI simulation and audit tools

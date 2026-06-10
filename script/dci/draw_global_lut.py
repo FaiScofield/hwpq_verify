@@ -1,14 +1,18 @@
 import argparse
 import re
 import struct
+from io import BytesIO
 from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from PIL import Image
 
 
+# global lut cf[0] = 0 ...
+# local lut clahe[1] = 128 ...
 LUT_LINE_PATTERN = re.compile(r".*?\[(\d+)\]\s*=\s*(-?\d+)\s*$", re.IGNORECASE)
 GLOBAL_HIST_BIN_COUNT = 256
 GLOBAL_HIST_BIN_BYTES = 4
@@ -50,7 +54,7 @@ def parse_global_lut_file(input_path):
     if not lut_map:
         raise ValueError(f"no valid global LUT entries found in '{input_path}'")
 
-    sorted_items = sorted(lut_map.items())
+    sorted_items = sorted(lut_map.items()) # sort by idx
     x_values = [item[0] for item in sorted_items]
     y_values = [item[1] for item in sorted_items]
     return x_values, y_values
@@ -152,7 +156,7 @@ def draw_multi_lut_plot(lut_specs, output_path, title):
             x_values,
             y_values,
             color=color_list[idx % len(color_list)],
-            linewidth=1.5,
+            linewidth=1.0,
             marker="o",
             markersize=2.5,
             label=label,
@@ -245,11 +249,177 @@ def draw_combined_plot(global_lut_path, global_hist_path, output_path):
     plt.close(fig)
 
 
+# ------------------------------------------------------------------ #
+# PIL-returning chart builders (for embedding in UI)                  #
+# ------------------------------------------------------------------ #
+
+
+def _fig_to_pil(fig) -> Image.Image:
+    """Convert a matplotlib figure to a PIL Image and close the figure."""
+    buf = BytesIO()
+    fig.savefig(buf, format="png")
+    buf.seek(0)
+    img = Image.open(buf).copy()
+    buf.close()
+    plt.close(fig)
+    return img
+
+
+def _downsample_lut_to_256(lx: list, ly: list) -> tuple[list, list]:
+    """Downsample a 1024-entry LUT to 256 entries using mean pooling (4→1)."""
+    if len(lx) <= 256 and len(ly) <= 256:
+        return lx, ly
+    factor = max(1, len(ly) // 256)
+    xs, ys = [], []
+    for i in range(0, len(ly) - factor + 1, factor):
+        chunk = ly[i:i + factor]
+        xs.append(int(sum(lx[i:i + factor]) / factor))
+        ys.append(int(sum(chunk) / len(chunk)))
+    return xs, ys
+
+
+def draw_lut_to_pil(output_dir: str, lut_filename: str) -> Image.Image | None:
+    """Draw a single LUT curve chart, returning a PIL Image.
+
+    Returns None if the LUT file cannot be parsed.
+    """
+    filepath = Path(output_dir) / lut_filename
+    try:
+        lx, ly = parse_global_lut_file(str(filepath))
+    except (ValueError, OSError):
+        return None
+
+    fig, ax = plt.subplots(figsize=(12, 6), dpi=150)
+    ax.plot(lx, ly, color="tab:blue", linewidth=1.5, marker="o", markersize=2.5)
+    ax.plot(lx, lx, color="tab:gray", linewidth=1.0, linestyle="--", alpha=0.8, label="y=x")
+    ax.set_title(f"DCI Global LUT — {lut_filename}")
+    ax.set_xlabel("LUT Index")
+    ax.set_ylabel("LUT Value")
+    ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
+    ax.set_xlim(min(lx), max(lx))
+    ax.set_ylim(bottom=0)
+    ax.legend(loc="best")
+    fig.tight_layout()
+    return _fig_to_pil(fig)
+
+
+def draw_combined_to_pil(output_dir: str,
+                         lut_specs: list[tuple[str, str]]) -> Image.Image | None:
+    """Draw histogram + multi-LUT + CDF + identity on one chart, return PIL Image.
+
+    Args:
+        output_dir: Directory containing dump files.
+        lut_specs: List of (filename, label) tuples for LUT curves.
+
+    Returns PIL Image, or None if the histogram file is missing.
+    """
+    hist_path = Path(output_dir) / "vdpp_hist_data_global_unpacked.bin"
+    try:
+        hist_x, hist_y = parse_global_hist_file(str(hist_path))
+    except (ValueError, OSError):
+        return None
+
+    color_list = ["tab:blue", "tab:orange", "tab:green", "tab:red"]
+
+    fig, ax_lut = plt.subplots(figsize=(12, 6), dpi=150)
+    ax_hist = ax_lut.twinx()
+    lut_max = 1023
+    all_x = list(hist_x)
+
+    for idx, (fname, label) in enumerate(lut_specs):
+        filepath = str(Path(output_dir) / fname)
+        try:
+            lx, ly = parse_global_lut_file(filepath)
+        except (ValueError, OSError):
+            continue
+        # Downsample LUT to 256 to align with histogram x-axis
+        lx, ly = _downsample_lut_to_256(lx, ly)
+        ax_lut.plot(lx, ly, color=color_list[idx % len(color_list)],
+                    linewidth=1.5, marker="o", markersize=2.5, label=label)
+        all_x.extend(lx)
+
+    # Identity line — scale=4 because 1023 / 256 ≈ 4
+    x_range = sorted(set(all_x)) if all_x else list(range(256))
+    ref_y = [x * 4 for x in x_range]
+    ax_lut.plot(x_range, ref_y, color="tab:gray", linewidth=1.0,
+                linestyle="--", alpha=0.8, label="y=4x")
+
+    # CDF
+    cdf_y = compute_cdf(hist_y)
+    ax_lut.plot(hist_x, [v * lut_max for v in cdf_y],
+                color="tab:red", linewidth=1.5, linestyle="--", label="CDF (scaled)")
+
+    # Histogram
+    ax_hist.bar(hist_x, hist_y, width=0.9, color="tab:orange", edgecolor="tab:orange",
+                linewidth=0.2, alpha=0.45, label="Histogram")
+
+    ax_lut.set_title("DCI Global LUT & Histogram")
+    ax_lut.set_xlabel("Index / Histogram Bin")
+    ax_lut.set_ylabel("LUT Value", color="tab:blue")
+    ax_hist.set_ylabel("Histogram Count", color="tab:orange")
+    ax_lut.tick_params(axis="y", labelcolor="tab:blue")
+    ax_hist.tick_params(axis="y", labelcolor="tab:orange")
+    ax_lut.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
+    ax_lut.set_xlim(min(all_x) if all_x else 0, max(all_x) if all_x else 255)
+    ax_lut.set_ylim(bottom=0)
+
+    lines1, labels1 = ax_lut.get_legend_handles_labels()
+    lines2, labels2 = ax_hist.get_legend_handles_labels()
+    ax_lut.legend(lines1 + lines2, labels1 + labels2, loc="best")
+
+    fig.tight_layout()
+    return _fig_to_pil(fig)
+
+
 LOCAL_BLOCK_COLS = 16
 LOCAL_BLOCK_ROWS = 16
 LOCAL_HIST_BINS = 16
 LOCAL_HIST_BIN_BYTES = 4
 LOCAL_LUT_PATTERN = re.compile(r".*?\((\d+),\s*(\d+)\).*?\[(\d+)\]\s*=\s*(-?\d+)\s*$", re.IGNORECASE)
+_LOCAL_LUT_SEQ_PATTERN = re.compile(r".*?\[(\d+)\]\s*=\s*(-?\d+)\s*$", re.IGNORECASE)
+
+
+# ------------------------------------------------------------------ #
+# Flat local LUT parser (for _apply_local_lut in ui_dci.py)           #
+# ------------------------------------------------------------------ #
+
+
+def parse_local_lut_flat(filepath: str) -> list | None:
+    """Parse a 16x16x16 local LUT text file into a flat list of 4096 values.
+
+    Supports two formats:
+      - Sequential:  "local lut clahe[N] = value"  (N = 0..4095)
+      - Block-coord: "(row, col)[idx] = value"
+
+    Returns None if the file cannot be read.
+    """
+    p = ensure_path(filepath)
+    if p is None or not p.is_file():
+        return None
+    total = LOCAL_BLOCK_ROWS * LOCAL_BLOCK_COLS * LOCAL_HIST_BINS
+    lut = [0] * total
+    seq_found = False
+    with p.open("r", encoding="utf-8") as f:
+        for line in f:
+            m = _LOCAL_LUT_SEQ_PATTERN.search(line)
+            if m:
+                idx = int(m.group(1))
+                val = int(m.group(2))
+                if 0 <= idx < total:
+                    lut[idx] = val
+                    seq_found = True
+                continue
+            m = LOCAL_LUT_PATTERN.search(line)
+            if m and not seq_found:
+                blk_row = int(m.group(1))
+                blk_col = int(m.group(2))
+                idx = int(m.group(3))
+                val = int(m.group(4))
+                if 0 <= blk_row < LOCAL_BLOCK_ROWS and 0 <= blk_col < LOCAL_BLOCK_COLS \
+                        and 0 <= idx < LOCAL_HIST_BINS:
+                    offset = (blk_row * LOCAL_BLOCK_ROWS + blk_col) * LOCAL_HIST_BINS + idx
+                    lut[offset] = val
+    return lut
 
 
 def parse_local_hist_file(input_path):

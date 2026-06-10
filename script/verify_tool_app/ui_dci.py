@@ -3,10 +3,9 @@ DCI module tab for PQ Test Tool.
 
 Provides DCI audit controls (CF/HE ratio, BS/WS set points, CLAHE).
 Processing is done via external dci_runner executable.
-Right preview supports LUT-based median curve visualization from curves.json.
+Right preview supports chart visualization from DCI dump files (LUT curves, histograms).
 """
 
-import json
 from ntpath import exists
 import os
 import subprocess
@@ -37,6 +36,8 @@ from verify_tool_app.ui_helpers import (
 
 from config_def.module_config_dci import DciUserConfig
 
+import dci.draw_global_lut as dgl
+
 TAB_LABEL = "DCI"
 
 # ------------------------------------------------------------------ #
@@ -61,9 +62,6 @@ DCI_SUPPORT_IO_FORMATS = defaultdict(list, {
     0x1A: [0x1A],
 })
 
-# Curves cache: {audit_dir_path: curves_dict}
-_CURVES_CACHE: dict[str, dict] = {}
-
 # Project root for resolving relative paths
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -84,35 +82,29 @@ def _get_default_exe_path() -> str:
 
 
 # ------------------------------------------------------------------ #
-# Curves loading                                                      #
+# Right preview — chart source mapping                                 #
 # ------------------------------------------------------------------ #
 
-COMBO_TO_CURVE_KEY = {
-    "Global_CF": "g_cf",
-    "Global_HE": "g_he",
-    "Global_CF_HE": "g_cf_he",
-    "Global_BWS": "g_bws",
-    "Global_All": "global_lut",
-    "Local_CLAHE": "local_lut",
+# Map combo option → (chart_type, spec)
+#   "combined"   → histogram + 4 LUT curves + CDF + y=x → returns PIL Image
+#   "lut"        → apply 1D LUT to Y channel → returns (planar, fmt)
+#   "local_lut"  → apply 16×16 local LUT with bilinear interp → returns (planar, fmt)
+_COMBO_NONE = "None"
+_COMBO_HIST_LUT = "Global_Hist_And_Lut"
+
+_COMBO_SOURCE = {
+    _COMBO_HIST_LUT: ("combined", [
+        ("dci_glb1_cf_lut_frm0.txt",       "CF"),
+        ("dci_glb2_he_lut_frm0.txt",       "HE"),
+        ("dci_glb3_cfhe_lut_frm0.txt",     "CF_HE"),
+        ("dci_glb4_cfhebws_lut_frm0.txt",  "Final(CF+HE+BWS)"),
+    ]),
+    "Global_CF":             ("lut", "dci_glb1_cf_lut_frm0.txt"),
+    "Global_HE":             ("lut", "dci_glb2_he_lut_frm0.txt"),
+    "Global_CF_HE":          ("lut", "dci_glb3_cfhe_lut_frm0.txt"),
+    "Global_Final(CF+HE+BWS)": ("lut", "dci_glb4_cfhebws_lut_frm0.txt"),
+    "Local_CLAHE":           ("local_lut", "dci_local_clahe_lut.txt"),
 }
-
-
-def _load_curves(audit_dir: str) -> dict | None:
-    """Load and cache curves.json from the audit directory. Returns curves dict or None."""
-    if not audit_dir or not os.path.isdir(audit_dir):
-        return None
-    if audit_dir in _CURVES_CACHE:
-        return _CURVES_CACHE[audit_dir]
-    curves_path = os.path.join(audit_dir, "curves", "curves.json")
-    if not os.path.isfile(curves_path):
-        return None
-    try:
-        with open(curves_path, "r", encoding="utf-8") as f:
-            curves = json.load(f)
-        _CURVES_CACHE[audit_dir] = curves
-        return curves
-    except Exception:
-        return None
 
 
 # ------------------------------------------------------------------ #
@@ -255,25 +247,23 @@ def build_controls() -> list:
     default_exe = "G:/Codes/RkVopAlgos_git/pub_lib/ModelVerify/AMD64/bin/dci_sim_exe.exe"
     return [
         [
-            sg.Text("DCI EXE", size=(10, 1)),
-            sg.Input(default_exe, key="-DCI-EXE-", size=(46, 1),
+            sg.Text("DCI EXE"),
+            sg.Input(default_exe, key="-DCI-EXE-", size=(50, 1),
                      tooltip="DCI模块可执行文件路径"),
             sg.FileBrowse(
                 file_types=(("Executable", "*.exe"),),
                 target="-DCI-EXE-",
-                size=(8, 1),
             ),
             sg.Button("Open Dir", key="-DCI-OPEN-EXE-DIR-",
                       tooltip="在资源管理器中打开EXE所在目录"),
             sg.Button("Save Config", key="-DCI-SAVE-CFG-",
                       tooltip="保存配置参数到json配置文件"),
-            sg.Text("Show Median Result", size=(14, 1)),
+            sg.Text("Show Median Result"),
             sg.Combo(
-                ["None", "Gloat_Hist_And_Lut", "Global_CF", "Global_HE", "Global_CF_HE", "Global_All(CF+HE+BWS)", "Local_CLAHE"],
+                ["None", "Global_Hist_And_Lut", "Global_CF", "Global_HE", "Global_CF_HE", "Global_Final(CF+HE+BWS)", "Local_CLAHE"],
                 default_value="None",
                 key="-DCI-COMBO-MEDIAN-",
                 readonly=True,
-                size=(12, 1),
                 enable_events=True,
                 tooltip="右预览区显示的DCI中间结果类型（需要启用Dump功能）",
             ),
@@ -761,48 +751,63 @@ def process(src_frame, io_info: dict):
 
 
 def get_right_preview_image(snapshot, params: dict):
-    """Generate right-side DCI median LUT preview data.
+    """Generate right-side DCI preview.
 
     Args:
         snapshot: (data, fmt, clrspc) tuple from pipeline.
         params: DCI module parameters (includes combo_median, output_dir).
 
     Returns:
-        (mapped_planar, fmt) tuple or None if median is "None" or no data.
-        The caller converts to PIL Image for display.
+        - PIL Image for charts (Global_Hist_And_Lut)
+        - (mapped_planar, fmt) tuple for LUT-mapped images
+        - None if no preview available
     """
-    combo_median = params.get("combo_median", "None")
-    if combo_median == "None":
+    combo_median = params.get("combo_median", _COMBO_NONE)
+    if combo_median == _COMBO_NONE:
         return None
 
-    curve_key = COMBO_TO_CURVE_KEY.get(combo_median)
-    if curve_key is None:
+    source = _COMBO_SOURCE.get(combo_median)
+    if source is None:
         return None
 
     output_dir = params.get("output_dir", "").strip()
     if not output_dir or not os.path.isdir(output_dir):
         return None
-    curves = _load_curves(output_dir)
-    if curves is None:
-        return None
 
-    lut_data = curves.get(curve_key)
-    if lut_data is None or not isinstance(lut_data, list) or len(lut_data) < 16:
-        return None
+    chart_type, spec = source
+
+    if chart_type == "combined":
+        return dgl.draw_combined_to_pil(output_dir, _COMBO_SOURCE[_COMBO_HIST_LUT][1])
 
     if snapshot is None:
         return None
+    data, fmt, _clrspc = snapshot
 
-    data, fmt, _ = snapshot
-    from csc.run_csc import get_pixel_depth
-    in_depth = get_pixel_depth(fmt)
+    if chart_type == "lut":
+        filepath = os.path.join(output_dir, spec)
+        try:
+            _lx, ly = dgl.parse_global_lut_file(filepath)
+        except (ValueError, OSError):
+            return None
+        if ly is None:
+            return None
+        mapped = _apply_1d_lut(data, ly, _get_bit_depth(fmt))
+        return (mapped, fmt)
 
-    if combo_median == "Local_CLAHE":
-        mapped = _apply_local_lut(data, lut_data, in_depth)
-    else:
-        mapped = _apply_1d_lut(data, lut_data, in_depth)
+    if chart_type == "local_lut":
+        filepath = os.path.join(output_dir, spec)
+        local_lut = dgl.parse_local_lut_flat(filepath)
+        if local_lut is None:
+            return None
+        mapped = _apply_local_lut(data, local_lut, _get_bit_depth(fmt))
+        return (mapped, fmt)
 
-    return (mapped, fmt)
+    return None
+
+
+def _get_bit_depth(fmt: int) -> int:
+    """Return bit depth for a given format code."""
+    return 10 if (fmt & 0x10) else 8
 
 
 # ------------------------------------------------------------------ #
