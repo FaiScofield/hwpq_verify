@@ -1026,6 +1026,38 @@ def open_csc_ui(args=None):
         sathue_locked_input = None
         update_sathue_map(preserve_display_size=True)
 
+    def _update_dual_frozen_left_luma(new_luma):
+        """Update the left frozen pixel's luma component (Y for YUV, V for RGB/HSV)
+        to new_luma (0..255 byte) in dual + frozen mode, and refresh the mirrored
+        right-side locked pixel accordingly.  No-op outside dual + frozen mode."""
+        nonlocal sathue_left_locked, sathue_left_locked_pix, sathue_left_locked_input
+        nonlocal sathue_right_locked_pix, sathue_right_locked_input
+        nonlocal sathue_locked, sathue_locked_pix, sathue_locked_input
+        if sathue_mode != 'dual' or not sathue_left_locked or sathue_left_locked_input is None:
+            return
+        if sathue_left_colorspace == 'YUV':
+            _, cb, cr = sathue_left_locked_input
+            sathue_left_locked_input = (float(new_luma), cb, cr)
+        else:
+            h, s, _v = sathue_left_locked_input
+            sathue_left_locked_input = (h, s, new_luma / 255.0)
+        # Keep the single-mode globals in sync with the left side.
+        sathue_locked = True
+        sathue_locked_pix = sathue_left_locked_pix
+        sathue_locked_input = sathue_left_locked_input
+        # Recompute the mirrored right-side locked input and pixel coords.
+        if sathue_left_colorspace == 'YUV' and sathue_right_colorspace == 'RGB':
+            right_input = _yuv_to_rgb_input(sathue_left_locked_input)
+        elif sathue_left_colorspace == 'RGB' and sathue_right_colorspace == 'YUV':
+            right_input = _rgb_to_yuv_input(sathue_left_locked_input)
+        else:
+            right_input = sathue_left_locked_input
+        sathue_right_locked_input = right_input
+        rx, ry = _input_to_lock_pix(right_input, cs=sathue_right_colorspace)
+        rx = int(np.clip(rx, 0, SAT_COLORMAP_SIZE - 1))
+        ry = int(np.clip(ry, 0, SAT_COLORMAP_SIZE - 1))
+        sathue_right_locked_pix = (rx, ry)
+
     def _render_sathue_display():
         """Scale the full colormap image to fit the widget and display it."""
         nonlocal sathue_display_scale, sathue_render_after_id
@@ -2247,7 +2279,11 @@ def open_csc_ui(args=None):
         elif event == '-SAT-LUMA-':
             sathue_luma_val = int(values['-SAT-LUMA-'])
             window['-SAT-LUMA-SPIN-'].update(value=str(sathue_luma_val))
-            if sathue_locked and not sathue_set_color_enabled:
+            if sathue_mode == 'dual' and sathue_left_locked and not sathue_set_color_enabled:
+                # In dual + frozen mode the luma slider drives the left frozen pixel's
+                # luma (Y for YUV, V for RGB/HSV); the right side is re-mirrored.
+                _update_dual_frozen_left_luma(sathue_luma_val)
+            elif sathue_locked and not sathue_set_color_enabled:
                 sathue_locked_input = _get_sathue_input_at(*sathue_locked_pix)
             update_sathue_map(preserve_display_size=True)
         elif event == '-SAT-HUE-':
@@ -2265,6 +2301,10 @@ def open_csc_ui(args=None):
                 v = max(0, min(255, v))
                 sathue_luma_val = v
                 window[slider_key].update(value=v)
+                if sathue_mode == 'dual' and sathue_left_locked and not sathue_set_color_enabled:
+                    _update_dual_frozen_left_luma(sathue_luma_val)
+                elif sathue_locked and not sathue_set_color_enabled:
+                    sathue_locked_input = _get_sathue_input_at(*sathue_locked_pix)
             elif event_key == '-SAT-HUE-SPIN-':
                 v = int(values[event_key])
                 v = max(-180, min(180, v))
@@ -2290,7 +2330,9 @@ def open_csc_ui(args=None):
                 sathue_luma_val = v
                 window[slider_key].update(value=v)
                 window[event_key].update(value=str(v))
-                if sathue_locked:
+                if sathue_mode == 'dual' and sathue_left_locked and not sathue_set_color_enabled:
+                    _update_dual_frozen_left_luma(sathue_luma_val)
+                elif sathue_locked:
                     sathue_locked_input = _get_sathue_input_at(*sathue_locked_pix)
             elif event_key == '-SAT-HUE-SPIN-':
                 try:
@@ -2334,7 +2376,9 @@ def open_csc_ui(args=None):
                 sathue_luma_val = cur
                 window['-SAT-LUMA-SPIN-'].update(value=str(cur))
                 window[event_key].update(value=cur)
-                if sathue_locked and not sathue_set_color_enabled:
+                if sathue_mode == 'dual' and sathue_left_locked and not sathue_set_color_enabled:
+                    _update_dual_frozen_left_luma(sathue_luma_val)
+                elif sathue_locked and not sathue_set_color_enabled:
                     sathue_locked_input = _get_sathue_input_at(*sathue_locked_pix)
             elif event_key == '-SAT-HUE-':
                 cur = max(-180, min(180, cur + delta))
