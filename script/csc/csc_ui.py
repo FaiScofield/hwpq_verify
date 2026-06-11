@@ -166,16 +166,23 @@ def remap_rgb_gain_value_for_algo_switch(value, old_algo_type, new_algo_type):
 
 # ---- Colormap conversion helpers ----
 
-def _ycbcr2rgb(y, cb, cr):
-    """Convert YCbCr to RGB (BT.709), returns 0-255 uint8 arrays."""
+def _ycbcr2rgb(y, cb, cr, clip=True):
+    """Apply the BT.709 YCbCr->RGB matrix.  When clip is True (default), round to
+    nearest integer and clip to [0, 255], returning uint8 arrays (R, G, B).
+    When clip is False, skip the clip+uint8 conversion and return float32
+    arrays with the raw mathematical values (may be negative or > 255); this
+    lets callers detect out-of-gamut pixels before display (e.g. colormap
+    builders that want to mark clipped regions)."""
     ycbcr = np.stack([np.asarray(y, dtype=np.float32),
                        np.asarray(cb, dtype=np.float32),
                        np.asarray(cr, dtype=np.float32)], axis=-1)
     rgb = np.dot(ycbcr.reshape(-1, 3), g_y2r_mat_bt709.T).reshape(ycbcr.shape)
-    r = np.clip(rgb[..., 0] + 0.5, 0, 255).astype(np.uint8)
-    g = np.clip(rgb[..., 1] + 0.5, 0, 255).astype(np.uint8)
-    b = np.clip(rgb[..., 2] + 0.5, 0, 255).astype(np.uint8)
-    return r, g, b
+    if clip:
+        r = np.clip(rgb[..., 0] + 0.5, 0, 255).astype(np.uint8)
+        g = np.clip(rgb[..., 1] + 0.5, 0, 255).astype(np.uint8)
+        b = np.clip(rgb[..., 2] + 0.5, 0, 255).astype(np.uint8)
+        return r, g, b
+    return rgb[..., 0], rgb[..., 1], rgb[..., 2]
 
 
 def _rgb2ycbcr(r, g, b):
@@ -259,13 +266,37 @@ def _pix_to_data_int(pix):
     return int(pix * _DATA_SIZE / SAT_COLORMAP_SIZE) - _DATA_RANGE_MAX
 
 
-def _build_colormap_yuv(luma_val):
+def _build_colormap_yuv(luma_val, mark_clip_pixel=False):
     """Build YCbCr->RGB colormap for a fixed luma value. Returns PIL Image."""
     w, h_img = SAT_COLORMAP_SIZE, SAT_COLORMAP_SIZE
     # Map pixel coords to data range [-128, 127]
     cb_grid = _pix_to_data(np.tile(np.arange(w, dtype=np.float32), (h_img, 1)))
     cr_grid = _pix_to_data(np.tile(np.arange(h_img - 1, -1, -1, dtype=np.float32).reshape(-1, 1), (1, w)))
     y = np.full((h_img, w), float(luma_val), dtype=np.float32)
+    if mark_clip_pixel:
+        # Use the unclipped matrix output so we can detect out-of-gamut pixels.
+        r_raw, g_raw, b_raw = _ycbcr2rgb(y, cb_grid, cr_grid, clip=False)
+        # Out-of-gamut: any channel < 0 or > 255 (matching _ycbcr2rgb's clip range).
+        clip_mask = (r_raw < 0) | (r_raw > 255) | (g_raw < 0) | (g_raw > 255) | (b_raw < 0) | (b_raw > 255)
+        # "Inner edge" of the clip region: clip pixels that have at least one
+        # 4-connected non-clip neighbor.  Pad with True (treated as "in gamut")
+        # so edge-of-image clip pixels whose in-image neighbors are all clip are
+        # NOT marked as boundary.  Out-of-image pixels are not real neighbors.
+        padded = np.pad(clip_mask, 1, mode='constant', constant_values=True)
+        n_up    = padded[:-2, 1:-1]
+        n_down  = padded[2:,   1:-1]
+        n_left  = padded[1:-1, :-2]
+        n_right = padded[1:-1, 2:]
+        all_nbrs_clip = n_up & n_down & n_left & n_right
+        boundary = clip_mask & ~all_nbrs_clip
+        # Mark boundary pixels gray; non-boundary pixels (including those inside
+        # the clip region) keep their natural rounded-and-clipped color so the
+        # underlying tone is still visible inside the out-of-gamut area.
+        gray = 128.0
+        r_disp = np.where(boundary, gray, np.clip(r_raw + 0.5, 0, 255))
+        g_disp = np.where(boundary, gray, np.clip(g_raw + 0.5, 0, 255))
+        b_disp = np.where(boundary, gray, np.clip(b_raw + 0.5, 0, 255))
+        return Image.fromarray(np.stack([r_disp, g_disp, b_disp], axis=-1).astype(np.uint8), 'RGB')
     r, g, b = _ycbcr2rgb(y, cb_grid, cr_grid)
     return Image.fromarray(np.stack([r, g, b], axis=-1), 'RGB')
 
@@ -308,7 +339,7 @@ def _build_colormap_with_axis(img_eff, title, xlabel, ylabel):
     # Y axis (vertical through Cb=0)
     draw.line([(x0, margin), (x0, total_h - margin)], fill=axis_color, width=2)
     # Ticks
-    tick_data_vals = [-128, -96, -64, -32, 0, 32, 64, 96]  # match data range [-128, 127]
+    tick_data_vals = [-128, -96, -64, -32, 0, 32, 64, 96, 128]  # match data range [-128, 127]
     for dv in tick_data_vals:
         # X tick: Cb=dv at pixel _data_to_pix(dv) from left
         x = margin + _data_to_pix(dv)
@@ -624,6 +655,10 @@ def open_csc_ui(args=None):
     sathue_left_locked_input = None
     sathue_right_locked_pix = None
     sathue_right_locked_input = None
+    # Mirrors the -SHOW-IN-/OUT- radio state; in dual + frozen + YUV=>RGB mode it
+    # also drives which YUV pixel (input vs. hue/sat-transformed output) feeds
+    # the right RGB colormap's V value and the right-side marker style.
+    sathue_show_output = True
     sathue_mouse_pos = None
     sathue_left_display_scale = 1.0
     sathue_right_display_scale = 1.0
@@ -665,7 +700,7 @@ def open_csc_ui(args=None):
 
         if sathue_mode == 'single':
             if sathue_colorspace == 'YUV':
-                img_eff = _build_colormap_yuv(sathue_luma_val)
+                img_eff = _build_colormap_yuv(sathue_luma_val, mark_clip_pixel=True)
                 title = f"YCbCr->RGB  (Y={sathue_luma_val})"
                 xlabel, ylabel = "Cb", "Cr"
             else:
@@ -711,11 +746,20 @@ def open_csc_ui(args=None):
             #   - Left frozen: left side uses the frozen pixel's own Luma/Value; right side
             #     uses the Luma/Value derived from the left frozen pixel converted to the
             #     right colorspace. The -SAT-LUMA- control no longer drives the right side.
-            left_luma, right_luma = _resolve_dual_luma()
+            # In dual + frozen mode, when the right cs differs from the left
+            # cs (i.e. YUV=>RGB or RGB=>YUV), the right luma is sourced from
+            # either the left *output* pixel (Show Output) or the left
+            # *input* pixel (Show Input), per sathue_show_output.
+            dual_use_output = ((sathue_left_colorspace == 'YUV'
+                                and sathue_right_colorspace == 'RGB')
+                               or (sathue_left_colorspace == 'RGB'
+                                   and sathue_right_colorspace == 'YUV')) \
+                              and sathue_show_output
+            left_luma, right_luma = _resolve_dual_luma(use_output=dual_use_output)
 
             # Left colormap.
             if sathue_left_colorspace == 'YUV':
-                left_eff = _build_colormap_yuv(left_luma)
+                left_eff = _build_colormap_yuv(left_luma, mark_clip_pixel=True)
                 left_title = f"YCbCr->RGB  (Y={left_luma})"
                 left_xl, left_yl = "Cb", "Cr"
             else:
@@ -733,7 +777,7 @@ def open_csc_ui(args=None):
 
             # Right colormap.
             if sathue_right_colorspace == 'YUV':
-                right_eff = _build_colormap_yuv(right_luma)
+                right_eff = _build_colormap_yuv(right_luma, mark_clip_pixel=True)
                 right_title = f"YCbCr->RGB  (Y={right_luma})"
                 right_xl, right_yl = "Cb", "Cr"
             else:
@@ -744,8 +788,63 @@ def open_csc_ui(args=None):
             right_verbose = right_eff.copy()
             right_draw = ImageDraw.Draw(right_verbose)
             if sathue_right_locked_pix is not None and sathue_right_locked_input is not None:
-                _draw_locked_markers(right_draw, sathue_right_locked_pix,
-                                     sathue_right_locked_input, cs=sathue_right_colorspace)
+                if sathue_left_colorspace != sathue_right_colorspace:
+                    # In dual + frozen + cross-cs mode (YUV=>RGB or RGB=>YUV)
+                    # the two markers on the right colormap mirror the two
+                    # frozen pixel *values* shown in the Input/Output Pixel
+                    # text fields:
+                    #   - black marker  = the left input pixel projected to
+                    #                    the right colormap (the "Input
+                    #                    Pixel" numeric value).
+                    #   - white marker  = the left output pixel projected
+                    #                    to the right colormap (the
+                    #                    "Output Pixel" numeric value).
+                    # The -SHOW-OUT- radio only changes the colormap's
+                    # Luma/Value and flips the solid/dash style of the two
+                    # markers so the user can tell which one is the live
+                    # reference:
+                    #   Show Output : black (input) = dashed, white (output) = solid
+                    #   Show Input  : black (input) = solid,  white (output) = dashed
+                    # The marker positions themselves never change with the
+                    # Show IO radio because they always point to the same
+                    # left input / left output pixel, regardless of the
+                    # Luma/Value used to render the colormap background.
+                    in_pix = sathue_right_locked_pix
+                    right_out_data = _compute_dual_right_data_pos()
+                    if right_out_data is not None:
+                        ox, oy = right_out_data
+                        out_pix = (_data_to_pix(ox),
+                                   SAT_COLORMAP_SIZE - 1 - _data_to_pix(oy))
+                    else:
+                        out_pix = None
+                    solid_input = not sathue_show_output
+                    solid_output = sathue_show_output
+                    if solid_input:
+                        r = 5
+                        for _ in range(2):
+                            right_draw.ellipse(
+                                [in_pix[0] - r, in_pix[1] - r,
+                                 in_pix[0] + r, in_pix[1] + r],
+                                outline=(0, 0, 0))
+                            r -= 1
+                    else:
+                        _draw_dashed_circle(right_draw, in_pix[0], in_pix[1], 5,
+                                            outline=(0, 0, 0))
+                    if out_pix is not None:
+                        if solid_output:
+                            r = 5
+                            for _ in range(2):
+                                right_draw.ellipse(
+                                    [out_pix[0] - r, out_pix[1] - r,
+                                     out_pix[0] + r, out_pix[1] + r],
+                                    outline=(255, 255, 255))
+                                r -= 1
+                        else:
+                            _draw_dashed_circle(right_draw, out_pix[0], out_pix[1], 5,
+                                                outline=(255, 255, 255))
+                else:
+                    _draw_locked_markers(right_draw, sathue_right_locked_pix,
+                                         sathue_right_locked_input, cs=sathue_right_colorspace)
             sathue_right_img_full, sathue_margin = _build_colormap_with_axis(
                 right_verbose, right_title, right_xl, right_yl)
 
@@ -884,20 +983,37 @@ def open_csc_ui(args=None):
             y = float(input_vals[2]) * 255.0
         return int(np.clip(round(y), 0, 255))
 
-    def _resolve_dual_luma():
+    def _resolve_dual_luma(use_output=False):
         """Return (left_luma, right_luma) for dual mode.
         When left side has a frozen pixel, left luma comes from the frozen pixel itself
         and right luma comes from the left frozen pixel converted to the right cs.
-        Otherwise both sides share sathue_luma_val."""
+        Otherwise both sides share sathue_luma_val.
+
+        use_output (meaningful in dual + frozen mode whenever the right cs
+        differs from the left cs): when True, the right luma is derived from
+        the left *output* pixel (one application of hue/sat) instead of from
+        the left input pixel.  This mirrors the -SHOW-OUT- radio state and
+        applies symmetrically to both YUV=>RGB and RGB=>YUV directions:
+          YUV=>RGB:  right_luma = V(_yuv_to_rgb_input(apply_hue_sat_yuv(left_in)))
+          RGB=>YUV:  right_luma = Y(_rgb_to_yuv_input(apply_hue_sat_hsv(left_in)))"""
         if sathue_left_locked and sathue_left_locked_input is not None:
             left_luma = _get_luma_from_input(sathue_left_locked_input, sathue_left_colorspace)
             if sathue_left_colorspace == sathue_right_colorspace:
                 right_luma = left_luma
             elif sathue_left_colorspace == 'YUV' and sathue_right_colorspace == 'RGB':
-                converted = _yuv_to_rgb_input(sathue_left_locked_input)
+                if use_output:
+                    out_yuv = _apply_hue_sat_yuv(sathue_left_locked_input)
+                    converted = _yuv_to_rgb_input(out_yuv)
+                else:
+                    converted = _yuv_to_rgb_input(sathue_left_locked_input)
                 right_luma = _get_luma_from_input(converted, 'RGB')
             else:
-                converted = _rgb_to_yuv_input(sathue_left_locked_input)
+                # RGB=>YUV
+                if use_output:
+                    h2, s2, v2 = _apply_hue_sat_hsv(sathue_left_locked_input)
+                    converted = _rgb_to_yuv_input((h2, s2, v2))
+                else:
+                    converted = _rgb_to_yuv_input(sathue_left_locked_input)
                 right_luma = _get_luma_from_input(converted, 'YUV')
             return left_luma, right_luma
         return sathue_luma_val, sathue_luma_val
@@ -950,22 +1066,56 @@ def open_csc_ui(args=None):
         display_img.save(bio, format='PNG')
         window['-SAT-IMAGE-'].update(data=bio.getvalue())
 
-    def _draw_locked_markers(draw, locked_pix, locked_input, cs):
-        """Draw black input circle and white output circle on the given draw context."""
+    def _draw_dashed_circle(draw, cx, cy, r, outline, segments=16, dash_ratio=0.5, width=1):
+        """Draw a dashed circle on the given ImageDraw context.
+        PIL's ImageDraw.ellipse has no dash support, so approximate it by drawing
+        `segments` short arc segments evenly spaced around the circle and only
+        stroking the first `dash_ratio` of each segment."""
+        import math
+        if r <= 0 or segments <= 0:
+            return
+        angle_step = 2.0 * math.pi / segments
+        on_segments = max(int(round(segments * dash_ratio)), 1)
+        for i in range(0, segments, 2):
+            start_angle = (i + 0) * angle_step - math.pi / 2.0
+            for k in range(on_segments):
+                a1 = (i + k) * angle_step - math.pi / 2.0
+                a2 = (i + k + 1) * angle_step - math.pi / 2.0
+                x1 = cx + r * math.cos(a1)
+                y1 = cy + r * math.sin(a1)
+                x2 = cx + r * math.cos(a2)
+                y2 = cy + r * math.sin(a2)
+                draw.line([x1, y1, x2, y2], fill=outline, width=width)
+
+    def _draw_locked_markers(draw, locked_pix, locked_input, cs,
+                             solid_input=True, solid_output=True):
+        """Draw the input (black) and output (white) marker rings on the given draw context.
+
+        solid_input/solid_output:
+          True  -> solid double-ring (current default look).
+          False -> single dashed ring, so the user can visually distinguish
+                  "this is the live input/output" from "this is the cross-mode
+                  reference point"."""
         if locked_pix is None or locked_input is None:
             return
         lx, ly = locked_pix
-        r = 5
-        for _ in range(2):
-            draw.ellipse([lx - r, ly - r, lx + r, ly + r], outline=(0, 0, 0))
-            r -= 1
+        if solid_input:
+            r = 5
+            for _ in range(2):
+                draw.ellipse([lx - r, ly - r, lx + r, ly + r], outline=(0, 0, 0))
+                r -= 1
+        else:
+            _draw_dashed_circle(draw, lx, ly, 5, outline=(0, 0, 0))
         out_pos = _compute_sathue_output_pos_for(cs, locked_input)
         if out_pos is not None:
             tx, ty = out_pos
-            r = 5
-            for _ in range(2):
-                draw.ellipse([tx - r, ty - r, tx + r, ty + r], outline=(255, 255, 255))
-                r -= 1
+            if solid_output:
+                r = 5
+                for _ in range(2):
+                    draw.ellipse([tx - r, ty - r, tx + r, ty + r], outline=(255, 255, 255))
+                    r -= 1
+            else:
+                _draw_dashed_circle(draw, tx, ty, 5, outline=(255, 255, 255))
 
     def _compute_sathue_output_pos_for(cs, locked_input):
         """Compute the output pixel coordinate for a given (cs, locked_input) tuple.
@@ -1068,6 +1218,13 @@ def open_csc_ui(args=None):
         xl = _pix_to_data_int(lx)
         yl = _pix_to_data_int(SAT_COLORMAP_SIZE - 1 - ly)
         right_start = _compute_dual_right_frozen_data_pos()
+        # The "right end" pixel position is the right-side *output* pixel
+        # projected onto the right colormap.  It is always the left *output*
+        # YUV pixel (one application of hue/sat) projected to the right
+        # colormap, regardless of the -SHOW-IN-/OUT- radio.  This mirrors the
+        # "Output Pixel" text in the UI, which is also the left output YUV
+        # pixel.  The Show IO radio only changes the colormap's V value and
+        # the marker style (solid/dash), not the marker position.
         right_end = _compute_dual_right_data_pos()
         if right_start is None or right_end is None:
             pos_text = "( n/a,  n/a) -> ( n/a,  n/a) [Frozen]"
@@ -1089,21 +1246,26 @@ def open_csc_ui(args=None):
         window['-DISPLAY-SIZE-'].update(value=disp_size_text)
 
     def _compute_dual_right_data_pos():
-        """Return (x_data, y_data) of the hue/sat-transformed output pixel on the
-        right colormap (in data coords, the same convention as the left side uses).
-        Returns None if the result is outside the valid [-128, 128) data range.
-        YUV=>RGB: invals (YUV) -> RGB bytes -> HSV -> (h2,s2,v2) -> HSV colormap (x,y).
-        RGB=>YUV: invals (HSV) -> (h2,s2,v2) -> YUV -> YUV colormap (Cb, Cr)."""
+        """Return (x_data, y_data) of the right-side *output* pixel projected onto
+        the right colormap (in data coords, the same convention as the left side
+        uses).  Returns None if the result is outside the valid [-128, 128) data
+        range.  This is the position of the white output marker on the right
+        colormap; the "Output Pixel" text in the UI is the numeric value of the
+        same pixel, so the marker must always mirror that pixel.
+        YUV=>RGB:  invals (YUV) -> apply hue/sat once (left output YUV) -> RGB
+                   bytes -> HSV -> (h, s, v) -> HSV colormap (x, y).
+        RGB=>YUV:  invals (HSV) -> apply hue/sat once -> RGB -> YUV -> YUV
+                   colormap (Cb, Cr)."""
         invals = sathue_left_locked_input
         if invals is None:
             return None
         if sathue_left_colorspace == 'YUV' and sathue_right_colorspace == 'RGB':
-            r, g, b = _yuv_tuple_to_rgb_bytes(invals)
+            out_yuv = _apply_hue_sat_yuv(invals)
+            r, g, b = _yuv_tuple_to_rgb_bytes(out_yuv)
             h_arr, s_arr, v_arr = _rgb2hsv(np.array([r]), np.array([g]), np.array([b]))
             h, s, v = float(h_arr[0]), float(s_arr[0]), float(v_arr[0])
-            h2, s2, v2 = _apply_hue_sat_hsv((h, s, v))
-            cx = s2 * _DATA_RANGE_MAX * np.cos(np.radians(h2))
-            cy = s2 * _DATA_RANGE_MAX * np.sin(np.radians(h2))
+            cx = s * _DATA_RANGE_MAX * np.cos(np.radians(h))
+            cy = s * _DATA_RANGE_MAX * np.sin(np.radians(h))
         elif sathue_left_colorspace == 'RGB' and sathue_right_colorspace == 'YUV':
             h2, s2, v2 = _apply_hue_sat_hsv(invals)
             out_yuv_data = _rgb_to_yuv_input((h2, s2, v2))
@@ -1304,10 +1466,10 @@ def open_csc_ui(args=None):
         the pixel domain [0, 255]; all printed R/G/B values are 0-255 bytes.
 
         With frozen pixel:
-          YUV=>RGB : "Y(yi,ui,vi)/R(ri, gi, bi) => Y(yo,uo,vo)/R(ro,go,bo)"
-          RGB=>YUV : "R(ri, gi, bi)/Y(yi,ui,vi) => R(ro,go,bo)/Y(yo,uo,vo)"
+          YUV=>RGB : "YUV(yi,ui,vi) / RGB(ri,gi,bi)"        (left-input only)
+          RGB=>YUV : "RGB(ri,gi,bi) / YUV(yi,ui,vi)"        (left-input only)
 
-        Without frozen pixel (hover-only):
+          Without frozen pixel (hover-only):
           YUV=>RGB : "YCbCr(y,cb,cr) => YUV(y,u,v)"
           RGB=>YUV : "HSV(h, s, v) => RGB(r,g,b)"
 
@@ -1325,8 +1487,31 @@ def open_csc_ui(args=None):
                 return f"YCbCr({y_pix:3d},{cb_pix:3d},{cr_pix:3d}) => YUV({y_pix:3d},{input_vals[1] + 128:3d},{input_vals[2] + 128:3d})"
             return f"HSV({input_vals[0]:3.1f}, {input_vals[1]:3.2f}, {input_vals[2]:3.2f}) => RGB({ri:3d},{gi:3d},{bi:3d})"
 
-        # Frozen branch: compute the transformed pixel directly from input_vals via
-        # the hue/sat formula, NOT from the colormap (which is the un-transformed reference).
+        # Frozen branch: show only the *input* pixel (left side) - the
+        # corresponding *output* pixel is reported on the "Output Pixel"
+        # line.  YUV is the primary on the left in YUV=>RGB, RGB is the
+        # primary on the left in RGB=>YUV.
+        if input_cs == 'YUV':
+            return f"YUV({y_pix:3d},{cb_pix:3d},{cr_pix:3d})/RGB({ri:3d},{gi:3d},{bi:3d})"
+        return f"RGB({ri:3d},{gi:3d},{bi:3d})/YUV({y_pix:3d},{cb_pix:3d},{cr_pix:3d})"
+
+    def _format_dual_output_str(input_cs, input_vals, out_pos, frozen):
+        """Format the dual-mode Output Pixel line.  All printed Y/Cb/Cr values are
+        in the pixel domain [0, 255]; all printed R/G/B values are 0-255 bytes.
+
+        In dual + frozen mode the right-side input/output pixel are no longer
+        independent: the right output is the left *output* projected onto the
+        right colormap.  The "Output Pixel" line therefore reports the
+        transformed value of the same left pixel that the "Input Pixel" line
+        reports, but with one application of the hue/sat slider.
+          YUV=>RGB : "YUV(yo,uo,vo)/RGB(ro,go,bo)"
+          RGB=>YUV : "RGB(ro,go,bo)/YUV(yo,uo,vo)"
+        Without frozen pixel: returns an empty string (caller clears the field)."""
+        if not frozen:
+            return ''
+        # Compute the transformed (output) pixel directly from input_vals via
+        # the hue/sat formula, NOT from the colormap (which is the un-transformed
+        # reference).
         if input_cs == 'YUV':
             out_yuv_data = _apply_hue_sat_yuv(input_vals)
         else:
@@ -1334,54 +1519,9 @@ def open_csc_ui(args=None):
             out_yuv_data = _rgb_to_yuv_input((h2, s2, v2))
         yo_pix, uo_pix, vo_pix = _yuv_data_to_pixel_yuv(out_yuv_data)
         ro, go, bo = _yuv_tuple_to_rgb_bytes(out_yuv_data)
-
         if input_cs == 'YUV':
-            return f"Y({y_pix:3d},{cb_pix:3d},{cr_pix:3d})/R({ri:3d},{gi:3d},{bi:3d}) => Y({yo_pix:3d},{uo_pix:3d},{vo_pix:3d})/R({ro:3d},{go:3d},{bo:3d})"
-        return f"R({ri:3d},{gi:3d},{bi:3d})/Y({y_pix:3d},{cb_pix:3d},{cr_pix:3d}) => R({ro:3d},{go:3d},{bo:3d})/Y({yo_pix:3d},{uo_pix:3d},{vo_pix:3d})"
-
-    def _format_dual_output_str(input_cs, input_vals, out_pos, frozen):
-        """Format the dual-mode Output Pixel line.  All printed Y/Cb/Cr values are
-        in the pixel domain [0, 255]; all printed R/G/B values are 0-255 bytes.
-
-        With frozen pixel (right colormap is the source-of-truth, "以 RGB 像素为主"):
-          YUV=>RGB : "Y(yi,ui,vi)/R(ri, gi, bi) => Y(yo,uo,vo)/R(ro,go,bo)"
-                  (Y_i, R_i) is the right-colormap frozen pixel expressed in the
-                  YUV and RGB colorspaces; (Y_o, R_o) is the hue/sat-transformed
-                  version of that same pixel.
-          RGB=>YUV : "R(ri, gi, bi)/Y(yi,ui,vi) => R(ro,go,bo)/Y(yo,uo,vo)"
-
-        Without frozen pixel: returns an empty string (caller clears the field)."""
-        if not frozen:
-            return ''
-        # The right colormap is the source-of-truth lock for the dual-mode Output
-        # line; the left colormap's frozen pixel only feeds the Input line.
-        right_invals = sathue_right_locked_input
-        if right_invals is None:
-            return ''
-        if input_cs == 'YUV':
-            # Right cs is RGB; sathue_right_locked_input is (H, S, V).
-            ri, gi, bi = _hsv_tuple_to_rgb_bytes(right_invals)
-            y_arr, cb_arr, cr_arr = _rgb2ycbcr(np.array([ri]), np.array([gi]), np.array([bi]))
-            yi_pix = int(np.clip(round(float(y_arr[0])), 0, 255))
-            ui_pix = int(np.clip(round(float(cb_arr[0])), 0, 255))
-            vi_pix = int(np.clip(round(float(cr_arr[0])), 0, 255))
-            # Apply hue/sat once on the right frozen pixel and project back.
-            h2, s2, v2 = _apply_hue_sat_hsv(right_invals)
-            ro_arr, go_arr, bo_arr = _hsv2rgb(np.array([h2]), np.array([s2]), np.array([v2]))
-            ro, go, bo = int(ro_arr[0]), int(go_arr[0]), int(bo_arr[0])
-            y2, cb2, cr2 = _rgb2ycbcr(np.array([float(ro)]), np.array([float(go)]), np.array([float(bo)]))
-            yo_pix = int(np.clip(round(float(y2[0])), 0, 255))
-            uo_pix = int(np.clip(round(float(cb2[0])), 0, 255))
-            vo_pix = int(np.clip(round(float(cr2[0])), 0, 255))
-            return f"Y({yi_pix:3d},{ui_pix:3d},{vi_pix:3d})/R({ri:3d},{gi:3d},{bi:3d}) => Y({yo_pix:3d},{uo_pix:3d},{vo_pix:3d})/R({ro:3d},{go:3d},{bo:3d})"
-        # input_cs == 'RGB': left cs is RGB, right cs is YUV.
-        # sathue_right_locked_input is (Y, Cb_signed, Cr_signed).
-        yi_pix, ui_pix, vi_pix = _yuv_data_to_pixel_yuv(right_invals)
-        ri, gi, bi = _yuv_tuple_to_rgb_bytes(right_invals)
-        out_yuv_data = _apply_hue_sat_yuv(right_invals)
-        yo_pix, uo_pix, vo_pix = _yuv_data_to_pixel_yuv(out_yuv_data)
-        ro, go, bo = _yuv_tuple_to_rgb_bytes(out_yuv_data)
-        return f"R({ri:3d},{gi:3d},{bi:3d})/Y({yi_pix:3d},{ui_pix:3d},{vi_pix:3d}) => R({ro:3d},{go:3d},{bo:3d})/Y({yo_pix:3d},{uo_pix:3d},{vo_pix:3d})"
+            return f"YUV({yo_pix:3d},{uo_pix:3d},{vo_pix:3d})/RGB({ro:3d},{go:3d},{bo:3d})"
+        return f"RGB({ro:3d},{go:3d},{bo:3d})/YUV({yo_pix:3d},{uo_pix:3d},{vo_pix:3d})"
 
     def _get_sathue_output_at(pix_x, pix_y, cs=None, img_eff=None):
         """Get the output values at pixel in effective coords.
@@ -1912,7 +2052,16 @@ def open_csc_ui(args=None):
             if sat_changed:
                 if sathue_render_after_id is not None:
                     window.TKroot.after_cancel(sathue_render_after_id)
-                sathue_render_after_id = window.TKroot.after(50, _render_sathue_display)
+                sathue_render_after_id = None
+                # Route the redraw to the correct renderer: in dual mode the right
+                # colormap is sathue_right_img_full (NOT the stale sathue_img_full from
+                # any prior single-mode render), so we must use the dual renderer
+                # here, otherwise the right pane falls back to the stale YUV/HSV
+                # colormap from single mode after a window resize.
+                if sathue_mode == 'dual':
+                    _render_dual_main_previews(preserve=False)
+                else:
+                    sathue_render_after_id = window.TKroot.after(50, _render_sathue_display)
 
             if last_window_size != window.size:
                 last_window_size = window.size
@@ -2204,6 +2353,15 @@ def open_csc_ui(args=None):
             trigger_convert(values)
         elif event in ['-SHOW-IN-', '-SHOW-OUT-']:
             display_result(window, values)
+            # In dual + frozen + YUV=>RGB mode the -SHOW-IN-/OUT- radio also
+            # drives the right RGB colormap (V value + output marker position)
+            # and flips the input/output marker styles, so we must re-render
+            # the Sat/Hue map and refresh the lock display when the user
+            # toggles it.  In all other dual modes this is a no-op because
+            # dual_use_output stays False.
+            sathue_show_output = bool(values.get('-SHOW-OUT-', False))
+            if sathue_mode == 'dual' and sathue_left_locked and sathue_left_locked_input is not None:
+                update_sathue_map(preserve_display_size=True)
         elif event == '-INPUT-FILE-':
             if values['-INPUT-FILE-'] and os.path.isfile(values['-INPUT-FILE-']):
                 filepath = values['-INPUT-FILE-']
