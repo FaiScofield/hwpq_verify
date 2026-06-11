@@ -1,0 +1,719 @@
+{
+  "config_info": {
+    "version": "1.0.0",
+    "platform_name": "rk3576",
+    "config_id": "00000000"
+  },
+  "pq_param": {
+    // CSC相关参数
+    "csc": {
+      // range: [0, 1], default: 1, CSC使能开关
+      "cscEnable": 1,
+      // range: [0, 512], default: 256, 全局亮度调整
+      "cscBrightness": 256,
+      // range: [0, 512], default: 256, 全局色调调整
+      "hue": 256,
+      // range: [0, 512], default: 256, 全局对比度调整
+      "contrast": 256,
+      // range: [0, 512], default: 256, 全局饱和度调整
+      "saturation": 256,
+      // range: [0, 512], default: 256, R通道增益
+      "cscRGain": 256,
+      // range: [0, 512], default: 256, G通道增益
+      "cscGGain": 256,
+      // range: [0, 512], default: 256, B通道增益
+      "cscBGain": 256,
+      // range: [0, 512], default: 256, R通道偏移
+      "cscROffset": 256,
+      // range: [0, 512], default: 256, G通道偏移
+      "cscGOffset": 256,
+      // range: [0, 512], default: 256, B通道偏移
+      "cscBOffset": 256,
+      // range: [-512, 511], 9 entries, 3x3 CSC矩阵系数
+      "cscMatrix": [1, 1, 1, 1, 1, 1, 1, 1, 1]
+    },
+    // DCI相关参数
+    "dci": {
+      "s_vop_dci_interp_params": {
+        // DCI全局控制
+        "s_vop_dci_ctrl": {
+          // range: [0, 1], default: 1, DCI全局使能开关
+          "i_dciEnable": 1,
+          // range: [0, 64], default: 64, CF/HE曲线融合比例，越大CF曲线的占比越高
+          "i_dci_CF_HE_ratio": 64
+        },
+        // CF曲线相关参数
+        "s_curve_fitting_params": {
+          // range: [0, 1024], 33点，低亮度预设LUT曲线
+          "t_dciWgtCoef_low": [
+            0, 32, 64, 96, 128, 162, 197, 233, 275, 319, 359, 393, 429, 467,
+            507, 542, 578, 618, 662, 706, 744, 776, 804, 832, 861, 889, 915,
+            941, 963, 981, 997, 1005, 1024
+          ],
+          // range: [0, 1024], 33点，中亮度预设LUT曲线
+          "t_dciWgtCoef_mid": [
+            0, 34, 62, 80, 102, 120, 142, 160, 179, 199, 229, 273, 319, 385,
+            437, 479, 520, 558, 594, 627, 667, 704, 736, 773, 805, 834, 870,
+            904, 935, 966, 990, 1013, 1024
+          ],
+          // range: [0, 1024], 33点，高亮度预设LUT曲线
+          "t_dciWgtCoef_high": [
+            0, 22, 48, 74, 100, 128, 156, 183, 209, 233, 260, 288, 314, 343,
+            372, 402, 433, 465, 500, 534, 568, 603, 635, 670, 700, 730, 764,
+            793, 829, 864, 907, 963, 1023
+          ],
+          // range: [0, 32], 32点, 低亮度直方图匹配权重
+          "t_dciWeight_low": [
+            19, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+          ],
+          // range: [0, 32], 32点, 中亮度直方图匹配权重
+          "t_dciWeight_mid": [
+            0, 4, 8, 12, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
+            16, 16, 16, 16, 14, 12, 10, 8, 6, 4, 2, 0, 0, 0
+          ],
+          // range: [0, 32], 32点, 高亮度直方图匹配权重
+          "t_dciWeight_high": [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 5,
+            9, 13, 17, 20, 20, 20, 20, 20, 20
+          ],
+          // range: [0, 32], default: 32, 低亮度曲线偏差增益，0表示该band不参与曲线调整
+          "i_gain_low": 32,
+          // range: [0, 32], default: 32, 中亮度曲线偏差增益
+          "i_gain_mid": 32,
+          // range: [0, 32], default: 32, 高亮度曲线偏差增益
+          "i_gain_high": 32,
+          // range: [0, 255], default: 0, 低亮度直方图数量阈值，低于此值的bin不计入low权重
+          "i_hist_cor_thr0": 0,
+          // range: [0, 255], default: 0, 中亮度直方图数量阈值
+          "i_hist_cor_thr1": 0,
+          // range: [0, 255], default: 0, 高亮度直方图数量阈值
+          "i_hist_cor_thr2": 0
+        },
+        // HE曲线相关参数
+        "s_he_params": {
+          // range: [0, 1023], default: 125, BBHE直方图左右分隔点
+          "i_dci_HE_splitPoint": 125,
+          // range: [0.0, 1.0], default: 1.0, 左半直方图clip比例
+          "i_dci_HE_leftClip": 1.0,
+          // range: [0.0, 1.0], default: 1.0, 右半直方图clip比例
+          "i_dci_HE_rightClip": 1.0,
+          // range: [0, 128], default: 16, BBHE分隔点overlap宽度
+          "i_dci_HE_overLap": 16
+        },
+        // BS曲线相关参数
+        "s_bs_params": {
+          // range: [0, 1], default: 0, 黑场拉伸使能，0-跳过整个BS阶段
+          "i_dci_BS_enable": 0,
+          // range: [0, 1023], default: 80, 黑场拉伸锚点
+          "i_dci_BS_set_point": 80,
+          // range: [0, 64], default: 64, 拉伸强度
+          "i_dci_BS_ratio": 64,
+          // range: [0, 64], default: 0, 锚点overlap宽度
+          "i_dci_BS_overlap": 0
+        },
+        // WS曲线相关参数
+        "s_ws_params": {
+          // range: [0, 1], default: 0, 白场拉伸使能，0-跳过整个WS阶段
+          "i_dci_WS_enable": 0,
+          // range: [0, 1023], default: 80, 白场拉伸锚点
+          "i_dci_WS_set_point": 80,
+          // range: [0, 64], default: 64, 拉伸强度
+          "i_dci_WS_ratio": 64,
+          // range: [0, 64], default: 8, 锚点overlap宽度
+          "i_dci_WS_overlap": 8
+        },
+        // CLAHE相关参数
+        "s_clahe_params": {
+          // range: [0, 1], default: 1, 局部CLAHE使能
+          "i_dci_CLAHE_en": 1,
+          // range: [0.0, 2.0], default: 1.0, 直方图裁剪强度
+          "i_dci_CLAHE_clip_value": 1.0,
+          // range: [0, 32], default: 0, local LUT与global LUT的融合权重
+          "i_dci_CLAHE_LocalRatio": 0,
+          // range: [0.1, 10.0], default: 3.0, 暗部clip增益
+          "i_left_alpha": 3.0,
+          // range: [0.0, 1.0], default: 0.5, 暗部阈值下界
+          "i_left_ThrLmin": 0.5,
+          // range: [0.5, 5.0], default: 2.3, 暗部阈值上界
+          "i_left_ThrLmax": 2.3,
+          // range: [0.0, 1.0], default: 0.7, 暗部block clip缩放系数
+          "i_left_lumRatio": 0.7,
+          // range: [0.1, 10.0], default: 1.5, 亮部clip增益
+          "i_right_alpha": 1.5,
+          // range: [0.0, 1.0], default: 0.7, 亮部阈值下界
+          "i_right_ThrRmin": 0.7,
+          // range: [0.5, 6.0], default: 3.0, 亮部阈值上界
+          "i_right_ThrRmax": 3.0
+        },
+        // 时域融合相关参数
+        "s_time_abld_params": {
+          // range: [0, 32], default: 8, 直方图时域融合比例
+          "i_dci_hist_abld_ratio": 8,
+          // range: [0.0, 1.0], default: 0.93, CLAHE时域融合比例
+          "i_dci_clahe_abld_ratio": 0.93,
+          // range: [0, U32_MAX], default: 0, 高亮度直方图权重(跨帧保存状态)
+          "i_dci_hist_wgt_high": 0,
+          // range: [0, U32_MAX], default: 0, 中亮度直方图权重(跨帧保存状态)
+          "i_dci_hist_wgt_mid": 0,
+          // range: [0, U32_MAX], default: 0, 低亮度直方图权重(跨帧保存状态)
+          "i_dci_hist_wgt_low": 0,
+          // range: [0, 32], default: 8, low权重时域融合系数
+          "i_dci_metricAbldCoef0": 8,
+          // range: [0, 32], default: 8, mid权重时域融合系数
+          "i_dci_metricAbldCoef1": 8,
+          // range: [0, 32], default: 8, high权重时域融合系数
+          "i_dci_metricAbldCoef2": 8,
+          // range: [0, 1023], default: 0, 帧最小亮度(跨帧保存状态)
+          "i_dci_minLuma": 0,
+          // range: [0, 1023], default: 1023, 帧最大亮度(跨帧保存状态)
+          "i_dci_maxLuma": 1023,
+          // range: [0, 32], default: 26, 最小亮度时域融合比例
+          "i_dci_minLuma_abld_ratio": 26,
+          // range: [0, 32], default: 26, 最大亮度时域融合比例
+          "i_dci_maxLuma_abld_ratio": 26,
+          // range: [0, 1], default: 1, 场景切换检测标志
+          "i_scd_flag": 1,
+          // range: [0, U32_MAX], default: 896, CF/BBHE场景切换阈值
+          "i_dci_scd_thr": 896,
+          // range: [0, U32_MAX], default: 896, CLAHE场景切换阈值上界
+          "i_dci_clahe_scd_thr_max": 896,
+          // range: [0, U32_MAX], default: 384, CLAHE场景切换阈值下界
+          "i_dci_clahe_scd_thr_min": 384
+        },
+        // 色度联动相关参数
+        "s_color_adjust_params": {
+          // range: [0, 1], default: 0, 色度联动总开关
+          "i_dci_CA_enable": 0,
+          // range: [0, 64], default: 56, 饱和度调节权重
+          "i_dci_CA_saturation_w": 56,
+          // range: [0, 1023], default: 8, 色度门限下界
+          "i_dci_CA_adj_luma_coring_zero": 8,
+          // range: [0, 1023], default: 16, 色度门限上界
+          "i_dci_CA_adj_luma_coring_thrd": 16
+        }
+      }
+    },
+    // ACM相关参数
+    "acm": {
+      // range: [0, 1], default: 1, ACM总使能开关
+      "acmEnable": 1,
+      // range: [0, 255], 65点(按色调H采样), 不同色相下Y的调整量
+      "acmTableDeltaYbyH": [
+        128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+        128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+        128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+        128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+        128, 128, 128, 128, 128, 128, 128, 128, 128
+      ],
+      // range: [-128, 127], 65点(按色调H采样), 不同色相下H的调整量
+      "acmTableDeltaHbyH": [
+        0, 1, 2, 2, 2, 2, 2, 2, 1, 2, 3, 2, 0, -3, -5, -8, -11, -14, -17, -16,
+        -12, -10, -12, -12, -12, -10, -8, -6, -4, -5, -5, -6, -7, -2, 2, 6, 10,
+        9, 8, 10, 11, 13, 13, 14, 13, 12, 11, 10, 10, 11, 11, 8, 5, 1, -2, -3,
+        -3, -2, -1, 0, 0, -2, -3, -1, 0
+      ],
+      // range: [0, 255], 65点(按色调H采样), 不同色相下S的调整量
+      "acmTableDeltaSbyH": [
+        149, 149, 149, 149, 149, 149, 149, 149, 110, 70, 110, 148, 148, 148,
+        148, 148, 120, 80, 57, 51, 50, 61, 80, 100, 110, 70, 110, 100, 125, 147,
+        147, 147, 148, 147, 147, 147, 146, 110, 86, 110, 148, 148, 149, 114, 86,
+        69, 86, 110, 120, 80, 50, 75, 80, 55, 35, 35, 55, 80, 80, 90, 120, 148,
+        149, 149, 149
+      ],
+      // range: [0, 127], 9(Y)x13(S)=117点, 不同Y和H下Y的增益
+      "acmTableGainYbyY": [
+        0, 32, 64, 96, 127, 127, 127, 127, 127, 0, 32, 64, 96, 127, 127, 127,
+        127, 127, 0, 32, 64, 96, 127, 127, 127, 127, 127, 0, 32, 64, 96, 127,
+        127, 127, 127, 127, 0, 32, 64, 96, 127, 127, 127, 127, 127, 0, 32, 64,
+        96, 127, 127, 127, 127, 127, 0, 32, 64, 96, 127, 127, 127, 127, 127, 0,
+        32, 64, 96, 127, 127, 127, 127, 127, 0, 32, 64, 96, 127, 127, 127, 127,
+        127, 0, 32, 64, 96, 127, 127, 127, 127, 127, 0, 32, 64, 96, 127, 127,
+        127, 127, 127, 0, 32, 64, 96, 127, 127, 127, 127, 127, 0, 32, 64, 96,
+        127, 127, 127, 127, 127, 0, 32, 64, 96, 127, 127, 127, 127, 127, 0, 32,
+        64, 96, 127, 127, 127, 127, 127, 0, 32, 64, 96, 127, 127, 127, 127, 127,
+        0, 32, 64, 96, 127, 127, 127, 127, 127
+      ],
+      // range: [0, 127], 153点, 不同Y和H下H的增益
+      "acmTableGainHbyY": [
+        96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96,
+        96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96,
+        96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96,
+        96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96,
+        96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96,
+        96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96,
+        96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96,
+        96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96, 96,
+        96, 96, 96, 96, 96, 96, 96, 96, 96
+      ],
+      // range: [0, 127], 153点, 不同Y和H下S的增益
+      "acmTableGainSbyY": [
+        127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127,
+        127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127,
+        127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127,
+        127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127,
+        127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127,
+        127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127,
+        127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127,
+        127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127,
+        127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127,
+        127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127,
+        127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127
+      ],
+      // range: [0, 127], 182点, 不同S和H下Y的增益表
+      "acmTableGainYbyS": [
+        0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 0, 10, 20, 30, 40,
+        50, 60, 70, 80, 90, 100, 110, 120, 0, 10, 20, 30, 40, 50, 60, 70, 80,
+        90, 100, 110, 120, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120,
+        0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 0, 10, 20, 30, 40,
+        50, 60, 70, 80, 90, 100, 110, 120, 0, 10, 20, 30, 40, 50, 60, 70, 80,
+        90, 100, 110, 120, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120,
+        0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 0, 10, 20, 30, 40,
+        50, 60, 70, 80, 90, 100, 110, 120, 0, 10, 20, 30, 40, 50, 60, 70, 80,
+        90, 100, 110, 120, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120,
+        0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 0, 10, 20, 30, 40,
+        50, 60, 70, 80, 90, 100, 110, 120, 0, 10, 20, 30, 40, 50, 60, 70, 80,
+        90, 100, 110, 120, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120,
+        0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120
+      ],
+      // range: [0, 127], 182点, 不同S和H下H的增益表
+      "acmTableGainHbyS": [
+        0, 30, 60, 90, 120, 127, 127, 127, 127, 127, 127, 127, 127, 0, 30, 60,
+        90, 120, 127, 127, 127, 127, 127, 127, 127, 127, 0, 30, 60, 90, 120,
+        127, 127, 127, 127, 127, 127, 127, 127, 0, 30, 60, 90, 120, 127, 127,
+        127, 127, 127, 127, 127, 127, 0, 30, 60, 90, 120, 127, 127, 127, 127,
+        127, 127, 127, 127, 0, 30, 60, 90, 120, 127, 127, 127, 127, 127, 127,
+        127, 127, 0, 30, 60, 90, 120, 127, 127, 127, 127, 127, 127, 127, 127, 0,
+        30, 60, 90, 120, 127, 127, 127, 127, 127, 127, 127, 127, 0, 30, 60, 90,
+        120, 127, 127, 127, 127, 127, 127, 127, 127, 0, 30, 60, 90, 120, 127,
+        127, 127, 127, 127, 127, 127, 127, 0, 30, 60, 90, 120, 127, 127, 127,
+        127, 127, 127, 127, 127, 0, 30, 60, 90, 120, 127, 127, 127, 127, 127,
+        127, 127, 127, 0, 30, 60, 90, 120, 127, 127, 127, 127, 127, 127, 127,
+        127, 0, 30, 60, 90, 120, 127, 127, 127, 127, 127, 127, 127, 127, 0, 30,
+        60, 90, 120, 127, 127, 127, 127, 127, 127, 127, 127, 0, 30, 60, 90, 120,
+        127, 127, 127, 127, 127, 127, 127, 127, 0, 30, 60, 90, 120, 127, 127,
+        127, 127, 127, 127, 127, 127
+      ],
+      // range: [0, 127], 182点, 不同S和H下S的增益表
+      "acmTableGainSbyS": [
+        0, 20, 40, 56, 76, 90, 74, 52, 30, 2, 0, 0, 0, 0, 20, 40, 56, 76, 90,
+        74, 52, 30, 2, 0, 0, 0, 0, 20, 40, 56, 76, 90, 74, 52, 30, 2, 0, 0, 0,
+        0, 20, 40, 56, 76, 90, 74, 52, 30, 2, 0, 0, 0, 0, 20, 40, 56, 76, 90,
+        74, 52, 30, 2, 0, 0, 0, 0, 20, 40, 56, 76, 90, 74, 52, 30, 2, 0, 0, 0,
+        0, 20, 40, 56, 76, 90, 74, 52, 30, 2, 0, 0, 0, 0, 20, 40, 56, 76, 90,
+        74, 52, 30, 2, 0, 0, 0, 0, 20, 40, 56, 76, 90, 74, 52, 30, 2, 0, 0, 0,
+        0, 20, 40, 56, 76, 90, 74, 52, 30, 2, 0, 0, 0, 0, 20, 40, 56, 76, 90,
+        74, 52, 30, 2, 0, 0, 0, 0, 20, 40, 56, 76, 90, 74, 52, 30, 2, 0, 0, 0,
+        0, 20, 40, 56, 76, 90, 74, 52, 30, 2, 0, 0, 0, 0, 20, 40, 56, 76, 90,
+        74, 52, 30, 2, 0, 0, 0, 0, 20, 40, 56, 76, 90, 74, 52, 30, 2, 0, 0, 0,
+        0, 20, 40, 56, 76, 90, 74, 52, 30, 2, 0, 0, 0, 0, 20, 40, 56, 76, 90,
+        74, 52, 30, 2, 0, 0, 0
+      ],
+      // range: [0, 512], default: 256, 全局亮度调整增益
+      "lumGain": 256,
+      // range: [0, 512], default: 256, 全局色调调整增益
+      "hueGain": 256,
+      // range: [0, 512], default: 256, 全局饱和度调整增益
+      "satGain": 256
+    },
+    // SHP相关参数
+    "sharp": {
+      // range: [0, 1], default: 1, 锐化总开关
+      "i_EnabledSharpen": 1,
+      // 锐化使能控制
+      "s_sharp_en_ctrl": {
+        // range: [0, 1], default: 0, LTI水平方向使能
+        "i_lti_h_en": 0,
+        // range: [0, 1], default: 0, LTI垂直方向使能
+        "i_lti_v_en": 0,
+        // range: [0, 1], default: 0, CTI水平方向使能
+        "i_cti_h_en": 0,
+        // range: [0, 1], default: 0, CTI垂直方向使能
+        "i_cti_v_en": 0,
+        // range: [0, 1], default: 1, Peaking锐化使能
+        "i_peaking_en": 1,
+        // range: [0, 1], default: 1, Peaking增益使能
+        "i_peaking_gain_en": 1,
+        // range: [0, 1], default: 1, Peaking coring使能
+        "i_peaking_coring_en": 1,
+        // range: [0, 1], default: 1, Peaking limit控制使能
+        "i_peaking_limit_ctrl_en": 1,
+        // range: [0, 1], default: 0, Peaking ShootCtrl使能
+        "i_peaking_shoot_ctrl_en": 0,
+        // range: [0, 1], default: 1, Peaking边缘控制使能
+        "i_peaking_edge_ctrl_en": 1,
+        // range: [0, 1], default: 1, Peaking边缘ShootCtrl使能
+        "i_peaking_edge_shoot_ctrl_en": 1,
+        // range: [0, 1], default: 1, 全局ShootCtrl使能
+        "i_shoot_ctrl_en": 1,
+        // range: [0, 1], default: 1, 全局增益控制使能
+        "i_global_gain_en": 1,
+        // range: [0, 1], default: 0, 颜色相关锐化使能
+        "i_color_adj_en": 0,
+        // range: [0, 1], default: 1, 纹理保护使能
+        "i_texture_adj_en": 1
+      },
+      // LTI水平方向相关参数
+      "s_lti_h": {
+        // range: [0, 1], default: 1, LTI滤波器半径，0-3x3，1-5x5
+        "i_Radius": 1,
+        // range: [0, 511], default: 100, LTI二阶差分斜率
+        "i_Slope": 100,
+        // range: [0, 511], default: 21, LTI一阶差分阈值
+        "i_Thresold": 21,
+        // range: [0, 16], default: 8, LTI增益
+        "i_Gain": 8,
+        // range: [0, 1023], default: 1023, 正侧噪声阈值
+        "i_noiseThrPos": 1023,
+        // range: [0, 1023], default: 1023, 负侧噪声阈值
+        "i_noiseThrNeg": 1023
+      },
+      // CTI水平方向相关参数
+      "s_cti_h": {
+        // range: [0, 1], default: 1, CTI滤波器半径，0-3x3，1-5x5
+        "i_Radius": 1,
+        // range: [0, 511], default: 100, CTI二阶差分斜率
+        "i_Slope": 100,
+        // range: [0, 511], default: 21, CTI一阶差分阈值
+        "i_Thresold": 21,
+        // range: [0, 16], default: 8, CTI增益
+        "i_Gain": 8,
+        // range: [0, 1023], default: 1023, 正侧噪声阈值
+        "i_noiseThrPos": 1023,
+        // range: [0, 1023], default: 1023, 负侧噪声阈值
+        "i_noiseThrNeg": 1023
+      },
+      // LTI垂直方向相关参数
+      "s_lti_v": {
+        // range: [0, 1], default: 1, LTI垂直滤波器半径，0-3x3，1-5x5
+        "i_Radius": 1,
+        // range: [0, 511], default: 100, LTI垂直二阶差分斜率
+        "i_Slope": 100,
+        // range: [0, 511], default: 21, LTI垂直一阶差分阈值
+        "i_Thresold": 21,
+        // range: [0, 16], default: 8, LTI垂直增益
+        "i_Gain": 8,
+        // range: [0, 1023], default: 1023, 正侧噪声阈值
+        "i_noiseThrPos": 1023,
+        // range: [0, 1023], default: 1023, 负侧噪声阈值
+        "i_noiseThrNeg": 1023
+      },
+      // CTI垂直方向相关参数
+      "s_cti_v": {
+        // range: [0, 1], default: 1, CTI垂直滤波器半径，0-3x3，1-5x5
+        "i_Radius": 1,
+        // range: [0, 511], default: 100, CTI垂直二阶差分斜率
+        "i_Slope": 100,
+        // range: [0, 511], default: 21, CTI垂直一阶差分阈值
+        "i_Thresold": 21,
+        // range: [0, 16], default: 8, CTI垂直增益
+        "i_Gain": 8,
+        // range: [0, 1023], default: 1023, 正侧噪声阈值
+        "i_noiseThrPos": 1023,
+        // range: [0, 1023], default: 1023, 负侧噪声阈值
+        "i_noiseThrNeg": 1023
+      },
+      // Peaking锐化核心参数
+      "s_peaking": {
+        "s_gain": {
+          // range: [0, 1023], 8 bands, 各band正向Peaking增益
+          "t_GainPos": [0, 256, 1524, 256, 1524, 800, 800, 1024],
+          // range: [0, 1023], 8 bands, 各band负向Peaking增益
+          "t_GainNeg": [0, 512, 1824, 512, 1824, 800, 800, 1024]
+        },
+        "s_coring": {
+          // range: [0, 1023], 8 bands, 各band coring阈值
+          "t_CoringThreshold": [40, 40, 40, 24, 26, 30, 26, 26],
+          // range: [0, 4095], 8 bands, 各band coring斜率
+          "t_CoringRatio": [1479, 1188, 1024, 1422, 1024, 1024, 1024, 1024],
+          // range: [0, 1023], 8 bands, 各band coring零区宽度
+          "t_CoringZero": [5, 5, 8, 5, 8, 5, 5, 7]
+        },
+        "s_limitCtrl": {
+          // range: [0, 1023], 8 bands, 正向第一段限幅值
+          "t_LimitPos0": [64, 64, 64, 64, 64, 64, 64, 64],
+          // range: [0, 1023], 8 bands, 正向第二段限幅值
+          "t_LimitPos1": [120, 120, 120, 120, 120, 120, 120, 120],
+          // range: [0, 1023], 8 bands, 负向第一段限幅值
+          "t_LimitNeg0": [64, 64, 64, 64, 64, 64, 64, 64],
+          // range: [0, 1023], 8 bands, 负向第二段限幅值
+          "t_LimitNeg1": [120, 120, 120, 120, 120, 120, 120, 120],
+          // range: [0, 4095], 8 bands, 限幅斜率
+          "t_LimitRatio": [128, 128, 128, 128, 128, 128, 128, 128],
+          // range: [0, 1023], 8 bands, 正向限幅边界
+          "t_LimitboundPos": [81, 131, 63, 81, 63, 63, 63, 63],
+          // range: [0, 1023], 8 bands, 负向限幅边界
+          "t_LimitboundNeg": [81, 131, 63, 81, 63, 63, 63, 63]
+        },
+        "s_shootAdj": {
+          // range: [0, 255], 8 bands, 各band shoot control偏移
+          "t_ShootAdjDeltaOffset": [32, 32, 32, 32, 32, 32, 32, 32],
+          // range: [0, 127], 8 bands, 各band over-shoot抑制系数
+          "t_ShootAdjAlphaOver": [8, 8, 8, 8, 8, 8, 8, 8],
+          // range: [0, 127], 8 bands, 各band under-shoot抑制系数
+          "t_ShootAdjAlphaUnder": [32, 32, 32, 32, 32, 32, 32, 32],
+          // range: [0, 127], 8 bands, over-shoot无限制系数
+          "t_ShootAdjAlphaOverUnlimit": [64, 64, 64, 64, 64, 64, 64, 64],
+          // range: [0, 127], 8 bands, under-shoot无限制系数
+          "t_ShootAdjAlphaUnderUnlimit": [64, 64, 64, 64, 64, 64, 64, 64]
+        },
+        "s_edgeCtrl": {
+          "s_edge_ctrl_param": {
+            // range: [0, 127], default: 96, 无方向阈值，低于此值判定为无方向区域
+            "i_non_dir_thr": 96,
+            // range: [0, 15], default: 4, 方向比较比例
+            "i_dir_cmp_ratio": 4,
+            // range: [0, 255], default: 64, 无方向权重偏移
+            "i_non_dir_wgt_offset": 64,
+            // range: [0, 31], default: 16, 无方向权重比例
+            "i_non_dir_wgt_ratio": 16,
+            // range: [0, 12], default: 2, 方向计数阈值
+            "i_dir_cnt_thr": 2,
+            // range: [0, 7], default: 3, 方向计数平均值
+            "i_dir_cnt_avg": 3,
+            // range: [0, 15], default: 2, 方向计数偏移
+            "i_dir_cnt_offset": 2,
+            // range: [0, 127], default: 64, 对角方向阈值
+            "i_diag_dir_thr": 64,
+            // range: [0, 15], 8 entries, 对角方向增益表
+            "t_diag_adj_gain_tab": [6, 7, 8, 9, 10, 11, 12, 13]
+          },
+          "s_edge_shoot_ctrl_param": {
+            "s_direct_h": {
+              // range: [0, 255], 水平方向shoot control偏移
+              "i_delta_offset": 4,
+              // range: [0, 127], over-shoot系数
+              "i_alpha_over": 8,
+              // range: [0, 127], under-shoot系数
+              "i_alpha_under": 24,
+              // range: [0, 127], over-shoot无限制系数
+              "i_alpha_over_unlimit": 32,
+              // range: [0, 127], under-shoot无限制系数
+              "i_alpha_under_unlimit": 48
+            },
+            "s_direct_v": {
+              // range: [0, 255], 垂直方向shoot control偏移
+              "i_delta_offset": 4,
+              // range: [0, 127], over-shoot系数
+              "i_alpha_over": 8,
+              // range: [0, 127], under-shoot系数
+              "i_alpha_under": 24,
+              // range: [0, 127], over-shoot无限制系数
+              "i_alpha_over_unlimit": 32,
+              // range: [0, 127], under-shoot无限制系数
+              "i_alpha_under_unlimit": 48
+            },
+            "s_direct_d0": {
+              // range: [0, 255], 对角方向0 shoot control偏移
+              "i_delta_offset": 4,
+              // range: [0, 127], over-shoot系数
+              "i_alpha_over": 8,
+              // range: [0, 127], under-shoot系数
+              "i_alpha_under": 24,
+              // range: [0, 127], over-shoot无限制系数
+              "i_alpha_over_unlimit": 32,
+              // range: [0, 127], under-shoot无限制系数
+              "i_alpha_under_unlimit": 48
+            },
+            "s_direct_d1": {
+              // range: [0, 255], 对角方向1 shoot control偏移
+              "i_delta_offset": 4,
+              // range: [0, 127], over-shoot系数
+              "i_alpha_over": 8,
+              // range: [0, 127], under-shoot系数
+              "i_alpha_under": 24,
+              // range: [0, 127], over-shoot无限制系数
+              "i_alpha_over_unlimit": 32,
+              // range: [0, 127], under-shoot无限制系数
+              "i_alpha_under_unlimit": 48
+            },
+            "s_direct_non": {
+              // range: [0, 255], 无方向区域shoot control偏移
+              "i_delta_offset": 4,
+              // range: [0, 127], over-shoot系数
+              "i_alpha_over": 8,
+              // range: [0, 127], under-shoot系数
+              "i_alpha_under": 24,
+              // range: [0, 127], over-shoot无限制系数
+              "i_alpha_over_unlimit": 32,
+              // range: [0, 127], under-shoot无限制系数
+              "i_alpha_under_unlimit": 48
+            }
+          }
+        },
+        "s_filter_cfg": {
+          // range: [0, 7], default: 6, 对角增强系数
+          "i_diag_enh_coef": 6,
+          // range: (1,10,45,120,210,252), H0低通滤波核系数(水平6抽头)
+          "t_filt_core_H0": [1, 10, 45, 120, 210, 252],
+          // range: (-9,-55,-119,-73,128,256), H1高通滤波核系数(水平6抽头)
+          "t_filt_core_H1": [-9, -55, -119, -73, 128, 256],
+          // range: (0,0,0,-256,0,512), H2高通滤波核系数(水平6抽头)
+          "t_filt_core_H2": [0, 0, 0, -256, 0, 512],
+          // range: (0,0,0,0,-256,512), H3高通滤波核系数(水平6抽头)
+          "t_filt_core_H3": [0, 0, 0, 0, -256, 512],
+          // range: (1,4,6), V0低通滤波核系数(垂直3抽头)
+          "t_filt_core_V0": [1, 4, 6],
+          // range: (-4,0,8), V1高通滤波核系数(垂直3抽头)
+          "t_filt_core_V1": [-4, 0, 8],
+          // range: (0,-4,8), V2高通滤波核系数(垂直3抽头)
+          "t_filt_core_V2": [0, -4, 8],
+          // range: (1,4,6), USM滤波核系数(5抽头)
+          "t_filt_core_USM": [1, 4, 6]
+        },
+        // range: [0, 1023], default: 260, Peaking全局增益
+        "i_peakingGain": 260
+      },
+      // 全局ShootCtrl相关参数
+      "s_shootCtrl": {
+        // range: [0, 1], default: 0, ShootCtrl滤波半径，0-radius=1，1-radius=2
+        "i_FilterRadius": 0,
+        // range: [0, 255], default: 32, ShootCtrl偏移
+        "i_Delta_offset": 32,
+        // range: [0, 127], default: 8, over-shoot系数
+        "i_Alpha_over": 8,
+        // range: [0, 127], default: 36, under-shoot系数
+        "i_Alpha_under": 36,
+        // range: [0, 127], default: 48, over-shoot无限制系数
+        "i_Alpha_over_unlimit": 48,
+        // range: [0, 127], default: 64, under-shoot无限制系数
+        "i_Alpha_under_unlimit": 64
+      },
+      // 全局增益控制相关参数
+      "s_globalGain": {
+        "s_lum_gain": {
+          // range: [0, 3], default: 0, 亮度选择模式
+          "i_lum_mode": 0,
+          // range: [0, 1023], 6 entries, 亮度增益断点
+          "t_lum_grd": [0, 200, 300, 860, 960, 1023],
+          // range: [0, 127], 6 entries, 亮度增益值
+          "t_lum_val": [64, 64, 64, 64, 64, 64]
+        },
+        "s_adp_gain": {
+          // range: [0, 1023], 6 entries, 自适应增益断点(基于梯度)
+          "t_adp_grd": [0, 20, 50, 80, 200, 1023],
+          // range: [0, 127], 6 entries, 自适应增益值
+          "t_adp_val": [64, 64, 64, 64, 64, 64]
+        },
+        "s_var_gain": {
+          // range: [0, 1023], 6 entries, 方差增益断点(基于标准差)
+          "t_var_grd": [0, 200, 300, 400, 500, 1023],
+          // range: [0, 127], 6 entries, 方差增益值
+          "t_var_val": [96, 64, 32, 16, 8, 8]
+        }
+      },
+      // 颜色控制相关参数
+      "s_colorCtrl": {
+        "s_ctrl_point_0": {
+          // range: [0, 6], default: 2, 控制点缩放系数
+          "i_ctrl_scaling": 2,
+          // range: [0, 1023], UV坐标, 控制点0位置
+          "t_ctrl_point": [468, 584],
+          // range: [0, 31], 16 entries, 控制点0 roll-off表
+          "t_ctrl_rolltab": [
+            0, 0, 0, 1, 2, 3, 4, 6, 8, 10, 11, 12, 13, 14, 15, 15
+          ]
+        },
+        "s_ctrl_point_1": {
+          // range: [0, 6], default: 2, 控制点缩放系数
+          "i_ctrl_scaling": 2,
+          // range: [0, 1023], UV坐标, 控制点1位置
+          "t_ctrl_point": [596, 480],
+          // range: [0, 31], 16 entries, 控制点1 roll-off表
+          "t_ctrl_rolltab": [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+          ]
+        },
+        "s_ctrl_point_2": {
+          // range: [0, 6], default: 2, 控制点缩放系数
+          "i_ctrl_scaling": 2,
+          // range: [0, 1023], UV坐标, 控制点2位置
+          "t_ctrl_point": [120, 800],
+          // range: [0, 31], 16 entries, 控制点2 roll-off表
+          "t_ctrl_rolltab": [
+            16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16
+          ]
+        },
+        "s_ctrl_point_3": {
+          // range: [0, 6], default: 2, 控制点缩放系数
+          "i_ctrl_scaling": 2,
+          // range: [0, 1023], UV坐标, 控制点3位置
+          "t_ctrl_point": [820, 110],
+          // range: [0, 31], 16 entries, 控制点3 roll-off表
+          "t_ctrl_rolltab": [
+            12, 17, 15, 13, 11, 10, 8, 6, 9, 12, 13, 14, 15, 16, 16, 16
+          ]
+        }
+      },
+      // 纹理保护相关参数
+      "s_textureAdj": {
+        // range: [0, 3], default: 3, Y基底选择
+        "i_y_mode_select": 3,
+        // range: [0, 1], default: 1, 纹理索引选择
+        "i_idx_mode_select": 1,
+        // range: [0, 1023], 6 entries, 纹理增益断点
+        "t_texture_grd": [0, 30, 90, 180, 400, 1023],
+        // range: [0, 127], 6 entries, 纹理增益值
+        "t_texture_val": [48, 64, 96, 115, 127, 127]
+      },
+      // 调试相关参数，可以忽略
+      "s_ink_config": {
+        // range: [0, 1], default: 1, Ink使能
+        "i_EnableInk": 1,
+        "s_ink_set0": {
+          // range: [0, 8191], Ink水平索引
+          "i_ink_idx_h": 128,
+          // range: [0, 8191], Ink垂直索引
+          "i_ink_idx_v": 157,
+          // range: [0, 15], default: 4, Ink模式
+          "i_ink_mode": 4,
+          // range: [0, 4194303], Ink结果
+          "i_ink_result": 0
+        },
+        "s_ink_set1": {
+          // range: [0, 8191], Ink水平索引
+          "i_ink_idx_h": 128,
+          // range: [0, 8191], Ink垂直索引
+          "i_ink_idx_v": 157,
+          // range: [0, 15], default: 4, Ink模式
+          "i_ink_mode": 4,
+          // range: [0, 4194303], Ink结果
+          "i_ink_result": 0
+        },
+        "s_ink_set2": {
+          // range: [0, 8191], Ink水平索引
+          "i_ink_idx_h": 128,
+          // range: [0, 8191], Ink垂直索引
+          "i_ink_idx_v": 157,
+          // range: [0, 15], default: 4, Ink模式
+          "i_ink_mode": 4,
+          // range: [0, 4194303], Ink结果
+          "i_ink_result": 0
+        },
+        "s_ink_set3": {
+          // range: [0, 8191], Ink水平索引
+          "i_ink_idx_h": 128,
+          // range: [0, 8191], Ink垂直索引
+          "i_ink_idx_v": 157,
+          // range: [0, 15], default: 4, Ink模式
+          "i_ink_mode": 4,
+          // range: [0, 4194303], Ink结果
+          "i_ink_result": 0
+        }
+      },
+      // ROI区域控制相关参数，可以忽略
+      "s_sharpRoiCfg": {
+        // range: [0, 1], default: 0, ROI使能
+        "i_roi_enable": 0,
+        // range: [0, 4095], ROI起始X坐标
+        "i_roi_xstart": 3721,
+        // range: [0, 4095], ROI起始Y坐标
+        "i_roi_ystart": 2209,
+        // range: [0, 4095], ROI结束X坐标
+        "i_roi_xend": 1763,
+        // range: [0, 4095], ROI结束Y坐标
+        "i_roi_yend": 25
+      }
+    }
+  }
+}
