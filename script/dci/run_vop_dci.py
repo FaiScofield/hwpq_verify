@@ -16,24 +16,16 @@ data_dir = "V:/ai-contrast/9681Aicontrast/"
 dci_exe = "G:/Codes/gerrit_projects/hwpq_verify/output/bin/dci_verify_demo.exe"
 # config_file = "G:/Codes/gerrit_projects/hwpq_verify/data/vdpp_vop_config_3572.json"
 # dci_exe = "G:/Codes/RkVopAlgos/pub_lib/ModelVerify/AMD64/bin/dci_sim_exe.exe"
-config_file = "G:/Codes/gerrit_projects/hwpq_verify/data/dci_config_3572.json"
+config_file = f"{data_dir}/dci_sim_to_cvte_0611/vop_base_config_rk3576_b.json"
 do_single_img_sim = ""
-suffix = "_CfHeRatio64"
+suffix = "_CfgB"
 # custum_args = "--cf_gain_low 0 --cf_gain_mid 0 --cf_gain_high 0 --cf_he_ratio 64"
 custum_args = ""
-draw_curve=False
+draw_curve=True
 
-def parse_args():
-    """Parse command line arguments for the VOP DCI batch script."""
-    parser = argparse.ArgumentParser(description="Run DCI simulation for *_off.png images.")
-    parser.add_argument("--clahe_clip", type=float, default=1.0, help="CLAHE clip value.")
-    parser.add_argument("--clahe_lce", type=int, default=19, help="CLAHE LCE value, recommended range [0, 32].")
-    parser.add_argument("--peaking_gain", type=int, default=150, help="Peaking gain, recommended range [0, 1023].")
-    return parser.parse_args()
-
-def do_dci_sim(data_dir, clahe_clip=1.0, clahe_lce=19, peaking_gain=150):
+def do_dci_sim(data_dir):
     """Run DCI simulation for all matching PNG files in the target directory."""
-    output_dir = os.path.join(data_dir, "dci_sim6_fix")
+    output_dir = os.path.join(data_dir, "dci_sim_to_cvte_0611")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     # 获取 data_dir 下所有 xxx_off.png 文件
@@ -54,13 +46,11 @@ def do_dci_sim(data_dir, clahe_clip=1.0, clahe_lce=19, peaking_gain=150):
             continue
 
         # 生成输出文件路径
-        out_file = os.path.join(output_dir, f"{base_name}_rk_peaking{peaking_gain}_clip{clahe_clip}_lce{clahe_lce}{suffix}.png")
+        out_file = os.path.join(output_dir, f"{base_name}_rk{suffix}.png")
 
         # 执行 dci_sim_exe 转换
-        cmd = (
-            f'{dci_exe} -i "{png_file}" -o "{out_file}" -c "{config_file}" -m 0 '
-            f'--clahe_clip_value {clahe_clip} --clahe_local_ratio {clahe_lce} --shp_type 1 --shp_peaking_gain {peaking_gain} --dump 0xf0 {custum_args}'
-        )
+        cmd = f'{dci_exe} -i "{png_file}" -o "{out_file}" -c "{config_file}" -m 0 --shp_type 1 --dump 0xf0 {custum_args}'
+
 
         # input_file = f'{output_dir}/pdf2_input_1920x1080_yuv444p10l.yuv'
         # out_file = os.path.join(output_dir, f"{base_name}_rk_yuv444p10l{suffix}.yuv")
@@ -70,23 +60,21 @@ def do_dci_sim(data_dir, clahe_clip=1.0, clahe_lce=19, peaking_gain=150):
 
         # 画直方图和全局Lut曲线
         if draw_curve:
-            global_lut_path = f'{output_dir}/VOP_pos1_DCI_Global_LUT_frame0.txt'
-            local_lut_path = f'{output_dir}/VOP_pos3_DCI_Local_LUT_frame0.txt'
+            pic_global_out = f'{output_dir}/{base_name}_rk_global_hist_luts{suffix}.png'
             global_hist_path = f'{output_dir}/vdpp_hist_data_global_unpacked.bin'
-            local_hist_path = f'{output_dir}/vdpp_hist_data_local_unpacked.bin'
-            pic_global_out = f'{output_dir}/{base_name}_rk_hist_and_global_lut{suffix}.png'
-            pic_local_out = f'{output_dir}/{base_name}_rk_hist_and_local_lut{suffix}.png'
-            multi_lut_specs = [
-                (f'{output_dir}/VOP_pos1_DCI_CF_LUT_frm0.txt', "CF LUT"),
-                (f'{output_dir}/VOP_pos2_DCI_HE_LUT_frm0.txt', "HE LUT"),
-                (f'{output_dir}/VOP_pos3_DCI_Global_LUT_CFHE_frm0.txt', "Global LUT CFHE"),
-                (f'{output_dir}/VOP_pos4_DCI_Global_LUT_WS_frm0.txt', "Global LUT WS"),
+            global_luts_specs = [
+                (f'{output_dir}/dci_glb1_cf_lut_frm0.txt', "Global CF"),
+                (f'{output_dir}/dci_glb2_he_lut_frm0.txt', "Global HE"),
+                (f'{output_dir}/dci_glb3_cfhe_lut_frm0.txt', "Global CFHE"),
+                (f'{output_dir}/dci_glb4_cfhebws_lut_frm0.txt', "Global WS(Final)"),
             ]
-            multi_lut_output_path = f'{output_dir}/{base_name}_rk_he_bs_global_lut{suffix}.png'
-            dgl.draw_combined_plot(global_lut_path, global_hist_path, pic_global_out)
-            dgl.draw_local_combined_plot(local_lut_path, local_hist_path, pic_local_out)
-            dgl.draw_multi_lut_plot(multi_lut_specs, multi_lut_output_path, f"{base_name} CF/HE/CF+HE/BS LUTs")
-            utl.run_cmd(f'cp {png_file} {output_dir}/', showOutput=False, showCmd=False)
+            pic_local_out = f'{output_dir}/{base_name}_rk_local_hist_luts{suffix}.png'
+            local_lut_path = f'{output_dir}/dci_local_clahe_lut_frm0.txt'
+            local_hist_path = f'{output_dir}/vdpp_hist_data_local_unpacked.bin'
+            print("正在绘制global/local 直方图和LUT曲线...")
+            dgl.draw_global_hist_luts(global_luts_specs, global_hist_path, pic_global_out)
+            # dgl.draw_local_hist_luts(local_lut_path, local_hist_path, pic_local_out)
+            # utl.run_cmd(f'cp {png_file} {output_dir}/', showOutput=False, showCmd=False)
 
         print(f"proc done for {file_name}")
         if do_single_img_sim:
@@ -94,8 +82,5 @@ def do_dci_sim(data_dir, clahe_clip=1.0, clahe_lce=19, peaking_gain=150):
 
 
 if __name__ == "__main__":
-    args = parse_args()
-    args.clahe_lce = utl.clip(args.clahe_lce, 0, 32)
-    args.peaking_gain = utl.clip(args.peaking_gain, 0, 1023)
-    do_dci_sim(data_dir, args.clahe_clip, args.clahe_lce, args.peaking_gain)
+    do_dci_sim(data_dir)
     print("done.")

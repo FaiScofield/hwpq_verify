@@ -20,16 +20,16 @@ from utils import NoIndent, CompactArrayEncoder
 
 
 class s_sharp_hw_config:
-    lti_gating_en = 0
-    cti_gating_en = 0
-    peaking_gating_en = 0
-    peaking_ctrl_gating_en = 0
-    peaking_shoot_ctrl_gating_en = 0
-    edge_proc_gating_en = 0
-    shoot_ctrl_gating_en = 0
-    gain_ctrl_gating_en = 0
-    color_adj_gating_en = 0
-    texture_adj_gating_en = 0
+    lti_gating_en = 1
+    cti_gating_en = 1
+    peaking_gating_en = 1
+    peaking_ctrl_gating_en = 1
+    peaking_shoot_ctrl_gating_en = 1
+    edge_proc_gating_en = 1
+    shoot_ctrl_gating_en = 1
+    gain_ctrl_gating_en = 1
+    color_adj_gating_en = 1
+    texture_adj_gating_en = 1
 
 
 class s_sharp_en_ctrl:

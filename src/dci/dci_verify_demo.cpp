@@ -500,7 +500,7 @@ int main(int argc, char *const argv[])
     // LOGI(" - cf_gain_high: %d\n", config2.cf_gain_high);
     // LOGI(" - cf_he_ratio: %d\n", config2.cf_he_ratio);
     LOGI(" - shp_type: %d\n", config2.shp_type);
-    LOGI(" - shp_peaking_gain: %d\n", config2.shp_peaking_gain);
+    // LOGI(" - shp_peaking_gain: %d\n", config2.shp_peaking_gain);
 
     // check necessary parameters
     const bool write_crc = ((config.dump_flag & VERIFY_DBG_DUMP_CRC) != 0) && (config.crc_file[0] != '\0');
@@ -648,8 +648,7 @@ int main(int argc, char *const argv[])
     if (shp_type == 1) {
         shpfull_proc_param.sharp_full_enable = 1;
         shpfull_proc_param.sharp_full_mode = ends_with(config.config_file, ".json", false) ? 0 : 1;
-        shpfull_proc_param.peaking_gain = (config2.shp_peaking_gain != SHP_OVERRIDE_INVALID_INT) ? config2.shp_peaking_gain
-                                                                                                 : 320;
+        // shpfull_proc_param.peaking_gain = (config2.shp_peaking_gain >= 0) ? config2.shp_peaking_gain : 320;
         snprintf(shpfull_proc_param.config_path, sizeof(shpfull_proc_param.config_path), "%s", config.config_file);
     }
     else if (shp_type == 2) {

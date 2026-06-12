@@ -11,8 +11,11 @@ import matplotlib.pyplot as plt
 from PIL import Image
 
 
-# global lut cf[0] = 0 ...
-# local lut clahe[1] = 128 ...
+# global lut cf[0] = 0      ... len=1025
+# global lut he[1] = 0      ... len=1025
+# global lut cfhe[2] = 2    ... len=1025
+# global lut cfhebws[3] = 4 ... len=1025
+# local lut clahe[4] = 288  ... len=16x16x16=4096
 LUT_LINE_PATTERN = re.compile(r".*?\[(\d+)\]\s*=\s*(-?\d+)\s*$", re.IGNORECASE)
 GLOBAL_HIST_BIN_COUNT = 256
 GLOBAL_HIST_BIN_BYTES = 4
@@ -140,42 +143,6 @@ def draw_global_histogram(x_values, y_values, input_path, output_path):
     plt.close()
 
 
-def draw_multi_lut_plot(lut_specs, output_path, title):
-    """Draw and save multiple LUT curves on a single figure."""
-    output_path = ensure_path(output_path)
-    color_list = ["tab:blue", "tab:orange", "tab:green", "tab:red"]
-    all_x_values = []
-
-    prepare_figure(output_path)
-    axis_obj = plt.gca()
-
-    for idx, (lut_path, label) in enumerate(lut_specs):
-        lut_path = ensure_path(lut_path)
-        x_values, y_values = parse_global_lut_file(lut_path)
-        axis_obj.plot(
-            x_values,
-            y_values,
-            color=color_list[idx % len(color_list)],
-            linewidth=1.0,
-            marker="o",
-            markersize=2.5,
-            label=label,
-        )
-        all_x_values.extend(x_values)
-
-    draw_identity_reference(axis_obj, sorted(set(all_x_values)), scale=1)
-    axis_obj.set_title(title)
-    axis_obj.set_xlabel("LUT Index")
-    axis_obj.set_ylabel("LUT Value")
-    axis_obj.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
-    axis_obj.set_xlim(min(all_x_values), max(all_x_values))
-    axis_obj.set_ylim(bottom=0)
-    axis_obj.legend(loc="best")
-    plt.tight_layout()
-    plt.savefig(output_path, format="png")
-    plt.close()
-
-
 def compute_cdf(hist_values):
     """Compute CDF from histogram values, normalized to [0, 1]."""
     total = sum(hist_values)
@@ -189,12 +156,25 @@ def compute_cdf(hist_values):
     return cdf
 
 
-def draw_combined_plot(global_lut_path, global_hist_path, output_path):
-    """Draw global LUT, global histogram, and histogram CDF on a shared x-axis with dual y-axes."""
-    global_lut_path = ensure_path(global_lut_path)
+def draw_global_hist_luts(lut_specs, global_hist_path, output_path):
+    """Draw the 256-bin global histogram together with multiple 1D LUT curves on a
+    single figure with dual y-axes.  This function absorbs the previously separate
+    draw_multi_lut_plot.
+
+    The shared x-axis is fixed to 256 length (0..255): the histogram is already
+    256 bins, and any LUT longer than 256 (e.g. 1025) is downsampled to 256 via
+    mean pooling.  The y=4x dashed reference line is drawn because the LUT value
+    range is [0, 1023] while the x-axis is 0..255 (1023 / 255 ≈ 4).
+
+    Layout:
+      - Left y-axis (LUT values, range [0, 1023], starting at y=0) holds the
+        solid LUT curves (downsampled to 256 points when longer), a dashed
+        y=4x reference line, and the histogram CDF scaled to [0, 1023].
+      - Right y-axis holds the histogram bars (256 bins).
+      - A shared title and a combined legend are drawn.
+    """
     global_hist_path = ensure_path(global_hist_path)
     output_path = ensure_path(output_path)
-    lut_x, lut_y = parse_global_lut_file(global_lut_path)
     hist_x, hist_y = parse_global_hist_file(global_hist_path)
     cdf_y = compute_cdf(hist_y)
 
@@ -202,27 +182,54 @@ def draw_combined_plot(global_lut_path, global_hist_path, output_path):
     fig, ax_lut = plt.subplots(figsize=(12, 6), dpi=150)
     ax_hist = ax_lut.twinx()
 
+    color_list = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown"]
+    all_x = list(hist_x)
     lut_max = 1023
-    draw_identity_reference(ax_lut, lut_x, scale=4)
 
-    lut_line = ax_lut.plot(
-        lut_x,
-        lut_y,
-        color="tab:blue",
-        linewidth=1.5,
-        marker="o",
-        markersize=2.5,
-        label="Global LUT",
-    )[0]
-    cdf_line = ax_lut.plot(
+    # Plot the (downsampled) LUT curves on the left y-axis.
+    # The shared x-axis represents the 256-length histogram bin index, so the
+    # downsampled x values are re-mapped to [0, 255] (bucket indices) rather than
+    # the original LUT index range (e.g. 0..1023) returned by the parser.
+    for idx, (lut_path, label) in enumerate(lut_specs):
+        lx, ly = parse_global_lut_file(lut_path)
+        lx, ly = _downsample_lut_to_256(lx, ly)
+        lx = list(range(len(lx)))
+        ax_lut.plot(
+            lx,
+            ly,
+            color=color_list[idx % len(color_list)],
+            linewidth=1,
+            marker=".",
+            markersize=1,
+            label=label,
+        )
+        all_x.extend(lx)
+
+    # Dashed y=4x reference on the LUT axis (LUT values are 0..1023, x is 0..255).
+    x_range = list(range(256))
+    ref_y = [x * 4 for x in x_range]
+    ax_lut.plot(
+        x_range,
+        ref_y,
+        color="tab:gray",
+        linewidth=1.0,
+        linestyle="--",
+        alpha=0.8,
+        # label="y=4x",
+    )
+
+    # CDF curve on the left y-axis, scaled to LUT max so it shares the LUT scale.
+    ax_lut.plot(
         hist_x,
         [v * lut_max for v in cdf_y],
-        color="tab:red",
+        color="tab:purple",
         linewidth=1.5,
         linestyle="--",
         label="CDF (scaled)",
-    )[0]
-    hist_bar = ax_hist.bar(
+    )
+
+    # Histogram bars on the right y-axis.
+    ax_hist.bar(
         hist_x,
         hist_y,
         width=0.9,
@@ -233,16 +240,20 @@ def draw_combined_plot(global_lut_path, global_hist_path, output_path):
         label="Global Histogram",
     )
 
-    ax_lut.set_title(f"DCI Global LUT, CDF and Histogram\n{global_lut_path.name} | {global_hist_path.name}")
-    ax_lut.set_xlabel("Index / Histogram Bin")
+    ax_lut.set_title("DCI Global Histogram with LUTs")
+    ax_lut.set_xlabel("Index / Histogram Bin (256 length)")
     ax_lut.set_ylabel("LUT Value / CDF (x{:.0f})".format(lut_max), color="tab:blue")
     ax_hist.set_ylabel("Histogram Count", color="tab:orange")
     ax_lut.tick_params(axis="y", labelcolor="tab:blue")
     ax_hist.tick_params(axis="y", labelcolor="tab:orange")
     ax_lut.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
-    ax_lut.set_xlim(0, max(max(lut_x), max(hist_x)))
-    ax_lut.set_ylim(bottom=0)
-    ax_lut.legend([lut_line, cdf_line, hist_bar], ["Global LUT", "CDF", "Global Histogram"], loc="best")
+    ax_lut.set_xlim(0, 255)
+    ax_lut.set_ylim(0, lut_max)
+
+    # Combine legends from both axes.
+    lines1, labels1 = ax_lut.get_legend_handles_labels()
+    lines2, labels2 = ax_hist.get_legend_handles_labels()
+    ax_lut.legend(lines1 + lines2, labels1 + labels2, loc="best")
 
     fig.tight_layout()
     fig.savefig(output_path, format="png")
@@ -375,8 +386,6 @@ LOCAL_BLOCK_COLS = 16
 LOCAL_BLOCK_ROWS = 16
 LOCAL_HIST_BINS = 16
 LOCAL_HIST_BIN_BYTES = 4
-LOCAL_LUT_PATTERN = re.compile(r".*?\((\d+),\s*(\d+)\).*?\[(\d+)\]\s*=\s*(-?\d+)\s*$", re.IGNORECASE)
-_LOCAL_LUT_SEQ_PATTERN = re.compile(r".*?\[(\d+)\]\s*=\s*(-?\d+)\s*$", re.IGNORECASE)
 
 
 # ------------------------------------------------------------------ #
@@ -385,11 +394,8 @@ _LOCAL_LUT_SEQ_PATTERN = re.compile(r".*?\[(\d+)\]\s*=\s*(-?\d+)\s*$", re.IGNORE
 
 
 def parse_local_lut_flat(filepath: str) -> list | None:
-    """Parse a 16x16x16 local LUT text file into a flat list of 4096 values.
-
-    Supports two formats:
-      - Sequential:  "local lut clahe[N] = value"  (N = 0..4095)
-      - Block-coord: "(row, col)[idx] = value"
+    """Parse a 16x16x16 local LUT text file in the flat sequential format
+    "local lut clahe[N] = value" into a flat list of 4096 values.
 
     Returns None if the file cannot be read.
     """
@@ -398,27 +404,14 @@ def parse_local_lut_flat(filepath: str) -> list | None:
         return None
     total = LOCAL_BLOCK_ROWS * LOCAL_BLOCK_COLS * LOCAL_HIST_BINS
     lut = [0] * total
-    seq_found = False
     with p.open("r", encoding="utf-8") as f:
         for line in f:
-            m = _LOCAL_LUT_SEQ_PATTERN.search(line)
+            m = LUT_LINE_PATTERN.search(line)
             if m:
                 idx = int(m.group(1))
                 val = int(m.group(2))
                 if 0 <= idx < total:
                     lut[idx] = val
-                    seq_found = True
-                continue
-            m = LOCAL_LUT_PATTERN.search(line)
-            if m and not seq_found:
-                blk_row = int(m.group(1))
-                blk_col = int(m.group(2))
-                idx = int(m.group(3))
-                val = int(m.group(4))
-                if 0 <= blk_row < LOCAL_BLOCK_ROWS and 0 <= blk_col < LOCAL_BLOCK_COLS \
-                        and 0 <= idx < LOCAL_HIST_BINS:
-                    offset = (blk_row * LOCAL_BLOCK_ROWS + blk_col) * LOCAL_HIST_BINS + idx
-                    lut[offset] = val
     return lut
 
 
@@ -450,7 +443,12 @@ def parse_local_hist_file(input_path):
     return result
 
 def parse_local_lut_file(input_path):
-    """Parse a 16x16x16 local LUT text file.
+    """Parse a 16x16x16 local LUT text file in the flat sequential format
+    "local lut clahe[N] = value".  The flat index N is decomposed into
+    (row, col, idx) as:
+        row = N // (LOCAL_BLOCK_COLS * LOCAL_HIST_BINS)
+        col = (N // LOCAL_HIST_BINS) % LOCAL_BLOCK_COLS
+        idx = N % LOCAL_HIST_BINS
 
     Returns a 2D list of (x_values, y_values) tuples, indexed by [row][col].
     Each block has LOCAL_HIST_BINS entries.
@@ -462,17 +460,20 @@ def parse_local_lut_file(input_path):
         for c in range(LOCAL_BLOCK_COLS):
             result[r][c] = {}
 
+    total = LOCAL_BLOCK_ROWS * LOCAL_BLOCK_COLS * LOCAL_HIST_BINS
     with input_path.open("r", encoding="utf-8") as file_obj:
-        for line_no, line in enumerate(file_obj, start=1):
-            match = LOCAL_LUT_PATTERN.search(line)
+        for line in file_obj:
+            match = LUT_LINE_PATTERN.search(line)
             if not match:
                 continue
-            blk_row = int(match.group(1))
-            blk_col = int(match.group(2))
-            lut_idx = int(match.group(3))
-            lut_val = int(match.group(4))
-            if blk_row < LOCAL_BLOCK_ROWS and blk_col < LOCAL_BLOCK_COLS:
-                result[blk_row][blk_col][lut_idx] = lut_val
+            flat_idx = int(match.group(1))
+            lut_val = int(match.group(2))
+            if not (0 <= flat_idx < total):
+                continue
+            row = flat_idx // (LOCAL_BLOCK_COLS * LOCAL_HIST_BINS)
+            col = (flat_idx // LOCAL_HIST_BINS) % LOCAL_BLOCK_COLS
+            idx = flat_idx % LOCAL_HIST_BINS
+            result[row][col][idx] = lut_val
 
     # Convert dicts to sorted lists
     final = []
@@ -489,7 +490,7 @@ def parse_local_lut_file(input_path):
         final.append(row_data)
     return final
 
-def draw_local_combined_plot(local_lut_path, local_hist_path, output_path):
+def draw_local_hist_luts(local_lut_path, local_hist_path, output_path):
     """Draw 16x16 local block histograms, CDF curves, and mapping LUT curves."""
     local_lut_path = ensure_path(local_lut_path)
     local_hist_path = ensure_path(local_hist_path)
@@ -526,7 +527,7 @@ def draw_local_combined_plot(local_lut_path, local_hist_path, output_path):
             # CDF curve scaled to LUT range
             if cdf_y and sum(hist_y) > 0:
                 ax.plot(hist_x, [v * lut_max for v in cdf_y],
-                        color="tab:red", linewidth=0.8, linestyle="--")
+                        color="tab:purple", linewidth=0.8, linestyle="--")
 
             # LUT curve, full range [0, 1023]
             if lut_x and lut_y:
@@ -567,7 +568,7 @@ def main():
 
     try:
         if global_lut_path and global_hist_path:
-            draw_combined_plot(global_lut_path, global_hist_path, output_path)
+            draw_global_hist_luts([(global_lut_path, "Global LUT")], global_hist_path, output_path)
         elif global_lut_path:
             lut_x, lut_y = parse_global_lut_file(global_lut_path)
             draw_global_lut_curve(lut_x, lut_y, global_lut_path, output_path)
