@@ -13,5 +13,6 @@ output/
 project/build_*/
 rockchip/
 prebuilt/
+script/verify_tool_app/ui_gen/
 
 compile_commands.json

@@ -1,0 +1,708 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>AcmUiWidget</class>
+ <widget class="QWidget" name="AcmUiWidget">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1100</width>
+    <height>760</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>ACM Config</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout_algo">
+     <item>
+      <widget class="QLabel" name="label_algo_type">
+       <property name="text">
+        <string>Algorithm Type</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="comboBox_algo_type">
+       <item>
+        <property name="text">
+         <string>VOP_VP_ACM (9,13,65,17)</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>SW_ACM (9,13,65,65)</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>EVIDEO_ACM (9,13,65,65)</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>SW_ACM_VARIANT (custom)</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="checkBox_use_cordic">
+       <property name="text">
+        <string>Use CORDIC</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer_algo">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_acm_colorspace">
+       <property name="text">
+        <string>Colorspace</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QRadioButton" name="radioButton_colorspace_yhs">
+       <property name="text">
+        <string>YHS(YUV)</string>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QRadioButton" name="radioButton_colorspace_hsv">
+       <property name="text">
+        <string>HSV(RGB)</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton_read_config">
+       <property name="text">
+        <string>Read Config</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton_save_config">
+       <property name="text">
+        <string>Save Config</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_lut_lengths">
+     <property name="enabled">
+      <bool>false</bool>
+     </property>
+     <property name="title">
+      <string>LUT Lengths (SW_ACM_VARIANT)</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayout_lut_lengths">
+      <item>
+       <widget class="QLabel" name="label_len_y">
+        <property name="text">
+         <string>len_y</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSpinBox" name="spinBox_len_y">
+        <property name="minimum">
+         <number>2</number>
+        </property>
+        <property name="maximum">
+         <number>256</number>
+        </property>
+        <property name="value">
+         <number>9</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="label_len_s">
+        <property name="text">
+         <string>len_s</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSpinBox" name="spinBox_len_s">
+        <property name="minimum">
+         <number>2</number>
+        </property>
+        <property name="maximum">
+         <number>182</number>
+        </property>
+        <property name="value">
+         <number>13</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="label_len_h">
+        <property name="text">
+         <string>len_h</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSpinBox" name="spinBox_len_h">
+        <property name="minimum">
+         <number>4</number>
+        </property>
+        <property name="maximum">
+         <number>361</number>
+        </property>
+        <property name="value">
+         <number>65</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="label_len_h2">
+        <property name="text">
+         <string>len_h2</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSpinBox" name="spinBox_len_h2">
+        <property name="minimum">
+         <number>2</number>
+        </property>
+        <property name="maximum">
+         <number>361</number>
+        </property>
+        <property name="value">
+         <number>65</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacer_lut_lengths">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_delta_editor">
+     <property name="title">
+      <string>Delta Editor</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_delta_editor">
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_delta_tools">
+        <item>
+         <widget class="QLabel" name="label_ctrl_points">
+          <property name="text">
+           <string>Ctrl Points</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="slider_ctrl_points">
+          <property name="minimum">
+           <number>4</number>
+          </property>
+          <property name="maximum">
+           <number>65</number>
+          </property>
+          <property name="value">
+           <number>17</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_ctrl_points_value">
+          <property name="text">
+           <string>17</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_delta_hint">
+          <property name="text">
+           <string>(len_h = 65, setp = 4.0)</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="horizontalSpacer_algo_2">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_interp_method">
+          <property name="text">
+           <string>Interpolation</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="comboBox_interp_method">
+          <item>
+           <property name="text">
+            <string>Linear</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Cubic</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>B-Spline</string>
+           </property>
+          </item>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QTabWidget" name="tabWidget_delta">
+        <property name="currentIndex">
+         <number>0</number>
+        </property>
+        <widget class="QWidget" name="tab_delta_y">
+         <attribute name="title">
+          <string>Delta Y by H</string>
+         </attribute>
+         <layout class="QVBoxLayout" name="verticalLayout_delta_y">
+          <item>
+           <widget class="QWidget" name="widget_delta_y_host" native="true"/>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="tab_delta_s">
+         <attribute name="title">
+          <string>Delta S by H</string>
+         </attribute>
+         <layout class="QVBoxLayout" name="verticalLayout_delta_s">
+          <item>
+           <widget class="QWidget" name="widget_delta_s_host" native="true"/>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="tab_delta_h">
+         <attribute name="title">
+          <string>Delta H by H</string>
+         </attribute>
+         <layout class="QVBoxLayout" name="verticalLayout_delta_h">
+          <item>
+           <widget class="QWidget" name="widget_delta_h_host" native="true"/>
+          </item>
+         </layout>
+        </widget>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_global_gain">
+     <property name="title">
+      <string>Global Gain</string>
+     </property>
+     <layout class="QGridLayout" name="gridLayout_global_gain" columnstretch="0,0">
+      <item row="0" column="0">
+       <layout class="QHBoxLayout" name="horizontalLayout_gain_y">
+        <item>
+         <widget class="QLabel" name="label_gain_y">
+          <property name="minimumSize">
+           <size>
+            <width>80</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Luma Gain</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="slider_gain_y">
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="spinBox_gain_y">
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item row="0" column="1">
+       <layout class="QHBoxLayout" name="horizontalLayout_offset_wr">
+        <item>
+         <widget class="QLabel" name="label_offset_wr">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>80</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>WR Offset</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="slider_offset_wr">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="spinBox_offset_wr">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item row="1" column="0">
+       <layout class="QHBoxLayout" name="horizontalLayout_gain_s">
+        <item>
+         <widget class="QLabel" name="label_gain_s">
+          <property name="minimumSize">
+           <size>
+            <width>80</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Sat  Gain</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="slider_gain_s">
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="spinBox_gain_s">
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item row="1" column="1">
+       <layout class="QHBoxLayout" name="horizontalLayout_offset_wg">
+        <item>
+         <widget class="QLabel" name="label_offset_wg">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>80</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>WG Offset</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="slider_offset_wg">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="spinBox_offset_wg">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item row="2" column="0">
+       <layout class="QHBoxLayout" name="horizontalLayout_gain_h">
+        <item>
+         <widget class="QLabel" name="label_gain_h">
+          <property name="minimumSize">
+           <size>
+            <width>80</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Hue  Gain</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="slider_gain_h">
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="spinBox_gain_h">
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item row="2" column="1">
+       <layout class="QHBoxLayout" name="horizontalLayout_offset_wb">
+        <item>
+         <widget class="QLabel" name="label_offset_wb">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>80</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>WB Offset</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="slider_offset_wb">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="spinBox_offset_wb">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_lut_visualization">
+     <property name="title">
+      <string>LUT Visualization</string>
+     </property>
+     <property name="checkable">
+      <bool>true</bool>
+     </property>
+     <property name="checked">
+      <bool>false</bool>
+     </property>
+     <layout class="QGridLayout" name="gridLayout_lut_visualization">
+      <item row="0" column="0">
+       <widget class="QGroupBox" name="groupBox_gain_ybyy">
+        <property name="title">
+         <string>Gain Y by Y</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_gain_ybyy">
+         <item>
+          <widget class="QWidget" name="widget_gain_ybyy_host" native="true"/>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QGroupBox" name="groupBox_gain_sbyy">
+        <property name="title">
+         <string>Gain S by Y</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_gain_sbyy">
+         <item>
+          <widget class="QWidget" name="widget_gain_sbyy_host" native="true"/>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item row="0" column="2">
+       <widget class="QGroupBox" name="groupBox_gain_hbyy">
+        <property name="title">
+         <string>Gain H by Y</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_gain_hbyy">
+         <item>
+          <widget class="QWidget" name="widget_gain_hbyy_host" native="true"/>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QGroupBox" name="groupBox_gain_ybys">
+        <property name="title">
+         <string>Gain Y by S</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_gain_ybys">
+         <item>
+          <widget class="QWidget" name="widget_gain_ybys_host" native="true"/>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QGroupBox" name="groupBox_gain_sbys">
+        <property name="title">
+         <string>Gain S by S</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_gain_sbys">
+         <item>
+          <widget class="QWidget" name="widget_gain_sbys_host" native="true"/>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item row="1" column="2">
+       <widget class="QGroupBox" name="groupBox_gain_hbys">
+        <property name="title">
+         <string>Gain H by S</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_gain_hbys">
+         <item>
+          <widget class="QWidget" name="widget_gain_hbys_host" native="true"/>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

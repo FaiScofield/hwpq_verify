@@ -16,10 +16,13 @@ import traceback
 import numpy as np
 import matplotlib.pyplot as plt
 
-import cordic
-
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-import utils as utl
+if __package__:
+    from . import cordic
+    from .. import utils as utl
+else:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+    import cordic
+    import utils as utl
 
 g_r2y_mat_bt709 = np.array(
     [[0.2126, 0.7152, 0.0722], [-0.114572, -0.385428, 0.5], [0.5, -0.454153, -0.045847]], dtype=np.float32
