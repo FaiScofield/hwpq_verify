@@ -58,7 +58,7 @@ _ensure_generated_ui_modules()
 
 import numpy as np
 from PIL import Image
-from PySide6.QtCore import QEvent, QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, QRect, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -126,7 +126,7 @@ class PreviewUiWidget(QWidget):
 class SingleCurveChartWidget(QWidget):
     """Interactive single-curve chart for one H-based delta LUT."""
 
-    dataChanged = Signal(list)
+    dataChanged = Signal(int, list)
 
     def __init__(self, value_range, curve_color, parent=None):
         super().__init__(parent)
@@ -147,11 +147,15 @@ class SingleCurveChartWidget(QWidget):
             self.values.extend([self.values[-1] if self.values else 0] * (count - len(self.values)))
         elif len(self.values) > count:
             self.values = self.values[:count]
+        if len(self.values) > 1:
+            self.values[-1] = self.values[0]
         self.update()
 
     def set_values(self, values):
         """Replace the chart values and repaint."""
         self.values = [int(v) for v in values]
+        if len(self.values) > 1:
+            self.values[-1] = self.values[0]
         self.update()
 
     def get_values(self):
@@ -189,8 +193,8 @@ class SingleCurveChartWidget(QWidget):
         chart_height = height - 2 * self.padding
         painter.fillRect(self.rect(), QColor(30, 30, 30))
         painter.setPen(QPen(QColor(60, 60, 60), 1))
-        for idx in range(5):
-            y_pos = self.padding + chart_height * idx / 4
+        for idx in range(9):
+            y_pos = self.padding + chart_height * idx / 8
             painter.drawLine(self.padding, int(y_pos), width - self.padding, int(y_pos))
         painter.setPen(QPen(QColor(100, 100, 100), 2, Qt.DashLine))
         mid_y = self._value_to_y(0)
@@ -216,6 +220,10 @@ class SingleCurveChartWidget(QWidget):
         painter.setFont(font)
         for value in (self.value_range[1], 0, self.value_range[0]):
             painter.drawText(5, int(self._value_to_y(value) + 4), str(value))
+        for idx, value in enumerate(self.values):
+            x_pos, y_pos = self._point_position(idx)
+            text_rect = QRect(int(x_pos) - 24, int(y_pos) - 26, 48, 16)
+            painter.drawText(text_rect, Qt.AlignCenter, str(int(value)))
 
     def mousePressEvent(self, event):
         """Start dragging the nearest control point."""
@@ -239,7 +247,7 @@ class SingleCurveChartWidget(QWidget):
             if self.dragging_point in (0, len(self.values) - 1) and len(self.values) > 1:
                 paired_index = len(self.values) - 1 if self.dragging_point == 0 else 0
                 self.values[paired_index] = self.values[self.dragging_point]
-            self.dataChanged.emit(self.get_values())
+            self.dataChanged.emit(self.dragging_point, self.get_values())
             self.update()
         else:
             hover_point = self._find_nearest_point(x_pos, y_pos)
@@ -293,15 +301,20 @@ class HeatmapWidget(QWidget):
         rows, cols = self.data.shape
         cell_w = self.width() / max(cols, 1)
         cell_h = self.height() / max(rows, 1)
-        span = max(1, self.value_max - self.value_min)
         for row in range(rows):
             for col in range(cols):
-                value = int(self.data[row, col])
-                norm = (value - self.value_min) / span
-                norm = max(0.0, min(1.0, norm))
-                red = int(255 * norm)
-                blue = int(255 * (1.0 - norm))
-                color = QColor(red, 48, blue)
+                raw_value = int(self.data[row, col])
+                display_value = min(abs(raw_value) * 2, 255)
+                norm = max(0.0, min(1.0, display_value / 255.0))
+                if raw_value < 0:
+                    color = QColor(
+                        int(30 + 70 * norm),
+                        int(70 + 110 * norm),
+                        int(110 + 145 * norm),
+                    )
+                else:
+                    gray = int(40 + 190 * norm)
+                    color = QColor(gray, gray, gray)
                 painter.fillRect(
                     int(col * cell_w),
                     int(row * cell_h),
@@ -459,6 +472,9 @@ class AcmTestAppWindow(QMainWindow):
         acm_ui.spinBox_len_y.valueChanged.connect(self._on_variant_lengths_changed)
         acm_ui.spinBox_len_s.valueChanged.connect(self._on_variant_lengths_changed)
         acm_ui.spinBox_len_h2.valueChanged.connect(self._on_variant_lengths_changed)
+        acm_ui.button_reset_delta_y.clicked.connect(lambda: self._reset_delta_curve("y"))
+        acm_ui.button_reset_delta_s.clicked.connect(lambda: self._reset_delta_curve("s"))
+        acm_ui.button_reset_delta_h.clicked.connect(lambda: self._reset_delta_curve("h"))
         acm_ui.pushButton_read_config.clicked.connect(self._on_read_config)
         acm_ui.pushButton_save_config.clicked.connect(self._on_save_config)
         self._connect_slider_spin(acm_ui.slider_gain_y, acm_ui.spinBox_gain_y)
@@ -484,6 +500,24 @@ class AcmTestAppWindow(QMainWindow):
         """Synchronize a slider and spin box bidirectionally."""
         slider.valueChanged.connect(spinbox.setValue)
         spinbox.valueChanged.connect(slider.setValue)
+
+    def _normalize_ctrl_point_count(self, len_h, value):
+        """Clamp the control-point count to the valid even range."""
+        max_even = len_h if len_h % 2 == 0 else len_h - 1
+        max_even = max(4, max_even)
+        value = max(4, min(value, max_even))
+        if value % 2 != 0:
+            value -= 1
+        return max(4, value)
+
+    def _update_ctrl_point_hint(self, len_h):
+        """Refresh the displayed control-point hint text."""
+        step = (len_h - 1) / max(1, self.ctrl_point_count - 1)
+        self.acm_widget.ui.label_delta_hint.setText(f"(len_h = {len_h}, step = {step:.1f})")
+
+    def _get_ctrl_positions(self, len_h):
+        """Return the H positions corresponding to the current control points."""
+        return np.linspace(0.0, len_h - 1, self.ctrl_point_count)
 
     def _set_spinbox_value(self, spinbox, value):
         """Set a spin box value without emitting change notifications."""
@@ -552,15 +586,18 @@ class AcmTestAppWindow(QMainWindow):
 
     def _sync_ctrl_point_slider(self, len_h):
         """Update the control-point slider bounds for the current len_h."""
-        new_value = min(max(self.ctrl_point_count, 4), len_h)
+        max_even = self._normalize_ctrl_point_count(len_h, len_h)
+        new_value = self._normalize_ctrl_point_count(len_h, self.ctrl_point_count)
         self.ctrl_point_count = new_value
         acm_ui = self.acm_widget.ui
         acm_ui.slider_ctrl_points.blockSignals(True)
-        acm_ui.slider_ctrl_points.setRange(4, len_h)
+        acm_ui.slider_ctrl_points.setRange(4, max_even)
+        acm_ui.slider_ctrl_points.setSingleStep(2)
+        acm_ui.slider_ctrl_points.setPageStep(2)
         acm_ui.slider_ctrl_points.setValue(new_value)
         acm_ui.slider_ctrl_points.blockSignals(False)
         acm_ui.label_ctrl_points_value.setText(str(new_value))
-        acm_ui.label_delta_hint.setText(f"len_h={len_h}, valid range: 4-{len_h}")
+        self._update_ctrl_point_hint(len_h)
 
     def _reload_delta_controls_from_acm(self):
         """Reload the chart data from the current ACM LUT tables."""
@@ -581,44 +618,87 @@ class AcmTestAppWindow(QMainWindow):
             self.delta_chart_s.set_values(zero_values)
             self.delta_chart_h.set_values(zero_values)
             return
-        x_src = np.linspace(0.0, 1.0, len(self.full_delta_ybyh))
-        x_dst = np.linspace(0.0, 1.0, point_count)
+        x_src = np.arange(len(self.full_delta_ybyh), dtype=np.float32)
+        x_dst = self._get_ctrl_positions(len(self.full_delta_ybyh))
         self.delta_chart_y.set_values(np.interp(x_dst, x_src, self.full_delta_ybyh))
         self.delta_chart_s.set_values(np.interp(x_dst, x_src, self.full_delta_sbyh))
         self.delta_chart_h.set_values(np.interp(x_dst, x_src, self.full_delta_hbyh))
 
-    def _rebuild_full_lut_from_ctrl(self):
-        """Rebuild full LUT arrays from the current control points."""
-        acm = self._get_current_acm()
-        x_src = np.linspace(0.0, 1.0, self.ctrl_point_count)
-        x_dst = np.linspace(0.0, 1.0, acm.len_h)
-        ctrl_values = {
-            "y": np.array(self.delta_chart_y.get_values(), dtype=np.float32),
-            "s": np.array(self.delta_chart_s.get_values(), dtype=np.float32),
-            "h": np.array(self.delta_chart_h.get_values(), dtype=np.float32),
-        }
-        rebuilt = {}
-        if self.interp_method == "Linear" or self.ctrl_point_count < 4:
-            for key, values in ctrl_values.items():
-                rebuilt[key] = np.interp(x_dst, x_src, values)
-        else:
-            try:
-                from scipy.interpolate import interp1d, make_interp_spline
+    def _interpolate_segment(self, x_points, y_points, x_targets):
+        """Interpolate a local segment using the selected interpolation method."""
+        x_points = np.array(x_points, dtype=np.float32)
+        y_points = np.array(y_points, dtype=np.float32)
+        x_targets = np.array(x_targets, dtype=np.float32)
+        if x_targets.size == 0:
+            return np.array([], dtype=np.float32)
+        if self.interp_method == "Linear" or len(x_points) < 3:
+            return np.interp(x_targets, x_points, y_points)
+        try:
+            from scipy.interpolate import interp1d, make_interp_spline
 
-                for key, values in ctrl_values.items():
-                    if self.interp_method == "B-Spline":
-                        spline = make_interp_spline(x_src, values, k=min(3, len(x_src) - 1))
-                        rebuilt[key] = spline(x_dst)
-                    else:
-                        kind = "cubic" if self.interp_method == "Cubic" else "linear"
-                        interp = interp1d(x_src, values, kind=kind)
-                        rebuilt[key] = interp(x_dst)
-            except Exception:
-                for key, values in ctrl_values.items():
-                    rebuilt[key] = np.interp(x_dst, x_src, values)
-        self.full_delta_ybyh = np.array(np.rint(rebuilt["y"]), dtype=np.int16)
-        self.full_delta_sbyh = np.array(np.rint(rebuilt["s"]), dtype=np.int16)
-        self.full_delta_hbyh = np.array(np.rint(rebuilt["h"]), dtype=np.int16)
+            if self.interp_method == "B-Spline":
+                spline = make_interp_spline(x_points, y_points, k=min(3, len(x_points) - 1))
+                return spline(x_targets)
+            kind = "cubic" if len(x_points) >= 4 else "quadratic"
+            return interp1d(x_points, y_points, kind=kind)(x_targets)
+        except Exception:
+            return np.interp(x_targets, x_points, y_points)
+
+    def _apply_local_curve_change(self, curve_key, changed_index):
+        """Apply a local control-point edit back to the corresponding full LUT array."""
+        full_lut = getattr(self, f"full_delta_{curve_key}byh")
+        if full_lut is None:
+            return
+        chart = getattr(self, f"delta_chart_{curve_key}")
+        ctrl_values = np.array(chart.get_values(), dtype=np.float32)
+        len_h = len(full_lut)
+        ctrl_x = self._get_ctrl_positions(len_h)
+        point_count = len(ctrl_values)
+        if point_count < 2:
+            return
+
+        if changed_index in (0, point_count - 1):
+            ctrl_values[0] = ctrl_values[-1] = ctrl_values[0]
+            right_index = 1
+            left_index = point_count - 2
+            right_targets = np.arange(1, int(np.floor(ctrl_x[right_index])), dtype=np.int32)
+            left_targets = np.arange(int(np.ceil(ctrl_x[left_index])) + 1, len_h - 1, dtype=np.int32)
+            if left_targets.size:
+                left_values = self._interpolate_segment(
+                    [ctrl_x[left_index], len_h - 1],
+                    [ctrl_values[left_index], ctrl_values[0]],
+                    left_targets,
+                )
+                full_lut[left_targets] = np.rint(left_values).astype(np.int16)
+            if right_targets.size:
+                right_values = self._interpolate_segment(
+                    [0, ctrl_x[right_index]],
+                    [ctrl_values[0], ctrl_values[right_index]],
+                    right_targets,
+                )
+                full_lut[right_targets] = np.rint(right_values).astype(np.int16)
+            endpoint_value = np.int16(round(ctrl_values[0]))
+            full_lut[0] = endpoint_value
+            full_lut[-1] = endpoint_value
+            return
+
+        left_index = changed_index - 1
+        right_index = changed_index + 1
+        target_indices = np.arange(
+            int(np.ceil(ctrl_x[left_index])) + 1,
+            int(np.floor(ctrl_x[right_index])),
+            dtype=np.int32,
+        )
+        if target_indices.size:
+            segment_values = self._interpolate_segment(
+                [ctrl_x[left_index], ctrl_x[changed_index], ctrl_x[right_index]],
+                [ctrl_values[left_index], ctrl_values[changed_index], ctrl_values[right_index]],
+                target_indices,
+            )
+            full_lut[target_indices] = np.rint(segment_values).astype(np.int16)
+        changed_full_index = int(round(ctrl_x[changed_index]))
+        changed_full_index = max(0, min(len_h - 1, changed_full_index))
+        full_lut[changed_full_index] = np.int16(round(ctrl_values[changed_index]))
 
     def _apply_full_delta_to_acm(self):
         """Write the rebuilt full LUT arrays back to the current ACM instance."""
@@ -631,22 +711,43 @@ class AcmTestAppWindow(QMainWindow):
 
     def _on_ctrl_points_changed(self, value):
         """Handle control-point count changes from the ACM widget."""
-        self.ctrl_point_count = value
-        self.acm_widget.ui.label_ctrl_points_value.setText(str(value))
+        normalized_value = self._normalize_ctrl_point_count(self._get_current_acm().len_h, value)
+        if normalized_value != value:
+            self.acm_widget.ui.slider_ctrl_points.blockSignals(True)
+            self.acm_widget.ui.slider_ctrl_points.setValue(normalized_value)
+            self.acm_widget.ui.slider_ctrl_points.blockSignals(False)
+        self.ctrl_point_count = normalized_value
+        self.acm_widget.ui.label_ctrl_points_value.setText(str(normalized_value))
+        self._update_ctrl_point_hint(self._get_current_acm().len_h)
         self._resample_full_to_ctrl()
 
     def _on_interp_method_changed(self, text):
         """Handle interpolation-method changes."""
         self.interp_method = text
-        self._rebuild_full_lut_from_ctrl()
+
+    def _on_delta_chart_changed(self, changed_index, values):
+        """Handle edits from any delta chart widget."""
+        del values
+        sender = self.sender()
+        if sender == self.delta_chart_y:
+            curve_key = "y"
+        elif sender == self.delta_chart_s:
+            curve_key = "s"
+        else:
+            curve_key = "h"
+        self._apply_local_curve_change(curve_key, changed_index)
         self._apply_full_delta_to_acm()
         self._schedule_auto_run()
 
-    def _on_delta_chart_changed(self, values):
-        """Handle edits from any delta chart widget."""
-        del values
-        self._rebuild_full_lut_from_ctrl()
+    def _reset_delta_curve(self, curve_key):
+        """Reset one delta curve and its backing LUT to all zeros."""
+        full_lut = getattr(self, f"full_delta_{curve_key}byh")
+        if full_lut is None:
+            return
+        full_lut[:] = 0
+        getattr(self, f"delta_chart_{curve_key}").set_values([0] * self.ctrl_point_count)
         self._apply_full_delta_to_acm()
+        self._update_heatmaps()
         self._schedule_auto_run()
 
     def _update_acm_gains(self):
