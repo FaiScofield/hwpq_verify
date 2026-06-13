@@ -346,11 +346,17 @@ class AcmTestAppWindow(QMainWindow):
 
         self.preview_dock = QDockWidget("Image Preview", self)
         self.preview_dock.setObjectName("preview_dock")
-        self.preview_dock.setAllowedAreas(
-            Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea | Qt.RightDockWidgetArea
+        self.preview_dock.setAllowedAreas(Qt.AllDockWidgetAreas)
+        self.preview_dock.setFeatures(
+            QDockWidget.DockWidgetMovable
+            | QDockWidget.DockWidgetFloatable
+            | QDockWidget.DockWidgetClosable
         )
         self.preview_dock.setWidget(self.preview_widget)
         self.addDockWidget(Qt.BottomDockWidgetArea, self.preview_dock)
+
+        self.lut_dock = None
+        self._lut_gb_original_layout = None
 
         self.current_algo = "VOP_VP_ACM"
         self.acm_instances = {
@@ -411,6 +417,8 @@ class AcmTestAppWindow(QMainWindow):
         self._on_acm_colorspace_changed()
         self._sync_ctrl_point_slider(self._get_current_acm().len_h)
         self._reload_delta_controls_from_acm()
+        # Hide LUT Visualization groupBox by default (shown via checkbox)
+        self.acm_widget.ui.groupBox_lut_visualization.setVisible(False)
         self.ui.statusbar.showMessage("Ready")
 
     def _init_io_ui(self):
@@ -468,6 +476,7 @@ class AcmTestAppWindow(QMainWindow):
         acm_ui.slider_ctrl_points.valueChanged.connect(self._on_ctrl_points_changed)
         acm_ui.comboBox_interp_method.currentTextChanged.connect(self._on_interp_method_changed)
         acm_ui.comboBox_algo_type.currentIndexChanged.connect(self._on_algo_changed)
+        acm_ui.checkBox_lut_visualization.toggled.connect(self._on_lut_visualization_toggled)
         acm_ui.spinBox_len_h.valueChanged.connect(self._on_len_h_changed)
         acm_ui.spinBox_len_y.valueChanged.connect(self._on_variant_lengths_changed)
         acm_ui.spinBox_len_s.valueChanged.connect(self._on_variant_lengths_changed)
@@ -495,6 +504,51 @@ class AcmTestAppWindow(QMainWindow):
     def _get_current_acm(self):
         """Return the current ACM implementation instance."""
         return self.acm_instances[self.current_algo]
+
+    def _on_lut_visualization_toggled(self, checked: bool):
+        """Detach or re-attach groupBox_lut_visualization to a standalone dock."""
+        acm_ui = self.acm_widget.ui
+        gb = acm_ui.groupBox_lut_visualization
+
+        if checked:
+            gb.setVisible(False)
+            self._lut_gb_original_layout = gb.parent().layout()
+            self.lut_dock = QDockWidget("LUT Visualization", self)
+            self.lut_dock.setObjectName("lut_visualization_dock")
+            self.lut_dock.setAllowedAreas(Qt.AllDockWidgetAreas)
+            self.lut_dock.setFeatures(
+                QDockWidget.DockWidgetMovable
+                | QDockWidget.DockWidgetFloatable
+                | QDockWidget.DockWidgetClosable
+            )
+            if self._lut_gb_original_layout:
+                self._lut_gb_original_layout.removeWidget(gb)
+            gb.setParent(self.lut_dock)
+            self.lut_dock.setWidget(gb)
+            gb.setVisible(True)
+            self.addDockWidget(Qt.RightDockWidgetArea, self.lut_dock)
+            self.lut_dock.setVisible(True)
+            # Sync checkbox when dock is closed via title-bar X button
+            self.lut_dock.visibilityChanged.connect(self._on_lut_dock_visibility_changed)
+        else:
+            if self.lut_dock is not None:
+                gb.setVisible(False)
+                self.lut_dock.setWidget(None)  # detach widget before reparenting
+                gb.setParent(self.acm_widget)
+                if self._lut_gb_original_layout is not None:
+                    self._lut_gb_original_layout.addWidget(gb)
+                gb.setVisible(False)  # stay hidden in tab when unchecked
+                self.removeDockWidget(self.lut_dock)
+                self.lut_dock.deleteLater()
+                self.lut_dock = None
+
+    def _on_lut_dock_visibility_changed(self, visible: bool):
+        """Sync the LUT Visualization checkbox when the dock is closed by the user."""
+        if not visible:
+            # Programmatic toggle will already have unset the checkbox;
+            # only sync when the user closed the dock via the title-bar X button.
+            if self.acm_widget.ui.checkBox_lut_visualization.isChecked():
+                self.acm_widget.ui.checkBox_lut_visualization.setChecked(False)
 
     def _connect_slider_spin(self, slider, spinbox):
         """Synchronize a slider and spin box bidirectionally."""
@@ -1022,9 +1076,8 @@ class AcmTestAppWindow(QMainWindow):
         fmt_code = int(fmt_str.split(" ")[0], 16)
         width = io_ui.spinBox_width.value()
         height = io_ui.spinBox_height.value()
-        frame_idx = io_ui.spinBox_frame_idx.value()
         try:
-            data = read_raw_to_planar(input_file, width, height, fmt_code, frame_idx)
+            data, _ = read_raw_to_planar(input_file, width, height, fmt_code, repeat_to_444=True)
             self.input_yuv444 = self._convert_to_yuv444(data, fmt_code)
             self._update_input_preview()
             self.ui.statusbar.showMessage(f"Input loaded: {width}x{height}")

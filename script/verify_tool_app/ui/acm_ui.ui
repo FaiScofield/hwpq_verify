@@ -55,6 +55,13 @@
       </widget>
      </item>
      <item>
+      <widget class="QCheckBox" name="checkBox_lut_visualization">
+       <property name="text">
+        <string>LUT Visualization</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <spacer name="horizontalSpacer_algo">
        <property name="orientation">
         <enum>Qt::Horizontal</enum>
@@ -645,12 +652,6 @@
     <widget class="QGroupBox" name="groupBox_lut_visualization">
      <property name="title">
       <string>LUT Visualization</string>
-     </property>
-     <property name="checkable">
-      <bool>true</bool>
-     </property>
-     <property name="checked">
-      <bool>false</bool>
      </property>
      <layout class="QGridLayout" name="gridLayout_lut_visualization">
       <item row="0" column="0">
