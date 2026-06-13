@@ -58,7 +58,7 @@ echo Using UIC command: %UIC_CMD%
 call :run_uic "%UI_DIR%\io_ui.ui" "%OUT_DIR%\io_ui.py"
 call :run_uic "%UI_DIR%\acm_ui.ui" "%OUT_DIR%\acm_ui.py"
 call :run_uic "%UI_DIR%\io_preview_ui.ui" "%OUT_DIR%\io_preview_ui.py"
-call :run_uic "%UI_DIR%\acm_test_app.ui" "%OUT_DIR%\acm_test_app_ui.py"
+call :run_uic "%UI_DIR%\acm_test_app_mainwindow.ui" "%OUT_DIR%\acm_test_app_mainwindow.py"
 
 if not exist "%OUT_DIR%\__init__.py" (
     > "%OUT_DIR%\__init__.py" echo """Generated UI package for verify_tool_app."""
