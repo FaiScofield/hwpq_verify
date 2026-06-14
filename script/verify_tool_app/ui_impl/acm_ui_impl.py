@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QMainWindow,
     QMessageBox,
+    QSizePolicy,
+    QSpacerItem,
     QVBoxLayout,
     QWidget,
 )
@@ -22,6 +24,21 @@ try:
     from ..ui_gen.acm_ui import Ui_AcmUiWidget
 except ImportError:
     from ui_gen.acm_ui import Ui_AcmUiWidget
+
+try:
+    from ...script.acm.acm_impl_base import (
+        DELTA_Y_MIN, DELTA_Y_MAX,
+        DELTA_S_MIN, DELTA_S_MAX,
+        DELTA_H_MIN, DELTA_H_MAX,
+        GAIN_MIN, GAIN_MAX,
+    )
+except ImportError:
+    from script.acm.acm_impl_base import (
+        DELTA_Y_MIN, DELTA_Y_MAX,
+        DELTA_S_MIN, DELTA_S_MAX,
+        DELTA_H_MIN, DELTA_H_MAX,
+        GAIN_MIN, GAIN_MAX,
+    )
 
 
 class AcmUiWidget(QWidget):
@@ -399,9 +416,9 @@ class AcmUiController:
         self._suppress_sample_signal = False
 
         # --- Chart widgets (hosted inside ACM tab) ---
-        self.delta_chart_y = SingleCurveChartWidget((-255, 255), QColor(255, 200, 0))
-        self.delta_chart_s = SingleCurveChartWidget((-255, 255), QColor(0, 180, 0))
-        self.delta_chart_h = SingleCurveChartWidget((-64, 64), QColor(0, 100, 255))
+        self.delta_chart_y = SingleCurveChartWidget((DELTA_Y_MIN, DELTA_Y_MAX), QColor(255, 200, 0))
+        self.delta_chart_s = SingleCurveChartWidget((DELTA_S_MIN, DELTA_S_MAX), QColor(0, 180, 0))
+        self.delta_chart_h = SingleCurveChartWidget((DELTA_H_MIN, DELTA_H_MAX), QColor(0, 100, 255))
         for host, chart in (
             (self.ui.widget_delta_y_host, self.delta_chart_y),
             (self.ui.widget_delta_s_host, self.delta_chart_s),
@@ -440,7 +457,25 @@ class AcmUiController:
         self.ui.groupBox_lut_visualization.setVisible(False)
 
         self._connect_signals()
+        self._fix_layout_spacer()  # reposition button_reset_lut_length after spacer
         self._init_state()
+
+    def _fix_layout_spacer(self) -> None:
+        """Insert a horizontal spacer before the Reset LUT Length button.
+
+        pyside6-uic does not correctly emit spacers in QGridLayout, so we
+        remove the button, insert a spacer, then re-add the button at the
+        right column with the spacer occupying the gap.
+        """
+        grid = self.ui.gridLayout_lut_lengths
+        btn = self.ui.button_reset_lut_length
+        # Remove the button from its default (0,0) spanning 6 cols.
+        grid.removeWidget(btn)
+        # Insert a horizontal spacer at (2, 0, 1, 4).
+        spacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        grid.addItem(spacer, 2, 0, 1, 4)
+        # Re-add the button at (2, 4, 1, 2).
+        grid.addWidget(btn, 2, 4, 1, 2)
 
     def _init_state(self) -> None:
         """Perform initial state sync after all widgets are ready."""
@@ -468,17 +503,17 @@ class AcmUiController:
         ui.comboBox_algo_type.currentIndexChanged.connect(self._on_algo_changed)
         ui.checkBox_lut_visualization.toggled.connect(self._on_lut_visualization_toggled)
         ui.spinBox_len_h.valueChanged.connect(self._on_len_h_changed)
-        ui.spinBox_len_y.valueChanged.connect(self._on_variant_lengths_changed)
-        ui.spinBox_len_s.valueChanged.connect(self._on_variant_lengths_changed)
-        ui.spinBox_len_h2.valueChanged.connect(self._on_variant_lengths_changed)
+        ui.spinBox_len_y.valueChanged.connect(self._on_lut_lengths_changed)
+        ui.spinBox_len_s.valueChanged.connect(self._on_lut_lengths_changed)
+        ui.spinBox_len_h2.valueChanged.connect(self._on_lut_lengths_changed)
         self._connect_slider_spin(ui.slider_len_y, ui.spinBox_len_y)
         self._connect_slider_spin(ui.slider_len_s, ui.spinBox_len_s)
         self._connect_slider_spin(ui.slider_len_h, ui.spinBox_len_h)
         self._connect_slider_spin(ui.slider_len_h2, ui.spinBox_len_h2)
         ui.slider_len_h.valueChanged.connect(self._on_len_h_changed)
-        ui.slider_len_y.valueChanged.connect(self._on_variant_lengths_changed)
-        ui.slider_len_s.valueChanged.connect(self._on_variant_lengths_changed)
-        ui.slider_len_h2.valueChanged.connect(self._on_variant_lengths_changed)
+        ui.slider_len_y.valueChanged.connect(self._on_lut_lengths_changed)
+        ui.slider_len_s.valueChanged.connect(self._on_lut_lengths_changed)
+        ui.slider_len_h2.valueChanged.connect(self._on_lut_lengths_changed)
         ui.button_reset_curr.clicked.connect(self._on_reset_curr)
         ui.button_smooth_curr.clicked.connect(self._on_smooth_curr)
         ui.button_reset_all.clicked.connect(self._on_reset_all)
@@ -487,6 +522,7 @@ class AcmUiController:
         ui.button_reset_offset.clicked.connect(self._on_reset_offset)
         ui.pushButton_read_config.clicked.connect(self._on_read_config)
         ui.pushButton_save_config.clicked.connect(self._on_save_config)
+        ui.button_reset_lut_length.clicked.connect(self._on_reset_lut_length)
         self._connect_slider_spin(ui.slider_gain_y, ui.spinBox_gain_y)
         self._connect_slider_spin(ui.slider_gain_s, ui.spinBox_gain_s)
         self._connect_slider_spin(ui.slider_gain_h, ui.spinBox_gain_h)
@@ -551,17 +587,46 @@ class AcmUiController:
         """Return the current ACM implementation instance."""
         return self.acm_instances[self.current_algo]
 
-    def _apply_variant_lengths(self) -> None:
-        """Apply custom LUT lengths when the variant ACM is active."""
-        if self.current_algo != "SW_ACM_VARIANT":
-            return
-        variant_acm = self._get_current_acm()
-        variant_acm.set_len_variant(
-            self.ui.spinBox_len_y.value(),
-            self.ui.spinBox_len_s.value(),
-            self.ui.spinBox_len_h.value(),
-            self.ui.spinBox_len_h2.value(),
-        )
+    def _apply_lut_lengths(self) -> None:
+        """Apply the current spinBox LUT lengths to the active ACM instance.
+
+        Instead of going through the default-length intermediate (which doubles
+        bicubic resampling error and causes values to drift toward zero when
+        shrinking), we snapshot the current LUT, let ``set_len`` configure the
+        new lengths, then directly resize the snapshot to the new length in
+        a single step.
+        """
+        acm = self._get_current_acm()
+        from script.acm.acm_impl_base import bicubic_resize_array_1d
+
+        # Snapshot current 1D delta LUTs before the length change.
+        saved_y = np.copy(acm.lut_delta_ybyh)
+        saved_s = np.copy(acm.lut_delta_sbyh)
+        saved_h = np.copy(acm.lut_delta_hbyh)
+        old_len_h = saved_y.size
+
+        new_len_y = self.ui.spinBox_len_y.value()
+        new_len_s = self.ui.spinBox_len_s.value()
+        new_len_h = self.ui.spinBox_len_h.value()
+        new_len_h2 = self.ui.spinBox_len_h2.value()
+
+        # Persist current edits to the default set (needed for algorithm
+        # switches and config saves), then apply the new length config.
+        acm.sync_to_default()
+        acm.set_len(new_len_y, new_len_s, new_len_h, new_len_h2)
+
+        # Replace the default→current resample result with a direct
+        # old→new resize to avoid the default-length bottleneck.
+        if old_len_h > 0 and old_len_h != new_len_h:
+            acm.lut_delta_ybyh = np.clip(
+                bicubic_resize_array_1d(saved_y, new_len_h),
+                DELTA_Y_MIN, DELTA_Y_MAX).astype(np.int16)
+            acm.lut_delta_sbyh = np.clip(
+                bicubic_resize_array_1d(saved_s, new_len_h),
+                DELTA_S_MIN, DELTA_S_MAX).astype(np.int16)
+            acm.lut_delta_hbyh = np.clip(
+                bicubic_resize_array_1d(saved_h, new_len_h),
+                DELTA_H_MIN, DELTA_H_MAX).astype(np.int16)
 
     # ------------------------------------------------------------------ #
     # Control-point logic                                                #
@@ -896,14 +961,21 @@ class AcmUiController:
                     window_length=win,
                     polyorder=poly,
                 )
-                return np.clip(np.rint(smoothed), -32768, 32767).astype(values.dtype)
+                return np.rint(smoothed).astype(values.dtype)
         degree = 13
         if values.size <= degree + 1:
             return values.copy()
         x = np.arange(values.size, dtype=np.float32)
         coeffs = np.polyfit(x, values.astype(np.float32), degree)
         smoothed = np.polyval(coeffs, x)
-        return np.clip(np.rint(smoothed), -32768, 32767).astype(values.dtype)
+        return np.rint(smoothed).astype(values.dtype)
+
+    @staticmethod
+    def _delta_clip_range(curve_key: str) -> tuple[int, int]:
+        """Return the valid (low, high) clip range for a delta curve."""
+        if curve_key == "h":
+            return DELTA_H_MIN, DELTA_H_MAX
+        return DELTA_Y_MIN, DELTA_Y_MAX  # "y" and "s" share the same range
 
     def _smooth_delta_curve(self, curve_key: str) -> None:
         """Apply the comboBox-selected smoothing/fitting to a delta curve.
@@ -939,7 +1011,8 @@ class AcmUiController:
             coeffs = np.polyfit(x, y, degree)
             x_full = np.arange(len(full_lut), dtype=np.float32)
             smoothed = np.polyval(coeffs, x_full)
-            full_lut[:] = np.clip(np.rint(smoothed), -32768, 32767).astype(np.int16)
+            delta_lo, delta_hi = self._delta_clip_range(curve_key)
+            full_lut[:] = np.clip(np.rint(smoothed), delta_lo, delta_hi).astype(np.int16)
             # Resample q values from the smoothed curve.
             if sample_values is not None and positions:
                 for i, pos in enumerate(positions):
@@ -949,7 +1022,8 @@ class AcmUiController:
                 self._refresh_sample_overlays()
         else:  # Savitzky-Golay
             smoothed = self._smooth_curve(full_lut, self.interp_method)
-            full_lut[:] = smoothed
+            delta_lo, delta_hi = self._delta_clip_range(curve_key)
+            full_lut[:] = np.clip(smoothed, delta_lo, delta_hi).astype(np.int16)
             if sample_values is not None and self.sample_positions:
                 for i, pos in enumerate(self.sample_positions):
                     idx = int(round(min(max(pos, 0.0), float(len(smoothed) - 1))))
@@ -1003,6 +1077,38 @@ class AcmUiController:
         ):
             spinbox.setValue(256)
 
+    # Default LUT lengths per algorithm: (len_y, len_s, len_h, len_h2)
+    _DEFAULT_LUT_LENGTHS: dict[str, tuple[int, int, int, int]] = {
+        "VOP_VP_ACM": (9, 13, 65, 17),
+        "SW_ACM": (9, 13, 65, 65),
+        "EVIDEO_ACM": (9, 13, 65, 65),
+        "SW_ACM_VARIANT": (9, 13, 65, 65),
+    }
+
+    def _on_reset_lut_length(self) -> None:
+        """Reset all LUT length controls to defaults for the current algorithm."""
+        defaults = self._DEFAULT_LUT_LENGTHS.get(self.current_algo, (9, 13, 65, 65))
+        self._set_slider_spin_value(
+            self.ui.slider_len_y, self.ui.spinBox_len_y, defaults[0])
+        self._set_slider_spin_value(
+            self.ui.slider_len_s, self.ui.spinBox_len_s, defaults[1])
+        # Update len_h controls; constrain len_h2 max before applying.
+        self.ui.spinBox_len_h2.setMaximum(defaults[2])
+        self.ui.slider_len_h2.setMaximum(defaults[2])
+        self._set_slider_spin_value(
+            self.ui.slider_len_h, self.ui.spinBox_len_h, defaults[2])
+        self._set_slider_spin_value(
+            self.ui.slider_len_h2, self.ui.spinBox_len_h2, defaults[3])
+        self._apply_lut_lengths()
+        self._sync_ctrl_point_slider(defaults[2])
+        self._reload_delta_controls_from_acm()
+        # Explicitly rebuild sample-point overlay using the updated
+        # ctrl_point_count, in case the slider signal was blocked.
+        self._recompute_sample_points(
+            self._get_current_acm().len_h, self.ctrl_point_count, force=True)
+        self._refresh_sample_overlays()
+        self._schedule_auto_run()
+
     # ------------------------------------------------------------------ #
     # Heatmap refresh                                                    #
     # ------------------------------------------------------------------ #
@@ -1022,7 +1128,7 @@ class AcmUiController:
         }
         for key, data in lut_map.items():
             if key in self.heatmap_widgets:
-                self.heatmap_widgets[key].set_data(data, -128, 127)
+                self.heatmap_widgets[key].set_data(data, GAIN_MIN, GAIN_MAX)
 
     # ------------------------------------------------------------------ #
     # ACM processing                                                     #
@@ -1047,7 +1153,7 @@ class AcmUiController:
         input_data = self._input_provider()
         if input_data is None:
             return
-        self._apply_variant_lengths()
+        self._apply_lut_lengths()
         self._update_acm_gains()
         self._apply_full_delta_to_acm()
         acm = self._get_current_acm()
@@ -1123,20 +1229,20 @@ class AcmUiController:
         self._schedule_auto_run()
 
     def _on_len_h_changed(self, value: int) -> None:
-        """Refresh the delta editor after the variant len_h value changes."""
-        if self.current_algo != "SW_ACM_VARIANT":
-            return
-        self._apply_variant_lengths()
+        """Refresh the delta editor after len_h changes."""
+        # Clamp len_h2 max so it cannot exceed len_h.
+        self.ui.spinBox_len_h2.setMaximum(value)
+        self.ui.slider_len_h2.setMaximum(value)
+        self._apply_lut_lengths()
         self._sync_ctrl_point_slider(value)
         self._reload_delta_controls_from_acm()
         self._schedule_auto_run()
 
-    def _on_variant_lengths_changed(self, value: int) -> None:
-        """Handle non-h variant length changes."""
+    def _on_lut_lengths_changed(self, value: int) -> None:
+        """Handle LUT length changes via spinBox or slider (non-h)."""
         del value
-        if self.current_algo != "SW_ACM_VARIANT":
-            return
-        self._apply_variant_lengths()
+        self._apply_lut_lengths()
+        self._reload_delta_controls_from_acm()
         self._schedule_auto_run()
 
     # ------------------------------------------------------------------ #
@@ -1146,11 +1252,13 @@ class AcmUiController:
     def _refresh_acm_ui_from_current_acm(self) -> None:
         """Refresh the ACM widget controls from the active ACM instance."""
         acm = self._get_current_acm()
-        is_variant = self.current_algo == "SW_ACM_VARIANT"
-        self.ui.groupBox_lut_lengths.setEnabled(is_variant)
+        self.ui.groupBox_lut_lengths.setEnabled(True)
         self._set_slider_spin_value(self.ui.slider_len_y, self.ui.spinBox_len_y, acm.len_y)
         self._set_slider_spin_value(self.ui.slider_len_s, self.ui.spinBox_len_s, acm.len_s)
         self._set_slider_spin_value(self.ui.slider_len_h, self.ui.spinBox_len_h, acm.len_h)
+        # Enforce len_h2 <= len_h before setting its value.
+        self.ui.spinBox_len_h2.setMaximum(acm.len_h)
+        self.ui.slider_len_h2.setMaximum(acm.len_h)
         self._set_slider_spin_value(self.ui.slider_len_h2, self.ui.spinBox_len_h2, acm.len_h2)
         self._set_slider_spin_value(self.ui.slider_gain_y, self.ui.spinBox_gain_y, acm.gain_y)
         self._set_slider_spin_value(self.ui.slider_gain_s, self.ui.spinBox_gain_s, acm.gain_s)

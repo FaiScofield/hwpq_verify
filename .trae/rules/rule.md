@@ -5,3 +5,4 @@
 5. 只修改必要的代码，尽量减少无关代码的变动
 6. 不要删除已存在的注释，除非代码功能和注释不符
 7. 不要在文档末尾增加空白行
+8. 不要编辑`script/verify_tool_app/ui_gen/`下面的文件，这些文件是自动生成的。如果你需要改ui相关的设置，应该改`script/verify_tool_app/ui/`或`script/verify_tool_app/ui_impl/`下的文件

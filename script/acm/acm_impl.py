@@ -19,10 +19,30 @@ import matplotlib.pyplot as plt
 if __package__:
     from . import cordic
     from .. import utils as utl
+    from .acm_impl_base import (
+        LEN_Y_DEFAULT_MIN, LEN_Y_DEFAULT_MAX,
+        LEN_S_DEFAULT_MIN, LEN_S_DEFAULT_MAX,
+        LEN_H_DEFAULT_MIN, LEN_H_DEFAULT_MAX,
+        DELTA_Y_MIN, DELTA_Y_MAX,
+        DELTA_S_MIN, DELTA_S_MAX,
+        DELTA_H_MIN, DELTA_H_MAX,
+        GAIN_MIN, GAIN_MAX,
+        Y_FULL_RANGE, S_FULL_RANGE, H_FULL_RANGE,
+    )
 else:
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
     import cordic
     import utils as utl
+    from acm_impl_base import (
+        LEN_Y_DEFAULT_MIN, LEN_Y_DEFAULT_MAX,
+        LEN_S_DEFAULT_MIN, LEN_S_DEFAULT_MAX,
+        LEN_H_DEFAULT_MIN, LEN_H_DEFAULT_MAX,
+        DELTA_Y_MIN, DELTA_Y_MAX,
+        DELTA_S_MIN, DELTA_S_MAX,
+        DELTA_H_MIN, DELTA_H_MAX,
+        GAIN_MIN, GAIN_MAX,
+        Y_FULL_RANGE, S_FULL_RANGE, H_FULL_RANGE,
+    )
 
 
 def round_rshift(value, shift: int):
@@ -133,14 +153,14 @@ class AcmImpl:
         self.rand_seed = -1
 
     def set_len(self, len_y: int, len_s: int, len_h: int, len_h2: int = 0, kernel: np.ndarray = None):
-        self.len_y = utl.clamp(len_y, 2, 255 + 1)
-        self.len_s = utl.clamp(len_s, 2, 181 + 1)
-        self.len_h = utl.clamp(len_h, 2, 360 + 1)
-        self.len_h2 = self.len_h if len_h2 <= 0 else utl.clamp(len_h2, 2, self.len_h)
-        self.step_y = 255.0 / (self.len_y - 1)  # step in range [0, 255]
-        self.step_s = 181.0 / (self.len_s - 1)  # step in range [0, 181]
-        self.step_h = 360.0 / (self.len_h - 1)  # step in range [0, 360]
-        self.step_h2 = 360.0 / (self.len_h2 - 1)  # step in range [0, 360]
+        self.len_y = utl.clamp(len_y, LEN_Y_DEFAULT_MIN, LEN_Y_DEFAULT_MAX)
+        self.len_s = utl.clamp(len_s, LEN_S_DEFAULT_MIN, LEN_S_DEFAULT_MAX)
+        self.len_h = utl.clamp(len_h, LEN_H_DEFAULT_MIN, LEN_H_DEFAULT_MAX)
+        self.len_h2 = self.len_h if len_h2 <= 0 else utl.clamp(len_h2, LEN_H_DEFAULT_MIN, self.len_h)
+        self.step_y = Y_FULL_RANGE / (self.len_y - 1)  # step in range [0, Y_FULL_RANGE]
+        self.step_s = S_FULL_RANGE / (self.len_s - 1)  # step in range [0, S_FULL_RANGE]
+        self.step_h = H_FULL_RANGE / (self.len_h - 1)  # step in range [0, H_FULL_RANGE]
+        self.step_h2 = H_FULL_RANGE / (self.len_h2 - 1)  # step in range [0, H_FULL_RANGE]
         print(f"[ACM] set lut len: y={self.len_y}, s={self.len_s}, h={self.len_h}, h2={self.len_h2}")
         print(
             f"[ACM] update lut step: y={self.step_y:.4f}, s={self.step_s:.4f}, h={self.step_h:.4f}, h2={self.step_h2:.4f}"
@@ -148,14 +168,14 @@ class AcmImpl:
         self.update_lut(kernel)
 
     def set_step(self, step_y: float, step_s: float, step_h: float, step_h2: float = 0.0, kernel: np.ndarray = None):
-        self.step_y = utl.clamp(step_y, 1.0, 255.0)
-        self.step_s = utl.clamp(step_s, 1.0, 181.0)
-        self.step_h = utl.clamp(step_h, 1.0, 360.0)
-        self.step_h2 = self.step_h if step_h2 <= 0.0 else min(360.0, max(step_h2, step_h))
-        self.len_y = round(255.0 / step_y) + 1
-        self.len_s = round(181.0 / step_s) + 1
-        self.len_h = round(360.0 / step_h) + 1
-        self.len_h2 = round(360.0 / step_h2) + 1
+        self.step_y = utl.clamp(step_y, 1.0, float(Y_FULL_RANGE))
+        self.step_s = utl.clamp(step_s, 1.0, float(S_FULL_RANGE))
+        self.step_h = utl.clamp(step_h, 1.0, float(H_FULL_RANGE))
+        self.step_h2 = self.step_h if step_h2 <= 0.0 else min(float(H_FULL_RANGE), max(step_h2, step_h))
+        self.len_y = round(Y_FULL_RANGE / step_y) + 1
+        self.len_s = round(S_FULL_RANGE / step_s) + 1
+        self.len_h = round(H_FULL_RANGE / step_h) + 1
+        self.len_h2 = round(H_FULL_RANGE / step_h2) + 1
         print(
             f"[ACM] set lut step: y={self.step_y:.4f}, s={self.step_s:.4f}, h={self.step_h:.4f}, h2={self.step_h2:.4f}"
         )
@@ -252,9 +272,9 @@ class AcmImpl:
         local_lut_delta_ybyh = round_rshift(self.lut_delta_ybyh.astype(np.int32) * self.gain_y, 8)
         local_lut_delta_sbyh = round_rshift(self.lut_delta_sbyh.astype(np.int32) * self.gain_s, 8)
         local_lut_delta_hbyh = round_rshift(self.lut_delta_hbyh.astype(np.int32) * self.gain_h, 8)
-        local_lut_delta_ybyh = np.clip(local_lut_delta_ybyh, -255, 255)
-        local_lut_delta_sbyh = np.clip(local_lut_delta_sbyh, -255, 255)
-        local_lut_delta_hbyh = np.clip(local_lut_delta_hbyh, -64, 64)
+        local_lut_delta_ybyh = np.clip(local_lut_delta_ybyh, DELTA_Y_MIN, DELTA_Y_MAX)
+        local_lut_delta_sbyh = np.clip(local_lut_delta_sbyh, DELTA_S_MIN, DELTA_S_MAX)
+        local_lut_delta_hbyh = np.clip(local_lut_delta_hbyh, DELTA_H_MIN, DELTA_H_MAX)
 
         ## get index
         idx_y = y.astype(np.float32) / self.step_y
@@ -273,7 +293,7 @@ class AcmImpl:
             borderMode=cv2.BORDER_REPLICATE,
         )  # [-255, 255]
         delta_s = cv2.remap(
-            local_lut_delta_sbyh.astype(np.float32) / 255.0 * 181.0,  # range 255 -> 181
+            local_lut_delta_sbyh.astype(np.float32) / DELTA_S_MAX * S_FULL_RANGE,  # range 255 -> 181
             idx_h,
             idx_zeros,
             interpolation=cv2.INTER_LINEAR,
@@ -502,10 +522,10 @@ class AcmImpl:
             self.len_s = len_s
             self.len_h = len_h
             self.len_h2 = len_h2
-            self.step_y = 255.0 / (self.len_y - 1)
-            self.step_s = 181.0 / (self.len_s - 1)
-            self.step_h = 360.0 / (self.len_h - 1)
-            self.step_h2 = 360.0 / (self.len_h2 - 1)
+            self.step_y = Y_FULL_RANGE / (self.len_y - 1)
+            self.step_s = S_FULL_RANGE / (self.len_s - 1)
+            self.step_h = H_FULL_RANGE / (self.len_h - 1)
+            self.step_h2 = H_FULL_RANGE / (self.len_h2 - 1)
 
         ## update LUTs
         self.lut_delta_ybyh = lut_delta_ybyh
@@ -606,12 +626,12 @@ class AcmImpl:
         tmp_lut_gain_ybys = cv2.GaussianBlur(tmp_lut_gain_ybys, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
         tmp_lut_gain_sbys = cv2.GaussianBlur(tmp_lut_gain_sbys, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
         tmp_lut_gain_hbys = cv2.GaussianBlur(tmp_lut_gain_hbys, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
-        self.lut_gain_ybyy = np.clip(tmp_lut_gain_ybyy, -128, 127).astype(np.int8)
-        self.lut_gain_sbyy = np.clip(tmp_lut_gain_sbyy, -128, 127).astype(np.int8)
-        self.lut_gain_hbyy = np.clip(tmp_lut_gain_hbyy, -128, 127).astype(np.int8)
-        self.lut_gain_ybys = np.clip(tmp_lut_gain_ybys, -128, 127).astype(np.int8)
-        self.lut_gain_sbys = np.clip(tmp_lut_gain_sbys, -128, 127).astype(np.int8)
-        self.lut_gain_hbys = np.clip(tmp_lut_gain_hbys, -128, 127).astype(np.int8)
+        self.lut_gain_ybyy = np.clip(tmp_lut_gain_ybyy, GAIN_MIN, GAIN_MAX).astype(np.int8)
+        self.lut_gain_sbyy = np.clip(tmp_lut_gain_sbyy, GAIN_MIN, GAIN_MAX).astype(np.int8)
+        self.lut_gain_hbyy = np.clip(tmp_lut_gain_hbyy, GAIN_MIN, GAIN_MAX).astype(np.int8)
+        self.lut_gain_ybys = np.clip(tmp_lut_gain_ybys, GAIN_MIN, GAIN_MAX).astype(np.int8)
+        self.lut_gain_sbys = np.clip(tmp_lut_gain_sbys, GAIN_MIN, GAIN_MAX).astype(np.int8)
+        self.lut_gain_hbys = np.clip(tmp_lut_gain_hbys, GAIN_MIN, GAIN_MAX).astype(np.int8)
 
         tmp_lut_delta_ybyh = np.random.uniform(-1, 1, 65).reshape(1, 65) * 300
         tmp_lut_delta_hbyh = np.random.uniform(-1, 1, 65).reshape(1, 65) * 100
@@ -619,9 +639,9 @@ class AcmImpl:
         tmp_lut_delta_ybyh = cv2.GaussianBlur(tmp_lut_delta_ybyh, ksize=(5, 1), sigmaX=1.0)
         tmp_lut_delta_hbyh = cv2.GaussianBlur(tmp_lut_delta_hbyh, ksize=(5, 1), sigmaX=1.0)
         tmp_lut_delta_sbyh = cv2.GaussianBlur(tmp_lut_delta_sbyh, ksize=(5, 1), sigmaX=1.0)
-        self.lut_delta_ybyh = np.clip(tmp_lut_delta_ybyh.flatten(), -256, 255).astype(np.int16)
-        self.lut_delta_hbyh = np.clip(tmp_lut_delta_hbyh.flatten(), -64, 64).astype(np.int16)
-        self.lut_delta_sbyh = np.clip(tmp_lut_delta_sbyh.flatten(), -256, 255).astype(np.int16)
+        self.lut_delta_ybyh = np.clip(tmp_lut_delta_ybyh.flatten(), DELTA_Y_MIN, DELTA_Y_MAX).astype(np.int16)
+        self.lut_delta_hbyh = np.clip(tmp_lut_delta_hbyh.flatten(), DELTA_H_MIN, DELTA_H_MAX).astype(np.int16)
+        self.lut_delta_sbyh = np.clip(tmp_lut_delta_sbyh.flatten(), DELTA_S_MIN, DELTA_S_MAX).astype(np.int16)
 
         ## generate S/H LUTs strictly for the bug of VOP_ACM, which means:
         ## 1. LUT[0] = LUT[64], make sure the first and last value are the same (h=-180/+180)
