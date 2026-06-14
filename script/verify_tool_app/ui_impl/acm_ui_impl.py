@@ -40,6 +40,11 @@ except ImportError:
         GAIN_MIN, GAIN_MAX,
     )
 
+try:
+    from ...script.img_io import ImageFrame, _PLANAR_YUV_8
+except ImportError:
+    from script.img_io import ImageFrame, _PLANAR_YUV_8
+
 
 class AcmUiWidget(QWidget):
     """Reusable ACM configuration widget."""
@@ -1150,21 +1155,38 @@ class AcmUiController:
 
     def _do_auto_run(self) -> None:
         """Run ACM processing and notify parent to refresh output preview."""
-        input_data = self._input_provider()
-        if input_data is None:
+        input_frame = self._input_provider()
+        if input_frame is None:
             return
+        input_yuv444 = input_frame.as_yuv444_stacked()
+        input_depth = input_frame.depth
         self._apply_lut_lengths()
         self._update_acm_gains()
         self._apply_full_delta_to_acm()
         acm = self._get_current_acm()
         start_time = time.time()
         try:
-            output = acm.do_acm_u8(
-                input_data,
-                self.ui.checkBox_use_cordic.isChecked(),
-            )
+            if input_depth >= 10 and input_yuv444.dtype == np.uint16:
+                output = acm.do_acm_u10(
+                    input_yuv444,
+                    self.ui.checkBox_use_cordic.isChecked(),
+                )
+                out_fmt = 0x13  # YUV444P_10LSB
+            else:
+                # Demote to 8-bit if necessary for the u8 pipeline.
+                if input_yuv444.dtype != np.uint8:
+                    input_yuv444 = (input_yuv444 >> (input_depth - 8)).astype(np.uint8)
+                output = acm.do_acm_u8(
+                    input_yuv444,
+                    self.ui.checkBox_use_cordic.isChecked(),
+                )
+                out_fmt = _PLANAR_YUV_8
             elapsed_ms = (time.time() - start_time) * 1000.0
-            self._output_callback(output)
+            out_frame = ImageFrame(
+                output[..., 0], output[..., 1], output[..., 2],
+                out_fmt, input_frame.clrspc,
+            )
+            self._output_callback(out_frame)
             self._preview_time_callback(elapsed_ms)
             self._update_heatmaps()
             self._status_callback(f"Processing completed in {elapsed_ms:.2f} ms")

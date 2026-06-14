@@ -6,7 +6,6 @@ from collections.abc import Callable
 import os
 import re
 
-import numpy as np
 from PIL import Image
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QWidget
 
@@ -16,9 +15,10 @@ from script.csc.run_csc import (
     FORMAT_NAMES,
     FMT_OPTIONS,
     get_frame_size,
-    get_pixel_depth,
-    is_yuv_format,
-    read_raw_to_planar,
+)
+from script.img_io import (
+    ImageFrame, STB_IMAGE_EXTENSIONS, guess_fmt_from_ext,
+    is_limited_range, is_yuv_format, get_pixel_depth,
 )
 
 try:
@@ -48,7 +48,7 @@ class IoUiController:
         self,
         io_widget: IoUiWidget,
         parent_window: QMainWindow | None = None,
-        on_input_loaded: Callable[[np.ndarray, str], None] | None = None,
+        on_input_loaded: Callable[[object, str], None] | None = None,
         on_load_config: Callable[[str], None] | None = None,
         status_callback: Callable[[str], None] | None = None,
     ) -> None:
@@ -171,7 +171,7 @@ class IoUiController:
             self._load_config_callback(self.ui.lineEdit_config_file.text())
 
     def _on_input_format_changed(self, index: int) -> None:
-        """Update colorspace choices after the input format changes."""
+        """Update colorspace choices, reload input, and re-run pipeline."""
         del index
         fmt_str = self.ui.comboBox_input_format.currentText()
         if not fmt_str:
@@ -187,6 +187,8 @@ class IoUiController:
         self.ui.comboBox_input_colorspace.addItems(options)
         idx = options.index(current_text) if current_text in options else -1
         self.ui.comboBox_input_colorspace.setCurrentIndex(max(0, idx))
+        self._recalc_frame_num()
+        self._load_input_image()
 
     def _on_set_color_toggled(self, enabled: bool) -> None:
         """Toggle the explicit-color input edit."""
@@ -202,7 +204,7 @@ class IoUiController:
         ext = os.path.splitext(basename)[1]
         fmt_display = [f"0x{fmt:x} - {FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_OPTIONS]
 
-        if ext in (".png", ".jpg", ".jpeg", ".bmp"):
+        if ext in STB_IMAGE_EXTENSIONS:
             rgb_fmt = next((item for item in fmt_display if item.startswith("0x0 ")), None)
             if rgb_fmt:
                 self.ui.comboBox_input_format.setCurrentText(rgb_fmt)
@@ -234,7 +236,7 @@ class IoUiController:
             return
 
         ext = os.path.splitext(input_file)[1].lower()
-        if ext in (".png", ".jpg", ".jpeg", ".bmp"):
+        if ext in STB_IMAGE_EXTENSIONS:
             self.ui.spinBox_frame_num.setValue(1)
             return
 
@@ -265,44 +267,75 @@ class IoUiController:
         """Update the visible ACM config path."""
         self.ui.lineEdit_config_file.setText(path)
 
-    def _emit_input_loaded(self, input_yuv444: np.ndarray, status_message: str) -> None:
+    def _emit_input_loaded(self, frame: ImageFrame, status_message: str) -> None:
         """Publish a successfully loaded input image to the host."""
         if self._on_input_loaded is not None:
-            self._on_input_loaded(input_yuv444, status_message)
+            self._on_input_loaded(frame, status_message)
         elif self._status_callback is not None:
             self._status_callback(status_message)
 
+    def _load_set_color_input(self) -> None:
+        """Build a solid-colour ImageFrame from the set-color fields.
+
+        The three channel values are parsed as RGB or YUV depending on the
+        selected input format.  Limited-range colorspaces clamp the 8-bit
+        values to the spec-defined ranges before scaling to 10-bit.
+        """
+        color_str = self.ui.lineEdit_set_color.text().strip()
+        try:
+            parts = list(map(int, color_str.split()))
+            if len(parts) != 3:
+                raise ValueError("expected three integers")
+            c1, c2, c3 = parts
+        except Exception:
+            QMessageBox.warning(None, "Warning", "Invalid color format. Use 'C1 C2 C3'")
+            return
+
+        fmt_str = self.ui.comboBox_input_format.currentText()
+        if not fmt_str:
+            return
+        fmt_code = int(fmt_str.split(" ")[0], 16)
+        clrspc = self.get_input_clrspc()
+        depth = get_pixel_depth(fmt_code)
+        limited = is_limited_range(clrspc)
+        width = self.ui.spinBox_width.value()
+        height = self.ui.spinBox_height.value()
+
+        # Clamp 8-bit base values when using limited range.
+        if limited and is_yuv_format(fmt_code):
+            # Y ∈ [16, 235], U/V ∈ [16, 240]
+            c1 = max(16, min(235, c1))
+            c2 = max(16, min(240, c2))
+            c3 = max(16, min(240, c3))
+        elif limited:
+            # RGB ∈ [16, 235]
+            c1 = max(16, min(235, c1))
+            c2 = max(16, min(235, c2))
+            c3 = max(16, min(235, c3))
+
+        channel_label = "YUV" if is_yuv_format(fmt_code) else "RGB"
+        if is_yuv_format(fmt_code):
+            frame = ImageFrame.from_solid_yuv(
+                width, height, c1, c2, c3, clrspc, depth,
+            )
+        else:
+            frame = ImageFrame.from_solid_color(
+                width, height, c1, c2, c3, clrspc, depth,
+            )
+        self._emit_input_loaded(
+            frame,
+            f"Input generated ({channel_label} {c1}, {c2}, {c3}) "
+            f"{'limited' if limited else 'full'} range, {depth}-bit, "
+            f"size: {width}x{height}",
+        )
+
     def _load_input_image(self) -> None:
-        """Load input data into a YUV444 buffer and notify parent."""
+        """Load input data as an ImageFrame and notify parent."""
         input_file = self.ui.lineEdit_input_file.text()
         use_set_color = self.ui.checkBox_set_color.isChecked()
 
         if use_set_color:
-            color_str = self.ui.lineEdit_set_color.text()
-            try:
-                red, green, blue = map(int, color_str.split())
-                width = self.ui.spinBox_width.value()
-                height = self.ui.spinBox_height.value()
-                # Use BT.709 limited-range to match the preview's BT.709 inverse matrix.
-                y_data = np.full(
-                    (height, width),
-                    0.2126 * red + 0.7152 * green + 0.0722 * blue,
-                    dtype=np.uint8,
-                )
-                cb_data = np.full(
-                    (height, width),
-                    128 - 0.1146 * red - 0.3854 * green + 0.5 * blue,
-                    dtype=np.uint8,
-                )
-                cr_data = np.full(
-                    (height, width),
-                    128 + 0.5 * red - 0.4542 * green - 0.0458 * blue,
-                    dtype=np.uint8,
-                )
-                input_yuv444 = np.stack([y_data, cb_data, cr_data], axis=-1)
-                self._emit_input_loaded(input_yuv444, f"Input generated: {width}x{height}")
-            except Exception:
-                QMessageBox.warning(None, "Warning", "Invalid color format. Use 'R G B'")
+            self._load_set_color_input()
             return
 
         if not input_file or not os.path.isfile(input_file):
@@ -314,53 +347,18 @@ class IoUiController:
         fmt_code = int(fmt_str.split(" ")[0], 16)
         width = self.ui.spinBox_width.value()
         height = self.ui.spinBox_height.value()
+        frame_idx = self.ui.spinBox_frame_idx.value()
+        clrspc = self.get_input_clrspc()
+
         try:
-            data, _ = read_raw_to_planar(input_file, width, height, fmt_code, repeat_to_444=True)
-            input_yuv444 = self._convert_to_yuv444(data, fmt_code)
-            self._emit_input_loaded(input_yuv444, f"Input loaded: {width}x{height}")
+            ext = os.path.splitext(input_file)[1].lower()
+            if ext in STB_IMAGE_EXTENSIONS:
+                frame = ImageFrame.from_image(input_file, clrspc)
+            else:
+                frame = ImageFrame.from_file(
+                    input_file, width, height, fmt_code, clrspc, frame_idx,
+                )
+            self._emit_input_loaded(
+                frame, f"Input loaded: {frame.width}x{frame.height}, idx={frame_idx}")
         except Exception as exc:
             QMessageBox.critical(None, "Error", f"Failed to load image: {exc}")
-
-    def _convert_to_yuv444(self, data: tuple[np.ndarray, ...], fmt_code: int) -> np.ndarray:
-        """Convert raw planar input data to channels-last YUV444 (always uint8).
-
-        Higher-bit-depth sources (e.g. 10-bit YUV) are scaled down to 8-bit so the
-        downstream ACM pipeline and preview renderer (which both assume 8-bit)
-        receive a uniform ``uint8`` buffer.
-        """
-        if is_yuv_format(fmt_code):
-            y_data = data[0]
-            u_data = data[1]
-            v_data = data[2]
-            if u_data.shape[1] != y_data.shape[1]:
-                u_data = np.repeat(u_data, 2, axis=1)
-                v_data = np.repeat(v_data, 2, axis=1)
-            if u_data.shape[0] != y_data.shape[0]:
-                u_data = np.repeat(u_data, 2, axis=0)
-                v_data = np.repeat(v_data, 2, axis=0)
-            depth = get_pixel_depth(fmt_code)
-            if depth > 8 or y_data.dtype != np.uint8:
-                shift = max(0, depth - 8)
-                y_data = (y_data >> shift).astype(np.uint8)
-                u_data = (u_data >> shift).astype(np.uint8)
-                v_data = (v_data >> shift).astype(np.uint8)
-            else:
-                y_data = y_data.astype(np.uint8, copy=False)
-                u_data = u_data.astype(np.uint8, copy=False)
-                v_data = v_data.astype(np.uint8, copy=False)
-            return np.stack([y_data, u_data, v_data], axis=-1)
-
-        red = data[0].astype(np.float32)
-        green = data[1].astype(np.float32)
-        blue = data[2].astype(np.float32)
-        # Demote 10-bit RGB to 8-bit before applying BT.709 limited-range matrix.
-        depth = get_pixel_depth(fmt_code)
-        if depth > 8:
-            scale = (1 << (depth - 8))
-            red = red / scale
-            green = green / scale
-            blue = blue / scale
-        y_data = (0.2126 * red + 0.7152 * green + 0.0722 * blue + 0.5).astype(np.uint8)
-        cb_data = (-0.1146 * red - 0.3854 * green + 0.5 * blue + 128 + 0.5).astype(np.uint8)
-        cr_data = (0.5 * red - 0.4542 * green - 0.0458 * blue + 128 + 0.5).astype(np.uint8)
-        return np.stack([y_data, cb_data, cr_data], axis=-1)

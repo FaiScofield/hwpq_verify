@@ -10,6 +10,8 @@ from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QDockWidget, QGraphicsScene, QMainWindow, QMessageBox, QWidget
 
+from script.img_io import ImageFrame, yuv_to_rgb
+
 try:
     from ..ui_gen.io_preview_ui import Ui_PreviewUiWidget
 except ImportError:
@@ -44,8 +46,10 @@ class PreviewUiController(QObject):
         self._output_dir_getter = output_dir_getter or (lambda: os.getcwd())
         self._status_callback = status_callback or (lambda message: None)
 
-        self.input_yuv444 = None
-        self.output_yuv444 = None
+        self.input_frame: ImageFrame | None = None
+        self.output_frame: ImageFrame | None = None
+        self.input_yuv444: np.ndarray | None = None  # cached stacked array for pixel inspection
+        self.output_yuv444: np.ndarray | None = None  # cached stacked array for pixel inspection
         self.input_qimage = None
         self.output_qimage = None
         self.mouse_pos = (0, 0)
@@ -86,14 +90,16 @@ class PreviewUiController(QObject):
         """Update the output-directory provider used by save actions."""
         self._output_dir_getter = output_dir_getter or (lambda: os.getcwd())
 
-    def set_input_image(self, yuv444: np.ndarray | None) -> None:
+    def set_input_image(self, frame: ImageFrame | None) -> None:
         """Replace the current input image and refresh the left preview."""
-        self.input_yuv444 = None if yuv444 is None else np.array(yuv444, copy=True)
+        self.input_frame = frame
+        self.input_yuv444 = None
         self._update_input_preview()
 
-    def set_output_image(self, yuv444: np.ndarray | None) -> None:
+    def set_output_image(self, frame: ImageFrame | None) -> None:
         """Replace the current output image and refresh the right preview."""
-        self.output_yuv444 = None if yuv444 is None else np.array(yuv444, copy=True)
+        self.output_frame = frame
+        self.output_yuv444 = None
         self._update_output_preview()
 
     def set_time_cost_ms(self, elapsed_ms: float | None) -> None:
@@ -113,17 +119,25 @@ class PreviewUiController(QObject):
         return True
 
     @staticmethod
-    def _yuv444_to_qimage(yuv_data: np.ndarray) -> QImage:
-        """Convert channels-last YUV444 data to a displayable QImage."""
+    def _yuv444_to_u8(yuv_data: np.ndarray) -> np.ndarray:
+        """Ensure YUV444 ndarray is uint8 for QImage conversion."""
+        if yuv_data.dtype == np.uint8:
+            return yuv_data
+        depth = 8 if yuv_data.dtype == np.uint8 else 10
+        shift = max(0, depth - 8)
+        return (yuv_data >> shift).astype(np.uint8)
+
+    @staticmethod
+    def _yuv444_to_qimage(yuv_data: np.ndarray, input_cs: int = 5) -> QImage:
+        """Convert channels-last YUV444 data to a displayable QImage.
+
+        Always renders as full-range RGB regardless of the source range.
+        """
+        yuv_data = PreviewUiController._yuv444_to_u8(yuv_data)
         height, width = yuv_data.shape[:2]
-        y_data = yuv_data[..., 0].astype(np.float32)
-        cb_data = yuv_data[..., 1].astype(np.float32) - 128.0
-        cr_data = yuv_data[..., 2].astype(np.float32) - 128.0
-        red = y_data + 1.5748 * cr_data
-        green = y_data - 0.1873 * cb_data - 0.4681 * cr_data
-        blue = y_data + 1.8556 * cb_data
+        y, u, v = yuv_data[..., 0], yuv_data[..., 1], yuv_data[..., 2]
+        red, green, blue = yuv_to_rgb(y, u, v, input_cs=input_cs, output_cs=1)
         rgb = np.stack([red, green, blue], axis=-1)
-        rgb = np.clip(rgb, 0, 255).astype(np.uint8)
         return QImage(rgb.data, width, height, 3 * width, QImage.Format_RGB888).copy()
 
     @staticmethod
@@ -141,8 +155,13 @@ class PreviewUiController(QObject):
         self.input_qimage = None
         self.ui.lineEdit_input_pixel.clear()
         self.ui.lineEdit_position.clear()
-        if self.input_yuv444 is not None:
-            self.input_qimage = self._yuv444_to_qimage(self.input_yuv444)
+        if self.input_frame is not None:
+            self.input_yuv444 = self.input_frame.as_yuv444_stacked()
+            self.input_qimage = self._yuv444_to_qimage(
+                self.input_yuv444, input_cs=self.input_frame.clrspc,
+            )
+        else:
+            self.input_yuv444 = None
         self._update_scene(self.scene_input, self.ui.graphicsView_input, self.input_qimage)
         if self.input_qimage is None:
             self.ui.lineEdit_display_size.clear()
@@ -153,8 +172,13 @@ class PreviewUiController(QObject):
         """Refresh the output preview scene from the current output image."""
         self.output_qimage = None
         self.ui.lineEdit_output_pixel.clear()
-        if self.output_yuv444 is not None:
-            self.output_qimage = self._yuv444_to_qimage(self.output_yuv444)
+        if self.output_frame is not None:
+            self.output_yuv444 = self.output_frame.as_yuv444_stacked()
+            self.output_qimage = self._yuv444_to_qimage(
+                self.output_yuv444, input_cs=self.output_frame.clrspc,
+            )
+        else:
+            self.output_yuv444 = None
         self._update_scene(self.scene_output, self.ui.graphicsView_output, self.output_qimage)
 
     def _map_view_pos_to_image(

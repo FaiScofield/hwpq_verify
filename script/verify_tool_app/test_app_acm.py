@@ -99,7 +99,7 @@ class AcmTestAppWindow(QMainWindow):
         self.acm_ctrl = AcmUiController(
             self.acm_widget,
             parent_window=self,
-            input_provider=lambda: self.preview_ctrl.input_yuv444,
+            input_provider=lambda: self.preview_ctrl.input_frame,
             output_callback=self.preview_ctrl.set_output_image,
             preview_time_callback=self.preview_ctrl.set_time_cost_ms,
             status_callback=self.ui.statusbar.showMessage,
@@ -140,9 +140,9 @@ class AcmTestAppWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(child_widget)
 
-    def _on_input_loaded(self, input_yuv444, status_message):
+    def _on_input_loaded(self, frame, status_message):
         """Forward loaded input data to the preview and ACM controllers."""
-        self.preview_ctrl.set_input_image(input_yuv444)
+        self.preview_ctrl.set_input_image(frame)
         self.preview_ctrl.set_output_image(None)
         self.preview_ctrl.set_time_cost_ms(None)
         self.ui.statusbar.showMessage(status_message)
