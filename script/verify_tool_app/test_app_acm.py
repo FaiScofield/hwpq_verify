@@ -55,6 +55,7 @@ def _ensure_generated_ui_modules():
 _ensure_generated_ui_modules()
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout
 
 from ui_impl.io_ui_impl import IoUiController, IoUiWidget
@@ -106,7 +107,32 @@ class AcmTestAppWindow(QMainWindow):
             config_path_setter=self.io_ctrl.set_config_path,
             dock_host=self,
         )
+        self._install_view_menu()
         self.ui.statusbar.showMessage("Ready")
+
+    def _install_view_menu(self) -> None:
+        """Attach a View menu with a 'Show Preview' action to the menu bar.
+
+        Allows re-displaying the preview dock after it has been closed.
+        """
+        view_menu = self.ui.menuView
+        view_menu.clear()
+        show_preview_action = QAction("Show Preview", self)
+        show_preview_action.setShortcut(QKeySequence("Ctrl+P"))
+        show_preview_action.triggered.connect(self._show_preview_dock)
+        view_menu.addAction(show_preview_action)
+
+    def _show_preview_dock(self) -> None:
+        """Re-display the preview dock widget when the user requests it."""
+        if self.preview_ctrl.preview_dock is None:
+            return
+        dock = self.preview_ctrl.preview_dock
+        dock.setVisible(True)
+        dock.show()
+        dock.raise_()
+        # Re-add to the same bottom dock area if Qt dropped it.
+        if not self.dockWidgetArea(dock):
+            self.addDockWidget(Qt.BottomDockWidgetArea, dock)
 
     def _mount_host_page(self, host_page, child_widget):
         """Mount a reusable child widget into a host tab page."""

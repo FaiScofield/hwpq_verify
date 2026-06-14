@@ -35,9 +35,17 @@ class AcmUiWidget(QWidget):
 
 
 class SingleCurveChartWidget(QWidget):
-    """Interactive single-curve chart for one H-based delta LUT."""
+    """Interactive single-curve chart for one H-based delta LUT.
+
+    The widget always owns ``values`` whose length equals ``len_h`` (one entry
+    per integer H index). On top of that it overlays a smaller set of
+    ``sample_points`` (positions and values) that act as editable control
+    points; moving a sample point triggers re-interpolation of the underlying
+    integer-indexed values between neighbouring sample points.
+    """
 
     dataChanged = Signal(int, list)
+    samplePointChanged = Signal(int, list)
 
     def __init__(
         self,
@@ -51,37 +59,49 @@ class SingleCurveChartWidget(QWidget):
         self.setMaximumSize(1200, 400)
         self.value_range = value_range
         self.curve_color = curve_color
-        self.values = [0, 0, 0, 0]
+        self.values: list[int] = [0]
         self.padding = 40
-        self.dragging_point = None
-        self.hover_point = None
+        self.sample_positions: list[float] = []
+        self.sample_values: list[float] = []
+        self.dragging_sample: int | None = None
+        self.selected_sample: int | None = None
+        self.hover_sample: int | None = None
 
     def set_num_points(self, count: int) -> None:
-        """Resize the control-point list while preserving existing values."""
-        if count <= 0:
-            return
-        if len(self.values) < count:
-            self.values.extend([self.values[-1] if self.values else 0] * (count - len(self.values)))
-        elif len(self.values) > count:
-            self.values = self.values[:count]
-        if len(self.values) > 1:
-            self.values[-1] = self.values[0]
-        self.update()
+        """No-op kept for API compatibility.
+
+        ``values`` length is now driven by the controller via :meth:`set_values`
+        and is always equal to ``len_h``. The argument is ignored.
+        """
+        del count
 
     def set_values(self, values: list[int] | np.ndarray) -> None:
-        """Replace the chart values and repaint."""
+        """Replace the underlying integer-indexed LUT values and repaint."""
         self.values = [int(v) for v in values]
-        if len(self.values) > 1:
-            self.values[-1] = self.values[0]
         self.update()
 
     def get_values(self) -> list[int]:
-        """Return the chart values with the H-cycle closure applied."""
-        if not self.values:
-            return []
-        result = list(self.values)
-        result[-1] = result[0]
-        return result
+        """Return the integer-indexed LUT values."""
+        return list(self.values)
+
+    def set_sample_points(
+        self,
+        positions: list[float] | np.ndarray,
+        values: list[float] | np.ndarray,
+    ) -> None:
+        """Update the sample-point overlay (positions and values)."""
+        self.sample_positions = [float(p) for p in positions]
+        self.sample_values = [float(v) for v in values]
+        if self.selected_sample is not None and self.selected_sample >= len(self.sample_positions):
+            self.selected_sample = None
+        if self.dragging_sample is not None and self.dragging_sample >= len(self.sample_positions):
+            self.dragging_sample = None
+        self.update()
+
+    def set_selected_sample(self, index: int | None) -> None:
+        """Mark a sample point as selected (changes its render color)."""
+        self.selected_sample = index
+        self.update()
 
     def _value_to_y(self, value: int | float) -> float:
         """Map a chart value to widget coordinates."""
@@ -90,17 +110,29 @@ class SingleCurveChartWidget(QWidget):
         ratio = (value - value_min) / (value_max - value_min)
         return self.padding + chart_height * (1 - ratio)
 
-    def _point_position(self, index: int) -> tuple[float, float]:
-        """Return the widget-space position for a control point."""
+    def _index_position(self, index: int) -> tuple[float, float]:
+        """Return the widget-space position for an integer-indexed point."""
         chart_width = self.width() - 2 * self.padding
+        n = len(self.values)
         x_pos = self.padding
-        if len(self.values) > 1:
-            x_pos = self.padding + chart_width * index / (len(self.values) - 1)
-        y_pos = self._value_to_y(self.values[index])
+        if n > 1:
+            x_pos = self.padding + chart_width * index / (n - 1)
+        y_pos = self._value_to_y(self.values[index] if 0 <= index < n else 0)
         return x_pos, y_pos
 
+    def _sample_position(self, index: int) -> tuple[float, float]:
+        """Return the widget-space position for a sample point."""
+        chart_width = self.width() - 2 * self.padding
+        n = len(self.values)
+        x_pos = self.padding
+        if n > 1 and 0 <= index < len(self.sample_positions):
+            ratio = self.sample_positions[index] / (n - 1)
+            x_pos = self.padding + chart_width * max(0.0, min(1.0, ratio))
+        y_value = self.sample_values[index] if 0 <= index < len(self.sample_values) else 0.0
+        return x_pos, self._value_to_y(y_value)
+
     def paintEvent(self, event: object) -> None:
-        """Paint the chart background, line, and control points."""
+        """Paint the chart background, integer-indexed points and sample points."""
         del event
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -108,85 +140,141 @@ class SingleCurveChartWidget(QWidget):
         height = self.height()
         chart_width = width - 2 * self.padding
         chart_height = height - 2 * self.padding
+        n = len(self.values)
+
         painter.fillRect(self.rect(), QColor(30, 30, 30))
+
+        # Horizontal grid lines
         painter.setPen(QPen(QColor(60, 60, 60), 1))
         for idx in range(9):
             y_pos = self.padding + chart_height * idx / 8
             painter.drawLine(self.padding, int(y_pos), width - self.padding, int(y_pos))
+
+        # Zero line
         painter.setPen(QPen(QColor(100, 100, 100), 2, Qt.DashLine))
         mid_y = self._value_to_y(0)
         painter.drawLine(self.padding, int(mid_y), width - self.padding, int(mid_y))
-        painter.setPen(QPen(self.curve_color, 2))
-        for idx in range(len(self.values) - 1):
-            x1, y1 = self._point_position(idx)
-            x2, y2 = self._point_position(idx + 1)
-            painter.drawLine(int(x1), int(y1), int(x2), int(y2))
-        for idx in range(len(self.values)):
-            x_pos, y_pos = self._point_position(idx)
-            if idx == self.hover_point or idx == self.dragging_point:
-                painter.setBrush(self.curve_color.lighter(150))
-                painter.setPen(QPen(Qt.white, 2))
-                painter.drawEllipse(int(x_pos) - 6, int(y_pos) - 6, 12, 12)
-            else:
-                painter.setBrush(self.curve_color)
-                painter.setPen(QPen(self.curve_color.darker(130), 1))
-                painter.drawEllipse(int(x_pos) - 4, int(y_pos) - 4, 8, 8)
-        painter.setPen(QColor(200, 200, 200))
+
+        # Curve connecting integer-indexed points
+        if n >= 2:
+            painter.setPen(QPen(self.curve_color, 2))
+            for idx in range(n - 1):
+                x1, y1 = self._index_position(idx)
+                x2, y2 = self._index_position(idx + 1)
+                painter.drawLine(int(x1), int(y1), int(x2), int(y2))
+
+        # X-axis tick labels every 2 points
         font = painter.font()
         font.setPointSize(9)
         painter.setFont(font)
-        for value in (self.value_range[1], 0, self.value_range[0]):
+        painter.setPen(QColor(200, 200, 200))
+        if n >= 2:
+            for idx in range(0, n, 2):
+                x_pos, _ = self._index_position(idx)
+                painter.drawLine(int(x_pos), int(height - self.padding),
+                                 int(x_pos), int(height - self.padding + 4))
+                text_rect = QRect(int(x_pos) - 18, int(height - self.padding + 6), 36, 14)
+                painter.drawText(text_rect, Qt.AlignCenter, str(idx))
+
+        # Y-axis range labels
+        for value in (255, 192, 128, 64, 0, -64, -128, -192, -255):
             painter.drawText(5, int(self._value_to_y(value) + 4), str(value))
-        for idx, value in enumerate(self.values):
-            x_pos, y_pos = self._point_position(idx)
-            text_rect = QRect(int(x_pos) - 24, int(y_pos) - 26, 48, 16)
-            painter.drawText(text_rect, Qt.AlignCenter, str(int(value)))
+
+        # Integer-indexed points: small filled circles + value label
+        # (even indices above the curve, odd indices below the curve)
+        for idx in range(n):
+            x_pos, y_pos = self._index_position(idx)
+            painter.setBrush(self.curve_color)
+            painter.setPen(QPen(self.curve_color.darker(130), 1))
+            painter.drawEllipse(int(x_pos) - 3, int(y_pos) - 3, 6, 6)
+            if idx % 2 == 0:
+                text_rect = QRect(int(x_pos) - 22, int(y_pos) - 22, 44, 14)
+            else:
+                text_rect = QRect(int(x_pos) - 22, int(y_pos) + 8, 44, 14)
+            painter.drawText(text_rect, Qt.AlignCenter, str(int(self.values[idx])))
+
+        # Sample-point overlay: white dashed hollow circles (filled when selected)
+        sample_radius = 4
+        sample_diameter = sample_radius * 2
+        for s_idx in range(len(self.sample_positions)):
+            x_pos, y_pos = self._sample_position(s_idx)
+            is_active = (
+                s_idx == self.selected_sample
+                or s_idx == self.dragging_sample
+                or s_idx == self.hover_sample
+            )
+            if is_active:
+                # Selected/hover/dragging: solid filled white circle
+                painter.setBrush(Qt.white)
+                painter.setPen(QPen(Qt.white, 2))
+            else:
+                # Idle: white dashed hollow circle
+                painter.setBrush(QColor(0, 0, 0, 0))
+                painter.setPen(QPen(Qt.white, 2, Qt.DashLine))
+            painter.drawEllipse(
+                int(x_pos) - sample_radius,
+                int(y_pos) - sample_radius,
+                sample_diameter,
+                sample_diameter,
+            )
 
     def mousePressEvent(self, event: object) -> None:
-        """Start dragging the nearest control point."""
+        """Select or start dragging the nearest sample point."""
         if event.button() != Qt.LeftButton:
             return
-        point = self._find_nearest_point(event.position().x(), event.position().y())
-        if point is not None:
-            self.dragging_point = point
-            self.update()
+        sample = self._find_nearest_sample(event.position().x(), event.position().y())
+        if sample is None:
+            return
+        self.selected_sample = sample
+        self.dragging_sample = sample
+        self.update()
 
     def mouseMoveEvent(self, event: object) -> None:
-        """Update hover or dragging state for the chart."""
+        """Update the dragged sample point or the hover state."""
         x_pos = event.position().x()
         y_pos = event.position().y()
-        if self.dragging_point is not None:
+        if self.dragging_sample is not None:
             chart_height = self.height() - 2 * self.padding
             ratio = 1 - (y_pos - self.padding) / chart_height
             ratio = max(0.0, min(1.0, ratio))
             value_min, value_max = self.value_range
-            self.values[self.dragging_point] = int(value_min + ratio * (value_max - value_min))
-            if self.dragging_point in (0, len(self.values) - 1) and len(self.values) > 1:
-                paired_index = len(self.values) - 1 if self.dragging_point == 0 else 0
-                self.values[paired_index] = self.values[self.dragging_point]
-            self.dataChanged.emit(self.dragging_point, self.get_values())
+            new_value = int(round(value_min + ratio * (value_max - value_min)))
+            self.sample_values[self.dragging_sample] = new_value
+            # Keep the H-cycle closure pair (first and last sample) in sync.
+            # The first and last samples always carry the same value; dragging
+            # either one propagates the new value to the other so the LUT is
+            # actually updated.
+            if self.sample_positions and self.sample_positions[-1] >= len(self.values):
+                if self.dragging_sample == 0:
+                    self.sample_values[-1] = new_value
+                elif self.dragging_sample == len(self.sample_values) - 1:
+                    self.sample_values[0] = new_value
+            self.samplePointChanged.emit(self.dragging_sample, list(self.sample_values))
             self.update()
-        else:
-            hover_point = self._find_nearest_point(x_pos, y_pos)
-            if hover_point != self.hover_point:
-                self.hover_point = hover_point
-                self.update()
+            return
+        hover = self._find_nearest_sample(x_pos, y_pos)
+        if hover != self.hover_sample:
+            self.hover_sample = hover
+            self.update()
 
     def mouseReleaseEvent(self, event: object) -> None:
-        """Stop dragging a control point."""
+        """Stop dragging a sample point."""
         if event.button() == Qt.LeftButton:
-            self.dragging_point = None
+            self.dragging_sample = None
             self.update()
 
-    def _find_nearest_point(self, x_pos: float, y_pos: float) -> int | None:
-        """Return the nearest control point index within the hit threshold."""
-        threshold = 15
-        for idx in range(len(self.values)):
-            point_x, point_y = self._point_position(idx)
+    def _find_nearest_sample(self, x_pos: float, y_pos: float) -> int | None:
+        """Return the nearest sample-point index within the hit threshold."""
+        threshold = 10
+        best_index: int | None = None
+        best_distance = threshold
+        for s_idx in range(len(self.sample_positions)):
+            point_x, point_y = self._sample_position(s_idx)
             distance = ((x_pos - point_x) ** 2 + (y_pos - point_y) ** 2) ** 0.5
-            if distance < threshold:
-                return idx
-        return None
+            if distance < best_distance:
+                best_distance = distance
+                best_index = s_idx
+        return best_index
 
 
 class HeatmapWidget(QWidget):
@@ -302,6 +390,13 @@ class AcmUiController:
         self.full_delta_hbyh = None
         self.ctrl_point_count = self.ui.slider_ctrl_points.value()
         self.interp_method = self.ui.comboBox_interp_method.currentText()
+        # Shared sample-point positions across Y/S/H charts (last entry is the
+        # H-cycle closure point at len_h whose value mirrors sample_positions[0]).
+        self.sample_positions: list[float] = []
+        self.sample_values_y: list[float] = []
+        self.sample_values_s: list[float] = []
+        self.sample_values_h: list[float] = []
+        self._suppress_sample_signal = False
 
         # --- Chart widgets (hosted inside ACM tab) ---
         self.delta_chart_y = SingleCurveChartWidget((-255, 255), QColor(255, 200, 0))
@@ -376,9 +471,20 @@ class AcmUiController:
         ui.spinBox_len_y.valueChanged.connect(self._on_variant_lengths_changed)
         ui.spinBox_len_s.valueChanged.connect(self._on_variant_lengths_changed)
         ui.spinBox_len_h2.valueChanged.connect(self._on_variant_lengths_changed)
-        ui.button_reset_delta_y.clicked.connect(lambda: self._reset_delta_curve("y"))
-        ui.button_reset_delta_s.clicked.connect(lambda: self._reset_delta_curve("s"))
-        ui.button_reset_delta_h.clicked.connect(lambda: self._reset_delta_curve("h"))
+        self._connect_slider_spin(ui.slider_len_y, ui.spinBox_len_y)
+        self._connect_slider_spin(ui.slider_len_s, ui.spinBox_len_s)
+        self._connect_slider_spin(ui.slider_len_h, ui.spinBox_len_h)
+        self._connect_slider_spin(ui.slider_len_h2, ui.spinBox_len_h2)
+        ui.slider_len_h.valueChanged.connect(self._on_len_h_changed)
+        ui.slider_len_y.valueChanged.connect(self._on_variant_lengths_changed)
+        ui.slider_len_s.valueChanged.connect(self._on_variant_lengths_changed)
+        ui.slider_len_h2.valueChanged.connect(self._on_variant_lengths_changed)
+        ui.button_reset_curr.clicked.connect(self._on_reset_curr)
+        ui.button_smooth_curr.clicked.connect(self._on_smooth_curr)
+        ui.button_reset_all.clicked.connect(self._on_reset_all)
+        ui.button_smooth_all.clicked.connect(self._on_smooth_all)
+        ui.button_reset_gain.clicked.connect(self._on_reset_gain)
+        ui.button_reset_offset.clicked.connect(self._on_reset_offset)
         ui.pushButton_read_config.clicked.connect(self._on_read_config)
         ui.pushButton_save_config.clicked.connect(self._on_save_config)
         self._connect_slider_spin(ui.slider_gain_y, ui.spinBox_gain_y)
@@ -400,6 +506,15 @@ class AcmUiController:
         )
         self.delta_chart_h.dataChanged.connect(
             lambda changed_index, values: self._on_delta_chart_changed("h", changed_index, values)
+        )
+        self.delta_chart_y.samplePointChanged.connect(
+            lambda idx, values: self._on_sample_point_changed("y", idx, values)
+        )
+        self.delta_chart_s.samplePointChanged.connect(
+            lambda idx, values: self._on_sample_point_changed("s", idx, values)
+        )
+        self.delta_chart_h.samplePointChanged.connect(
+            lambda idx, values: self._on_sample_point_changed("h", idx, values)
         )
 
     # ------------------------------------------------------------------ #
@@ -454,34 +569,46 @@ class AcmUiController:
 
     @staticmethod
     def _normalize_ctrl_point_count(len_h: int, value: int) -> int:
-        """Clamp the control-point count to the valid even range."""
-        max_even = len_h if len_h % 2 == 0 else len_h - 1
-        max_even = max(4, max_even)
-        value = max(4, min(value, max_even))
-        if value % 2 != 0:
-            value -= 1
-        return max(4, value)
+        """Clamp the control-point count to the valid range [4, len_h]."""
+        return max(4, min(int(value), int(len_h)))
 
     def _update_ctrl_point_hint(self, len_h: int) -> None:
         """Refresh the displayed control-point hint text."""
-        step = (len_h - 1) / max(1, self.ctrl_point_count - 1)
-        self.ui.label_delta_hint.setText(f"(len_h = {len_h}, step = {step:.1f})")
+        count = max(1, len(self.sample_positions) - 1)
+        step = (len_h - 1) / count
+        self.ui.label_delta_hint.setText(f"(len_h: {len_h}, step: {step:.2f})")
 
-    def _get_ctrl_positions(self, len_h: int) -> np.ndarray:
-        """Return the H positions corresponding to the current control points."""
-        return np.linspace(0.0, len_h - 1, self.ctrl_point_count)
+    def _compute_sample_positions(self, len_h: int, count: int) -> list[float]:
+        """Compute linspace sample positions plus the H-cycle closure point.
+
+        Produces ``count + 1`` positions: ``count`` evenly spaced in
+        ``[0, len_h - 1]`` (rounded to 2 decimals) plus one extra point at
+        ``len_h`` that closes the H cycle.
+        """
+        if count < 1:
+            return [float(len_h)]
+        positions: list[float] = []
+        if count == 1:
+            positions.append(0.0)
+        else:
+            for i in range(count):
+                pos = (len_h - 1) * i / (count - 1)
+                positions.append(round(pos, 2))
+        positions.append(round(float(len_h), 2))
+        return positions
 
     def _sync_ctrl_point_slider(self, len_h: int) -> None:
         """Update the control-point slider bounds for the current len_h."""
-        max_even = self._normalize_ctrl_point_count(len_h, len_h)
-        new_value = self._normalize_ctrl_point_count(len_h, self.ctrl_point_count)
-        self.ctrl_point_count = new_value
+        max_value = max(4, int(len_h))
+        default_value = max(4, min(max_value, int(len_h) // 4))
+        new_value = self._normalize_ctrl_point_count(len_h, default_value)
         self.ui.slider_ctrl_points.blockSignals(True)
-        self.ui.slider_ctrl_points.setRange(4, max_even)
-        self.ui.slider_ctrl_points.setSingleStep(2)
-        self.ui.slider_ctrl_points.setPageStep(2)
+        self.ui.slider_ctrl_points.setRange(4, max_value)
+        self.ui.slider_ctrl_points.setSingleStep(1)
+        self.ui.slider_ctrl_points.setPageStep(1)
         self.ui.slider_ctrl_points.setValue(new_value)
         self.ui.slider_ctrl_points.blockSignals(False)
+        self.ctrl_point_count = new_value
         self.ui.label_ctrl_points_value.setText(str(new_value))
         self._update_ctrl_point_hint(len_h)
 
@@ -495,24 +622,80 @@ class AcmUiController:
         self.full_delta_ybyh = np.array(acm.lut_delta_ybyh, dtype=np.int16)
         self.full_delta_sbyh = np.array(acm.lut_delta_sbyh, dtype=np.int16)
         self.full_delta_hbyh = np.array(acm.lut_delta_hbyh, dtype=np.int16)
-        self._resample_full_to_ctrl()
+        len_h = len(self.full_delta_ybyh)
+        self.delta_chart_y.set_values(self.full_delta_ybyh)
+        self.delta_chart_s.set_values(self.full_delta_sbyh)
+        self.delta_chart_h.set_values(self.full_delta_hbyh)
+        self._recompute_sample_points(len_h, self.ctrl_point_count, force=True)
+        self._refresh_sample_overlays()
 
-    def _resample_full_to_ctrl(self) -> None:
-        """Resample the current full LUTs down to the editable control points."""
-        point_count = self.ctrl_point_count
-        for chart in (self.delta_chart_y, self.delta_chart_s, self.delta_chart_h):
-            chart.set_num_points(point_count)
-        if self.full_delta_ybyh is None:
-            zero_values = [0] * point_count
-            self.delta_chart_y.set_values(zero_values)
-            self.delta_chart_s.set_values(zero_values)
-            self.delta_chart_h.set_values(zero_values)
-            return
-        x_src = np.arange(len(self.full_delta_ybyh), dtype=np.float32)
-        x_dst = self._get_ctrl_positions(len(self.full_delta_ybyh))
-        self.delta_chart_y.set_values(np.interp(x_dst, x_src, self.full_delta_ybyh))
-        self.delta_chart_s.set_values(np.interp(x_dst, x_src, self.full_delta_sbyh))
-        self.delta_chart_h.set_values(np.interp(x_dst, x_src, self.full_delta_hbyh))
+    def _recompute_sample_points(self, len_h: int, count: int, force: bool = False) -> None:
+        """Recompute sample-point positions and refresh the overlay on each chart.
+
+        When ``force`` is True the sample values are resampled from the current
+        integer-indexed LUT. Otherwise the previously stored sample values are
+        kept so that adjusting the slider does not destroy the user's edits.
+        """
+        positions = self._compute_sample_positions(len_h, count)
+        prev_values = (
+            list(self.sample_values_y),
+            list(self.sample_values_s),
+            list(self.sample_values_h),
+        )
+        self.sample_positions = positions
+        if force or not self.sample_values_y or len(self.sample_values_y) != len(positions):
+            self.sample_values_y = self._resample_sample_values(
+                self.full_delta_ybyh, positions
+            )
+            self.sample_values_s = self._resample_sample_values(
+                self.full_delta_sbyh, positions
+            )
+            self.sample_values_h = self._resample_sample_values(
+                self.full_delta_hbyh, positions
+            )
+        else:
+            self.sample_values_y = self._resize_sample_values(prev_values[0], len(positions))
+            self.sample_values_s = self._resize_sample_values(prev_values[1], len(positions))
+            self.sample_values_h = self._resize_sample_values(prev_values[2], len(positions))
+        # Force H-cycle closure: last sample mirrors first.
+        if self.sample_values_y:
+            self.sample_values_y[-1] = self.sample_values_y[0]
+            self.sample_values_s[-1] = self.sample_values_s[0]
+            self.sample_values_h[-1] = self.sample_values_h[0]
+        self._refresh_sample_overlays()
+
+    @staticmethod
+    def _resample_sample_values(full_lut: np.ndarray | None, positions: list[float]) -> list[float]:
+        """Resample the integer-indexed LUT at the given sample positions."""
+        if full_lut is None or len(full_lut) == 0 or not positions:
+            return [0.0] * len(positions)
+        x_src = np.arange(len(full_lut), dtype=np.float32)
+        return [float(v) for v in np.interp(positions, x_src, full_lut.astype(np.float32))]
+
+    @staticmethod
+    def _resize_sample_values(values: list[float], new_size: int) -> list[float]:
+        """Resize a sample-value list, padding/truncating while keeping first/last paired."""
+        if new_size <= 0:
+            return []
+        if not values:
+            return [0.0] * new_size
+        if len(values) == new_size:
+            return list(values)
+        if new_size == 1:
+            return [values[0]]
+        x_src = np.linspace(0.0, 1.0, len(values))
+        x_dst = np.linspace(0.0, 1.0, new_size)
+        return [float(v) for v in np.interp(x_dst, x_src, values)]
+
+    def _refresh_sample_overlays(self) -> None:
+        """Push current sample-point positions/values to all three chart widgets."""
+        self._suppress_sample_signal = True
+        try:
+            self.delta_chart_y.set_sample_points(self.sample_positions, self.sample_values_y)
+            self.delta_chart_s.set_sample_points(self.sample_positions, self.sample_values_s)
+            self.delta_chart_h.set_sample_points(self.sample_positions, self.sample_values_h)
+        finally:
+            self._suppress_sample_signal = False
 
     def _interpolate_segment(
         self,
@@ -520,13 +703,19 @@ class AcmUiController:
         y_points: list[float] | np.ndarray,
         x_targets: list[float] | np.ndarray,
     ) -> np.ndarray:
-        """Interpolate a local segment using the selected interpolation method."""
+        """Interpolate a local segment using the selected interpolation method.
+
+        Only ``Linear``/``Cubic``/``B-Spline`` are true interpolators; the
+        filter-style options (``Poly-13``/``Savitzky-Golay``) fall
+        back to linear interpolation here since they are not meaningful on
+        three control points.
+        """
         x_points = np.array(x_points, dtype=np.float32)
         y_points = np.array(y_points, dtype=np.float32)
         x_targets = np.array(x_targets, dtype=np.float32)
         if x_targets.size == 0:
             return np.array([], dtype=np.float32)
-        if self.interp_method == "Linear" or len(x_points) < 3:
+        if self.interp_method in ("Linear", "Poly-13", "Savitzky-Golay") or len(x_points) < 3:
             return np.interp(x_targets, x_points, y_points)
         try:
             from scipy.interpolate import interp1d, make_interp_spline
@@ -539,61 +728,115 @@ class AcmUiController:
         except Exception:
             return np.interp(x_targets, x_points, y_points)
 
-    def _apply_local_curve_change(self, curve_key: str, changed_index: int) -> None:
-        """Apply a local control-point edit back to the corresponding full LUT array."""
+    def _apply_sample_point_change(
+        self,
+        curve_key: str,
+        changed_idx: int | None = None,
+    ) -> None:
+        """Regenerate the integer-indexed LUT values affected by a sample edit.
+
+        When ``changed_idx`` is given, only the segments adjacent to that
+        sample point (its left and right neighbour segments) are
+        re-interpolated; the rest of the LUT is left untouched. When
+        ``changed_idx`` is ``None``, the full LUT is rebuilt (used by the
+        ``smooth`` action).
+
+        The H-cycle closure pair (sample 0 and the last sample, whose value
+        mirrors sample 0) is handled by treating changes to either end as
+        changes to both endpoints.
+        """
         full_lut = getattr(self, f"full_delta_{curve_key}byh")
-        if full_lut is None:
+        if full_lut is None or len(self.sample_positions) < 2:
             return
-        chart = getattr(self, f"delta_chart_{curve_key}")
-        ctrl_values = np.array(chart.get_values(), dtype=np.float32)
+        sample_values = getattr(self, f"sample_values_{curve_key}")
+        if len(sample_values) != len(self.sample_positions):
+            return
         len_h = len(full_lut)
-        ctrl_x = self._get_ctrl_positions(len_h)
-        point_count = len(ctrl_values)
-        if point_count < 2:
-            return
-
-        if changed_index in (0, point_count - 1):
-            ctrl_values[0] = ctrl_values[-1] = ctrl_values[0]
-            right_index = 1
-            left_index = point_count - 2
-            right_targets = np.arange(1, int(np.floor(ctrl_x[right_index])), dtype=np.int32)
-            left_targets = np.arange(int(np.ceil(ctrl_x[left_index])) + 1, len_h - 1, dtype=np.int32)
-            if left_targets.size:
-                left_values = self._interpolate_segment(
-                    [ctrl_x[left_index], len_h - 1],
-                    [ctrl_values[left_index], ctrl_values[0]],
-                    left_targets,
-                )
-                full_lut[left_targets] = np.rint(left_values).astype(np.int16)
-            if right_targets.size:
-                right_values = self._interpolate_segment(
-                    [0, ctrl_x[right_index]],
-                    [ctrl_values[0], ctrl_values[right_index]],
-                    right_targets,
-                )
-                full_lut[right_targets] = np.rint(right_values).astype(np.int16)
-            endpoint_value = np.int16(round(ctrl_values[0]))
-            full_lut[0] = endpoint_value
-            full_lut[-1] = endpoint_value
-            return
-
-        left_index = changed_index - 1
-        right_index = changed_index + 1
-        target_indices = np.arange(
-            int(np.ceil(ctrl_x[left_index])) + 1,
-            int(np.floor(ctrl_x[right_index])),
-            dtype=np.int32,
-        )
-        if target_indices.size:
-            segment_values = self._interpolate_segment(
-                [ctrl_x[left_index], ctrl_x[changed_index], ctrl_x[right_index]],
-                [ctrl_values[left_index], ctrl_values[changed_index], ctrl_values[right_index]],
-                target_indices,
-            )
+        positions = self.sample_positions
+        n = len(positions)
+        # Map each sample to its nearest integer H index so the curve honors
+        # the control point value at the closest grid index.
+        nearest_indices = [
+            int(round(min(max(float(p), 0.0), float(len_h - 1))))
+            for p in positions
+        ]
+        # Decide which segments to re-interpolate and which samples need to
+        # be synced to the LUT's nearest integer index.
+        if changed_idx is None or not (0 <= changed_idx < n):
+            segments_to_update = set(range(n - 1))
+            samples_to_update = set(range(n))
+        else:
+            samples_to_update = {changed_idx}
+            if changed_idx == 0 or changed_idx == n - 1:
+                # The H-cycle closure pair shares a value, so editing either
+                # end affects the other and both its surrounding segments.
+                samples_to_update.update({0, n - 1})
+            segments_to_update = set()
+            for s in samples_to_update:
+                if 0 < s:
+                    segments_to_update.add(s - 1)
+                if s < n - 1:
+                    segments_to_update.add(s)
+        for i in sorted(segments_to_update):
+            target_min = nearest_indices[i]
+            target_max = nearest_indices[i + 1]
+            if i == 0:
+                target_min = max(target_min, 1)  # preserve endpoint at index 0
+            if i == n - 2 and positions[i + 1] >= len_h:
+                # Last segment ends at the H-cycle closure; only update the
+                # integer indices strictly between left_pos and len_h - 1.
+                target_max = len_h - 1
+            if target_max <= target_min:
+                continue
+            target_indices = np.arange(target_min, target_max, dtype=np.int32)
+            # Build the window of sample indices to feed to the interpolator.
+            # Cubic / B-Spline need at least 4 points; expand outward from
+            # [i-1, i+1] until we have enough or hit boundaries.
+            if self.interp_method in ("Cubic", "B-Spline"):
+                start_idx = max(0, i - 1) if i > 0 else 0
+                end_idx = min(i + 1, n - 1)
+                while end_idx - start_idx + 1 < 4:
+                    if start_idx > 0:
+                        start_idx -= 1
+                    if end_idx < n - 1 and end_idx - start_idx + 1 < 4:
+                        end_idx += 1
+                    if start_idx == 0 and end_idx == n - 1:
+                        break
+            elif i == 0:
+                start_idx, end_idx = 0, 1
+            else:
+                start_idx, end_idx = i - 1, i + 1
+            x_pts = positions[start_idx:end_idx + 1]
+            y_pts = sample_values[start_idx:end_idx + 1]
+            segment_values = self._interpolate_segment(x_pts, y_pts, target_indices)
             full_lut[target_indices] = np.rint(segment_values).astype(np.int16)
-        changed_full_index = int(round(ctrl_x[changed_index]))
-        changed_full_index = max(0, min(len_h - 1, changed_full_index))
-        full_lut[changed_full_index] = np.int16(round(ctrl_values[changed_index]))
+        # Force the integer index nearest to each changed sample point to
+        # mirror that sample's value, so dragging a sample point is always
+        # reflected in the closest integer-indexed point.
+        for s_idx in samples_to_update:
+            full_lut[nearest_indices[s_idx]] = int(round(sample_values[s_idx]))
+        # Force H-cycle closure on endpoints.
+        endpoint_value = int(round(sample_values[0]))
+        full_lut[0] = endpoint_value
+        full_lut[-1] = endpoint_value
+        getattr(self, f"delta_chart_{curve_key}").set_values(full_lut)
+
+    def _on_sample_point_changed(self, curve_key: str, idx: int, sample_values: list) -> None:
+        """React to a sample point being edited in one of the charts.
+
+        The chart widget already keeps the H-cycle closure pair (first and
+        last sample) in sync, so we only need to persist the new values and
+        rebuild the affected segments of the integer-indexed LUT. The
+        ``idx`` is forwarded to limit the rebuild scope to the changed
+        sample's neighbour segments.
+        """
+        if self._suppress_sample_signal:
+            return
+        setattr(self, f"sample_values_{curve_key}", [float(v) for v in sample_values])
+        self._apply_sample_point_change(curve_key, changed_idx=idx)
+        self._apply_full_delta_to_acm()
+        self._update_heatmaps()
+        self._schedule_auto_run()
 
     def _apply_full_delta_to_acm(self) -> None:
         """Write the rebuilt full LUT arrays back to the current ACM instance."""
@@ -610,10 +853,155 @@ class AcmUiController:
         if full_lut is None:
             return
         full_lut[:] = 0
-        getattr(self, f"delta_chart_{curve_key}").set_values([0] * self.ctrl_point_count)
+        getattr(self, f"delta_chart_{curve_key}").set_values([0] * len(full_lut))
+        sample_attr = f"sample_values_{curve_key}"
+        if getattr(self, sample_attr):
+            values = getattr(self, sample_attr)
+            for i in range(len(values)):
+                values[i] = 0.0
+            self._refresh_sample_overlays()
         self._apply_full_delta_to_acm()
         self._update_heatmaps()
         self._schedule_auto_run()
+
+    @staticmethod
+    def _smooth_curve(values: np.ndarray, method: str) -> np.ndarray:
+        """Apply a smoothing/fitting method selected from the interpolation combo.
+
+        Supported methods:
+          - ``"Poly-13"``: global least-squares polynomial fit
+            evaluated back at integer H indices.
+          - ``"Savitzky-Golay"``: local polynomial regression filter (window
+            length auto-sized to data length). Preserves peaks and valleys
+            better than global polynomial fitting.
+        """
+        if values.size == 0:
+            return values.copy()
+        if method == "Savitzky-Golay":
+            try:
+                from scipy.signal import savgol_filter
+            except Exception:
+                # Fall back to Poly-13 if SciPy is unavailable.
+                method = "Poly-13"
+            else:
+                # Window length must be odd and <= values.size; pick a sensible
+                # default that adapts to short curves.
+                win = min(11, values.size)
+                if win % 2 == 0:
+                    win -= 1
+                win = max(win, 3)
+                poly = min(3, win - 1)
+                smoothed = savgol_filter(
+                    values.astype(np.float32),
+                    window_length=win,
+                    polyorder=poly,
+                )
+                return np.clip(np.rint(smoothed), -32768, 32767).astype(values.dtype)
+        degree = 13
+        if values.size <= degree + 1:
+            return values.copy()
+        x = np.arange(values.size, dtype=np.float32)
+        coeffs = np.polyfit(x, values.astype(np.float32), degree)
+        smoothed = np.polyval(coeffs, x)
+        return np.clip(np.rint(smoothed), -32768, 32767).astype(values.dtype)
+
+    def _smooth_delta_curve(self, curve_key: str) -> None:
+        """Apply the comboBox-selected smoothing/fitting to a delta curve.
+
+        ``Linear`` / ``Cubic`` / ``B-Spline`` re-apply the current sample (q)
+        values to regenerate the integer-indexed LUT using the chosen
+        interpolation method.
+
+        ``Poly-13`` fits a polynomial to the (p, q) sample points
+        and evaluate it at every integer H index to produce the smoothed full
+        LUT; the sample q values are then resampled from the smoothed curve.
+
+        ``Savitzky-Golay`` applies the SG filter directly to the dense LUT
+        and resamples the q values from the filtered curve (SG requires dense
+        input and cannot work only on the sparse q set).
+        """
+        full_lut = getattr(self, f"full_delta_{curve_key}byh")
+        if full_lut is None:
+            return
+        sample_attr = f"sample_values_{curve_key}"
+        sample_values = getattr(self, sample_attr, None)
+        if self.interp_method in ("Linear", "Cubic", "B-Spline"):
+            # Re-apply the current sample values to regenerate the LUT using
+            # the chosen interpolation method; sample values stay as-is.
+            self._apply_sample_point_change(curve_key)
+        elif self.interp_method == "Poly-13":
+            # Fit polynomial to the sparse (p, q) sample points and evaluate
+            # at every integer H index to produce the smoothed full LUT.
+            positions = self.sample_positions
+            x = np.array(positions, dtype=np.float32)
+            y = np.array(sample_values, dtype=np.float32)
+            degree = min(13, len(x) - 1)  # cap to avoid overfitting
+            coeffs = np.polyfit(x, y, degree)
+            x_full = np.arange(len(full_lut), dtype=np.float32)
+            smoothed = np.polyval(coeffs, x_full)
+            full_lut[:] = np.clip(np.rint(smoothed), -32768, 32767).astype(np.int16)
+            # Resample q values from the smoothed curve.
+            if sample_values is not None and positions:
+                for i, pos in enumerate(positions):
+                    idx = int(round(min(max(pos, 0.0), float(len(smoothed) - 1))))
+                    sample_values[i] = float(smoothed[idx])
+                sample_values[-1] = sample_values[0]
+                self._refresh_sample_overlays()
+        else:  # Savitzky-Golay
+            smoothed = self._smooth_curve(full_lut, self.interp_method)
+            full_lut[:] = smoothed
+            if sample_values is not None and self.sample_positions:
+                for i, pos in enumerate(self.sample_positions):
+                    idx = int(round(min(max(pos, 0.0), float(len(smoothed) - 1))))
+                    sample_values[i] = float(smoothed[idx])
+                # Keep the H-cycle closure pair in sync.
+                sample_values[-1] = sample_values[0]
+                self._refresh_sample_overlays()
+        getattr(self, f"delta_chart_{curve_key}").set_values(full_lut)
+        self._apply_full_delta_to_acm()
+        self._update_heatmaps()
+        self._schedule_auto_run()
+
+    def _current_curve_key(self) -> str:
+        """Return ``"y"``, ``"s"`` or ``"h"`` based on the active delta tab."""
+        index = self.ui.tabWidget_delta.currentIndex()
+        return ("y", "s", "h")[index] if 0 <= index < 3 else "y"
+
+    def _on_reset_curr(self) -> None:
+        """Reset the delta curve of the active tab."""
+        self._reset_delta_curve(self._current_curve_key())
+
+    def _on_smooth_curr(self) -> None:
+        """Polynomial-smooth the delta curve of the active tab."""
+        self._smooth_delta_curve(self._current_curve_key())
+
+    def _on_reset_all(self) -> None:
+        """Reset the delta curves of all three tabs."""
+        for key in ("y", "s", "h"):
+            self._reset_delta_curve(key)
+
+    def _on_smooth_all(self) -> None:
+        """Polynomial-smooth the delta curves of all three tabs."""
+        for key in ("y", "s", "h"):
+            self._smooth_delta_curve(key)
+
+    def _on_reset_gain(self) -> None:
+        """Reset all Y/S/H gain spinboxes to their default value (256)."""
+        for spinbox in (
+            self.ui.spinBox_gain_y,
+            self.ui.spinBox_gain_s,
+            self.ui.spinBox_gain_h,
+        ):
+            spinbox.setValue(256)
+
+    def _on_reset_offset(self) -> None:
+        """Reset all WR/WG/WB offset spinboxes to their default value (256)."""
+        for spinbox in (
+            self.ui.spinBox_offset_wr,
+            self.ui.spinBox_offset_wg,
+            self.ui.spinBox_offset_wb,
+        ):
+            spinbox.setValue(256)
 
     # ------------------------------------------------------------------ #
     # Heatmap refresh                                                    #
@@ -682,27 +1070,33 @@ class AcmUiController:
     # ------------------------------------------------------------------ #
 
     def _on_ctrl_points_changed(self, value: int) -> None:
-        """Handle control-point count changes from the ACM widget."""
-        normalized_value = self._normalize_ctrl_point_count(self._get_current_acm().len_h, value)
+        """Handle sample-point count changes from the ACM widget.
+
+        The chart's ``values`` array stays at ``len_h``; only the positions of
+        the floating-point sample points are recomputed. Existing sample
+        values are rescaled to the new position grid so the user's edits are
+        not destroyed.
+        """
+        len_h = self._get_current_acm().len_h
+        normalized_value = self._normalize_ctrl_point_count(len_h, value)
         if normalized_value != value:
             self.ui.slider_ctrl_points.blockSignals(True)
             self.ui.slider_ctrl_points.setValue(normalized_value)
             self.ui.slider_ctrl_points.blockSignals(False)
         self.ctrl_point_count = normalized_value
         self.ui.label_ctrl_points_value.setText(str(normalized_value))
-        self._update_ctrl_point_hint(self._get_current_acm().len_h)
-        self._resample_full_to_ctrl()
+        self._recompute_sample_points(len_h, normalized_value, force=False)
+        self._update_ctrl_point_hint(len_h)
 
     def _on_interp_method_changed(self, text: str) -> None:
         """Handle interpolation-method changes."""
         self.interp_method = text
 
     def _on_delta_chart_changed(self, curve_key: str, changed_index: int, values: list[int]) -> None:
-        """Handle edits from any delta chart widget."""
-        del values
-        self._apply_local_curve_change(curve_key, changed_index)
-        self._apply_full_delta_to_acm()
-        self._schedule_auto_run()
+        """Forward legacy ``dataChanged`` events to the sample-point handler."""
+        del changed_index, values
+        # Integer-indexed points are no longer user-editable; this signal is
+        # currently unused but kept for API compatibility.
 
     def _on_acm_colorspace_changed(self, checked: bool = False) -> None:
         """Toggle RGB offset controls when the ACM colorspace selection changes."""
@@ -754,10 +1148,10 @@ class AcmUiController:
         acm = self._get_current_acm()
         is_variant = self.current_algo == "SW_ACM_VARIANT"
         self.ui.groupBox_lut_lengths.setEnabled(is_variant)
-        self._set_spinbox_value(self.ui.spinBox_len_y, acm.len_y)
-        self._set_spinbox_value(self.ui.spinBox_len_s, acm.len_s)
-        self._set_spinbox_value(self.ui.spinBox_len_h, acm.len_h)
-        self._set_spinbox_value(self.ui.spinBox_len_h2, acm.len_h2)
+        self._set_slider_spin_value(self.ui.slider_len_y, self.ui.spinBox_len_y, acm.len_y)
+        self._set_slider_spin_value(self.ui.slider_len_s, self.ui.spinBox_len_s, acm.len_s)
+        self._set_slider_spin_value(self.ui.slider_len_h, self.ui.spinBox_len_h, acm.len_h)
+        self._set_slider_spin_value(self.ui.slider_len_h2, self.ui.spinBox_len_h2, acm.len_h2)
         self._set_slider_spin_value(self.ui.slider_gain_y, self.ui.spinBox_gain_y, acm.gain_y)
         self._set_slider_spin_value(self.ui.slider_gain_s, self.ui.spinBox_gain_s, acm.gain_s)
         self._set_slider_spin_value(self.ui.slider_gain_h, self.ui.spinBox_gain_h, acm.gain_h)

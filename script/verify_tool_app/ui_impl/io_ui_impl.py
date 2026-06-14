@@ -16,6 +16,7 @@ from script.csc.run_csc import (
     FORMAT_NAMES,
     FMT_OPTIONS,
     get_frame_size,
+    get_pixel_depth,
     is_yuv_format,
     read_raw_to_planar,
 )
@@ -282,9 +283,22 @@ class IoUiController:
                 red, green, blue = map(int, color_str.split())
                 width = self.ui.spinBox_width.value()
                 height = self.ui.spinBox_height.value()
-                y_data = np.full((height, width), red * 0.299 + green * 0.587 + blue * 0.114, dtype=np.uint8)
-                cb_data = np.full((height, width), 128 - red * 0.114 - green * 0.385 + blue * 0.5, dtype=np.uint8)
-                cr_data = np.full((height, width), 128 + red * 0.5 - green * 0.454 - blue * 0.046, dtype=np.uint8)
+                # Use BT.709 limited-range to match the preview's BT.709 inverse matrix.
+                y_data = np.full(
+                    (height, width),
+                    0.2126 * red + 0.7152 * green + 0.0722 * blue,
+                    dtype=np.uint8,
+                )
+                cb_data = np.full(
+                    (height, width),
+                    128 - 0.1146 * red - 0.3854 * green + 0.5 * blue,
+                    dtype=np.uint8,
+                )
+                cr_data = np.full(
+                    (height, width),
+                    128 + 0.5 * red - 0.4542 * green - 0.0458 * blue,
+                    dtype=np.uint8,
+                )
                 input_yuv444 = np.stack([y_data, cb_data, cr_data], axis=-1)
                 self._emit_input_loaded(input_yuv444, f"Input generated: {width}x{height}")
             except Exception:
@@ -308,7 +322,12 @@ class IoUiController:
             QMessageBox.critical(None, "Error", f"Failed to load image: {exc}")
 
     def _convert_to_yuv444(self, data: tuple[np.ndarray, ...], fmt_code: int) -> np.ndarray:
-        """Convert raw planar input data to channels-last YUV444."""
+        """Convert raw planar input data to channels-last YUV444 (always uint8).
+
+        Higher-bit-depth sources (e.g. 10-bit YUV) are scaled down to 8-bit so the
+        downstream ACM pipeline and preview renderer (which both assume 8-bit)
+        receive a uniform ``uint8`` buffer.
+        """
         if is_yuv_format(fmt_code):
             y_data = data[0]
             u_data = data[1]
@@ -319,11 +338,28 @@ class IoUiController:
             if u_data.shape[0] != y_data.shape[0]:
                 u_data = np.repeat(u_data, 2, axis=0)
                 v_data = np.repeat(v_data, 2, axis=0)
+            depth = get_pixel_depth(fmt_code)
+            if depth > 8 or y_data.dtype != np.uint8:
+                shift = max(0, depth - 8)
+                y_data = (y_data >> shift).astype(np.uint8)
+                u_data = (u_data >> shift).astype(np.uint8)
+                v_data = (v_data >> shift).astype(np.uint8)
+            else:
+                y_data = y_data.astype(np.uint8, copy=False)
+                u_data = u_data.astype(np.uint8, copy=False)
+                v_data = v_data.astype(np.uint8, copy=False)
             return np.stack([y_data, u_data, v_data], axis=-1)
 
         red = data[0].astype(np.float32)
         green = data[1].astype(np.float32)
         blue = data[2].astype(np.float32)
+        # Demote 10-bit RGB to 8-bit before applying BT.709 limited-range matrix.
+        depth = get_pixel_depth(fmt_code)
+        if depth > 8:
+            scale = (1 << (depth - 8))
+            red = red / scale
+            green = green / scale
+            blue = blue / scale
         y_data = (0.2126 * red + 0.7152 * green + 0.0722 * blue + 0.5).astype(np.uint8)
         cb_data = (-0.1146 * red - 0.3854 * green + 0.5 * blue + 128 + 0.5).astype(np.uint8)
         cr_data = (0.5 * red - 0.4542 * green - 0.0458 * blue + 128 + 0.5).astype(np.uint8)
