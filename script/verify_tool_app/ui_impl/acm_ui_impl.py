@@ -286,15 +286,13 @@ class AcmUiController:
         self._config_path_setter = config_path_setter or (lambda path: None)
 
         # --- ACM algorithm instances ---
-        from script.acm.acm_evideo import AcmEVideo
-        from script.acm.acm_impl import AcmImpl
-        from script.acm.acm_impl_variant import AcmImplVariant
+        from script.acm.acm_impls import AcmImplHwRk, AcmImplSwRk, AcmImplSwEvideo, AcmImplSwVariant
 
         self.acm_instances = {
-            "VOP_VP_ACM": AcmImpl(9, 13, 65, 17),
-            "SW_ACM": AcmImpl(9, 13, 65, 65),
-            "EVIDEO_ACM": AcmEVideo(9, 13, 65, 65),
-            "SW_ACM_VARIANT": AcmImplVariant(9, 13, 65, 65),
+            "VOP_VP_ACM": AcmImplHwRk(),
+            "SW_ACM": AcmImplSwRk(),
+            "EVIDEO_ACM": AcmImplSwEvideo(),
+            "SW_ACM_VARIANT": AcmImplSwVariant(),
         }
         self.current_algo = "VOP_VP_ACM"
 
