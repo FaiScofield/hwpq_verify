@@ -34,10 +34,10 @@ try:
     )
 except ImportError:
     from script.acm.acm_impl_base import (
-        DELTA_Y_MIN, DELTA_Y_MAX,
-        DELTA_S_MIN, DELTA_S_MAX,
-        DELTA_H_MIN, DELTA_H_MAX,
-        GAIN_MIN, GAIN_MAX,
+        ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX,
+        ACM_DELTA_S_MIN, ACM_DELTA_S_MAX,
+        ACM_DELTA_H_MIN, ACM_DELTA_H_MAX,
+        ACM_GAIN_MIN, ACM_GAIN_MAX,
     )
 
 try:
@@ -424,9 +424,9 @@ class AcmUiController:
         self._suppress_sample_signal = False
 
         # --- Chart widgets (hosted inside ACM tab) ---
-        self.delta_chart_y = SingleCurveChartWidget((DELTA_Y_MIN, DELTA_Y_MAX), QColor(255, 200, 0))
-        self.delta_chart_s = SingleCurveChartWidget((DELTA_S_MIN, DELTA_S_MAX), QColor(0, 180, 0))
-        self.delta_chart_h = SingleCurveChartWidget((DELTA_H_MIN, DELTA_H_MAX), QColor(0, 100, 255))
+        self.delta_chart_y = SingleCurveChartWidget((ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX), QColor(255, 200, 0))
+        self.delta_chart_s = SingleCurveChartWidget((ACM_DELTA_S_MIN, ACM_DELTA_S_MAX), QColor(0, 180, 0))
+        self.delta_chart_h = SingleCurveChartWidget((ACM_DELTA_H_MIN, ACM_DELTA_H_MAX), QColor(0, 100, 255))
         for host, chart in (
             (self.ui.widget_delta_y_host, self.delta_chart_y),
             (self.ui.widget_delta_s_host, self.delta_chart_s),
@@ -673,13 +673,13 @@ class AcmUiController:
         if old_len_h > 0 and old_len_h != new_len_h:
             acm.lut_delta_ybyh = np.clip(
                 bicubic_resize_array_1d(saved_y, new_len_h),
-                DELTA_Y_MIN, DELTA_Y_MAX).astype(np.int16)
+                ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX).astype(np.int16)
             acm.lut_delta_sbyh = np.clip(
                 bicubic_resize_array_1d(saved_s, new_len_h),
-                DELTA_S_MIN, DELTA_S_MAX).astype(np.int16)
+                ACM_DELTA_S_MIN, ACM_DELTA_S_MAX).astype(np.int16)
             acm.lut_delta_hbyh = np.clip(
                 bicubic_resize_array_1d(saved_h, new_len_h),
-                DELTA_H_MIN, DELTA_H_MAX).astype(np.int16)
+                ACM_DELTA_H_MIN, ACM_DELTA_H_MAX).astype(np.int16)
 
     # ------------------------------------------------------------------ #
     # Control-point logic                                                #
@@ -1027,8 +1027,8 @@ class AcmUiController:
     def _delta_clip_range(curve_key: str) -> tuple[int, int]:
         """Return the valid (low, high) clip range for a delta curve."""
         if curve_key == "h":
-            return DELTA_H_MIN, DELTA_H_MAX
-        return DELTA_Y_MIN, DELTA_Y_MAX  # "y" and "s" share the same range
+            return ACM_DELTA_H_MIN, ACM_DELTA_H_MAX
+        return ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX  # "y" and "s" share the same range
 
     def _smooth_delta_curve(self, curve_key: str) -> None:
         """Apply the comboBox-selected smoothing/fitting to a delta curve.
@@ -1181,7 +1181,7 @@ class AcmUiController:
         }
         for key, data in lut_map.items():
             if key in self.heatmap_widgets:
-                self.heatmap_widgets[key].set_data(data, GAIN_MIN, GAIN_MAX)
+                self.heatmap_widgets[key].set_data(data, ACM_GAIN_MIN, ACM_GAIN_MAX)
 
     # ------------------------------------------------------------------ #
     # ACM processing                                                     #

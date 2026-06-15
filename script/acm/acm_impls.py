@@ -30,11 +30,36 @@ else:
 class AcmImplHwRk(AcmImplBase):
     """ACM implementation for RK VOP hardware. len_h2 = 17."""
 
-    def __init__(self, len_y: int = 9, len_s: int = 13, len_h: int = 65, len_h2: int = 17,
-                 delta_mode: str = "rk", yuv_method: str = "trig"):
-        super().__init__(len_y=len_y, len_s=len_s, len_h=len_h, len_h2=len_h2,
-                         delta_mode=delta_mode, yuv_method=yuv_method)
+    def __init__(
+        self,
+        len_y: int = 9,
+        len_s: int = 13,
+        len_h: int = 65,
+        len_h2: int = 17,
+        delta_mode: str = "rk",
+        yuv_method: str = "cordic",
+    ):
+        super().__init__(
+            len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_mode=delta_mode, cvt_method=yuv_method
+        )
         print("[ACM] created AcmImplHwRk.")
+
+    ## override
+    def _do_acm(
+        self,
+        y: np.ndarray,
+        cb: np.ndarray,
+        cr: np.ndarray,
+        s: np.ndarray,
+        h_deg: np.ndarray,
+        h_rad: np.ndarray,
+        depth_uv: int,
+        y_range: int,
+        cbcr_center: int,
+        use_cordic: bool,
+    ) -> np.ndarray:
+        # TODO: implement hardware ACM
+        return super()._do_acm(y, cb, cr, s, h_deg, h_rad, depth_uv, y_range, cbcr_center, use_cordic)
 
 
 # ---------------------------------------------------------------------------
@@ -43,10 +68,18 @@ class AcmImplHwRk(AcmImplBase):
 class AcmImplSwRk(AcmImplBase):
     """ACM implementation matching RK software semantics. len_h2 = 65."""
 
-    def __init__(self, len_y: int = 9, len_s: int = 13, len_h: int = 65, len_h2: int = 65,
-                 delta_mode: str = "rk", yuv_method: str = "trig"):
-        super().__init__(len_y=len_y, len_s=len_s, len_h=len_h, len_h2=len_h2,
-                         delta_mode=delta_mode, yuv_method=yuv_method)
+    def __init__(
+        self,
+        len_y: int = 9,
+        len_s: int = 13,
+        len_h: int = 65,
+        len_h2: int = 65,
+        delta_mode: str = "rk",
+        yuv_method: str = "trig",
+    ):
+        super().__init__(
+            len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_mode=delta_mode, cvt_method=yuv_method
+        )
         print("[ACM] created AcmImplSwRk.")
 
 
@@ -60,10 +93,18 @@ class AcmImplSwEvideo(AcmImplBase):
     Can be switched to "rk" via set_delta_mode("rk") to match the rk semantics.
     """
 
-    def __init__(self, len_y: int = 9, len_s: int = 13, len_h: int = 65, len_h2: int = 65,
-                 delta_mode: str = "evideo", yuv_method: str = "trig"):
-        super().__init__(len_y=len_y, len_s=len_s, len_h=len_h, len_h2=len_h2,
-                         delta_mode=delta_mode, yuv_method=yuv_method)
+    def __init__(
+        self,
+        len_y: int = 9,
+        len_s: int = 13,
+        len_h: int = 65,
+        len_h2: int = 65,
+        delta_mode: str = "evideo",
+        yuv_method: str = "trig",
+    ):
+        super().__init__(
+            len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_mode=delta_mode, cvt_method=yuv_method
+        )
         print("[ACM] created AcmImplSwEvideo.")
 
 
@@ -79,10 +120,18 @@ class AcmImplSwVariant(AcmImplBase):
     back into the default set (bicubic).
     """
 
-    def __init__(self, len_y: int = 9, len_s: int = 13, len_h: int = 65, len_h2: int = 65,
-                 delta_mode: str = "rk", yuv_method: str = "trig"):
-        super().__init__(len_y=len_y, len_s=len_s, len_h=len_h, len_h2=len_h2,
-                         delta_mode=delta_mode, yuv_method=yuv_method)
+    def __init__(
+        self,
+        len_y: int = 9,
+        len_s: int = 13,
+        len_h: int = 65,
+        len_h2: int = 65,
+        delta_mode: str = "evideo",
+        yuv_method: str = "trig",
+    ):
+        super().__init__(
+            len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_mode=delta_mode, cvt_method=yuv_method
+        )
         self.source_algo = None
         self.source_config = None
         print("[ACM] created AcmImplSwVariant.")
@@ -90,7 +139,7 @@ class AcmImplSwVariant(AcmImplBase):
     # ------------------------------------------------------------------
     # extra helper specific to the variant class
     # ------------------------------------------------------------------
-    def interpolate_from(self, source_acm, kernel=None):
+    def interpolate_from(self, source_acm: AcmImplBase, kernel: np.ndarray = None) -> bool:
         """Interpolate LUT data from another ACM instance.
 
         Resamples all 9 LUT tables from source_acm to match self's dimensions.
@@ -100,18 +149,17 @@ class AcmImplSwVariant(AcmImplBase):
             print("[ACM] Source ACM LUT is not ready!")
             return False
 
-        print(f"[ACM] Interpolating LUTs from source: "
-              f"y={source_acm.len_y}x{self.len_y}, s={source_acm.len_s}x{self.len_s}, "
-              f"h={source_acm.len_h}x{self.len_h}, h2={source_acm.len_h2}x{self.len_h2}")
+        print(
+            f"[ACM] Interpolating LUTs from source: "
+            f"y={source_acm.len_y}x{self.len_y}, s={source_acm.len_s}x{self.len_s}, "
+            f"h={source_acm.len_h}x{self.len_h}, h2={source_acm.len_hd}x{self.len_hd}"
+        )
 
         # 1D delta LUTs
         if source_acm.len_h != self._default_len_h:
-            self._default_lut_delta_ybyh = linear_resize_array_1d(
-                source_acm.lut_delta_ybyh, self._default_len_h)
-            self._default_lut_delta_sbyh = linear_resize_array_1d(
-                source_acm.lut_delta_sbyh, self._default_len_h)
-            self._default_lut_delta_hbyh = linear_resize_array_1d(
-                source_acm.lut_delta_hbyh, self._default_len_h)
+            self._default_lut_delta_ybyh = linear_resize_array_1d(source_acm.lut_delta_ybyh, self._default_len_h)
+            self._default_lut_delta_sbyh = linear_resize_array_1d(source_acm.lut_delta_sbyh, self._default_len_h)
+            self._default_lut_delta_hbyh = linear_resize_array_1d(source_acm.lut_delta_hbyh, self._default_len_h)
             print(f"[ACM] Updated delta LUT size: {source_acm.len_h} => {self._default_len_h}")
         else:
             self._default_lut_delta_ybyh = source_acm.lut_delta_ybyh.copy()
@@ -120,25 +168,55 @@ class AcmImplSwVariant(AcmImplBase):
 
         # 2D gain LUTs (Y axis)
         self._default_lut_gain_ybyy = _resize_2d_lut(
-            source_acm.lut_gain_ybyy, source_acm.len_h2, source_acm.len_y,
-            self._default_len_h2, self._default_len_y, kernel)
+            source_acm.lut_gain_ybyy,
+            source_acm.len_hd,
+            source_acm.len_y,
+            self._default_len_hd,
+            self._default_len_y,
+            kernel,
+        )
         self._default_lut_gain_sbyy = _resize_2d_lut(
-            source_acm.lut_gain_sbyy, source_acm.len_h2, source_acm.len_y,
-            self._default_len_h2, self._default_len_y, kernel)
+            source_acm.lut_gain_sbyy,
+            source_acm.len_hd,
+            source_acm.len_y,
+            self._default_len_hd,
+            self._default_len_y,
+            kernel,
+        )
         self._default_lut_gain_hbyy = _resize_2d_lut(
-            source_acm.lut_gain_hbyy, source_acm.len_h2, source_acm.len_y,
-            self._default_len_h2, self._default_len_y, kernel)
+            source_acm.lut_gain_hbyy,
+            source_acm.len_hd,
+            source_acm.len_y,
+            self._default_len_hd,
+            self._default_len_y,
+            kernel,
+        )
 
         # 2D gain LUTs (S axis)
         self._default_lut_gain_ybys = _resize_2d_lut(
-            source_acm.lut_gain_ybys, source_acm.len_h2, source_acm.len_s,
-            self._default_len_h2, self._default_len_s, kernel)
+            source_acm.lut_gain_ybys,
+            source_acm.len_hd,
+            source_acm.len_s,
+            self._default_len_hd,
+            self._default_len_s,
+            kernel,
+        )
         self._default_lut_gain_sbys = _resize_2d_lut(
-            source_acm.lut_gain_sbys, source_acm.len_h2, source_acm.len_s,
-            self._default_len_h2, self._default_len_s, kernel)
+            source_acm.lut_gain_sbys,
+            source_acm.len_hd,
+            source_acm.len_s,
+            self._default_len_hd,
+            self._default_len_s,
+            kernel,
+        )
         self._default_lut_gain_hbys = _resize_2d_lut(
-            source_acm.lut_gain_hbys, source_acm.len_h2, source_acm.len_s,
-            self._default_len_h2, self._default_len_s, kernel)
+            source_acm.lut_gain_hbys,
+            source_acm.len_hd,
+            source_acm.len_s,
+            self._default_len_hd,
+            self._default_len_s,
+            kernel,
+        )
 
         # Copy gains
         self.gain_y = source_acm.gain_y
@@ -159,7 +237,9 @@ class AcmImplSwVariant(AcmImplBase):
 # ---------------------------------------------------------------------------
 # private helper for AcmImplSwVariant.interpolate_from
 # ---------------------------------------------------------------------------
-def _resize_2d_lut(src_lut, src_h2, src_dim, dst_h2, dst_dim, kernel):
+def _resize_2d_lut(
+    src_lut: np.ndarray, src_h2: int, src_dim: int, dst_h2: int, dst_dim: int, kernel: np.ndarray
+) -> np.ndarray:
     """Resize a 2D LUT from (src_h2, src_dim) to (dst_h2, dst_dim) in two passes."""
     if src_lut.shape == (dst_h2, dst_dim):
         return src_lut.copy()
@@ -182,7 +262,7 @@ def _resize_2d_lut(src_lut, src_h2, src_dim, dst_h2, dst_dim, kernel):
 # ---------------------------------------------------------------------------
 # CLI entry
 # ---------------------------------------------------------------------------
-def main():
+def main() -> None:
     """Command-line entry for ACM LUT verify / dump.
 
     Reads a YUV444 planar image, loads (or generates) a LUT, applies ACM
@@ -190,30 +270,18 @@ def main():
     effective config and LUT preview.
     """
     parser = argparse.ArgumentParser(exit_on_error=False)
-    parser.add_argument("-i", "--input", default="", type=str,
-                        help="输入图像文件，yuv444p格式")
-    parser.add_argument("-o", "--output", default="", type=str,
-                        help="输出图像文件")
-    parser.add_argument("-c", "--config", default="", type=str,
-                        help=".json 配置文件")
-    parser.add_argument("-w", "--width", default=1920, type=int,
-                        help="图像宽度, 默认 1920")
-    parser.add_argument("-g", "--height", default=1080, type=int,
-                        help="图像高度, 默认 1080")
-    parser.add_argument("-s", "--step", type=float, nargs='+',
-                        help="LUT step 数组, 4 个元素")
-    parser.add_argument("-l", "--len", type=int, nargs='+',
-                        help="LUT len 数组, 4 个元素")
-    parser.add_argument("-G", "--gain", type=int, nargs='+',
-                        help="LUT gain 数组, 4 个元素")
-    parser.add_argument("-n", "--iter_num", default=13, type=int,
-                        help="Cordic 迭代次数, 默认: 13")
-    parser.add_argument("-b", "--increase_bits", default=3, type=int,
-                        help="Cordic S 定点提示精度, 默认: 3")
-    parser.add_argument("-uv", "--uv", type=int, nargs='+',
-                        help="传入U/V数值测试Cordic结果")
-    parser.add_argument("-hs", "--hs", type=int, nargs='+',
-                        help="传入H/S数值测试Cordic结果")
+    parser.add_argument("-i", "--input", default="", type=str, help="输入图像文件，yuv444p格式")
+    parser.add_argument("-o", "--output", default="", type=str, help="输出图像文件")
+    parser.add_argument("-c", "--config", default="", type=str, help=".json 配置文件")
+    parser.add_argument("-w", "--width", default=1920, type=int, help="图像宽度, 默认 1920")
+    parser.add_argument("-g", "--height", default=1080, type=int, help="图像高度, 默认 1080")
+    parser.add_argument("-s", "--step", type=float, nargs='+', help="LUT step 数组, 4 个元素")
+    parser.add_argument("-l", "--len", type=int, nargs='+', help="LUT len 数组, 4 个元素")
+    parser.add_argument("-G", "--gain", type=int, nargs='+', help="LUT gain 数组, 3 个元素")
+    parser.add_argument("-n", "--iter_num", default=13, type=int, help="Cordic 迭代次数, 默认: 13")
+    parser.add_argument("-b", "--increase_bits", default=3, type=int, help="Cordic S 定点提示精度, 默认: 3")
+    parser.add_argument("-uv", "--uv", type=int, nargs='+', help="传入U/V数值测试Cordic结果")
+    parser.add_argument("-hs", "--hs", type=int, nargs='+', help="传入H/S数值测试Cordic结果")
     args, _ = parser.parse_known_args()
 
     DEF_OUT_DIR = "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/test_var_lut"
@@ -224,14 +292,8 @@ def main():
         if args.input == ""
         else args.input
     )
-    outfile = (
-        f"{DEF_OUT_DIR}/out_acm_1920x1080_yuv444p_601F.yuv"
-        if args.output == "" else args.output
-    )
-    cfgfile = (
-        "G:/Codes/fpga/fpga_verify/data/vdpp_vop_config_3572.json"
-        if args.config == "" else args.config
-    )
+    outfile = f"{DEF_OUT_DIR}/out_acm_1920x1080_yuv444p_601F.yuv" if args.output == "" else args.output
+    cfgfile = "G:/Codes/fpga/fpga_verify/data/vdpp_vop_config_3572.json" if args.config == "" else args.config
 
     ## read YUV444 planar (Y | Cb | Cr)
     data = np.fromfile(infile, np.uint8)
@@ -256,7 +318,7 @@ def main():
     elif args.len:
         acm.set_len(args.len[0], args.len[1], args.len[2], args.len[3])
     if args.gain:
-        acm.set_gain(args.gain[0], args.gain[1], args.gain[2])
+        acm.set_global_gains(args.gain[0], args.gain[1], args.gain[2])
 
     out = acm.do_acm_u8(img)
 
@@ -264,10 +326,7 @@ def main():
     out.transpose(2, 0, 1).tofile(outfile)  # HWC to CHW
     print(f"[ACM] done. write output file to {outfile}")
 
-    acm.dump_json(
-        f"{DEF_OUT_DIR}/acm_var_config_len_y{acm.len_y}_s{acm.len_s}"
-        f"_h{acm.len_h}_{acm.len_h2}.json"
-    )
+    acm.dump_json(f"{DEF_OUT_DIR}/acm_var_config_len_y{acm.len_y}_s{acm.len_s}" f"_h{acm.len_h}_{acm.len_hd}.json")
     acm.dump_lut(DEF_OUT_DIR)
 
 
@@ -288,10 +347,7 @@ if __name__ == '__main__':
     if b_strict:
         acm.dump_json(
             f"acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}"
-            f"_hd{acm.len_h2}_strict_rand{seed}_kernel.json"
+            f"_hd{acm.len_hd}_strict_rand{seed}_kernel.json"
         )
     else:
-        acm.dump_json(
-            f"acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}"
-            f"_hd{acm.len_h2}_rand{seed}.json"
-        )
+        acm.dump_json(f"acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}" f"_hd{acm.len_hd}_rand{seed}.json")

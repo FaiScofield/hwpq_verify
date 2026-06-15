@@ -6,7 +6,7 @@ Date        : 2026-06-14
 Description : Base class for ACM implementation, providing LUT management,
               YUV<=>YHS conversion (trig or cordic), and ACM processing for
               8bit / 10bit YUV444 planar images.
-LastEditTime: 2026-06-14
+LastEditTime: 2026-06-15
 """
 
 import os
@@ -15,6 +15,8 @@ import json
 import cv2
 import argparse
 import traceback
+import warnings
+from typing import Tuple
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -30,24 +32,60 @@ else:
 # ---------------------------------------------------------------------------
 # Utility helpers
 # ---------------------------------------------------------------------------
-def round_rshift(value, shift: int):
+# Default 5x5 separable low-pass kernel, normalised to sum 1.
+_DEFAULT_GAUSSIAN_KERNEL_1D = np.array([1, 4, 6, 4, 1], dtype=np.float32)
+_DEFAULT_GAUSSIAN_KERNEL = np.outer(_DEFAULT_GAUSSIAN_KERNEL_1D, _DEFAULT_GAUSSIAN_KERNEL_1D)
+_DEFAULT_GAUSSIAN_KERNEL /= _DEFAULT_GAUSSIAN_KERNEL.sum()
+
+
+def _clip_cast(arr_float: np.ndarray, target_dtype: np.dtype) -> np.ndarray:
+    """Cast a float array to ``target_dtype`` while clipping to the dtype's
+    representable range. Prevents wrap-around for unsigned / narrow integer
+    types when interpolation pushes values outside the original range."""
+    if np.issubdtype(target_dtype, np.integer):
+        info = np.iinfo(target_dtype)
+        arr_float = np.clip(arr_float, info.min, info.max)
+    return arr_float.astype(target_dtype)
+
+
+def round_rshift(value: np.ndarray, shift: int) -> np.ndarray:
+    """Rounded arithmetic right shift (positive ``shift``) or plain left shift
+    (negative ``shift``). Narrow integer inputs are promoted to ``int32``
+    internally to avoid overflow in ``abs(value) + half``."""
+    if shift == 0:
+        return value.copy()
     if shift > 0:
         half = 1 << (shift - 1)
-        ret = (np.abs(value) + half) >> shift
-        return np.copysign(ret, value).astype(ret.dtype)
+        # promote narrow integer types to avoid abs() + half overflowing in-place
+        if np.issubdtype(value.dtype, np.integer) and value.dtype.itemsize < 4:
+            promoted = value.astype(np.int32)
+        else:
+            promoted = value
+        ret = (np.abs(promoted) + half) >> shift
+        return np.copysign(ret, promoted).astype(value.dtype)
     return value << -shift
 
 
-def gaussian_down_sample(arr: np.ndarray, out_size, kernel: np.ndarray = None):
+def gaussian_down_sample(
+    arr: np.ndarray, out_size: Tuple[int, int], kernel: np.ndarray = None, cyclic_y: bool = True
+) -> np.ndarray:
+    """Downsample ``arr`` to ``out_size`` using a custom (or default 5x5) low-pass
+    kernel. The X axis is always padded with edge replication. The Y axis is
+    padded cyclically when ``cyclic_y`` is True (default) and with edge
+    replication otherwise."""
     # use default 5x5 kernel if not set
     if kernel is None:
-        kernel = np.array([1, 4, 6, 4, 1], dtype=np.float32)
-        kernel = np.outer(kernel, kernel)
-        kernel = kernel / kernel.sum()
+        kernel = _DEFAULT_GAUSSIAN_KERNEL
 
+    if arr.ndim != 2:
+        raise ValueError("gaussian_down_sample expects a 2D array.")
     H, W = arr.shape
     out_rows, out_cols = out_size
+    if out_rows <= 0 or out_cols <= 0:
+        raise ValueError("out_size must contain positive dimensions.")
     kh, kw = kernel.shape
+    if kh % 2 == 0 or kw % 2 == 0:
+        raise ValueError("Kernel size must be odd for centered sampling.")
 
     # scale factor
     scale_h = H / out_rows
@@ -66,15 +104,19 @@ def gaussian_down_sample(arr: np.ndarray, out_size, kernel: np.ndarray = None):
 
             # apply filter
             conv_sum = 0.0
-            kernel_sum = 0.0
-
             for ky in range(kh):
-                src_y = (start_y + ky + H) % H  # cyclic along H
+                if cyclic_y:
+                    src_y = (start_y + ky + H) % H
+                else:
+                    src_y = np.clip(start_y + ky, 0, H - 1)
                 for kx in range(kw):
-                    src_x = np.clip(start_x + kx, 0, W - 1)  # replicate along W
+                    src_x = np.clip(start_x + kx, 0, W - 1)  # replicate along width
                     conv_sum += arr[src_y, src_x] * kernel[ky, kx]
-                    kernel_sum += kernel[ky, kx]
 
+            # ``kernel.sum()`` is invariant of the padding mode used here:
+            # cyclic wraps weights without dropping them, replicate only reuses
+            # weights at the border instead of dropping them.
+            kernel_sum = float(kernel.sum())
             if kernel_sum > 0:
                 dst[y, x] = conv_sum / kernel_sum
             else:
@@ -83,68 +125,80 @@ def gaussian_down_sample(arr: np.ndarray, out_size, kernel: np.ndarray = None):
     return dst
 
 
-def linear_resize_array_1d(arr: np.ndarray, new_length: int):
-    if len(arr) == 0:
+def linear_resize_array_1d(arr: np.ndarray, new_length: int) -> np.ndarray:
+    """Linear-interpolation resize for 1D arrays. Delegates to the 2D path so
+    interpolation rules and dtype handling stay in a single place."""
+    if arr.size == 0:
         raise ValueError("Empty 1D array input!")
-
-    if new_length == len(arr):
-        return np.array(arr)
-
-    x_old = np.linspace(0, 1, len(arr))
-    x_new = np.linspace(0, 1, new_length)
-    new_arr = np.interp(x_new, x_old, arr)
-
-    return new_arr
+    if new_length <= 0:
+        raise ValueError("new_length must be positive.")
+    new_mat = linear_resize_array_2d(arr.reshape(1, -1), 1, new_length)
+    return new_mat.reshape(-1)
 
 
-def linear_resize_array_2d(mat: np.ndarray, new_rows: int, new_cols: int, kernel: np.ndarray = None):
+def linear_resize_array_2d(mat: np.ndarray, new_rows: int, new_cols: int, kernel: np.ndarray = None) -> np.ndarray:
+    """Resize a 2D array. Scale-up uses bilinear, scale-down uses either the
+    provided custom ``kernel`` or OpenCV's area interpolation. Integer-typed
+    outputs are clipped to the dtype range to avoid wrap-around."""
     if mat.size == 0 or mat.shape[0] == 0 or mat.shape[1] == 0:
         raise ValueError("Invalid 2D array input!")
+    if new_rows <= 0 or new_cols <= 0:
+        raise ValueError("new_rows and new_cols must be positive.")
 
     old_rows, old_cols = mat.shape
     if old_rows == new_rows and old_cols == new_cols:
         return mat.copy()
 
+    src = mat.astype(np.float32)
     if new_cols * new_rows > old_rows * old_cols:
         # scale up, use bilinear interpolation
-        new_mat = cv2.resize(mat.astype(np.float32), (new_cols, new_rows), interpolation=cv2.INTER_LINEAR)
+        new_mat = cv2.resize(src, (new_cols, new_rows), interpolation=cv2.INTER_LINEAR)
+    elif kernel is not None:
+        # use custom filter kernel for scale-down
+        new_mat = gaussian_down_sample(src, (new_rows, new_cols), kernel)
     else:
-        # scale down
-        if kernel is not None:
-            # use custom filter kernel
-            new_mat = gaussian_down_sample(mat.astype(np.float32), (new_rows, new_cols), kernel)
-        else:
-            # use AREA interpolation (ONLY support uint8, uint16, float32)
-            new_mat = cv2.resize(mat.astype(np.float32), (new_cols, new_rows), interpolation=cv2.INTER_AREA)
+        # use AREA interpolation (ONLY support uint8, uint16, float32)
+        new_mat = cv2.resize(src, (new_cols, new_rows), interpolation=cv2.INTER_AREA)
 
-    return new_mat.astype(mat.dtype)
+    return _clip_cast(new_mat, mat.dtype)
 
 
-def bicubic_resize_array_1d(arr: np.ndarray, new_length: int):
-    """Bicubic resize for 1D array, goes through 2D path of cv2.resize."""
-    if len(arr) == 0:
+def bicubic_resize_array_1d(arr: np.ndarray, new_length: int) -> np.ndarray:
+    """Bicubic resize for 1D array, goes through 2D path."""
+    if arr.size == 0:
         raise ValueError("Empty 1D array input!")
-    if new_length == len(arr):
-        return np.array(arr)
-    if new_length == 1:
-        return np.array([arr[0]], dtype=arr.dtype)
-    mat = arr.reshape(1, -1).astype(np.float32)
-    new_mat = cv2.resize(mat, (new_length, 1), interpolation=cv2.INTER_CUBIC)
-    return new_mat.reshape(-1).astype(arr.dtype)
+    if new_length <= 0:
+        raise ValueError("new_length must be positive.")
+    new_mat = bicubic_resize_array_2d(arr.reshape(1, -1), 1, new_length)
+    return new_mat.reshape(-1)
 
 
-def bicubic_resize_array_2d(mat: np.ndarray, new_rows: int, new_cols: int, kernel: np.ndarray = None):
-    """Bicubic resize for 2D array. The ``kernel`` argument is accepted for API
-    parity with :func:`linear_resize_array_2d` but is not used (cv2 bicubic
-    interpolation is not a separable filter).
-    """
+def bicubic_resize_array_2d(mat: np.ndarray, new_rows: int, new_cols: int, kernel: np.ndarray = None) -> np.ndarray:
+    """Resize a 2D array. Scale-up uses bicubic; scale-down uses either the
+    provided custom ``kernel`` or OpenCV's area interpolation (bicubic causes
+    aliasing when reducing resolution). Integer-typed outputs are clipped to
+    the dtype range to avoid wrap-around. A non-None ``kernel`` is ignored
+    during scale-up (a warning is emitted)."""
     if mat.size == 0 or mat.shape[0] == 0 or mat.shape[1] == 0:
         raise ValueError("Invalid 2D array input!")
+    if new_rows <= 0 or new_cols <= 0:
+        raise ValueError("new_rows and new_cols must be positive.")
+
     old_rows, old_cols = mat.shape
     if old_rows == new_rows and old_cols == new_cols:
         return mat.copy()
-    new_mat = cv2.resize(mat.astype(np.float32), (new_cols, new_rows), interpolation=cv2.INTER_CUBIC)
-    return new_mat.astype(mat.dtype)
+
+    src = mat.astype(np.float32)
+    if new_cols * new_rows > old_rows * old_cols:  # scale up
+        if kernel is not None:
+            warnings.warn("bicubic_resize_array_2d: kernel is ignored for scale-up.", stacklevel=2)
+        new_mat = cv2.resize(src, (new_cols, new_rows), interpolation=cv2.INTER_CUBIC)
+    elif kernel is not None:  # scale down
+        new_mat = gaussian_down_sample(src, (new_rows, new_cols), kernel)
+    else:
+        new_mat = cv2.resize(src, (new_cols, new_rows), interpolation=cv2.INTER_AREA)
+
+    return _clip_cast(new_mat, mat.dtype)
 
 
 # ---------------------------------------------------------------------------
@@ -159,39 +213,27 @@ LUT_2D_NAMES = LUT_2D_Y_NAMES + LUT_2D_S_NAMES
 # ---------------------------------------------------------------------------
 # LUT length boundaries
 # ---------------------------------------------------------------------------
-
-# default (canonical) length range — used during construction / load_json
-LEN_Y_DEFAULT_MIN = 2
-LEN_Y_DEFAULT_MAX = 256   # 255 + 1
-LEN_S_DEFAULT_MIN = 2
-LEN_S_DEFAULT_MAX = 182   # 181 + 1
-LEN_H_DEFAULT_MIN = 2
-LEN_H_DEFAULT_MAX = 361   # 360 + 1
-
-# current (runtime / UI) length range — used by set_len
-LEN_Y_MIN = 4
-LEN_Y_MAX = 128           # 127 + 1
-LEN_S_MIN = 4
-LEN_S_MAX = 91            # 90 + 1
-LEN_H_MIN = 5             # 4 + 1
-LEN_H_MAX = 361           # 360 + 1
-LEN_H2_MIN = 4
+ACM_LEN_Y_MIN = 3
+ACM_LEN_Y_MAX = 256
+ACM_LEN_S_MIN = 3
+ACM_LEN_S_MAX = 182
+ACM_LEN_H_MIN = 3
+ACM_LEN_H_MAX = 360
+ACM_LEN_HD_MIN = 3
 
 # ---------------------------------------------------------------------------
 # LUT value ranges
 # ---------------------------------------------------------------------------
-
-# signed delta ranges (semantic; stored as int16)
-DELTA_Y_MIN = -255
-DELTA_Y_MAX = 255
-DELTA_S_MIN = -255
-DELTA_S_MAX = 255
-DELTA_H_MIN = -64
-DELTA_H_MAX = 64
+ACM_DELTA_Y_MIN = -255
+ACM_DELTA_Y_MAX = 255
+ACM_DELTA_S_MIN = -255
+ACM_DELTA_S_MAX = 255
+ACM_DELTA_H_MIN = -64
+ACM_DELTA_H_MAX = 64
 
 # 2D gain values (stored as int8)
-GAIN_MIN = -128
-GAIN_MAX = 127
+ACM_GAIN_MIN = -128
+ACM_GAIN_MAX = 127
 
 # full data ranges used for LUT index mapping
 Y_FULL_RANGE = 255
@@ -218,184 +260,163 @@ class AcmImplBase:
       * YUV <-> YHS conversion method ("trig" by default, or "cordic")
     """
 
-    # LUT numeric ranges shared by load/dump & runtime computation
-    _DELTA_Y_RANGE = DELTA_Y_MAX - DELTA_Y_MIN + 1  # 256, [-255, 255]
-    _DELTA_S_RANGE = DELTA_S_MAX - DELTA_S_MIN + 1  # 256, [-255, 255]
-    _DELTA_H_RANGE = DELTA_H_MAX - DELTA_H_MIN + 1  # 64, [-64, 64] degrees
-    _GAIN_RANGE = 128  # LUT stores int8 in [-128, 127]; half-range for scaling
     # delta scaling factors per mode
-    _DELTA_MODE_SCALE = {
-        "rk": {"y": 0.25, "s": 0.25, "h": 1.0},
-        "evideo": {"y": 1.0, "s": 1.0, "h": 1.0},
-    }
+    _DELTA_MODE_SCALE = {"rk": {"y": 0.25, "s": 0.25, "h": 1.0}, "evideo": {"y": 1.0, "s": 1.0, "h": 1.0}}
+    _CVT_METHODS = ("trig", "cordic", "hsv")
 
-    def __init__(self, len_y: int = 9, len_s: int = 13, len_h: int = 65, len_h2: int = 0,
-                 delta_mode: str = "rk", yuv_method: str = "trig"):
+    def __init__(
+        self,
+        len_y: int = 9,
+        len_s: int = 13,
+        len_h: int = 65,
+        len_hd: int = 0,
+        delta_mode: str = "rk",
+        cvt_method: str = "trig",
+    ):
         # --- mode / method ---
         assert delta_mode in self._DELTA_MODE_SCALE, f"unknown delta_mode: {delta_mode}"
-        assert yuv_method in ("trig", "cordic"), f"unknown yuv_method: {yuv_method}"
+        assert cvt_method in self._CVT_METHODS, f"unknown cvt_method: {cvt_method}"
         self.delta_mode = delta_mode
-        self.yuv_method = yuv_method
+        self.cvt_method = cvt_method
 
         # --- gains ---
         self.gain_y = 256  # [0, (256), 1023], 8bit fixed
         self.gain_s = 256
         self.gain_h = 256
+        self.offset_wr = 256
+        self.offset_wg = 256
+        self.offset_wb = 256
 
         self.rand_seed = -1
         self.b_lut_ready = False
 
-        # --- default length config (canonical) ---
-        self._default_len_y = utl.clamp(len_y, LEN_Y_DEFAULT_MIN, LEN_Y_DEFAULT_MAX)
-        self._default_len_s = utl.clamp(len_s, LEN_S_DEFAULT_MIN, LEN_S_DEFAULT_MAX)
-        self._default_len_h = utl.clamp(len_h, LEN_H_DEFAULT_MIN, LEN_H_DEFAULT_MAX)
-        self._default_len_h2 = (self._default_len_h if len_h2 <= 0
-                                else utl.clamp(len_h2, LEN_H_DEFAULT_MIN, self._default_len_h))
-        self._default_step_y = Y_FULL_RANGE / (self._default_len_y - 1)
-        self._default_step_s = S_FULL_RANGE / (self._default_len_s - 1)
-        self._default_step_h = H_FULL_RANGE / (self._default_len_h - 1)
-        self._default_step_h2 = H_FULL_RANGE / (self._default_len_h2 - 1)
+        self._init_lens(len_y, len_s, len_h, len_hd)
+        self._init_luts()
 
-        # --- current length config (runtime, may be resampled) ---
-        self._init_current_len()
-
-        # --- LUT sets (default + current) ---
-        self._init_default_luts()
-        self._init_current_luts()
-
-        self._print_len("default", self._default_len_y, self._default_len_s,
-                        self._default_len_h, self._default_len_h2)
-        self._print_len("current", self.len_y, self.len_s, self.len_h, self.len_h2)
-        print(f"[ACM] delta_mode={self.delta_mode}, yuv_method={self.yuv_method}")
+        self._print_len("default", self._default_len_y, self._default_len_s, self._default_len_h, self._default_len_hd)
+        self._print_len("current", self.len_y, self.len_s, self.len_h, self.len_hd)
+        print(f"[ACM] delta_mode={self.delta_mode}, cvt_method={self.cvt_method}")
 
     # ------------------------------------------------------------------
     # length / LUT init helpers
     # ------------------------------------------------------------------
-    def _init_current_len(self):
+    def _init_lens(self, len_y: int, len_s: int, len_h: int, len_hd: int = 0) -> None:
+        # --- default length config (canonical) ---
+        self._default_len_y = utl.clamp(len_y, ACM_LEN_Y_MIN, ACM_LEN_Y_MAX)
+        self._default_len_s = utl.clamp(len_s, ACM_LEN_S_MIN, ACM_LEN_S_MAX)
+        self._default_len_h = utl.clamp(len_h, ACM_LEN_H_MIN, ACM_LEN_H_MAX)
+        self._default_len_hd = (
+            self._default_len_h if len_hd <= 0 else utl.clamp(len_hd, ACM_LEN_H_MIN, self._default_len_h)
+        )
+
+        # --- current length config (runtime, may be resampled) ---
         self.len_y = self._default_len_y
         self.len_s = self._default_len_s
         self.len_h = self._default_len_h
-        self.len_h2 = self._default_len_h2
-        self.step_y = self._default_step_y
-        self.step_s = self._default_step_s
-        self.step_h = self._default_step_h
-        self.step_h2 = self._default_step_h2
+        self.len_hd = self._default_len_hd
 
-    def _init_default_luts(self):
+    def _init_luts(self) -> None:
         self._default_lut_delta_ybyh = np.zeros(self._default_len_h, dtype=np.int16)
         self._default_lut_delta_sbyh = np.zeros(self._default_len_h, dtype=np.int16)
         self._default_lut_delta_hbyh = np.zeros(self._default_len_h, dtype=np.int16)
-        for name in LUT_2D_Y_NAMES:
-            setattr(self, f"_default_{name}",
-                    np.ones((self._default_len_h2, self._default_len_y), dtype=np.int8) * 127)
-        for name in LUT_2D_S_NAMES:
-            setattr(self, f"_default_{name}",
-                    np.ones((self._default_len_h2, self._default_len_s), dtype=np.int8) * 127)
-
-    def _init_current_luts(self):
         self.lut_delta_ybyh = self._default_lut_delta_ybyh.copy()
         self.lut_delta_sbyh = self._default_lut_delta_sbyh.copy()
         self.lut_delta_hbyh = self._default_lut_delta_hbyh.copy()
+
         for name in LUT_2D_Y_NAMES:
-            setattr(self, f"lut_{name}",
-                    getattr(self, f"_default_{name}").copy())
+            setattr(self, f"_default_{name}", np.ones((self._default_len_hd, self._default_len_y), dtype=np.int8) * 127)
+            setattr(self, f"lut_{name}", getattr(self, f"_default_{name}").copy())
         for name in LUT_2D_S_NAMES:
-            setattr(self, f"lut_{name}",
-                    getattr(self, f"_default_{name}").copy())
+            setattr(self, f"_default_{name}", np.ones((self._default_len_hd, self._default_len_s), dtype=np.int8) * 127)
+            setattr(self, f"lut_{name}", getattr(self, f"_default_{name}").copy())
         self.b_lut_ready = True
 
     @staticmethod
-    def _print_len(tag, y, s, h, h2):
-        print(f"[ACM] {tag} lut len: y={y}, s={s}, h={h}, h2={h2}")
+    def _print_len(tag: str, y: int, s: int, h: int, hd: int) -> None:
+        print(f"[ACM] {tag} lut len: y={y}, s={s}, h={h}, hd={hd}")
 
     # ------------------------------------------------------------------
     # public configuration setters
     # ------------------------------------------------------------------
-    def set_len(self, len_y: int, len_s: int, len_h: int, len_h2: int = 0,
-                kernel: np.ndarray = None):
+    def set_len(self, len_y: int, len_s: int, len_h: int, len_hd: int = 0, kernel: np.ndarray = None) -> None:
         """Change current LUT length. Resamples from default set using bicubic."""
-        self.len_y = utl.clamp(len_y, LEN_Y_MIN, LEN_Y_MAX)
-        self.len_s = utl.clamp(len_s, LEN_S_MIN, LEN_S_MAX)
-        self.len_h = utl.clamp(len_h, LEN_H_MIN, LEN_H_MAX)
-        self.len_h2 = (self.len_h if len_h2 <= 0
-                       else utl.clamp(len_h2, LEN_H2_MIN, self.len_h))
-        self.step_y = Y_FULL_RANGE / (self.len_y - 1)
-        self.step_s = S_FULL_RANGE / (self.len_s - 1)
-        self.step_h = H_FULL_RANGE / (self.len_h - 1)
-        self.step_h2 = H_FULL_RANGE / (self.len_h2 - 1)
-        print(f"[ACM] set current lut len: y={self.len_y}, s={self.len_s}, "
-              f"h={self.len_h}, h2={self.len_h2}")
+        self.len_y = utl.clamp(len_y, ACM_LEN_Y_MIN, ACM_LEN_Y_MAX)
+        self.len_s = utl.clamp(len_s, ACM_LEN_S_MIN, ACM_LEN_S_MAX)
+        self.len_h = utl.clamp(len_h, ACM_LEN_H_MIN, ACM_LEN_H_MAX)
+        self.len_hd = self.len_h if len_hd <= 0 else utl.clamp(len_hd, ACM_LEN_HD_MIN, self.len_h)
+
+        print(f"[ACM] set current lut len: y={self.len_y}, s={self.len_s}, h={self.len_h}, hd={self.len_hd}")
         self._resample_default_to_current(kernel, method="bicubic")
 
-    def set_step(self, step_y: float, step_s: float, step_h: float, step_h2: float = 0.0,
-                 kernel: np.ndarray = None):
-        self.step_y = utl.clamp(step_y, 2.0, Y_FULL_RANGE / (LEN_Y_MIN - 1))
-        self.step_s = utl.clamp(step_s, 2.0, S_FULL_RANGE / (LEN_S_MIN - 1))
-        self.step_h = utl.clamp(step_h, 2.0, H_FULL_RANGE / (LEN_H_MIN - 1))
-        self.step_h2 = self.step_h if step_h2 <= 0.0 else min(
-            H_FULL_RANGE / (LEN_H_MIN - 1), max(step_h2, step_h))
-        self.len_y = round(Y_FULL_RANGE / self.step_y) + 1
-        self.len_s = round(S_FULL_RANGE / self.step_s) + 1
-        self.len_h = round(H_FULL_RANGE / self.step_h) + 1
-        self.len_h2 = round(H_FULL_RANGE / self.step_h2) + 1
-        print(f"[ACM] set current lut step: y={self.step_y:.4f}, s={self.step_s:.4f}, "
-              f"h={self.step_h:.4f}, h2={self.step_h2:.4f}")
+    def set_step(
+        self, step_y: float, step_s: float, step_h: float, step_h2: float = 0.0, kernel: np.ndarray = None
+    ) -> None:
+        step_y = utl.clamp(step_y, 1.0, Y_FULL_RANGE / (ACM_LEN_Y_MIN - 1))
+        step_s = utl.clamp(step_s, 1.0, S_FULL_RANGE / (ACM_LEN_S_MIN - 1))
+        step_h = utl.clamp(step_h, 1.0, H_FULL_RANGE / (ACM_LEN_H_MIN - 1))
+        step_hd = step_h if step_h2 <= 0.0 else min(H_FULL_RANGE / (ACM_LEN_H_MIN - 1), max(step_h2, step_h))
+        self.len_y = round(Y_FULL_RANGE / step_y) + 1
+        self.len_s = round(S_FULL_RANGE / step_s) + 1
+        self.len_h = round(H_FULL_RANGE / step_h) + 1
+        self.len_hd = round(H_FULL_RANGE / step_hd) + 1
+        print(f"[ACM] set current lut step: y={step_y:.2f}, s={step_s:.2f}, h={step_h:. f}, hd={step_hd:.4f}")
+        self._print_len("current", self.len_y, self.len_s, self.len_h, self.len_hd)
         self._resample_default_to_current(kernel, method="bicubic")
 
-    def set_gain(self, gain_y: int, gain_s: int, gain_h: int):
+    def set_global_gains(self, gain_y: int, gain_s: int, gain_h: int) -> None:
         self.gain_y = gain_y
         self.gain_s = gain_s
         self.gain_h = gain_h
-        print(f"[ACM] set lut gain: y={self.gain_y}, s={self.gain_s}, h={self.gain_h}")
+        print(f"[ACM] set global gains: y={self.gain_y}, s={self.gain_s}, h={self.gain_h}")
 
-    def set_delta_mode(self, mode: str):
+    def set_delta_mode(self, mode: str) -> None:
         """Switch delta mapping mode ("rk" or "evideo")."""
         if mode not in self._DELTA_MODE_SCALE:
             raise ValueError(f"unknown delta_mode: {mode}, expect one of {list(self._DELTA_MODE_SCALE)}")
         self.delta_mode = mode
         print(f"[ACM] set delta_mode: {self.delta_mode}")
 
-    def set_yuv_method(self, method: str):
+    def set_cvt_method(self, method: str) -> None:
         """Switch YUV<=>YHS conversion method ("trig" or "cordic")."""
-        if method not in ("trig", "cordic"):
-            raise ValueError(f"unknown yuv_method: {method}, expect 'trig' or 'cordic'")
-        self.yuv_method = method
-        print(f"[ACM] set yuv_method: {self.yuv_method}")
+        if method not in self._CVT_METHODS:
+            raise ValueError(f"unknown cvt_method: {method}, expect 'trig'/'cordic'/'hsv'")
+        self.cvt_method = method
+        print(f"[ACM] set cvt_method: {self.cvt_method}")
 
     # ------------------------------------------------------------------
     # resampling between default <-> current
     # ------------------------------------------------------------------
-    def _resample_default_to_current(self, kernel: np.ndarray = None, method: str = "bicubic"):
+    def _resample_default_to_current(self, kernel: np.ndarray = None, method: str = "bicubic") -> None:
         """Resample default LUTs into the current length config."""
         resample_1d = bicubic_resize_array_1d if method == "bicubic" else linear_resize_array_1d
         resample_2d = bicubic_resize_array_2d if method == "bicubic" else linear_resize_array_2d
 
         if self._default_lut_delta_ybyh.shape[0] != self.len_h:
-            self.lut_delta_ybyh = np.clip(resample_1d(
-                self._default_lut_delta_ybyh, self.len_h),
-                DELTA_Y_MIN, DELTA_Y_MAX).astype(np.int16)
-            self.lut_delta_sbyh = np.clip(resample_1d(
-                self._default_lut_delta_sbyh, self.len_h),
-                DELTA_S_MIN, DELTA_S_MAX).astype(np.int16)
-            self.lut_delta_hbyh = np.clip(resample_1d(
-                self._default_lut_delta_hbyh, self.len_h),
-                DELTA_H_MIN, DELTA_H_MAX).astype(np.int16)
+            self.lut_delta_ybyh = np.clip(
+                resample_1d(self._default_lut_delta_ybyh, self.len_h), ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX
+            ).astype(np.int16)
+            self.lut_delta_sbyh = np.clip(
+                resample_1d(self._default_lut_delta_sbyh, self.len_h), ACM_DELTA_S_MIN, ACM_DELTA_S_MAX
+            ).astype(np.int16)
+            self.lut_delta_hbyh = np.clip(
+                resample_1d(self._default_lut_delta_hbyh, self.len_h), ACM_DELTA_H_MIN, ACM_DELTA_H_MAX
+            ).astype(np.int16)
             print(f"[ACM] resample delta LUT: {self._default_len_h} => {self.len_h} ({method})")
 
         for name in LUT_2D_Y_NAMES:
             default_lut = getattr(self, f"_default_{name}")
-            if default_lut.shape != (self.len_h2, self.len_y):
-                new_lut = resample_2d(default_lut, self.len_h2, self.len_y, kernel)
+            if default_lut.shape != (self.len_hd, self.len_y):
+                new_lut = resample_2d(default_lut, self.len_hd, self.len_y, kernel)
                 setattr(self, f"lut_{name}", new_lut)
                 print(f"[ACM] resample {name}: {default_lut.shape} => {new_lut.shape} ({method})")
         for name in LUT_2D_S_NAMES:
             default_lut = getattr(self, f"_default_{name}")
-            if default_lut.shape != (self.len_h2, self.len_s):
-                new_lut = resample_2d(default_lut, self.len_h2, self.len_s, kernel)
+            if default_lut.shape != (self.len_hd, self.len_s):
+                new_lut = resample_2d(default_lut, self.len_hd, self.len_s, kernel)
                 setattr(self, f"lut_{name}", new_lut)
                 print(f"[ACM] resample {name}: {default_lut.shape} => {new_lut.shape} ({method})")
 
-    def sync_to_default(self):
+    def sync_to_default(self) -> None:
         """Resample current LUTs back to the default length config.
 
         Useful when the user has edited the current LUTs in-place at a custom
@@ -404,17 +425,16 @@ class AcmImplBase:
         """
         # 1D delta LUTs
         if self._default_lut_delta_ybyh.shape[0] != self.lut_delta_ybyh.shape[0]:
-            self._default_lut_delta_ybyh = np.clip(bicubic_resize_array_1d(
-                self.lut_delta_ybyh, self._default_len_h),
-                DELTA_Y_MIN, DELTA_Y_MAX).astype(np.int16)
-            self._default_lut_delta_sbyh = np.clip(bicubic_resize_array_1d(
-                self.lut_delta_sbyh, self._default_len_h),
-                DELTA_S_MIN, DELTA_S_MAX).astype(np.int16)
-            self._default_lut_delta_hbyh = np.clip(bicubic_resize_array_1d(
-                self.lut_delta_hbyh, self._default_len_h),
-                DELTA_H_MIN, DELTA_H_MAX).astype(np.int16)
-            print(f"[ACM] sync delta LUT to default: {self.lut_delta_ybyh.shape[0]} "
-                  f"=> {self._default_len_h}")
+            self._default_lut_delta_ybyh = np.clip(
+                bicubic_resize_array_1d(self.lut_delta_ybyh, self._default_len_h), ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX
+            ).astype(np.int16)
+            self._default_lut_delta_sbyh = np.clip(
+                bicubic_resize_array_1d(self.lut_delta_sbyh, self._default_len_h), ACM_DELTA_S_MIN, ACM_DELTA_S_MAX
+            ).astype(np.int16)
+            self._default_lut_delta_hbyh = np.clip(
+                bicubic_resize_array_1d(self.lut_delta_hbyh, self._default_len_h), ACM_DELTA_H_MIN, ACM_DELTA_H_MAX
+            ).astype(np.int16)
+            print(f"[ACM] sync delta LUT to default: {self.lut_delta_ybyh.shape[0]} " f"=> {self._default_len_h}")
         else:
             self._default_lut_delta_ybyh = self.lut_delta_ybyh.copy()
             self._default_lut_sbyh = self.lut_delta_sbyh.copy()
@@ -425,26 +445,34 @@ class AcmImplBase:
             current = getattr(self, f"lut_{name}")
             default_lut = getattr(self, f"_default_{name}")
             if current.shape != default_lut.shape:
-                setattr(self, f"_default_{name}",
-                        bicubic_resize_array_2d(current, default_lut.shape[0], default_lut.shape[1]))
+                setattr(
+                    self,
+                    f"_default_{name}",
+                    bicubic_resize_array_2d(current, default_lut.shape[0], default_lut.shape[1]),
+                )
         for name in LUT_2D_S_NAMES:
             current = getattr(self, f"lut_{name}")
             default_lut = getattr(self, f"_default_{name}")
             if current.shape != default_lut.shape:
-                setattr(self, f"_default_{name}",
-                        bicubic_resize_array_2d(current, default_lut.shape[0], default_lut.shape[1]))
+                setattr(
+                    self,
+                    f"_default_{name}",
+                    bicubic_resize_array_2d(current, default_lut.shape[0], default_lut.shape[1]),
+                )
 
     # ------------------------------------------------------------------
     # YUV <-> YHS conversion helpers
     # ------------------------------------------------------------------
-    def _cbcr_to_hs(self, cb, cr, depth_uv: int, use_cordic: bool):
+    def _cbcr_to_hs(
+        self, cb: np.ndarray, cr: np.ndarray, depth_uv: int, use_cordic: bool
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Convert signed Cb/Cr to H (deg in [0, 360)), S and H (rad in [-pi, pi]).
 
         When use_cordic is True, h_rad is None (cordic path uses h_deg directly).
         """
         if use_cordic:
             h, s, _, _ = cordic.cordic_cbcr2hs(cb, cr, depth_uv, 13, 8, False)
-            h_deg = h + 180
+            h_deg = (h + 180) % 360
             return s, h_deg, None
         s = (np.sqrt(cb * cb + cr * cr) + 0.5).astype(np.int32)
         h_rad = np.arctan2(cr, cb)  # [-pi, pi]
@@ -452,110 +480,168 @@ class AcmImplBase:
         return s, h_deg, h_rad
 
     def _use_cordic(self) -> bool:
-        return self.yuv_method == "cordic"
+        return self.cvt_method == "cordic"
 
     # ------------------------------------------------------------------
     # ACM processing
     # ------------------------------------------------------------------
-    def do_acm_u8(self, yuv444p_in: np.ndarray, use_cordic: bool = None):
+    def do_acm_u8(self, yuv444p_in: np.ndarray, use_cordic: bool = None) -> np.ndarray:
         """Apply ACM to an 8bit YUV444p image. Returns YUV444p uint8."""
         print("[ACM] doing ACM LUT for u8 image...")
         if use_cordic is None:
             use_cordic = self._use_cordic()
 
-        H, W, _ = yuv444p_in.shape
         y = yuv444p_in[:, :, 0].astype(np.int32)
         cb = yuv444p_in[:, :, 1].astype(np.int32) - 128
         cr = yuv444p_in[:, :, 2].astype(np.int32) - 128
         s, h_deg, h_rad = self._cbcr_to_hs(cb, cr, depth_uv=8, use_cordic=use_cordic)
 
-        yuv444p_out = self._do_acm(y, cb, cr, s, h_deg, h_rad,
-                                   depth_uv=8, y_range=256, cbcr_center=128,
-                                   use_cordic=use_cordic)
+        yuv444p_out = self._do_acm(
+            y, cb, cr, s, h_deg, h_rad, depth_uv=8, y_range=256, cbcr_center=128, use_cordic=use_cordic
+        )
         print("[ACM] do ACM LUT for u8 image done.")
         return yuv444p_out
 
-    def do_acm_u10(self, yuv444p_in: np.ndarray, use_cordic: bool = None):
+    def do_acm_u10(self, yuv444p_in: np.ndarray, use_cordic: bool = None) -> np.ndarray:
         """Apply ACM to a 10bit YUV444p image. Returns YUV444p uint16.
 
         10bit convention: full range [0, 1023], Cb/Cr center 512, S range
-        [0, 724].  Delta ranges are kept identical to the 8bit path (S23
-        bit-width), the final Y/Cb/Cr are clipped to the 10bit range so the
-        result is equivalent to running on 8bit data and shifting by 2.
+        [0, 724].  The LUT is stored in the 8bit reference domain; ``_do_acm``
+        re-scales delta_y by ``y_max / Y_FULL_RANGE`` and delta_s by
+        ``s_max / S_FULL_RANGE`` so that the LUT entry semantics carry over
+        consistently across bit depths (1x LUT value = 1x of the current
+        input range, then multiplied by ``scl`` from the delta mode).
         """
         print("[ACM] doing ACM LUT for u10 image...")
         if use_cordic is None:
             use_cordic = self._use_cordic()
 
         assert yuv444p_in.dtype == np.uint16, "do_acm_u10 expects uint16 input"
-        H, W, _ = yuv444p_in.shape
         y = yuv444p_in[:, :, 0].astype(np.int32)
         cb = yuv444p_in[:, :, 1].astype(np.int32) - 512
         cr = yuv444p_in[:, :, 2].astype(np.int32) - 512
         s, h_deg, h_rad = self._cbcr_to_hs(cb, cr, depth_uv=10, use_cordic=use_cordic)
 
-        yuv444p_out = self._do_acm(y, cb, cr, s, h_deg, h_rad,
-                                   depth_uv=10, y_range=1024, cbcr_center=512,
-                                   use_cordic=use_cordic)
+        yuv444p_out = self._do_acm(
+            y, cb, cr, s, h_deg, h_rad, depth_uv=10, y_range=1024, cbcr_center=512, use_cordic=use_cordic
+        )
         print("[ACM] do ACM LUT for u10 image done.")
         return yuv444p_out
 
-    def _do_acm(self, y, cb, cr, s, h_deg, h_rad, depth_uv, y_range, cbcr_center, use_cordic):
+    def _do_acm(
+        self,
+        y: np.ndarray,
+        cb: np.ndarray,
+        cr: np.ndarray,
+        s: np.ndarray,
+        h_deg: np.ndarray,
+        h_rad: np.ndarray,
+        depth_uv: int,
+        y_range: int,
+        cbcr_center: int,
+        use_cordic: bool,
+    ) -> np.ndarray:
         # depth-dependent full-scale ranges
         # u8:  Y in [0,255], S in [0,181];  u10: Y in [0,1023], S in [0,724]
         y_max = float(y_range - 1)
         s_max = 181.0 if depth_uv == 8 else 724.0
+        h_max = 360
 
         # mode-dependent scale (delta_y *= 0.25 for rk mode, *1.0 for evideo)
         scl = self._DELTA_MODE_SCALE[self.delta_mode]
 
+        # SW method: apply global gains to delta tables first. I don't think it's a good idea.
         local_lut_delta_ybyh = round_rshift(self.lut_delta_ybyh.astype(np.int32) * self.gain_y, 8)
         local_lut_delta_sbyh = round_rshift(self.lut_delta_sbyh.astype(np.int32) * self.gain_s, 8)
         local_lut_delta_hbyh = round_rshift(self.lut_delta_hbyh.astype(np.int32) * self.gain_h, 8)
-        local_lut_delta_ybyh = np.clip(local_lut_delta_ybyh, DELTA_Y_MIN, DELTA_Y_MAX)
-        local_lut_delta_sbyh = np.clip(local_lut_delta_sbyh, DELTA_S_MIN, DELTA_S_MAX)
-        local_lut_delta_hbyh = np.clip(local_lut_delta_hbyh, DELTA_H_MIN, DELTA_H_MAX)
+        local_lut_delta_ybyh = np.clip(local_lut_delta_ybyh, ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX)
+        local_lut_delta_sbyh = np.clip(local_lut_delta_sbyh, ACM_DELTA_S_MIN, ACM_DELTA_S_MAX)
+        local_lut_delta_hbyh = np.clip(local_lut_delta_hbyh, ACM_DELTA_H_MIN, ACM_DELTA_H_MAX)
 
-        idx_y = y.astype(np.float32) / (y_max / (self.len_y - 1)) if self.len_y > 1 else np.zeros_like(y, dtype=np.float32)
-        idx_s = s.astype(np.float32) / (s_max / (self.len_s - 1)) if self.len_s > 1 else np.zeros_like(s, dtype=np.float32)
-        idx_h = h_deg.astype(np.float32) / self.step_h
-        idx_h2 = h_deg.astype(np.float32) / self.step_h2
+        idx_y = y.astype(np.float32) / y_max * (self.len_y - 1)
+        idx_s = s.astype(np.float32) / s_max * (self.len_s - 1)
+        idx_h = h_deg.astype(np.float32) / h_max * (self.step_h - 1)
+        idx_h2 = h_deg.astype(np.float32) / h_max * (self.step_hd - 1)
 
-        # NOTE: cv2.remap does not support int32 for bilinear interpolation
+        # NOTE: cv2.remap does not support int32 for bilinear interpolation.
+        # The LUT values are stored in the 8bit reference domain: delta_y in
+        # [-Y_FULL_RANGE, Y_FULL_RANGE] and delta_s in [-S_FULL_RANGE,
+        # S_FULL_RANGE]. We interpret the LUT as a ratio relative to the 8bit
+        # input range and re-scale by the current bit depth's y_max / s_max so
+        # that "1x LUT value" == "1x of the current input range". Combined
+        # with ``scl`` this yields:
+        #   * rk    + 8bit:  delta_y in [-Y_FULL_RANGE/4,  Y_FULL_RANGE/4]
+        #                    delta_s in [-S_FULL_RANGE/4,  S_FULL_RANGE/4]
+        #   * rk    + 10bit: delta_y in [-y_max_10bit/4,   y_max_10bit/4]
+        #                    delta_s in [-s_max_10bit/4,   s_max_10bit/4]
+        #   * evideo+ 8bit:  delta_y in [-Y_FULL_RANGE,   Y_FULL_RANGE]
+        #                    delta_s in [-S_FULL_RANGE,   S_FULL_RANGE]
+        #   * evideo+ 10bit: delta_y in [-y_max_10bit,    y_max_10bit]
+        #                    delta_s in [-s_max_10bit,    s_max_10bit]
         idx_zeros = np.zeros_like(idx_h)
         delta_y = cv2.remap(
-            local_lut_delta_ybyh.astype(np.float32) * scl["y"],
-            idx_h, idx_zeros,
+            local_lut_delta_ybyh.astype(np.float32) * scl["y"] * y_max / Y_FULL_RANGE,
+            idx_h,
+            idx_zeros,
             interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE)
+            borderMode=cv2.BORDER_REPLICATE,
+        )
         delta_s = cv2.remap(
-            local_lut_delta_sbyh.astype(np.float32) * scl["s"] / 255.0 * s_max,
-            idx_h, idx_zeros,
+            local_lut_delta_sbyh.astype(np.float32) * scl["s"] * s_max / S_FULL_RANGE,
+            idx_h,
+            idx_zeros,
             interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE)
+            borderMode=cv2.BORDER_REPLICATE,
+        )
         delta_h = cv2.remap(
             local_lut_delta_hbyh.astype(np.float32) * scl["h"],
-            idx_h, idx_zeros,
+            idx_h,
+            idx_zeros,
             interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE)
-        gain_yy = cv2.remap(self.lut_gain_ybyy.astype(np.float32),
-                            idx_y, idx_h2, interpolation=cv2.INTER_LINEAR,
-                            borderMode=cv2.BORDER_REPLICATE)
-        gain_ys = cv2.remap(self.lut_gain_sbyy.astype(np.float32),
-                            idx_y, idx_h2, interpolation=cv2.INTER_LINEAR,
-                            borderMode=cv2.BORDER_REPLICATE)
-        gain_yh = cv2.remap(self.lut_gain_hbyy.astype(np.float32),
-                            idx_y, idx_h2, interpolation=cv2.INTER_LINEAR,
-                            borderMode=cv2.BORDER_REPLICATE)
-        gain_sy = cv2.remap(self.lut_gain_ybys.astype(np.float32),
-                            idx_s, idx_h2, interpolation=cv2.INTER_LINEAR,
-                            borderMode=cv2.BORDER_REPLICATE)
-        gain_ss = cv2.remap(self.lut_gain_sbys.astype(np.float32),
-                            idx_s, idx_h2, interpolation=cv2.INTER_LINEAR,
-                            borderMode=cv2.BORDER_REPLICATE)
-        gain_sh = cv2.remap(self.lut_gain_hbys.astype(np.float32),
-                            idx_s, idx_h2, interpolation=cv2.INTER_LINEAR,
-                            borderMode=cv2.BORDER_REPLICATE)
+            borderMode=cv2.BORDER_REPLICATE,
+        )
+        gain_yy = cv2.remap(
+            self.lut_gain_ybyy.astype(np.float32),
+            idx_y,
+            idx_h2,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )
+        gain_ys = cv2.remap(
+            self.lut_gain_sbyy.astype(np.float32),
+            idx_y,
+            idx_h2,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )
+        gain_yh = cv2.remap(
+            self.lut_gain_hbyy.astype(np.float32),
+            idx_y,
+            idx_h2,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )
+        gain_sy = cv2.remap(
+            self.lut_gain_ybys.astype(np.float32),
+            idx_s,
+            idx_h2,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )
+        gain_ss = cv2.remap(
+            self.lut_gain_sbys.astype(np.float32),
+            idx_s,
+            idx_h2,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )
+        gain_sh = cv2.remap(
+            self.lut_gain_hbys.astype(np.float32),
+            idx_s,
+            idx_h2,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )
 
         delta_y = (delta_y + np.sign(delta_y) * 0.5).astype(np.int32)
         delta_s = (delta_s + np.sign(delta_s) * 0.5).astype(np.int32)
@@ -599,7 +685,7 @@ class AcmImplBase:
     # ------------------------------------------------------------------
     # load_json / dump_json
     # ------------------------------------------------------------------
-    def load_json(self, filename: str):
+    def load_json(self, filename: str) -> bool:
         if not os.path.exists(filename):
             print(f"[ACM] config file '{filename}' doesn't exist!")
             return False
@@ -610,7 +696,7 @@ class AcmImplBase:
         len_y = 9
         len_s = 13
         len_h = 65
-        len_h2 = 65
+        len_hd = 65
         lut2dAxis4HD = 0
 
         ## read json config
@@ -641,27 +727,29 @@ class AcmImplBase:
                 ## guess lut length from the file
                 len_h = data["lutLengthH"] if "lutLengthH" in data else len(lut_delta_ybyh)
                 if len(lut_gain_ybyy) == 65 * 9 and len(lut_gain_ybys) == 65 * 13:
-                    len_y, len_s, len_h2 = 9, 13, 65
+                    len_y, len_s, len_hd = 9, 13, 65
                 elif len(lut_gain_ybyy) == 17 * 9 and len(lut_gain_ybys) == 17 * 13:
-                    len_y, len_s, len_h2 = 9, 13, 17
+                    len_y, len_s, len_hd = 9, 13, 17
                 elif all(k in data for k in ("lutLengthY", "lutLengthS", "lutLengthHD")):
                     len_y = data["lutLengthY"]
                     len_s = data["lutLengthS"]
-                    len_h2 = data["lutLengthHD"]
+                    len_hd = data["lutLengthHD"]
                 else:
-                    print("WARNING: unknown len_y/s/h2 !!! use default value.")
+                    print("WARNING: unknown len_y/s/hd !!! use default value.")
 
                 if lut2dAxis4HD:
-                    lut_gain_ybyy = lut_gain_ybyy.reshape(len_y, len_h2).T
-                    lut_gain_sbyy = lut_gain_sbyy.reshape(len_y, len_h2).T
-                    lut_gain_hbyy = lut_gain_hbyy.reshape(len_y, len_h2).T
-                    lut_gain_ybys = lut_gain_ybys.reshape(len_s, len_h2).T
-                    lut_gain_sbys = lut_gain_sbys.reshape(len_s, len_h2).T
-                    lut_gain_hbys = lut_gain_hbys.reshape(len_s, len_h2).T
+                    lut_gain_ybyy = lut_gain_ybyy.reshape(len_y, len_hd).T
+                    lut_gain_sbyy = lut_gain_sbyy.reshape(len_y, len_hd).T
+                    lut_gain_hbyy = lut_gain_hbyy.reshape(len_y, len_hd).T
+                    lut_gain_ybys = lut_gain_ybys.reshape(len_s, len_hd).T
+                    lut_gain_sbys = lut_gain_sbys.reshape(len_s, len_hd).T
+                    lut_gain_hbys = lut_gain_hbys.reshape(len_s, len_hd).T
+
+
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]
-            print(f"[ACM] load config '{filename}' failed in "
-                  f"'{os.path.basename(tb.filename)}'-{tb.lineno}: {e}")
+            print(f"[ACM] load config '{filename}' failed in " f"'{os.path.basename(tb.filename)}'-{tb.lineno}: {e}")
+            return False
 
         ## shape validations
         if len(lut_delta_ybyh) != len_h:
@@ -670,29 +758,29 @@ class AcmImplBase:
             raise ValueError(f"length of lut_delta_sbyh({len(lut_delta_sbyh)}) != len_h({len_h})!")
         if len(lut_delta_hbyh) != len_h:
             raise ValueError(f"length of lut_delta_hbyh({len(lut_delta_hbyh)}) != len_h({len_h})!")
-        if len(lut_gain_ybyy) != len_h2 * len_y:
-            raise ValueError(f"length of lut_gain_ybyy({len(lut_gain_ybyy)}) != len_h2({len_h2}) x len_y({len_y})!")
-        if len(lut_gain_sbyy) != len_h2 * len_y:
-            raise ValueError(f"length of lut_gain_sbyy({len(lut_gain_sbyy)}) != len_h2({len_h2}) x len_y({len_y})!")
-        if len(lut_gain_hbyy) != len_h2 * len_y:
-            raise ValueError(f"length of lut_gain_hbyy({len(lut_gain_hbyy)}) != len_h2({len_h2}) x len_y({len_y})!")
-        if len(lut_gain_ybys) != len_h2 * len_s:
-            raise ValueError(f"length of lut_gain_ybys({len(lut_gain_ybys)}) != len_h2({len_h2}) x len_s({len_s})!")
-        if len(lut_gain_sbys) != len_h2 * len_s:
-            raise ValueError(f"length of lut_gain_sbys({len(lut_gain_sbys)}) != len_h2({len_h2}) x len_s({len_s})!")
-        if len(lut_gain_hbys) != len_h2 * len_s:
-            raise ValueError(f"length of lut_gain_hbys({len(lut_gain_hbys)}) != len_h2({len_h2}) x len_s({len_s})!")
+        if len(lut_gain_ybyy) != len_hd * len_y:
+            raise ValueError(f"length of lut_gain_ybyy({len(lut_gain_ybyy)}) != len_hd({len_hd}) x len_y({len_y})!")
+        if len(lut_gain_sbyy) != len_hd * len_y:
+            raise ValueError(f"length of lut_gain_sbyy({len(lut_gain_sbyy)}) != len_hd({len_hd}) x len_y({len_y})!")
+        if len(lut_gain_hbyy) != len_hd * len_y:
+            raise ValueError(f"length of lut_gain_hbyy({len(lut_gain_hbyy)}) != len_hd({len_hd}) x len_y({len_y})!")
+        if len(lut_gain_ybys) != len_hd * len_s:
+            raise ValueError(f"length of lut_gain_ybys({len(lut_gain_ybys)}) != len_hd({len_hd}) x len_s({len_s})!")
+        if len(lut_gain_sbys) != len_hd * len_s:
+            raise ValueError(f"length of lut_gain_sbys({len(lut_gain_sbys)}) != len_hd({len_hd}) x len_s({len_s})!")
+        if len(lut_gain_hbys) != len_hd * len_s:
+            raise ValueError(f"length of lut_gain_hbys({len(lut_gain_hbys)}) != len_hd({len_hd}) x len_s({len_s})!")
 
-        lut_gain_ybyy = lut_gain_ybyy.reshape(len_h2, len_y)
-        lut_gain_sbyy = lut_gain_sbyy.reshape(len_h2, len_y)
-        lut_gain_hbyy = lut_gain_hbyy.reshape(len_h2, len_y)
-        lut_gain_ybys = lut_gain_ybys.reshape(len_h2, len_s)
-        lut_gain_sbys = lut_gain_sbys.reshape(len_h2, len_s)
-        lut_gain_hbys = lut_gain_hbys.reshape(len_h2, len_s)
+        lut_gain_ybyy = lut_gain_ybyy.reshape(len_hd, len_y)
+        lut_gain_sbyy = lut_gain_sbyy.reshape(len_hd, len_y)
+        lut_gain_hbyy = lut_gain_hbyy.reshape(len_hd, len_y)
+        lut_gain_ybys = lut_gain_ybys.reshape(len_hd, len_s)
+        lut_gain_sbys = lut_gain_sbys.reshape(len_hd, len_s)
+        lut_gain_hbys = lut_gain_hbys.reshape(len_hd, len_s)
 
         ## resample the loaded LUTs to the default length (if they differ)
         target_h = self._default_len_h
-        target_h2 = self._default_len_h2
+        target_h2 = self._default_len_hd
         target_y = self._default_len_y
         target_s = self._default_len_s
 
@@ -714,25 +802,24 @@ class AcmImplBase:
             lut_gain_hbys = linear_resize_array_2d(lut_gain_hbys, target_h2, target_s)
 
         ## write into default set, then propagate to current set (uses bicubic)
-        self._default_lut_delta_ybyh = np.clip(lut_delta_ybyh, DELTA_Y_MIN, DELTA_Y_MAX).astype(np.int16)
-        self._default_lut_delta_sbyh = np.clip(lut_delta_sbyh, DELTA_S_MIN, DELTA_S_MAX).astype(np.int16)
-        self._default_lut_delta_hbyh = np.clip(lut_delta_hbyh, DELTA_H_MIN, DELTA_H_MAX).astype(np.int16)
-        self._default_lut_gain_ybyy = np.clip(lut_gain_ybyy, GAIN_MIN, GAIN_MAX).astype(np.int8)
-        self._default_lut_gain_sbyy = np.clip(lut_gain_sbyy, GAIN_MIN, GAIN_MAX).astype(np.int8)
-        self._default_lut_gain_hbyy = np.clip(lut_gain_hbyy, GAIN_MIN, GAIN_MAX).astype(np.int8)
-        self._default_lut_gain_ybys = np.clip(lut_gain_ybys, GAIN_MIN, GAIN_MAX).astype(np.int8)
-        self._default_lut_gain_sbys = np.clip(lut_gain_sbys, GAIN_MIN, GAIN_MAX).astype(np.int8)
-        self._default_lut_gain_hbys = np.clip(lut_gain_hbys, GAIN_MIN, GAIN_MAX).astype(np.int8)
+        self._default_lut_delta_ybyh = np.clip(lut_delta_ybyh, ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX).astype(np.int16)
+        self._default_lut_delta_sbyh = np.clip(lut_delta_sbyh, ACM_DELTA_S_MIN, ACM_DELTA_S_MAX).astype(np.int16)
+        self._default_lut_delta_hbyh = np.clip(lut_delta_hbyh, ACM_DELTA_H_MIN, ACM_DELTA_H_MAX).astype(np.int16)
+        self._default_lut_gain_ybyy = np.clip(lut_gain_ybyy, ACM_GAIN_MIN, ACM_GAIN_MAX).astype(np.int8)
+        self._default_lut_gain_sbyy = np.clip(lut_gain_sbyy, ACM_GAIN_MIN, ACM_GAIN_MAX).astype(np.int8)
+        self._default_lut_gain_hbyy = np.clip(lut_gain_hbyy, ACM_GAIN_MIN, ACM_GAIN_MAX).astype(np.int8)
+        self._default_lut_gain_ybys = np.clip(lut_gain_ybys, ACM_GAIN_MIN, ACM_GAIN_MAX).astype(np.int8)
+        self._default_lut_gain_sbys = np.clip(lut_gain_sbys, ACM_GAIN_MIN, ACM_GAIN_MAX).astype(np.int8)
+        self._default_lut_gain_hbys = np.clip(lut_gain_hbys, ACM_GAIN_MIN, ACM_GAIN_MAX).astype(np.int8)
 
         self._resample_default_to_current(method="bicubic")
         self.b_lut_ready = True
         print("[ACM] load config done.")
         return True
 
-    def dump_json(self, filename: str = ""):
+    def dump_json(self, filename: str = "") -> bool:
         data = {
-            "version": (f"acm_impl_var_lut_rand_seed_{self.rand_seed}"
-                        if self.rand_seed > 0 else "acm_impl_var_lut"),
+            "version": (f"acm_impl_var_lut_rand_seed_{self.rand_seed}" if self.rand_seed > 0 else "acm_impl_var_lut"),
             "acmEnable": 1,
             "acmTableDeltaYbyH": utl.NoIndent(self._default_lut_delta_ybyh.flatten().tolist()),
             "acmTableDeltaHbyH": utl.NoIndent(self._default_lut_delta_hbyh.flatten().tolist()),
@@ -749,12 +836,8 @@ class AcmImplBase:
             "lutLengthY": self._default_len_y,
             "lutLengthS": self._default_len_s,
             "lutLengthH": self._default_len_h,
-            "lutLengthHD": self._default_len_h2,
-            "lutStepY": self._default_step_y,
-            "lutStepS": self._default_step_s,
-            "lutStepH": self._default_step_h,
-            "lutStepHD": self._default_step_h2,
-            "lut2dAxis4HD": (0 if self._default_lut_gain_ybyy.shape[0] == self._default_len_h2 else 1),
+            "lutLengthHD": self._default_len_hd,
+            "lut2dAxis4HD": (0 if self._default_lut_gain_ybyy.shape[0] == self._default_len_hd else 1),
         }
 
         nest_data = {"pq_tuning_param": {"acm": data}}
@@ -769,7 +852,7 @@ class AcmImplBase:
                 print(f"[ACM] Config parameters saved to file '{filename}'")
                 return True
 
-    def dump_lut(self, dir: str):
+    def dump_lut(self, dir: str) -> None:
         ## plot delta LUT (use the current set, which reflects runtime edits)
         x = np.arange(self.len_h)
 
@@ -784,39 +867,39 @@ class AcmImplBase:
         plt.grid(True, linestyle=":", alpha=0.7)
         plt.savefig(f"{dir}/lut_delta_yshbyh_x{self.len_h}.png", dpi=600, bbox_inches="tight")
 
-        plt.imsave(f"{dir}/lut_gain_ybyy_{self.len_h2}x{self.len_y}.png", self.lut_gain_ybyy, cmap='gray')
-        plt.imsave(f"{dir}/lut_gain_sbyy_{self.len_h2}x{self.len_y}.png", self.lut_gain_sbyy, cmap='gray')
-        plt.imsave(f"{dir}/lut_gain_hbyy_{self.len_h2}x{self.len_y}.png", self.lut_gain_hbyy, cmap='gray')
-        plt.imsave(f"{dir}/lut_gain_ybys_{self.len_h2}x{self.len_s}.png", self.lut_gain_ybys, cmap='gray')
-        plt.imsave(f"{dir}/lut_gain_sbys_{self.len_h2}x{self.len_s}.png", self.lut_gain_sbys, cmap='gray')
-        plt.imsave(f"{dir}/lut_gain_hbys_{self.len_h2}x{self.len_s}.png", self.lut_gain_hbys, cmap='gray')
+        plt.imsave(f"{dir}/lut_gain_ybyy_{self.len_hd}x{self.len_y}.png", self.lut_gain_ybyy, cmap='gray')
+        plt.imsave(f"{dir}/lut_gain_sbyy_{self.len_hd}x{self.len_y}.png", self.lut_gain_sbyy, cmap='gray')
+        plt.imsave(f"{dir}/lut_gain_hbyy_{self.len_hd}x{self.len_y}.png", self.lut_gain_hbyy, cmap='gray')
+        plt.imsave(f"{dir}/lut_gain_ybys_{self.len_hd}x{self.len_s}.png", self.lut_gain_ybys, cmap='gray')
+        plt.imsave(f"{dir}/lut_gain_sbys_{self.len_hd}x{self.len_s}.png", self.lut_gain_sbys, cmap='gray')
+        plt.imsave(f"{dir}/lut_gain_hbys_{self.len_hd}x{self.len_s}.png", self.lut_gain_hbys, cmap='gray')
 
         plt.close()
         print(f"[ACM] dump LUT images to {dir}.")
 
-    def gen_test_config(self, b_strict: bool = True, random_seed: int = 114514):
+    def gen_test_config(self, b_strict: bool = True, random_seed: int = 114514) -> bool:
         if not self.b_lut_ready:
             return False
 
         np.random.seed(random_seed)
-        tmp_lut_gain_ybyy = np.random.normal(0.0, 64.0, size=(self._default_len_h2, self._default_len_y)) * 16
-        tmp_lut_gain_sbyy = np.random.normal(0.0, 64.0, size=(self._default_len_h2, self._default_len_y)) * 16
-        tmp_lut_gain_hbyy = np.random.normal(0.0, 64.0, size=(self._default_len_h2, self._default_len_y)) * 16
-        tmp_lut_gain_ybys = np.random.normal(0.0, 64.0, size=(self._default_len_h2, self._default_len_s)) * 16
-        tmp_lut_gain_sbys = np.random.normal(0.0, 64.0, size=(self._default_len_h2, self._default_len_s)) * 16
-        tmp_lut_gain_hbys = np.random.normal(0.0, 64.0, size=(self._default_len_h2, self._default_len_s)) * 16
+        tmp_lut_gain_ybyy = np.random.normal(0.0, 64.0, size=(self._default_len_hd, self._default_len_y)) * 16
+        tmp_lut_gain_sbyy = np.random.normal(0.0, 64.0, size=(self._default_len_hd, self._default_len_y)) * 16
+        tmp_lut_gain_hbyy = np.random.normal(0.0, 64.0, size=(self._default_len_hd, self._default_len_y)) * 16
+        tmp_lut_gain_ybys = np.random.normal(0.0, 64.0, size=(self._default_len_hd, self._default_len_s)) * 16
+        tmp_lut_gain_sbys = np.random.normal(0.0, 64.0, size=(self._default_len_hd, self._default_len_s)) * 16
+        tmp_lut_gain_hbys = np.random.normal(0.0, 64.0, size=(self._default_len_hd, self._default_len_s)) * 16
         tmp_lut_gain_ybyy = cv2.GaussianBlur(tmp_lut_gain_ybyy, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
         tmp_lut_gain_sbyy = cv2.GaussianBlur(tmp_lut_gain_sbyy, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
         tmp_lut_gain_hbyy = cv2.GaussianBlur(tmp_lut_gain_hbyy, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
         tmp_lut_gain_ybys = cv2.GaussianBlur(tmp_lut_gain_ybys, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
         tmp_lut_gain_sbys = cv2.GaussianBlur(tmp_lut_gain_sbys, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
         tmp_lut_gain_hbys = cv2.GaussianBlur(tmp_lut_gain_hbys, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
-        self._default_lut_gain_ybyy = np.clip(tmp_lut_gain_ybyy, GAIN_MIN, GAIN_MAX).astype(np.int8)
-        self._default_lut_gain_sbyy = np.clip(tmp_lut_gain_sbyy, GAIN_MIN, GAIN_MAX).astype(np.int8)
-        self._default_lut_gain_hbyy = np.clip(tmp_lut_gain_hbyy, GAIN_MIN, GAIN_MAX).astype(np.int8)
-        self._default_lut_gain_ybys = np.clip(tmp_lut_gain_ybys, GAIN_MIN, GAIN_MAX).astype(np.int8)
-        self._default_lut_gain_sbys = np.clip(tmp_lut_gain_sbys, GAIN_MIN, GAIN_MAX).astype(np.int8)
-        self._default_lut_gain_hbys = np.clip(tmp_lut_gain_hbys, GAIN_MIN, GAIN_MAX).astype(np.int8)
+        self._default_lut_gain_ybyy = np.clip(tmp_lut_gain_ybyy, ACM_GAIN_MIN, ACM_GAIN_MAX).astype(np.int8)
+        self._default_lut_gain_sbyy = np.clip(tmp_lut_gain_sbyy, ACM_GAIN_MIN, ACM_GAIN_MAX).astype(np.int8)
+        self._default_lut_gain_hbyy = np.clip(tmp_lut_gain_hbyy, ACM_GAIN_MIN, ACM_GAIN_MAX).astype(np.int8)
+        self._default_lut_gain_ybys = np.clip(tmp_lut_gain_ybys, ACM_GAIN_MIN, ACM_GAIN_MAX).astype(np.int8)
+        self._default_lut_gain_sbys = np.clip(tmp_lut_gain_sbys, ACM_GAIN_MIN, ACM_GAIN_MAX).astype(np.int8)
+        self._default_lut_gain_hbys = np.clip(tmp_lut_gain_hbys, ACM_GAIN_MIN, ACM_GAIN_MAX).astype(np.int8)
 
         tmp_lut_delta_ybyh = np.random.uniform(-1, 1, self._default_len_h).reshape(1, -1) * 300
         tmp_lut_delta_hbyh = np.random.uniform(-1, 1, self._default_len_h).reshape(1, -1) * 100
@@ -824,9 +907,15 @@ class AcmImplBase:
         tmp_lut_delta_ybyh = cv2.GaussianBlur(tmp_lut_delta_ybyh, ksize=(5, 1), sigmaX=1.0)
         tmp_lut_delta_hbyh = cv2.GaussianBlur(tmp_lut_delta_hbyh, ksize=(5, 1), sigmaX=1.0)
         tmp_lut_delta_sbyh = cv2.GaussianBlur(tmp_lut_delta_sbyh, ksize=(5, 1), sigmaX=1.0)
-        self._default_lut_delta_ybyh = np.clip(tmp_lut_delta_ybyh.flatten(), DELTA_Y_MIN, DELTA_Y_MAX).astype(np.int16)
-        self._default_lut_delta_hbyh = np.clip(tmp_lut_delta_hbyh.flatten(), DELTA_H_MIN, DELTA_H_MAX).astype(np.int16)
-        self._default_lut_delta_sbyh = np.clip(tmp_lut_delta_sbyh.flatten(), DELTA_S_MIN, DELTA_S_MAX).astype(np.int16)
+        self._default_lut_delta_ybyh = np.clip(tmp_lut_delta_ybyh.flatten(), ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX).astype(
+            np.int16
+        )
+        self._default_lut_delta_hbyh = np.clip(tmp_lut_delta_hbyh.flatten(), ACM_DELTA_H_MIN, ACM_DELTA_H_MAX).astype(
+            np.int16
+        )
+        self._default_lut_delta_sbyh = np.clip(tmp_lut_delta_sbyh.flatten(), ACM_DELTA_S_MIN, ACM_DELTA_S_MAX).astype(
+            np.int16
+        )
 
         ## generate S/H LUTs strictly for the bug of VOP_ACM, which means:
         ## 1. LUT[0] = LUT[64], make sure the first and last value are the same (h=-180/+180)
