@@ -95,6 +95,9 @@ class IoUiController:
             self.ui.comboBox_input_colorspace.setCurrentText(default_yuv_clrspc)
             self.ui.comboBox_output_colorspace.setCurrentText(default_yuv_clrspc)
 
+        self.ui.comboBox_output_format.setEnabled(False)
+        self.ui.comboBox_output_colorspace.setEnabled(False)
+
     def _connect_signals(self) -> None:
         """Wire I/O widget signals to internal handlers."""
         self.ui.pushButton_browse_input.clicked.connect(self._on_browse_input)

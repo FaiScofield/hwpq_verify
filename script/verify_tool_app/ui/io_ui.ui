@@ -29,7 +29,11 @@
      <item row="0" column="1">
       <layout class="QHBoxLayout" name="horizontalLayout_input_file">
        <item>
-        <widget class="QLineEdit" name="lineEdit_input_file"/>
+        <widget class="QLineEdit" name="lineEdit_input_file">
+         <property name="text">
+          <string>G:/Project/pq/inputs/512x428_test_image_many_pattern_nv24.yuv</string>
+         </property>
+        </widget>
        </item>
        <item>
         <widget class="QPushButton" name="pushButton_browse_input">

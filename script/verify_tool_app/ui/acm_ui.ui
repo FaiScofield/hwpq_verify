@@ -17,6 +17,26 @@
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout_algo">
      <item>
+      <widget class="QCheckBox" name="checkBox_enable_acm">
+       <property name="text">
+        <string>EnableACM</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer_3">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
       <widget class="QLabel" name="label_algo_type">
        <property name="text">
         <string>Algorithm Type</string>
@@ -136,7 +156,7 @@
         </property>
        </widget>
       </item>
-      <item row="0" column="1">
+      <item row="0" column="2">
        <widget class="QSpinBox" name="spinBox_len_y">
         <property name="minimum">
          <number>2</number>
@@ -149,7 +169,7 @@
         </property>
        </widget>
       </item>
-      <item row="0" column="2">
+      <item row="0" column="1">
        <widget class="QSlider" name="slider_len_y">
         <property name="minimum">
          <number>2</number>
@@ -172,7 +192,7 @@
         </property>
        </widget>
       </item>
-      <item row="0" column="4">
+      <item row="0" column="5">
        <widget class="QSpinBox" name="spinBox_len_s">
         <property name="minimum">
          <number>2</number>
@@ -185,7 +205,7 @@
         </property>
        </widget>
       </item>
-      <item row="0" column="5">
+      <item row="0" column="4">
        <widget class="QSlider" name="slider_len_s">
         <property name="minimum">
          <number>2</number>
@@ -208,7 +228,7 @@
         </property>
        </widget>
       </item>
-      <item row="1" column="1">
+      <item row="1" column="2">
        <widget class="QSpinBox" name="spinBox_len_h">
         <property name="minimum">
          <number>4</number>
@@ -221,7 +241,7 @@
         </property>
        </widget>
       </item>
-      <item row="1" column="2">
+      <item row="1" column="1">
        <widget class="QSlider" name="slider_len_h">
         <property name="minimum">
          <number>4</number>
@@ -244,7 +264,7 @@
         </property>
        </widget>
       </item>
-      <item row="1" column="4">
+      <item row="1" column="5">
        <widget class="QSpinBox" name="spinBox_len_h2">
         <property name="minimum">
          <number>2</number>
@@ -257,7 +277,7 @@
         </property>
        </widget>
       </item>
-      <item row="1" column="5">
+      <item row="1" column="4">
        <widget class="QSlider" name="slider_len_h2">
         <property name="minimum">
          <number>2</number>
@@ -429,7 +449,7 @@
       <item>
        <widget class="QTabWidget" name="tabWidget_delta">
         <property name="currentIndex">
-         <number>0</number>
+         <number>1</number>
         </property>
         <widget class="QWidget" name="tab_delta_y">
          <attribute name="title">

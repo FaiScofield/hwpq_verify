@@ -41,9 +41,9 @@ except ImportError:
     )
 
 try:
-    from ...script.img_io import ImageFrame, _PLANAR_YUV_8
+    from ...script.img_io import ImageFrame, _PLANAR_YUV_8, rgb_to_yuv, yuv_to_rgb
 except ImportError:
-    from script.img_io import ImageFrame, _PLANAR_YUV_8
+    from script.img_io import ImageFrame, _PLANAR_YUV_8, rgb_to_yuv, yuv_to_rgb
 
 
 class AcmUiWidget(QWidget):
@@ -394,6 +394,9 @@ class AcmUiController:
         self._status_callback = status_callback or (lambda message: None)
         self._config_path_getter = config_path_getter or (lambda: "")
         self._config_path_setter = config_path_setter or (lambda path: None)
+        self._last_input_key: tuple | None = None
+        self._colorspace_user_override = False
+        self._suppress_colorspace_signal = False
 
         # --- ACM algorithm instances ---
         from script.acm.acm_impls import AcmImplHwRk, AcmImplSwRk, AcmImplSwEvideo, AcmImplSwVariant
@@ -463,6 +466,7 @@ class AcmUiController:
 
         self._connect_signals()
         self._fix_layout_spacer()  # reposition button_reset_lut_length after spacer
+        self._fix_lut_length_order()
         self._init_state()
 
     def _fix_layout_spacer(self) -> None:
@@ -482,11 +486,53 @@ class AcmUiController:
         # Re-add the button at (2, 4, 1, 2).
         grid.addWidget(btn, 2, 4, 1, 2)
 
+    def _fix_lut_length_order(self) -> None:
+        grid = self.ui.gridLayout_lut_lengths
+        mappings = [
+            (self.ui.slider_len_y, 0, 1),
+            (self.ui.spinBox_len_y, 0, 2),
+            (self.ui.slider_len_s, 0, 4),
+            (self.ui.spinBox_len_s, 0, 5),
+            (self.ui.slider_len_h, 1, 1),
+            (self.ui.spinBox_len_h, 1, 2),
+            (self.ui.slider_len_h2, 1, 4),
+            (self.ui.spinBox_len_h2, 1, 5),
+        ]
+        for widget, _, _ in mappings:
+            grid.removeWidget(widget)
+        for widget, row, col in mappings:
+            grid.addWidget(widget, row, col, 1, 1)
+
     def _init_state(self) -> None:
         """Perform initial state sync after all widgets are ready."""
+        self._apply_default_cordic_for_algo()
         self._on_acm_colorspace_changed()
         self._sync_ctrl_point_slider(self._get_current_acm().len_h)
         self._reload_delta_controls_from_acm()
+
+    def _is_acm_enabled(self) -> bool:
+        checkbox = getattr(self.ui, "checkBox_enable_acm", None)
+        if checkbox is None:
+            return True
+        return bool(checkbox.isChecked())
+
+    def _apply_default_cordic_for_algo(self) -> None:
+        if not hasattr(self.ui, "checkBox_use_cordic"):
+            return
+        self.ui.checkBox_use_cordic.setChecked(self.current_algo == "VOP_VP_ACM")
+
+    def _auto_select_colorspace_for_input(self, frame: ImageFrame) -> None:
+        if self._colorspace_user_override:
+            return
+        want_hsv = bool(frame.is_rgb)
+        self._suppress_colorspace_signal = True
+        try:
+            if want_hsv and hasattr(self.ui, "radioButton_colorspace_hsv"):
+                self.ui.radioButton_colorspace_hsv.setChecked(True)
+            elif hasattr(self.ui, "radioButton_colorspace_yhs"):
+                self.ui.radioButton_colorspace_yhs.setChecked(True)
+        finally:
+            self._suppress_colorspace_signal = False
 
     # ------------------------------------------------------------------ #
     # Public accessors                                                   #
@@ -506,6 +552,8 @@ class AcmUiController:
         ui.slider_ctrl_points.valueChanged.connect(self._on_ctrl_points_changed)
         ui.comboBox_interp_method.currentTextChanged.connect(self._on_interp_method_changed)
         ui.comboBox_algo_type.currentIndexChanged.connect(self._on_algo_changed)
+        if hasattr(ui, "checkBox_enable_acm"):
+            ui.checkBox_enable_acm.toggled.connect(self._schedule_auto_run)
         ui.checkBox_lut_visualization.toggled.connect(self._on_lut_visualization_toggled)
         ui.spinBox_len_h.valueChanged.connect(self._on_len_h_changed)
         ui.spinBox_len_y.valueChanged.connect(self._on_lut_lengths_changed)
@@ -1149,7 +1197,15 @@ class AcmUiController:
 
     def _schedule_auto_run(self) -> None:
         """Debounce ACM processing after UI edits."""
-        if self._input_provider() is None:
+        input_frame = self._input_provider()
+        if input_frame is None:
+            return
+        key = (input_frame.fmt, input_frame.clrspc, input_frame.width, input_frame.height, input_frame.frame_idx)
+        if key != self._last_input_key:
+            self._last_input_key = key
+            self._colorspace_user_override = False
+            self._auto_select_colorspace_for_input(input_frame)
+        if not self._is_acm_enabled():
             return
         self.auto_run_timer.start(300)
 
@@ -1158,7 +1214,33 @@ class AcmUiController:
         input_frame = self._input_provider()
         if input_frame is None:
             return
-        input_yuv444 = input_frame.as_yuv444_stacked()
+        if not self._is_acm_enabled():
+            self._status_callback("ACM disabled")
+            return
+
+        want_hsv = bool(self.ui.radioButton_colorspace_hsv.isChecked())
+        input_is_rgb = bool(input_frame.is_rgb)
+
+        if want_hsv:
+            if input_is_rgb:
+                raise NotImplementedError("TODO: HSV(RGB) ACM path is not implemented yet.")
+            yuv444 = input_frame.as_yuv444_stacked()
+            yuv_u8 = yuv444 if yuv444.dtype == np.uint8 else ((yuv444 + 2) >> 2).astype(np.uint8)
+            r, g, b = yuv_to_rgb(yuv_u8[..., 0], yuv_u8[..., 1], yuv_u8[..., 2], input_cs=input_frame.clrspc, output_cs=1)
+            del r, g, b
+            raise NotImplementedError("TODO: HSV(RGB) ACM path is not implemented yet.")
+
+        if input_is_rgb:
+            r = input_frame.pyr
+            g = input_frame.pug
+            b = input_frame.pvb
+            rgb_input_cs = input_frame.clrspc if input_frame.clrspc in (0, 1) else 1
+            y, u, v = rgb_to_yuv(r, g, b, input_cs=rgb_input_cs, output_cs=5)
+            input_yuv444 = np.stack([y, u, v], axis=-1)
+            input_cs = 5
+        else:
+            input_yuv444 = input_frame.as_yuv444_stacked()
+            input_cs = input_frame.clrspc
         input_depth = input_frame.depth
         self._apply_lut_lengths()
         self._update_acm_gains()
@@ -1171,7 +1253,6 @@ class AcmUiController:
                     input_yuv444,
                     self.ui.checkBox_use_cordic.isChecked(),
                 )
-                out_fmt = 0x13  # YUV444P_10LSB
             else:
                 # Demote to 8-bit if necessary for the u8 pipeline.
                 if input_yuv444.dtype != np.uint8:
@@ -1180,11 +1261,11 @@ class AcmUiController:
                     input_yuv444,
                     self.ui.checkBox_use_cordic.isChecked(),
                 )
-                out_fmt = _PLANAR_YUV_8
             elapsed_ms = (time.time() - start_time) * 1000.0
+            out_fmt = 0x13 if (input_depth >= 10 and output.dtype == np.uint16) else _PLANAR_YUV_8
             out_frame = ImageFrame(
                 output[..., 0], output[..., 1], output[..., 2],
-                out_fmt, input_frame.clrspc,
+                out_fmt, input_cs,
             )
             self._output_callback(out_frame)
             self._preview_time_callback(elapsed_ms)
@@ -1229,6 +1310,8 @@ class AcmUiController:
     def _on_acm_colorspace_changed(self, checked: bool = False) -> None:
         """Toggle RGB offset controls when the ACM colorspace selection changes."""
         del checked
+        if not self._suppress_colorspace_signal:
+            self._colorspace_user_override = True
         is_hsv = self.ui.radioButton_colorspace_hsv.isChecked()
         for widget in (
             self.ui.label_offset_wr,
@@ -1242,11 +1325,13 @@ class AcmUiController:
             self.ui.spinBox_offset_wb,
         ):
             widget.setEnabled(is_hsv)
+        self._schedule_auto_run()
 
     def _on_algo_changed(self, index: int) -> None:
         """Switch the active ACM algorithm and refresh the editor state."""
         algo_names = ["VOP_VP_ACM", "SW_ACM", "EVIDEO_ACM", "SW_ACM_VARIANT"]
         self.current_algo = algo_names[index]
+        self._apply_default_cordic_for_algo()
         self._refresh_acm_ui_from_current_acm()
         self._schedule_auto_run()
 

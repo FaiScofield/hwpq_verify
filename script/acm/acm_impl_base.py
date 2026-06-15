@@ -287,10 +287,10 @@ class AcmImplBase:
         self._default_lut_delta_hbyh = np.zeros(self._default_len_h, dtype=np.int16)
         for name in LUT_2D_Y_NAMES:
             setattr(self, f"_default_{name}",
-                    np.zeros((self._default_len_h2, self._default_len_y), dtype=np.int8))
+                    np.ones((self._default_len_h2, self._default_len_y), dtype=np.int8) * 127)
         for name in LUT_2D_S_NAMES:
             setattr(self, f"_default_{name}",
-                    np.zeros((self._default_len_h2, self._default_len_s), dtype=np.int8))
+                    np.ones((self._default_len_h2, self._default_len_s), dtype=np.int8) * 127)
 
     def _init_current_luts(self):
         self.lut_delta_ybyh = self._default_lut_delta_ybyh.copy()

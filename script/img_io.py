@@ -18,16 +18,22 @@ from collections.abc import Callable
 # Import canonical BT.601 / BT.709 / BT.2020 matrices.
 try:
     from .csc.get_csc_coefs import (
-        g_r2y_mat_bt601, g_y2r_mat_bt601,
-        g_r2y_mat_bt709, g_y2r_mat_bt709,
-        g_r2y_mat_bt2020, g_y2r_mat_bt2020,
+        g_r2y_mat_bt601,
+        g_y2r_mat_bt601,
+        g_r2y_mat_bt709,
+        g_y2r_mat_bt709,
+        g_r2y_mat_bt2020,
+        g_y2r_mat_bt2020,
     )
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from csc.get_csc_coefs import (
-        g_r2y_mat_bt601, g_y2r_mat_bt601,
-        g_r2y_mat_bt709, g_y2r_mat_bt709,
-        g_r2y_mat_bt2020, g_y2r_mat_bt2020,
+        g_r2y_mat_bt601,
+        g_y2r_mat_bt601,
+        g_r2y_mat_bt709,
+        g_y2r_mat_bt709,
+        g_r2y_mat_bt2020,
+        g_y2r_mat_bt2020,
     )
 
 # ------------------------------------------------------------------ #
@@ -102,9 +108,9 @@ CLRSPC_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7]
 STB_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp"}
 
 # Internal pipeline canonical planar formats (always packed-planar)
-_PLANAR_RGB_8 = 0x2   # RGB_Planar
+_PLANAR_RGB_8 = 0x2  # RGB_Planar
 _PLANAR_RGB_10 = 0x12  # RGB_Planar_10LSB
-_PLANAR_YUV_8 = 0x3   # YUV444P_YU24
+_PLANAR_YUV_8 = 0x3  # YUV444P_YU24
 _PLANAR_YUV_10 = 0x13  # YUV444P_10LSB
 
 # Limited-range clamping boundaries (8-bit basis; ×4 for 10-bit)
@@ -119,6 +125,7 @@ _LIMITED_RGB_MAX = 235
 # ------------------------------------------------------------------ #
 # Utility functions                                                  #
 # ------------------------------------------------------------------ #
+
 
 def is_yuv_format(fmt: int) -> bool:
     """Check if format code represents a YUV format."""
@@ -193,6 +200,7 @@ def is_limited_range(clrspc: int) -> bool:
 # Chroma resampling helpers                                          #
 # ------------------------------------------------------------------ #
 
+
 def _repeat_columns(channel: np.ndarray, target_w: int) -> np.ndarray:
     """Duplicate each column to reach target_w (nearest-neighbour expand)."""
     h, w = channel.shape
@@ -235,6 +243,7 @@ def _subsample_rows_cols(channel: np.ndarray, target_h: int, target_w: int) -> n
 # Subsampling helpers (used by the generic CSC functions)            #
 # ------------------------------------------------------------------ #
 
+
 def _is_422(fmt: int) -> bool:
     """True if the format is a 4:2:2 YUV format."""
     return (fmt & 0xF) in (0x6, 0x7)
@@ -264,8 +273,10 @@ def _subsample_chroma_422(u: np.ndarray, v: np.ndarray) -> tuple[np.ndarray, np.
 
 def _subsample_chroma_420(u: np.ndarray, v: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Subsample chroma from 444 to 420."""
-    return (_subsample_rows_cols(u, u.shape[0] // 2, u.shape[1] // 2),
-            _subsample_rows_cols(v, v.shape[0] // 2, v.shape[1] // 2))
+    return (
+        _subsample_rows_cols(u, u.shape[0] // 2, u.shape[1] // 2),
+        _subsample_rows_cols(v, v.shape[0] // 2, v.shape[1] // 2),
+    )
 
 
 # ------------------------------------------------------------------ #
@@ -284,9 +295,7 @@ _CSC_MATRIX_MAP: dict[int, tuple[np.ndarray, np.ndarray]] = {
 }
 
 
-def _get_csc_matrices(
-    colorspace: int,
-) -> tuple[np.ndarray, np.ndarray]:
+def _get_csc_matrices(colorspace: int) -> tuple[np.ndarray, np.ndarray]:
     """Return (r2y, y2r) matrices for a colorspace code.  Falls back to BT.709."""
     return _CSC_MATRIX_MAP.get(colorspace, (g_r2y_mat_bt709, g_y2r_mat_bt709))
 
@@ -321,11 +330,7 @@ def _csc_range_params(depth: int) -> dict:
 
 
 def yuv_to_rgb(
-    y: np.ndarray,
-    u: np.ndarray,
-    v: np.ndarray,
-    input_cs: int = 5,
-    output_cs: int = 1,
+    y: np.ndarray, u: np.ndarray, v: np.ndarray, input_cs: int = 5, output_cs: int = 1
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Convert YUV planar channels to RGB planar channels with full/limited range handling.
 
@@ -345,13 +350,13 @@ def yuv_to_rgb(
     rp = _csc_range_params(depth)
     _, y2r = _get_csc_matrices(input_cs)
 
-    _yr_lo   = rp["yr_lo_l"]
-    _yr_hi   = rp["yr_hi_l"]
-    _uv_lo   = rp["uv_lo_l"]
-    _uv_hi   = rp["uv_hi_l"]
-    _uv_ctr  = rp["uv_center"]
-    _fr_hi   = rp["yruv_hi_f"]
-    _fr_lo   = rp["yruv_lo_f"]
+    limit_lo_y = rp["yr_lo_l"]
+    limit_hi_y = rp["yr_hi_l"]
+    limit_lo_c = rp["uv_lo_l"]
+    limit_hi_c = rp["uv_hi_l"]
+    uv_center = rp["uv_center"]
+    full_hi = rp["yruv_hi_f"]
+    full_lo = rp["yruv_lo_f"]
 
     # Step 0 — chroma upsampling to 444 if needed (auto-detect from U/V shape)
     y_h, y_w = y.shape
@@ -366,25 +371,25 @@ def yuv_to_rgb(
     v_f = v.astype(np.float32)
 
     # Step 1 — undo input range encoding → normalized full-range
+    u_f = u_f - uv_center
+    v_f = v_f - uv_center
     if input_limited:
-        y_f = (y_f - _yr_lo) * (_fr_hi / (_yr_hi - _yr_lo))
-        uv_scale = _fr_hi / (_uv_hi - _uv_lo)
-        u_f = (u_f - _uv_lo) * uv_scale - _uv_ctr
-        v_f = (v_f - _uv_lo) * uv_scale - _uv_ctr
-    else:
-        u_f = u_f - _uv_ctr
-        v_f = v_f - _uv_ctr
+        scale_y = full_hi / (limit_hi_y - limit_lo_y)
+        scale_c = full_hi / (limit_hi_c - limit_lo_c)
+        y_f = np.clip((y_f - limit_lo_y) * scale_y, full_lo, full_hi)
+        u_f = np.clip(u_f * scale_c, full_lo, full_hi)
+        v_f = np.clip(v_f * scale_c, full_lo, full_hi)
 
     # Step 2 — core y2r matrix
     stacked = np.stack([y_f, u_f, v_f], axis=-1)
-    rgb = np.tensordot(stacked, y2r.T, axes=([-1], [1]))
+    rgb = stacked @ y2r.T
 
     # Step 3 — apply output range encoding
     if output_cs == 0:  # limited RGB
-        rgb = rgb * ((_yr_hi - _yr_lo) / _fr_hi) + _yr_lo
-        lo, hi = _yr_lo, _yr_hi
+        rgb = rgb * ((limit_hi_y - limit_lo_y) / full_hi) + limit_lo_y
+        lo, hi = limit_lo_y, limit_hi_y
     else:
-        lo, hi = _fr_lo, _fr_hi
+        lo, hi = full_lo, full_hi
 
     dtype_out = y.dtype if y.dtype in (np.uint8, np.uint16) else np.uint8
     r = np.clip(np.rint(rgb[..., 0]), lo, hi).astype(dtype_out)
@@ -394,11 +399,7 @@ def yuv_to_rgb(
 
 
 def rgb_to_yuv(
-    r: np.ndarray,
-    g: np.ndarray,
-    b: np.ndarray,
-    input_cs: int = 1,
-    output_cs: int = 5,
+    r: np.ndarray, g: np.ndarray, b: np.ndarray, input_cs: int = 1, output_cs: int = 5
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Convert RGB planar channels to YUV planar channels with full/limited range handling.
 
@@ -415,12 +416,12 @@ def rgb_to_yuv(
     r2y, _ = _get_csc_matrices(output_cs)
     output_limited = is_limited_range(output_cs)
 
-    _yr_lo   = rp["yr_lo_l"]
-    _yr_hi   = rp["yr_hi_l"]
-    _uv_lo   = rp["uv_lo_l"]
-    _uv_hi   = rp["uv_hi_l"]
-    _uv_ctr  = rp["uv_center"]
-    _fr_hi   = rp["yruv_hi_f"]
+    _yr_lo = rp["yr_lo_l"]
+    _yr_hi = rp["yr_hi_l"]
+    _uv_lo = rp["uv_lo_l"]
+    _uv_hi = rp["uv_hi_l"]
+    _uv_ctr = rp["uv_center"]
+    _fr_hi = rp["yruv_hi_f"]
 
     # Step 1 — undo input range encoding → normalized full-range
     if input_cs == 0:  # limited RGB input
@@ -435,7 +436,7 @@ def rgb_to_yuv(
 
     # Step 2 — core r2y matrix
     stacked = np.stack([r_f, g_f, b_f], axis=-1)
-    yuv = np.tensordot(stacked, r2y.T, axes=([-1], [1]))
+    yuv = stacked @ r2y.T
 
     # Step 3 — apply output range encoding
     if output_limited:
@@ -464,6 +465,7 @@ def rgb_to_yuv(
 # ImageFrame                                                         #
 # ------------------------------------------------------------------ #
 
+
 class ImageFrame:
     """Encapsulates planar image data with format and colorspace metadata.
 
@@ -485,30 +487,18 @@ class ImageFrame:
     # ------------------------------------------------------------------ #
 
     def __init__(
-        self,
-        pyr: np.ndarray,
-        pug: np.ndarray,
-        pvb: np.ndarray,
-        fmt: int,
-        clrspc: int = 5,
-        frame_idx: int = 0,
+        self, pyr: np.ndarray, pug: np.ndarray, pvb: np.ndarray, fmt: int, clrspc: int = 5, frame_idx: int = 0
     ) -> None:
-        self.pyr = pyr          # Y or R channel (H, W)
-        self.pug = pug          # U or G channel (H_uv, W_uv)
-        self.pvb = pvb          # V or B channel (H_uv, W_uv)
-        self.fmt = fmt          # format code
-        self.clrspc = clrspc    # colorspace code
+        self.pyr = pyr  # Y or R channel (H, W)
+        self.pug = pug  # U or G channel (H_uv, W_uv)
+        self.pvb = pvb  # V or B channel (H_uv, W_uv)
+        self.fmt = fmt  # format code
+        self.clrspc = clrspc  # colorspace code
         self.frame_idx = frame_idx
 
     @classmethod
     def from_file(
-        cls,
-        filepath: str,
-        width: int,
-        height: int,
-        fmt: int,
-        clrspc: int = 5,
-        frame_idx: int = 0,
+        cls, filepath: str, width: int, height: int, fmt: int, clrspc: int = 5, frame_idx: int = 0
     ) -> "ImageFrame":
         """Read a single frame from a raw image file.
 
@@ -517,6 +507,7 @@ class ImageFrame:
         YUV422/420 chroma planes are kept at native subsampled resolution.
         """
         base = fmt & 0xF
+        depth = get_pixel_depth(fmt)
         bpe = get_bytes_per_element(fmt)
         dtype = np.uint16 if bpe == 2 else np.uint8
 
@@ -524,67 +515,75 @@ class ImageFrame:
         frame_size = get_frame_size(width, height, fmt)
         offset = frame_idx * frame_size
 
-        if base == 0x0:  # RGB888
-            rgb = raw[offset:offset + height * width * 3].reshape(height, width, 3)
-            return cls(rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2], _PLANAR_RGB_8, clrspc)
-        elif base == 0x1:  # RGBA8888
-            rgba = raw[offset:offset + height * width * 4].reshape(height, width, 4)
-            return cls(rgba[:, :, 0], rgba[:, :, 1], rgba[:, :, 2], _PLANAR_RGB_8, clrspc)
-        elif base == 0x2:  # RGB_Planar
-            planar = raw[offset:offset + 3 * height * width].reshape(3, height, width)
-            return cls(planar[0], planar[1], planar[2], _PLANAR_RGB_8, clrspc)
-        elif base == 0x3:  # YUV444P
-            planar = raw[offset:offset + 3 * height * width].reshape(3, height, width)
-            return cls(planar[0], planar[1], planar[2], _PLANAR_YUV_8, clrspc)
-        elif base == 0x4:  # YUV444SP NV24
+        if base == 0x0:  # RGB888 / RGB_10LSB
+            rgb = raw[offset : offset + height * width * 3].reshape(height, width, 3)
+            out_fmt = _PLANAR_RGB_10 if depth >= 10 else _PLANAR_RGB_8
+            return cls(rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2], out_fmt, clrspc)
+        elif base == 0x1:  # RGBA8888 / RGBA_10LSB
+            rgba = raw[offset : offset + height * width * 4].reshape(height, width, 4)
+            out_fmt = _PLANAR_RGB_10 if depth >= 10 else _PLANAR_RGB_8
+            return cls(rgba[:, :, 0], rgba[:, :, 1], rgba[:, :, 2], out_fmt, clrspc)
+        elif base == 0x2:  # RGB_Planar / RGB_Planar_10LSB
+            planar = raw[offset : offset + 3 * height * width].reshape(3, height, width)
+            out_fmt = _PLANAR_RGB_10 if depth >= 10 else _PLANAR_RGB_8
+            return cls(planar[0], planar[1], planar[2], out_fmt, clrspc)
+        elif base == 0x3:  # YUV444P / YUV444P_10LSB
+            planar = raw[offset : offset + 3 * height * width].reshape(3, height, width)
+            out_fmt = _PLANAR_YUV_10 if depth >= 10 else _PLANAR_YUV_8
+            return cls(planar[0], planar[1], planar[2], out_fmt, clrspc)
+        elif base == 0x4:  # YUV444SP NV24 / YUV444SP_10LSB
             y_size = height * width
-            y = raw[offset:offset + y_size].reshape(height, width)
-            uv = raw[offset + y_size:offset + y_size + y_size * 2].reshape(height, width, 2)
-            return cls(y, uv[:, :, 0], uv[:, :, 1], _PLANAR_YUV_8, clrspc)
-        elif base == 0x5:  # YUV444I VU24
-            vuy = raw[offset:offset + height * width * 3].reshape(height, width, 3)
-            return cls(vuy[:, :, 2], vuy[:, :, 1], vuy[:, :, 0], _PLANAR_YUV_8, clrspc)
-        elif base == 0x6:  # YUV422P
+            y = raw[offset : offset + y_size].reshape(height, width)
+            uv = raw[offset + y_size : offset + y_size + y_size * 2].reshape(height, width, 2)
+            out_fmt = _PLANAR_YUV_10 if depth >= 10 else _PLANAR_YUV_8
+            return cls(y, uv[:, :, 0], uv[:, :, 1], out_fmt, clrspc)
+        elif base == 0x5:  # YUV444I VU24 / YUV444I_10LSB
+            vuy = raw[offset : offset + height * width * 3].reshape(height, width, 3)
+            out_fmt = _PLANAR_YUV_10 if depth >= 10 else _PLANAR_YUV_8
+            return cls(vuy[:, :, 2], vuy[:, :, 1], vuy[:, :, 0], out_fmt, clrspc)
+        elif base == 0x6:  # YUV422P / YUV422P_10LSB
             y_size = height * width
             uv_size = height * (width // 2)
-            y = raw[offset:offset + y_size].reshape(height, width)
-            u = raw[offset + y_size:offset + y_size + uv_size].reshape(height, width // 2)
-            v = raw[offset + y_size + uv_size:offset + y_size + 2 * uv_size].reshape(height, width // 2)
-            return cls(y, u, v, fmt, clrspc)
-        elif base == 0x7:  # YUV422SP NV16
+            y = raw[offset : offset + y_size].reshape(height, width)
+            u = raw[offset + y_size : offset + y_size + uv_size].reshape(height, width // 2)
+            v = raw[offset + y_size + uv_size : offset + y_size + 2 * uv_size].reshape(height, width // 2)
+            frame = cls(y, u, v, fmt, clrspc)
+            frame.to_yuv444()
+            return frame
+        elif base == 0x7:  # YUV422SP NV16 / YUV422SP_10LSB
             y_size = height * width
-            y = raw[offset:offset + y_size].reshape(height, width)
-            uv = raw[offset + y_size:offset + y_size + y_size].reshape(height, width // 2, 2)
-            return cls(y, uv[:, :, 0], uv[:, :, 1], fmt, clrspc)
-        elif base == 0x8:  # YUV420P
+            y = raw[offset : offset + y_size].reshape(height, width)
+            uv = raw[offset + y_size : offset + y_size + y_size].reshape(height, width // 2, 2)
+            frame = cls(y, uv[:, :, 0], uv[:, :, 1], fmt, clrspc)
+            frame.to_yuv444()
+            return frame
+        elif base == 0x8:  # YUV420P / YUV420P_10LSB
             y_size = height * width
             uv_size = (height // 2) * (width // 2)
-            y = raw[offset:offset + y_size].reshape(height, width)
-            u = raw[offset + y_size:offset + y_size + uv_size].reshape(height // 2, width // 2)
-            v = raw[offset + y_size + uv_size:offset + y_size + 2 * uv_size].reshape(height // 2, width // 2)
-            return cls(y, u, v, fmt, clrspc)
-        elif base == 0x9:  # YUV420SP NV12
+            y = raw[offset : offset + y_size].reshape(height, width)
+            u = raw[offset + y_size : offset + y_size + uv_size].reshape(height // 2, width // 2)
+            v = raw[offset + y_size + uv_size : offset + y_size + 2 * uv_size].reshape(height // 2, width // 2)
+            frame = cls(y, u, v, fmt, clrspc)
+            frame.to_yuv444()
+            return frame
+        elif base == 0x9:  # YUV420SP NV12 / YUV420SP_10LSB
             y_size = height * width
-            y = raw[offset:offset + y_size].reshape(height, width)
-            uv = raw[offset + y_size:offset + y_size + (height // 2) * width].reshape(height // 2, width // 2, 2)
-            return cls(y, uv[:, :, 0], uv[:, :, 1], fmt, clrspc)
-        elif base == 0xA:  # YUV400 Gray
-            y = raw[offset:offset + height * width].reshape(height, width)
+            y = raw[offset : offset + y_size].reshape(height, width)
+            uv = raw[offset + y_size : offset + y_size + (height // 2) * width].reshape(height // 2, width // 2, 2)
+            frame = cls(y, uv[:, :, 0], uv[:, :, 1], fmt, clrspc)
+            frame.to_yuv444()
+            return frame
+        elif base == 0xA:  # YUV400 Gray / YUV400_10LSB
+            y = raw[offset : offset + height * width].reshape(height, width)
             uv = np.full_like(y, 128, dtype=dtype)
-            return cls(y, uv, uv, _PLANAR_YUV_8, clrspc)
+            out_fmt = _PLANAR_YUV_10 if depth >= 10 else _PLANAR_YUV_8
+            return cls(y, uv, uv, out_fmt, clrspc)
         else:
             raise ValueError(f"Unsupported base format: 0x{base:X}")
 
     @classmethod
-    def from_image(
-        cls,
-        filepath: str,
-        clrspc: int = 5,
-    ) -> "ImageFrame":
-        """Read a PNG/JPG/BMP file and convert to YUV444 planar.
-
-        Uses Pillow for decoding, then performs RGB→YUV conversion.
-        """
+    def from_image(cls, filepath: str, clrspc: int = 5) -> "ImageFrame":
+        """Read a PNG/JPG/BMP file and return as planar RGB."""
         try:
             from PIL import Image as PILImage
         except ImportError:
@@ -592,17 +591,11 @@ class ImageFrame:
         img = PILImage.open(filepath).convert("RGB")
         data = np.array(img, dtype=np.uint8)
         r, g, b = data[:, :, 0], data[:, :, 1], data[:, :, 2]
-        y, u, v = rgb_to_yuv(r, g, b, input_cs=1, output_cs=clrspc)
-        return cls(y, u, v, _PLANAR_YUV_8, clrspc)
+        return cls(r, g, b, _PLANAR_RGB_8, clrspc)
 
     @classmethod
     def from_rgb_channels(
-        cls,
-        r: np.ndarray,
-        g: np.ndarray,
-        b: np.ndarray,
-        clrspc: int = 5,
-        depth: int = 8,
+        cls, r: np.ndarray, g: np.ndarray, b: np.ndarray, clrspc: int = 5, depth: int = 8
     ) -> "ImageFrame":
         """Build a YUV444 ImageFrame from separate R/G/B channels.
 
@@ -615,14 +608,7 @@ class ImageFrame:
 
     @classmethod
     def from_solid_color(
-        cls,
-        width: int,
-        height: int,
-        red: int,
-        green: int,
-        blue: int,
-        clrspc: int = 5,
-        depth: int = 8,
+        cls, width: int, height: int, red: int, green: int, blue: int, clrspc: int = 5, depth: int = 8
     ) -> "ImageFrame":
         """Create a solid YUV444 ImageFrame from 8-bit R/G/B values.
 
@@ -638,14 +624,7 @@ class ImageFrame:
 
     @classmethod
     def from_solid_yuv(
-        cls,
-        width: int,
-        height: int,
-        y_val: int,
-        u_val: int,
-        v_val: int,
-        clrspc: int = 5,
-        depth: int = 8,
+        cls, width: int, height: int, y_val: int, u_val: int, v_val: int, clrspc: int = 5, depth: int = 8
     ) -> "ImageFrame":
         """Create a solid YUV444 ImageFrame from 8-bit Y/U/V values.
 
@@ -707,10 +686,7 @@ class ImageFrame:
 
     def copy(self) -> "ImageFrame":
         """Deep copy (data arrays are copied)."""
-        return ImageFrame(
-            self.pyr.copy(), self.pug.copy(), self.pvb.copy(),
-            self.fmt, self.clrspc, self.frame_idx,
-        )
+        return ImageFrame(self.pyr.copy(), self.pug.copy(), self.pvb.copy(), self.fmt, self.clrspc, self.frame_idx)
 
     # ------------------------------------------------------------------ #
     # Precision conversion                                               #
@@ -730,9 +706,9 @@ class ImageFrame:
         """
         if self.depth >= 10:
             return self
-        self.pyr = (self.pyr.astype(np.uint16) << 2)
-        self.pug = (self.pug.astype(np.uint16) << 2)
-        self.pvb = (self.pvb.astype(np.uint16) << 2)
+        self.pyr = self.pyr.astype(np.uint16) << 2
+        self.pug = self.pug.astype(np.uint16) << 2
+        self.pvb = self.pvb.astype(np.uint16) << 2
         self.fmt = self._pick_planar_fmt(target_10bit=True)
         return self
 
@@ -826,9 +802,7 @@ class ImageFrame:
         if not self.is_444:
             self.to_yuv444()
         r, g, b = yuv_to_rgb(
-            self.pyr, self.pug, self.pvb,
-            input_cs=self.clrspc,
-            output_cs=0 if is_limited_range(self.clrspc) else 1,
+            self.pyr, self.pug, self.pvb, input_cs=self.clrspc, output_cs=0 if is_limited_range(self.clrspc) else 1
         )
         self.pyr = r
         self.pug = g
@@ -846,10 +820,7 @@ class ImageFrame:
             if self.clrspc != target_clrspc:
                 self.clrspc = target_clrspc
             return self
-        y, u, v = rgb_to_yuv(
-            self.pyr, self.pug, self.pvb,
-            input_cs=self.clrspc, output_cs=target_clrspc,
-        )
+        y, u, v = rgb_to_yuv(self.pyr, self.pug, self.pvb, input_cs=self.clrspc, output_cs=target_clrspc)
         self.pyr = y
         self.pug = u
         self.pvb = v
@@ -877,20 +848,17 @@ class ImageFrame:
         scale_h = new_height / self.height
 
         self.pyr = cv2.resize(
-            self.pyr.astype(np.float32), (new_width, new_height),
-            interpolation=cv2.INTER_LINEAR,
+            self.pyr.astype(np.float32), (new_width, new_height), interpolation=cv2.INTER_LINEAR
         ).astype(self.pyr.dtype)
 
         new_uv_w = int(self.uv_width * scale_w)
         new_uv_h = int(self.uv_height * scale_h)
-        self.pug = cv2.resize(
-            self.pug.astype(np.float32), (new_uv_w, new_uv_h),
-            interpolation=cv2.INTER_LINEAR,
-        ).astype(self.pug.dtype)
-        self.pvb = cv2.resize(
-            self.pvb.astype(np.float32), (new_uv_w, new_uv_h),
-            interpolation=cv2.INTER_LINEAR,
-        ).astype(self.pvb.dtype)
+        self.pug = cv2.resize(self.pug.astype(np.float32), (new_uv_w, new_uv_h), interpolation=cv2.INTER_LINEAR).astype(
+            self.pug.dtype
+        )
+        self.pvb = cv2.resize(self.pvb.astype(np.float32), (new_uv_w, new_uv_h), interpolation=cv2.INTER_LINEAR).astype(
+            self.pvb.dtype
+        )
         return self
 
     # ------------------------------------------------------------------ #
