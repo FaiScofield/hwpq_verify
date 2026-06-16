@@ -59,7 +59,7 @@ class AcmImplHwRk(AcmImplBase):
         use_cordic: bool,
     ) -> np.ndarray:
         # TODO: implement hardware ACM
-        return super()._do_acm(y, cb, cr, s, h_deg, h_rad, depth_uv, y_range, cbcr_center, use_cordic)
+        return super()._do_acm_yuv(y, cb, cr, s, h_deg, h_rad, depth_uv, y_range, cbcr_center, use_cordic)
 
 
 # ---------------------------------------------------------------------------
@@ -341,7 +341,7 @@ if __name__ == '__main__':
     kernel = np.array([1, 4, 6, 4, 1])
     kernel = np.outer(kernel, kernel)
     kernel = kernel / kernel.sum()
-    print("kernel: ", kernel)
+    print("kernel: \n", kernel)
 
     acm.set_len(9, 13, 65, 17, kernel)
     if b_strict:
