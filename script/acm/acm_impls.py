@@ -19,9 +19,11 @@ import numpy as np
 
 if __package__:
     from .acm_impl_base import AcmImplBase, linear_resize_array_1d
+    from .. import utils as utl
 else:
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
     from acm_impl_base import AcmImplBase, linear_resize_array_1d
+    import utils as utl
 
 
 # ---------------------------------------------------------------------------
@@ -36,11 +38,11 @@ class AcmImplHwRk(AcmImplBase):
         len_s: int = 13,
         len_h: int = 65,
         len_h2: int = 17,
-        delta_mode: str = "rk",
-        yuv_method: str = "cordic",
+        delta_range: tuple = (0.25, 0.25, 64),
+        use_cordic: bool = True,
     ):
         super().__init__(
-            len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_mode=delta_mode, cvt_method=yuv_method
+            len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_range=delta_range, use_cordic=use_cordic
         )
         print("[ACM] created AcmImplHwRk.")
 
@@ -74,11 +76,11 @@ class AcmImplSwRk(AcmImplBase):
         len_s: int = 13,
         len_h: int = 65,
         len_h2: int = 65,
-        delta_mode: str = "rk",
-        yuv_method: str = "trig",
+        delta_range: tuple = (0.25, 0.25, 64),
+        use_cordic: bool = False,
     ):
         super().__init__(
-            len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_mode=delta_mode, cvt_method=yuv_method
+            len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_range=delta_range, use_cordic=use_cordic
         )
         print("[ACM] created AcmImplSwRk.")
 
@@ -89,8 +91,8 @@ class AcmImplSwRk(AcmImplBase):
 class AcmImplSwEvideo(AcmImplBase):
     """EVideo-style ACM with wider delta mapping range.
 
-    Default delta_mode is "evideo" (delta_y/s in [-1, 1] of full range).
-    Can be switched to "rk" via set_delta_mode("rk") to match the rk semantics.
+    Default delta_range is (1.0, 1.0, 64) (delta_y/s in [-1, 1] of full range, h in [-64, 64] deg).
+    Can be switched to 0.25 via set_delta_range(0.25) to match the rk semantics.
     """
 
     def __init__(
@@ -99,11 +101,11 @@ class AcmImplSwEvideo(AcmImplBase):
         len_s: int = 13,
         len_h: int = 65,
         len_h2: int = 65,
-        delta_mode: str = "evideo",
-        yuv_method: str = "trig",
+        delta_range: tuple = (1.0, 1.0, 64),
+        use_cordic: bool = False,
     ):
         super().__init__(
-            len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_mode=delta_mode, cvt_method=yuv_method
+            len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_range=delta_range, use_cordic=use_cordic
         )
         print("[ACM] created AcmImplSwEvideo.")
 
@@ -126,11 +128,11 @@ class AcmImplSwVariant(AcmImplBase):
         len_s: int = 13,
         len_h: int = 65,
         len_h2: int = 65,
-        delta_mode: str = "evideo",
-        yuv_method: str = "trig",
+        delta_range: tuple = (1.0, 1.0, 64),
+        use_cordic: bool = False,
     ):
         super().__init__(
-            len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_mode=delta_mode, cvt_method=yuv_method
+            len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_range=delta_range, use_cordic=use_cordic
         )
         self.source_algo = None
         self.source_config = None
@@ -284,7 +286,8 @@ def main() -> None:
     parser.add_argument("-hs", "--hs", type=int, nargs='+', help="传入H/S数值测试Cordic结果")
     args, _ = parser.parse_known_args()
 
-    DEF_OUT_DIR = "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/test_var_lut"
+    # DEF_OUT_DIR = "V:/hwpq_verify_data/vop_robin_fpga_verify_acm/test_var_lut"
+    DEF_OUT_DIR = "D:/RkDefaultDumpData"
     H = args.height
     W = args.width
     infile = (
@@ -293,7 +296,7 @@ def main() -> None:
         else args.input
     )
     outfile = f"{DEF_OUT_DIR}/out_acm_1920x1080_yuv444p_601F.yuv" if args.output == "" else args.output
-    cfgfile = "G:/Codes/fpga/fpga_verify/data/vdpp_vop_config_3572.json" if args.config == "" else args.config
+    cfgfile = "G:/Codes/gerrit_projects/hwpq_verify/data/vdpp_vop_config_3576.json" if args.config == "" else args.config
 
     ## read YUV444 planar (Y | Cb | Cr)
     data = np.fromfile(infile, np.uint8)
@@ -304,8 +307,8 @@ def main() -> None:
 
     acm = AcmImplSwRk()
 
-    if args.config != "":
-        ret = acm.load_json(cfgfile, False)
+    if cfgfile != "":
+        ret = acm.load_json(cfgfile)
         if not ret:
             print("[ACM] load config failed.")
             exit(ret)
@@ -323,31 +326,32 @@ def main() -> None:
     out = acm.do_acm_u8(img)
 
     ## write planar Y then Cb then Cr (same layout as input file)
-    out.transpose(2, 0, 1).tofile(outfile)  # HWC to CHW
+    out.tofile(outfile)  # shape is already [C,H,W] (planar)
     print(f"[ACM] done. write output file to {outfile}")
 
     acm.dump_json(f"{DEF_OUT_DIR}/acm_var_config_len_y{acm.len_y}_s{acm.len_s}" f"_h{acm.len_h}_{acm.len_hd}.json")
     acm.dump_lut(DEF_OUT_DIR)
+    utl.run_cmd(f"cp {infile} {DEF_OUT_DIR}")
 
 
 if __name__ == '__main__':
-    # main()
+    main()
 
-    b_strict = True
-    seed = 114517
-    acm = AcmImplSwRk(9, 13, 65, 65)
-    acm.gen_test_config(b_strict, seed)
+    # b_strict = True
+    # seed = 114517
+    # acm = AcmImplSwRk(9, 13, 65, 65)
+    # acm.gen_test_config(b_strict, seed)
 
-    kernel = np.array([1, 4, 6, 4, 1])
-    kernel = np.outer(kernel, kernel)
-    kernel = kernel / kernel.sum()
-    print("kernel: \n", kernel)
+    # kernel = np.array([1, 4, 6, 4, 1])
+    # kernel = np.outer(kernel, kernel)
+    # kernel = kernel / kernel.sum()
+    # print("kernel: \n", kernel)
 
-    acm.set_len(9, 13, 65, 17, kernel)
-    if b_strict:
-        acm.dump_json(
-            f"acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}"
-            f"_hd{acm.len_hd}_strict_rand{seed}_kernel.json"
-        )
-    else:
-        acm.dump_json(f"acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}" f"_hd{acm.len_hd}_rand{seed}.json")
+    # acm.set_len(9, 13, 65, 17, kernel)
+    # if b_strict:
+    #     acm.dump_json(
+    #         f"acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}"
+    #         f"_hd{acm.len_hd}_strict_rand{seed}_kernel.json"
+    #     )
+    # else:
+    #     acm.dump_json(f"acm_var_config_len_y{acm.len_y}_s{acm.len_s}_h{acm.len_h}" f"_hd{acm.len_hd}_rand{seed}.json")

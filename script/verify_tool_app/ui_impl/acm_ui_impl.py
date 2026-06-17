@@ -465,47 +465,10 @@ class AcmUiController:
         self.ui.groupBox_lut_visualization.setVisible(False)
 
         self._connect_signals()
-        self._fix_layout_spacer()  # reposition button_reset_lut_length after spacer
-        self._fix_lut_length_order()
         self._init_state()
-
-    def _fix_layout_spacer(self) -> None:
-        """Insert a horizontal spacer before the Reset LUT Length button.
-
-        pyside6-uic does not correctly emit spacers in QGridLayout, so we
-        remove the button, insert a spacer, then re-add the button at the
-        right column with the spacer occupying the gap.
-        """
-        grid = self.ui.gridLayout_lut_lengths
-        btn = self.ui.button_reset_lut_length
-        # Remove the button from its default (0,0) spanning 6 cols.
-        grid.removeWidget(btn)
-        # Insert a horizontal spacer at (2, 0, 1, 4).
-        spacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        grid.addItem(spacer, 2, 0, 1, 4)
-        # Re-add the button at (2, 4, 1, 2).
-        grid.addWidget(btn, 2, 4, 1, 2)
-
-    def _fix_lut_length_order(self) -> None:
-        grid = self.ui.gridLayout_lut_lengths
-        mappings = [
-            (self.ui.slider_len_y, 0, 1),
-            (self.ui.spinBox_len_y, 0, 2),
-            (self.ui.slider_len_s, 0, 4),
-            (self.ui.spinBox_len_s, 0, 5),
-            (self.ui.slider_len_h, 1, 1),
-            (self.ui.spinBox_len_h, 1, 2),
-            (self.ui.slider_len_h2, 1, 4),
-            (self.ui.spinBox_len_h2, 1, 5),
-        ]
-        for widget, _, _ in mappings:
-            grid.removeWidget(widget)
-        for widget, row, col in mappings:
-            grid.addWidget(widget, row, col, 1, 1)
 
     def _init_state(self) -> None:
         """Perform initial state sync after all widgets are ready."""
-        self._apply_default_cordic_for_algo()
         self._on_acm_colorspace_changed()
         self._sync_ctrl_point_slider(self._get_current_acm().len_h)
         self._reload_delta_controls_from_acm()
@@ -515,11 +478,6 @@ class AcmUiController:
         if checkbox is None:
             return True
         return bool(checkbox.isChecked())
-
-    def _apply_default_cordic_for_algo(self) -> None:
-        if not hasattr(self.ui, "checkBox_use_cordic"):
-            return
-        self.ui.checkBox_use_cordic.setChecked(self.current_algo == "VOP_VP_ACM")
 
     def _auto_select_colorspace_for_input(self, frame: ImageFrame) -> None:
         if self._colorspace_user_override:
@@ -585,6 +543,21 @@ class AcmUiController:
         ui.slider_gain_y.valueChanged.connect(self._schedule_auto_run)
         ui.slider_gain_s.valueChanged.connect(self._schedule_auto_run)
         ui.slider_gain_h.valueChanged.connect(self._schedule_auto_run)
+        # Max Delta controls
+        ui.button_reset_max_delta.clicked.connect(self._on_reset_max_delta)
+        ui.comboBox_clip_type.currentTextChanged.connect(self._on_clip_type_changed)
+        ui.slider_max_delta_y.valueChanged.connect(
+            lambda v: ui.spinBox_max_delta_y.setValue(v / 100.0))
+        ui.spinBox_max_delta_y.valueChanged.connect(
+            lambda v: ui.slider_max_delta_y.setValue(int(v * 100 + 0.5)))
+        ui.slider_max_delta_s.valueChanged.connect(
+            lambda v: ui.spinBox_max_delta_s.setValue(v / 100.0))
+        ui.spinBox_max_delta_s.valueChanged.connect(
+            lambda v: ui.slider_max_delta_s.setValue(int(v * 100 + 0.5)))
+        self._connect_slider_spin(ui.slider_max_delta_h, ui.spinBox_max_delta_h)
+        ui.slider_max_delta_y.valueChanged.connect(self._schedule_auto_run)
+        ui.slider_max_delta_s.valueChanged.connect(self._schedule_auto_run)
+        ui.slider_max_delta_h.valueChanged.connect(self._schedule_auto_run)
         ui.radioButton_colorspace_yhs.toggled.connect(self._on_acm_colorspace_changed)
         ui.radioButton_colorspace_hsv.toggled.connect(self._on_acm_colorspace_changed)
         self.delta_chart_y.dataChanged.connect(
@@ -1162,6 +1135,23 @@ class AcmUiController:
         self._refresh_sample_overlays()
         self._schedule_auto_run()
 
+    def _on_reset_max_delta(self) -> None:
+        """Reset max delta controls to defaults (0.25, 0.25, 64)."""
+        self._set_slider_spin_value(
+            self.ui.slider_max_delta_y, self.ui.spinBox_max_delta_y, 25)
+        self.ui.spinBox_max_delta_y.setValue(0.25)
+        self._set_slider_spin_value(
+            self.ui.slider_max_delta_s, self.ui.spinBox_max_delta_s, 25)
+        self.ui.spinBox_max_delta_s.setValue(0.25)
+        self._set_slider_spin_value(
+            self.ui.slider_max_delta_h, self.ui.spinBox_max_delta_h, 64)
+        self._schedule_auto_run()
+
+    def _on_clip_type_changed(self, text: str) -> None:
+        """Apply clip_type change to ACM instance."""
+        self._get_current_acm().clip_type = text
+        self._schedule_auto_run()
+
     # ------------------------------------------------------------------ #
     # Heatmap refresh                                                    #
     # ------------------------------------------------------------------ #
@@ -1189,11 +1179,16 @@ class AcmUiController:
 
     def _update_acm_gains(self) -> None:
         """Write the current gain controls back to the active ACM instance."""
-        self._get_current_acm().set_gain(
-            self.ui.spinBox_gain_y.value(),
-            self.ui.spinBox_gain_s.value(),
-            self.ui.spinBox_gain_h.value(),
-        )
+        self._get_current_acm().gain_y = self.ui.spinBox_gain_y.value()
+        self._get_current_acm().gain_s = self.ui.spinBox_gain_s.value()
+        self._get_current_acm().gain_h = self.ui.spinBox_gain_h.value()
+
+    def _apply_delta_range_to_acm(self) -> None:
+        """Write the current max delta controls back to the active ACM instance."""
+        dy = self.ui.spinBox_max_delta_y.value()
+        ds = self.ui.spinBox_max_delta_s.value()
+        dh = self.ui.spinBox_max_delta_h.value()
+        self._get_current_acm().delta_range = (float(dy), float(ds), int(dh))
 
     def _schedule_auto_run(self) -> None:
         """Debounce ACM processing after UI edits."""
@@ -1244,27 +1239,22 @@ class AcmUiController:
         input_depth = input_frame.depth
         self._apply_lut_lengths()
         self._update_acm_gains()
+        self._apply_delta_range_to_acm()
         self._apply_full_delta_to_acm()
         acm = self._get_current_acm()
         start_time = time.time()
         try:
             if input_depth >= 10 and input_yuv444.dtype == np.uint16:
-                output = acm.do_acm_u10(
-                    input_yuv444,
-                    self.ui.checkBox_use_cordic.isChecked(),
-                )
+                output = acm.do_acm_u10(input_yuv444)
             else:
                 # Demote to 8-bit if necessary for the u8 pipeline.
                 if input_yuv444.dtype != np.uint8:
                     input_yuv444 = (input_yuv444 >> (input_depth - 8)).astype(np.uint8)
-                output = acm.do_acm_u8(
-                    input_yuv444,
-                    self.ui.checkBox_use_cordic.isChecked(),
-                )
+                output = acm.do_acm_u8(input_yuv444)
             elapsed_ms = (time.time() - start_time) * 1000.0
             out_fmt = 0x13 if (input_depth >= 10 and output.dtype == np.uint16) else _PLANAR_YUV_8
             out_frame = ImageFrame(
-                output[..., 0], output[..., 1], output[..., 2],
+                output[0], output[1], output[2],  # planar [C,H,W]
                 out_fmt, input_cs,
             )
             self._output_callback(out_frame)
@@ -1331,7 +1321,6 @@ class AcmUiController:
         """Switch the active ACM algorithm and refresh the editor state."""
         algo_names = ["VOP_VP_ACM", "SW_ACM", "EVIDEO_ACM", "SW_ACM_VARIANT"]
         self.current_algo = algo_names[index]
-        self._apply_default_cordic_for_algo()
         self._refresh_acm_ui_from_current_acm()
         self._schedule_auto_run()
 
@@ -1366,10 +1355,20 @@ class AcmUiController:
         # Enforce len_h2 <= len_h before setting its value.
         self.ui.spinBox_len_h2.setMaximum(acm.len_h)
         self.ui.slider_len_h2.setMaximum(acm.len_h)
-        self._set_slider_spin_value(self.ui.slider_len_h2, self.ui.spinBox_len_h2, acm.len_h2)
+        self._set_slider_spin_value(self.ui.slider_len_h2, self.ui.spinBox_len_h2, acm.len_hd)
         self._set_slider_spin_value(self.ui.slider_gain_y, self.ui.spinBox_gain_y, acm.gain_y)
         self._set_slider_spin_value(self.ui.slider_gain_s, self.ui.spinBox_gain_s, acm.gain_s)
         self._set_slider_spin_value(self.ui.slider_gain_h, self.ui.spinBox_gain_h, acm.gain_h)
+        # Sync delta_range
+        dr = getattr(acm, 'delta_range', (0.25, 0.25, 64))
+        self.ui.spinBox_max_delta_y.setValue(dr[0])
+        self.ui.spinBox_max_delta_s.setValue(dr[1])
+        self.ui.spinBox_max_delta_h.setValue(dr[2])
+        # Sync clip_type
+        ct = getattr(acm, 'clip_type', 'easy_clip')
+        idx = self.ui.comboBox_clip_type.findText(ct)
+        if idx >= 0:
+            self.ui.comboBox_clip_type.setCurrentIndex(idx)
         self._sync_ctrl_point_slider(acm.len_h)
         self._reload_delta_controls_from_acm()
         self._update_heatmaps()

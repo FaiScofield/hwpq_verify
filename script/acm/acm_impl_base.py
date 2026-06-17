@@ -16,17 +16,19 @@ import cv2
 import argparse
 import traceback
 import warnings
-from typing import Tuple
+from typing import Optional, Tuple
 import numpy as np
 import matplotlib.pyplot as plt
 
 if __package__:
     from . import cordic
     from .. import utils as utl
+    from ..csc.get_csc_coefs import g_y2r_mat_bt709, g_r2y_mat_bt709
 else:
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
     import cordic
     import utils as utl
+    from csc.get_csc_coefs import g_y2r_mat_bt709, g_r2y_mat_bt709
 
 
 # ---------------------------------------------------------------------------
@@ -259,14 +261,14 @@ class AcmImplBase:
         default set via resampling whenever ``set_len`` is called.
 
     Also supports runtime switching of:
-      * delta mapping mode ("rk" with [-1/4, 1/4] Y/S scale, or
-        "evideo" with [-1, 1] Y/S scale; H always [-64, 64] deg)
-      * YUV <-> YHS conversion method ("trig" by default, or "cordic")
+      * delta_range: 3-tuple (y:float, s:float, h:int) -- max absolute delta
+        per channel. h is in degrees; converted to radians in do_acm.
+      * YUV <-> YHS conversion method (trig or cordic)
+      * clip strategy for out-of-range pixel handling
     """
 
-    # delta scaling factors per mode
-    _DELTA_MODE_SCALE = {"rk": {"y": 0.25, "s": 0.25, "h": 1.0}, "evideo": {"y": 1.0, "s": 1.0, "h": 1.0}}
-    _CVT_METHODS = ("trig", "cordic", "hsv")
+    # valid clip strategies
+    _CLIP_TYPES = ("easy_clip", "soft_clip", "const_hue", "radial_clip")
 
     def __init__(
         self,
@@ -274,14 +276,23 @@ class AcmImplBase:
         len_s: int = 13,
         len_h: int = 65,
         len_hd: int = 0,
-        delta_mode: str = "rk",
-        cvt_method: str = "trig",
+        delta_range: Tuple[float, float, int] = (0.25, 0.25, 64),
+        use_cordic: bool = False,
+        is_lut4rgb: bool = False,
+        clip_type: str = "easy_clip",
     ):
         # --- mode / method ---
-        assert delta_mode in self._DELTA_MODE_SCALE, f"unknown delta_mode: {delta_mode}"
-        assert cvt_method in self._CVT_METHODS, f"unknown cvt_method: {cvt_method}"
-        self.delta_mode = delta_mode
-        self.cvt_method = cvt_method
+        if isinstance(delta_range, (int, float)):
+            delta_range = (float(delta_range), float(delta_range), 64)
+        assert len(delta_range) == 3, f"delta_range must be a 3-tuple (y, s, h), got {delta_range}"
+        dy, ds, dh = delta_range
+        assert dy > 0 and ds > 0 and dh > 0, f"delta_range elements must be > 0, got {delta_range}"
+        assert isinstance(dh, int), f"delta_range.h must be int (degrees), got {type(dh)}"
+        assert clip_type in self._CLIP_TYPES, f"unknown clip_type: {clip_type}"
+        self.delta_range = (float(dy), float(ds), int(dh))
+        self.use_cordic = use_cordic
+        self.is_lut4rgb = is_lut4rgb
+        self.clip_type = clip_type
 
         # --- gains ---
         self.gain_y = 256  # [0, (256), 1023], 8bit fixed
@@ -299,7 +310,9 @@ class AcmImplBase:
 
         self._print_len("default", self._default_len_y, self._default_len_s, self._default_len_h, self._default_len_hd)
         self._print_len("current", self.len_y, self.len_s, self.len_h, self.len_hd)
-        print(f"[ACM] delta_mode={self.delta_mode}, cvt_method={self.cvt_method}")
+        print(f"[ACM] delta_range: (y={self.delta_range[0]}, s={self.delta_range[1]}, h={self.delta_range[2]}), "
+              f"use_cordic: {self.use_cordic}, "
+              f"is_lut4rgb: {self.is_lut4rgb}, clip_type: {self.clip_type}")
 
     # ------------------------------------------------------------------
     # length / LUT init helpers
@@ -379,20 +392,26 @@ class AcmImplBase:
         self.offset_wb = wb_offset
         print(f"[ACM] set wrgb offset: wr={self.offset_wr}, wg={self.offset_wg}, wb={self.offset_wb}")
 
-    def set_delta_mode(self, mode: str) -> None:
-        """Switch delta mapping mode ("rk" or "evideo")."""
-        if mode not in self._DELTA_MODE_SCALE:
-            raise ValueError(f"unknown delta_mode: {mode}, expect one of {list(self._DELTA_MODE_SCALE)}")
-        self.delta_mode = mode
-        print(f"[ACM] set delta_mode: {self.delta_mode}")
+    def set_delta_range(self, value) -> None:
+        """Set the max absolute delta tuple (y:float, s:float, h:int).
 
-    def set_cvt_method(self, method: str) -> None:
-        """Switch YUV<=>YHS conversion method ("trig" or "cordic")."""
-        if method not in self._CVT_METHODS:
-            raise ValueError(f"unknown cvt_method: {method}, expect 'trig'/'cordic'/'hsv'")
-        self.cvt_method = method
-        self.isLut4Rgb = 1 if method == "hsv" else 0
-        print(f"[ACM] set cvt_method: {self.cvt_method}")
+        Accepts a single float (applied to y and s, h defaults to 64)
+        or a 3-tuple (y, s, h). h is in degrees.
+        """
+        if isinstance(value, (int, float)):
+            value = (float(value), float(value), 64)
+        dy, ds, dh = value
+        if dy <= 0 or ds <= 0 or dh <= 0:
+            raise ValueError(f"delta_range elements must be > 0, got {value}")
+        if not isinstance(dh, int):
+            raise ValueError(f"delta_range.h must be int (degrees), got {type(dh)}")
+        self.delta_range = (float(dy), float(ds), int(dh))
+        print(f"[ACM] set delta_range: (y={self.delta_range[0]}, s={self.delta_range[1]}, h={self.delta_range[2]})")
+
+    def set_use_cordic(self, value: bool) -> None:
+        """Switch YUV<=>YHS conversion between trig (False) and cordic (True)."""
+        self.use_cordic = value
+        print(f"[ACM] set use_cordic: {self.use_cordic}")
 
     # ------------------------------------------------------------------
     # resampling between default <-> current
@@ -490,8 +509,124 @@ class AcmImplBase:
         h_deg = (np.rad2deg(h_rad) + 180 + 0.5).astype(np.int32)  # [0, 360]
         return s, h_deg, h_rad
 
-    def _use_cordic(self) -> bool:
-        return self.cvt_method == "cordic"
+    # ------------------------------------------------------------------
+    # YUV <-> RGB conversion (BT.709 full-range)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _yuv_to_rgb_float(y_f: np.ndarray, cb_f: np.ndarray, cr_f: np.ndarray,
+                           cbcr_center: float, y_max: float) -> tuple:
+        """Convert a batch of full-range YUV pixels to RGB float in [0, 1].
+
+        Uses BT.709 coefficients.  Inputs are already float: Y in [0, y_max],
+        Cb/Cr centered at cbcr_center.  Returns (R, G, B) each in [0, 1]
+        (may exceed [0, 1] before clipping).
+        """
+        cr_n = cr_f - cbcr_center
+        cb_n = cb_f - cbcr_center
+        r = (y_f + 1.5748 * cr_n) / y_max
+        g = (y_f - 0.187324 * cb_n - 0.468124 * cr_n) / y_max
+        b = (y_f + 1.8556 * cb_n) / y_max
+        return r, g, b
+
+    @staticmethod
+    def _rgb_to_yuv_float(r_f: np.ndarray, g_f: np.ndarray, b_f: np.ndarray,
+                           cbcr_center: float, y_max: float) -> tuple:
+        """Convert RGB float in [0, 1] back to full-range YUV float (BT.709).
+
+        Returns (Y, Cb, Cr) with Y in [0, y_max], Cb/Cr centered at cbcr_center.
+        """
+        y_f = y_max * (0.2126 * r_f + 0.7152 * g_f + 0.0722 * b_f)
+        cb_f = y_max * (-0.114572 * r_f - 0.385428 * g_f + 0.5 * b_f) + cbcr_center
+        cr_f = y_max * (0.5 * r_f - 0.454153 * g_f - 0.045847 * b_f) + cbcr_center
+        return y_f, cb_f, cr_f
+
+    # ------------------------------------------------------------------
+    # clip strategy helpers (operate on float RGB in [0, 1])
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _clip_soft_rgb(r_f: np.ndarray, g_f: np.ndarray, b_f: np.ndarray) -> tuple:
+        """Soft-clip RGB: preserve the smallest channel, squeeze mid/max.
+
+        When max > 1, the minimum channel is held fixed; max is clamped to 1
+        and the middle channel is linearly remapped to maintain hue direction.
+        When min < 0, the symmetric rule is applied (max held, min clamped to 0).
+        """
+        max_val = np.maximum(np.maximum(r_f, g_f), b_f)
+        min_val = np.minimum(np.minimum(r_f, g_f), b_f)
+        mid_val = r_f + g_f + b_f - max_val - min_val
+
+        range_safe = np.maximum(max_val - min_val, 1e-12)
+
+        # overflow case: max > 1
+        ovf = max_val > 1.0
+        if np.any(ovf):
+            ratio = (mid_val - min_val) / range_safe
+            min_new = min_val  # preserve
+            max_new = np.where(ovf, 1.0, max_val)
+            mid_new = np.where(ovf, min_new + ratio * (max_new - min_new), mid_val)
+            # Reconstruct ordering
+            r_f, g_f, b_f = AcmImplBase._restore_rgb_sorted_channels(
+                r_f, g_f, b_f, min_new, mid_new, max_new)
+
+        # underflow case: min < 0 (need to recompute after overflow fix)
+        max_val = np.maximum(np.maximum(r_f, g_f), b_f)
+        min_val = np.minimum(np.minimum(r_f, g_f), b_f)
+        mid_val = r_f + g_f + b_f - max_val - min_val
+        range_safe = np.maximum(max_val - min_val, 1e-12)
+
+        unf = min_val < 0.0
+        if np.any(unf):
+            ratio = (max_val - mid_val) / range_safe
+            max_new = np.where(unf, max_val, max_val)  # preserve max
+            min_new = np.where(unf, 0.0, min_val)
+            mid_new = np.where(unf, max_new - ratio * (max_new - min_new), mid_val)
+            r_f, g_f, b_f = AcmImplBase._restore_rgb_sorted_channels(
+                r_f, g_f, b_f, min_new, mid_new, max_new)
+
+        return r_f, g_f, b_f
+
+    @staticmethod
+    def _clip_const_hue_rgb(r_f: np.ndarray, g_f: np.ndarray, b_f: np.ndarray) -> tuple:
+        """Const-hue clip: scale all three channels by the same factor.
+
+        Preserves R:G:B ratio absolutely. When max > 1, divide by max.
+        When min < 0, shift to zero then scale.
+        """
+        max_val = np.maximum(np.maximum(r_f, g_f), b_f)
+        min_val = np.minimum(np.minimum(r_f, g_f), b_f)
+
+        # overflow: divide by max_val
+        ovf = max_val > 1.0
+        scale = np.where(ovf, 1.0 / np.maximum(max_val, 1e-12), 1.0)
+        r_f = r_f * scale
+        g_f = g_f * scale
+        b_f = b_f * scale
+
+        # underflow: shift-to-zero then scale
+        unf = min_val < 0.0
+        scale = np.where(unf, 1.0 / np.maximum(1.0 - min_val, 1e-12), 1.0)
+        r_f = np.where(unf, (r_f - min_val) * scale, r_f)
+        g_f = np.where(unf, (g_f - min_val) * scale, g_f)
+        b_f = np.where(unf, (b_f - min_val) * scale, b_f)
+
+        return r_f, g_f, b_f
+
+    @staticmethod
+    def _restore_rgb_sorted_channels(r: np.ndarray, g: np.ndarray, b: np.ndarray,
+                          min_v: np.ndarray, mid_v: np.ndarray, max_v: np.ndarray) -> tuple:
+        """Restore min/mid/max values back to their original R/G/B positions.
+
+        Builds a sorted stack per pixel and maps back according to the
+        original channel ordering.
+        """
+        stacked = np.stack([r, g, b], axis=2)  # (H, W, 3)
+        order = np.argsort(stacked, axis=2)    # argsort ascending → [min_idx, mid_idx, max_idx]
+        # Build output using the ordering indices
+        sorted_vals = np.stack([min_v, mid_v, max_v], axis=2)
+        # Use take_along_axis to undo the sort
+        inv_order = np.argsort(order, axis=2)
+        out = np.take_along_axis(sorted_vals, inv_order, axis=2)
+        return out[:, :, 0], out[:, :, 1], out[:, :, 2]
 
     # ------------------------------------------------------------------
     # ACM processing
@@ -500,9 +635,9 @@ class AcmImplBase:
         """Apply ACM to an 8bit YUV444p image. Returns YUV444p uint8."""
         print(f"[ACM] doing ACM LUT for u8 {'rgb' if isRgb else 'yuv'} image...")
         if use_cordic is None:
-            use_cordic = self._use_cordic()
+            use_cordic = self.use_cordic
 
-        if isRgb and self.cvt_method == "hsv":
+        if isRgb and self.is_lut4rgb:
             data_out = self._do_acm_rgb(planar_data, range=256)
             return data_out
 
@@ -530,9 +665,9 @@ class AcmImplBase:
         print(f"[ACM] doing ACM LUT for u10 {'rgb' if isRgb else 'yuv'} image...")
         assert planar_data.dtype == np.uint16, "do_acm_u10 expects uint16 input"
         if use_cordic is None:
-            use_cordic = self._use_cordic()
+            use_cordic = self.use_cordic
 
-        if isRgb and self.cvt_method == "hsv":
+        if isRgb and self.is_lut4rgb:
             data_out = self._do_acm_rgb(planar_data, range=1024)
             return data_out
 
@@ -560,146 +695,135 @@ class AcmImplBase:
         cbcr_center: int,
         use_cordic: bool,
     ) -> np.ndarray:
-        # depth-dependent full-scale ranges
-        # u8:  Y in [0,255], S in [0,181];  u10: Y in [0,1023], S in [0,724]
+        """Core ACM LUT pipeline (YUV path).
+
+        All computation is performed in normalised float:
+          * y_f, s_f, h_f  in [0, 1]  (h_f maps linearly 0→0°, 1→360°)
+        LUT tables are pre-converted to normalised float with gain and
+        delta_range applied, so the remap outputs are directly usable as
+        additive deltas (fraction of full-scale for Y/S, degrees for H).
+        """
         y_max = float(y_range - 1)
         s_max = 181.0 if depth_uv == 8 else 724.0
-        h_max = 360
+        h_max = 360.0
+        dr_y, dr_s, dr_h = self.delta_range # 0.25, 0.25, 64
 
-        # mode-dependent scale (delta_y *= 0.25 for rk mode, *1.0 for evideo)
-        scl = self._DELTA_MODE_SCALE[self.delta_mode]
+        # ---- 1. Normalise inputs to [0, 1] ----
+        y_f = y.astype(np.float32) / y_max
+        s_f = s.astype(np.float32) / s_max
+        h_f = (h_deg + 180) % 360 / h_max # index starts from -180°
 
-        # SW method: apply global gains to delta tables first. I don't think it's a good idea.
-        local_lut_delta_ybyh = round_rshift(self.lut_delta_ybyh.astype(np.int32) * self.gain_y, 8)
-        local_lut_delta_sbyh = round_rshift(self.lut_delta_sbyh.astype(np.int32) * self.gain_s, 8)
-        local_lut_delta_hbyh = round_rshift(self.lut_delta_hbyh.astype(np.int32) * self.gain_h, 8)
-        local_lut_delta_ybyh = np.clip(local_lut_delta_ybyh, ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX)
-        local_lut_delta_sbyh = np.clip(local_lut_delta_sbyh, ACM_DELTA_S_MIN, ACM_DELTA_S_MAX)
-        local_lut_delta_hbyh = np.clip(local_lut_delta_hbyh, ACM_DELTA_H_MIN, ACM_DELTA_H_MAX)
+        # ---- 2. Normalise LUT tables (apply gain & delta_range upfront) ----
+        g_y = self.gain_y / 256.0
+        g_s = self.gain_s / 256.0
+        g_h = self.gain_h / 256.0
+        lut_dy = self.lut_delta_ybyh.astype(np.float32) / ACM_DELTA_Y_MAX * g_y * dr_y
+        lut_ds = self.lut_delta_sbyh.astype(np.float32) / ACM_DELTA_S_MAX * g_s * dr_s
+        lut_dh = self.lut_delta_hbyh.astype(np.float32) / ACM_DELTA_H_MAX * g_h * dr_h
 
-        idx_y = y.astype(np.float32) / y_max * (self.len_y - 1)
-        idx_s = s.astype(np.float32) / s_max * (self.len_s - 1)
-        idx_h = h_deg.astype(np.float32) / h_max * (self.len_h - 1)
-        idx_hd = h_deg.astype(np.float32) / h_max * (self.len_hd - 1)
+        lut_g_yy = self.lut_gain_ybyy.astype(np.float32) / 127.0
+        lut_g_ys = self.lut_gain_sbyy.astype(np.float32) / 127.0
+        lut_g_yh = self.lut_gain_hbyy.astype(np.float32) / 127.0
+        lut_g_sy = self.lut_gain_ybys.astype(np.float32) / 127.0
+        lut_g_ss = self.lut_gain_sbys.astype(np.float32) / 127.0
+        lut_g_sh = self.lut_gain_hbys.astype(np.float32) / 127.0
 
-        # NOTE: cv2.remap does not support int32 for bilinear interpolation.
-        # The LUT values are stored in the 8bit reference domain: delta_y in
-        # [-Y_FULL_RANGE, Y_FULL_RANGE] and delta_s in [-S_FULL_RANGE,
-        # S_FULL_RANGE]. We interpret the LUT as a ratio relative to the 8bit
-        # input range and re-scale by the current bit depth's y_max / s_max so
-        # that "1x LUT value" == "1x of the current input range". Combined
-        # with ``scl`` this yields:
-        #   * rk    + 8bit:  delta_y in [-Y_FULL_RANGE/4,  Y_FULL_RANGE/4]
-        #                    delta_s in [-S_FULL_RANGE/4,  S_FULL_RANGE/4]
-        #   * rk    + 10bit: delta_y in [-y_max_10bit/4,   y_max_10bit/4]
-        #                    delta_s in [-s_max_10bit/4,   s_max_10bit/4]
-        #   * evideo+ 8bit:  delta_y in [-Y_FULL_RANGE,   Y_FULL_RANGE]
-        #                    delta_s in [-S_FULL_RANGE,   S_FULL_RANGE]
-        #   * evideo+ 10bit: delta_y in [-y_max_10bit,    y_max_10bit]
-        #                    delta_s in [-s_max_10bit,    s_max_10bit]
+        # ---- 3. Compute remap indices ----
+        idx_y = y_f * (self.len_y - 1)
+        idx_s = s_f * (self.len_s - 1)
+        idx_h = h_f * (self.len_h - 1)
+        idx_hd = h_f * (self.len_hd - 1)
         idx_zeros = np.zeros_like(idx_h)
+
+        # ---- 4. Sample delta tables (1D, indexed by H) → additive deltas ----
         delta_y = cv2.remap(
-            local_lut_delta_ybyh.astype(np.float32) * scl["y"] * y_max / ACM_Y_FULL_RANGE,
-            idx_h,
-            idx_zeros,
-            interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE,
+            lut_dy, idx_h, idx_zeros,
+            interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
         delta_s = cv2.remap(
-            local_lut_delta_sbyh.astype(np.float32) * scl["s"] * s_max / ACM_S_FULL_RANGE,
-            idx_h,
-            idx_zeros,
-            interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE,
+            lut_ds, idx_h, idx_zeros,
+            interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
         delta_h = cv2.remap(
-            local_lut_delta_hbyh.astype(np.float32) * scl["h"],
-            idx_h,
-            idx_zeros,
-            interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE,
-        )
+            lut_dh, idx_h, idx_zeros,
+            interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
+        )# [-64, 64]
+
+        # ---- 5. Sample gain tables (2D, indexed by (Y/S, HD)) ----
         gain_yy = cv2.remap(
-            self.lut_gain_ybyy.astype(np.float32),
-            idx_y,
-            idx_hd,
-            interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE,
+            lut_g_yy, idx_y, idx_hd,
+            interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
         gain_ys = cv2.remap(
-            self.lut_gain_sbyy.astype(np.float32),
-            idx_y,
-            idx_hd,
-            interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE,
+            lut_g_ys, idx_y, idx_hd,
+            interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
         gain_yh = cv2.remap(
-            self.lut_gain_hbyy.astype(np.float32),
-            idx_y,
-            idx_hd,
-            interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE,
+            lut_g_yh, idx_y, idx_hd,
+            interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
         gain_sy = cv2.remap(
-            self.lut_gain_ybys.astype(np.float32),
-            idx_s,
-            idx_hd,
-            interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE,
+            lut_g_sy, idx_s, idx_hd,
+            interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
         gain_ss = cv2.remap(
-            self.lut_gain_sbys.astype(np.float32),
-            idx_s,
-            idx_hd,
-            interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE,
+            lut_g_ss, idx_s, idx_hd,
+            interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
         gain_sh = cv2.remap(
-            self.lut_gain_hbys.astype(np.float32),
-            idx_s,
-            idx_hd,
-            interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE,
+            lut_g_sh, idx_s, idx_hd,
+            interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
 
-        delta_y = (delta_y + np.sign(delta_y) * 0.5).astype(np.int32)
-        delta_s = (delta_s + np.sign(delta_s) * 0.5).astype(np.int32)
-        delta_h = (delta_h + np.sign(delta_h) * 0.5).astype(np.int32)
-        gain_yy = (gain_yy + np.sign(gain_yy) * 0.5).astype(np.int32)
-        gain_ys = (gain_ys + np.sign(gain_ys) * 0.5).astype(np.int32)
-        gain_yh = (gain_yh + np.sign(gain_yh) * 0.5).astype(np.int32)
-        gain_sy = (gain_sy + np.sign(gain_sy) * 0.5).astype(np.int32)
-        gain_ss = (gain_ss + np.sign(gain_ss) * 0.5).astype(np.int32)
-        gain_sh = (gain_sh + np.sign(gain_sh) * 0.5).astype(np.int32)
-        delta_y = delta_y * (gain_yy * gain_sy)  # S9*S8*S8 => S23
-        delta_s = delta_s * (gain_ys * gain_ss)  # S7*S8*S8 => S21
-        delta_h = delta_h * (gain_yh * gain_sh)  # S9*S8*S8 => S23
-        delta_y = round_rshift(delta_y, 14)
-        delta_s = round_rshift(delta_s, 14)
-        delta_h = round_rshift(delta_h, 14)
+        # ---- 6. Combine deltas (all in normalised float) ----
+        delta_y = delta_y * gain_yy * gain_sy
+        delta_s = delta_s * gain_ys * gain_ss
+        delta_h = delta_h * gain_yh * gain_sh
 
-        y += delta_y
-        s += delta_s
+        # ---- 7. Apply to normalised values ----
+        y_f += delta_y
+        s_f = np.maximum(s_f + delta_s, 0.0)  # clamp S to >= 0
+        if self.clip_type == 'radial_clip':
+            s_f = np.minimum(s_f, 0.5)
+
+        # ---- 8. Convert back to integer pixel domain ----
+        y_out = y_f * y_max
+        s_pix = s_f * s_max
 
         if use_cordic:
-            h_deg = h_deg + delta_h
-            h_deg = np.where(h_deg < 0, h_deg + 360, h_deg)
-            h_deg = np.where(h_deg > 360, h_deg - 360, h_deg)
-            cb, cr = cordic.cordic_hs2cbcr(h_deg, s, 8, depth_uv, depth_uv, 13, 8)
+            h_deg_new = (h_deg + delta_h) % 360.0
+            h_deg_new = np.where(h_deg_new < 0, h_deg_new + 360.0, h_deg_new)
+            cb, cr = cordic.cordic_hs2cbcr(h_deg_new, s_pix.astype(np.int32), 8, depth_uv, depth_uv, 13, 8)
         else:
             new_rad = h_rad + np.deg2rad(delta_h)
-            new_cb = s * np.cos(new_rad)
-            new_cr = s * np.sin(new_rad)
+            new_cb = s_pix * np.cos(new_rad)
+            new_cr = s_pix * np.sin(new_rad)
             cb = (new_cb + 0.5 * np.sign(new_cb)).astype(np.int32)
             cr = (new_cr + 0.5 * np.sign(new_cr)).astype(np.int32)
 
         out_dtype = np.uint8 if depth_uv == 8 else np.uint16
-        yuv444p_out = np.zeros((y.shape[0], y.shape[1], 3), dtype=out_dtype)
         y_clip = y_range - 1
-        yuv444p_out[:, :, 0] = np.clip(y, 0, y_clip).astype(out_dtype)
-        yuv444p_out[:, :, 1] = np.clip(cb + cbcr_center, 0, y_clip).astype(out_dtype)
-        yuv444p_out[:, :, 2] = np.clip(cr + cbcr_center, 0, y_clip).astype(out_dtype)
-        return yuv444p_out
+
+        # ---- 9. Final clip (easy / soft / const-hue) ----
+        y_out_f = y_out.astype(np.float32)
+        cb_out_f = (cb + cbcr_center).astype(np.float32)
+        cr_out_f = (cr + cbcr_center).astype(np.float32)
+
+        if self.clip_type in ("soft_clip", "const_hue"):
+            r_f, g_f, b_f = self._yuv_to_rgb_float(
+                y_out_f, cb_out_f, cr_out_f, float(cbcr_center), float(y_max + 1))
+            if self.clip_type == "soft_clip":
+                r_f, g_f, b_f = self._clip_soft_rgb(r_f, g_f, b_f)
+            else:
+                r_f, g_f, b_f = self._clip_const_hue_rgb(r_f, g_f, b_f)
+            y_out_f, cb_out_f, cr_out_f = self._rgb_to_yuv_float(
+                r_f, g_f, b_f, float(cbcr_center), float(y_max + 1))
+
+        yuv444p_out = np.empty((y.shape[0], y.shape[1], 3), dtype=out_dtype)
+        yuv444p_out[:, :, 0] = np.clip(y_out_f, 0, y_clip).astype(out_dtype)
+        yuv444p_out[:, :, 1] = np.clip(cb_out_f, 0, y_clip).astype(out_dtype)
+        yuv444p_out[:, :, 2] = np.clip(cr_out_f, 0, y_clip).astype(out_dtype)
+        return yuv444p_out.transpose(2, 0, 1)  # [C, H, W] planar
 
     def _do_acm_rgb(
         self,
@@ -722,9 +846,9 @@ class AcmImplBase:
 
         # ---- 1. Normalize to full-range [0, 1] ----
         rgb_f = planar_data.astype(np.float32) / y_max
-        r = rgb_f[0]
-        g = rgb_f[1]
-        b = rgb_f[2]
+        r = rgb_f[:, :, 0]
+        g = rgb_f[:, :, 1]
+        b = rgb_f[:, :, 2]
         v = np.max(rgb_f, axis=2)
         m = np.min(rgb_f, axis=2)
         delta_val = v - m
@@ -761,18 +885,23 @@ class AcmImplBase:
         s = np.where(v > 0.0, delta_val / np.maximum(v, ACM_HSV_EPSILON_S), 0.0)
         s = np.where(is_gray, 0.0, s)
 
-        # ---- 4. Apply global gains to delta tables (mirrors CL host side) ----
-        local_lut_delta_ybyh = round_rshift(self.lut_delta_ybyh.astype(np.int32) * self.gain_y, 8)
-        local_lut_delta_sbyh = round_rshift(self.lut_delta_sbyh.astype(np.int32) * self.gain_s, 8)
-        local_lut_delta_hbyh = round_rshift(self.lut_delta_hbyh.astype(np.int32) * self.gain_h, 8)
-        local_lut_delta_ybyh = np.clip(local_lut_delta_ybyh, ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX)
-        local_lut_delta_sbyh = np.clip(local_lut_delta_sbyh, ACM_DELTA_S_MIN, ACM_DELTA_S_MAX)
-        local_lut_delta_hbyh = np.clip(local_lut_delta_hbyh, ACM_DELTA_H_MIN, ACM_DELTA_H_MAX)
+        # ---- 4. Normalise LUT tables (apply gain & delta_range upfront) ----
+        g_y = self.gain_y / 256.0
+        g_s = self.gain_s / 256.0
+        g_h = self.gain_h / 256.0
+        dr_y, dr_s, dr_h = self.delta_range
+        lut_dy = self.lut_delta_ybyh.astype(np.float32) / ACM_Y_FULL_RANGE * g_y * dr_y
+        lut_ds = self.lut_delta_sbyh.astype(np.float32) / ACM_Y_FULL_RANGE * g_s * dr_s
+        lut_dh = self.lut_delta_hbyh.astype(np.float32) / float(ACM_DELTA_H_MAX) * g_h * dr_h
+
+        lut_g_yy = self.lut_gain_ybyy.astype(np.float32) / 127.0
+        lut_g_ys = self.lut_gain_sbyy.astype(np.float32) / 127.0
+        lut_g_yh = self.lut_gain_hbyy.astype(np.float32) / 127.0
+        lut_g_sy = self.lut_gain_ybys.astype(np.float32) / 127.0
+        lut_g_ss = self.lut_gain_sbys.astype(np.float32) / 127.0
+        lut_g_sh = self.lut_gain_hbys.astype(np.float32) / 127.0
 
         # ---- 5. Compute LUT indices ----
-        # CL: idxY = v*8+0.5, idxS = s*12+0.5, idxH = hp*64/360+0.5 (with pixel-center +0.5)
-        # Python's cv2.remap uses the same pixel-center convention without an
-        # explicit +0.5, so the equivalent index is value*(len-1)/full_range.
         hp_deg = np.mod(h + 180.0, 360.0)
         idx_v = v * (self.len_y - 1)
         idx_s = s * (self.len_s - 1)
@@ -780,51 +909,46 @@ class AcmImplBase:
         idx_zeros = np.zeros_like(idx_v)
 
         # ---- 6. Sample delta tables (1D LUTs indexed by H) ----
-        # CL interpretation: int16/255 = fraction in [-1, +1]; delta_h is in degrees [-64, +64].
         delta_y = cv2.remap(
-            local_lut_delta_ybyh.astype(np.float32) / ACM_Y_FULL_RANGE,
-            idx_hp, idx_zeros,
+            lut_dy, idx_hp, idx_zeros,
             interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
         delta_s = cv2.remap(
-            local_lut_delta_sbyh.astype(np.float32) / ACM_Y_FULL_RANGE,
-            idx_hp, idx_zeros,
+            lut_ds, idx_hp, idx_zeros,
             interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
         delta_h = cv2.remap(
-            local_lut_delta_hbyh.astype(np.float32),
-            idx_hp, idx_zeros,
+            lut_dh, idx_hp, idx_zeros,
             interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
 
         # ---- 7. Sample gain tables (2D LUTs indexed by (V,H) and (S,H)) ----
-        # CL interpretation: int8/128 = fraction in [-1, +1].
         gain_yy = cv2.remap(
-            self.lut_gain_ybyy.astype(np.float32) / 128.0, idx_v, idx_hp,
+            lut_g_yy, idx_v, idx_hp,
             interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
         gain_ys = cv2.remap(
-            self.lut_gain_sbyy.astype(np.float32) / 128.0, idx_v, idx_hp,
+            lut_g_ys, idx_v, idx_hp,
             interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
         gain_yh = cv2.remap(
-            self.lut_gain_hbyy.astype(np.float32) / 128.0, idx_v, idx_hp,
+            lut_g_yh, idx_v, idx_hp,
             interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
         gain_sy = cv2.remap(
-            self.lut_gain_ybys.astype(np.float32) / 128.0, idx_s, idx_hp,
+            lut_g_sy, idx_s, idx_hp,
             interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
         gain_ss = cv2.remap(
-            self.lut_gain_sbys.astype(np.float32) / 128.0, idx_s, idx_hp,
+            lut_g_ss, idx_s, idx_hp,
             interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
         gain_sh = cv2.remap(
-            self.lut_gain_hbys.astype(np.float32) / 128.0, idx_s, idx_hp,
+            lut_g_sh, idx_s, idx_hp,
             interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
         )
 
-        # ---- 8. Combine deltas (CL: delta *= gaina * gainb; no (0.25, 0.25, 1, 1) factor) ----
+        # ---- 8. Combine deltas ----
         delta_y = delta_y * gain_yy * gain_sy
         delta_s = delta_s * gain_ys * gain_ss
         delta_h = delta_h * gain_yh * gain_sh
@@ -844,12 +968,18 @@ class AcmImplBase:
         g_out = np.where(is_gray, g_gray, rgb_new[:, :, 1])
         b_out = np.where(is_gray, b_gray, rgb_new[:, :, 2])
 
-        # ---- 12. Cast back to integer with full-range clipping ----
+        # ---- 12. Apply clip strategy on RGB float ----
+        if self.clip_type == "soft_clip":
+            r_out, g_out, b_out = self._clip_soft_rgb(r_out, g_out, b_out)
+        elif self.clip_type == "const_hue":
+            r_out, g_out, b_out = self._clip_const_hue_rgb(r_out, g_out, b_out)
+
+        # ---- 13. Cast back to integer with full-range clipping ----
         rgb_out = np.empty_like(planar_data)
         rgb_out[:, :, 0] = np.clip(r_out * y_max, 0.0, y_max).astype(planar_data.dtype)
         rgb_out[:, :, 1] = np.clip(g_out * y_max, 0.0, y_max).astype(planar_data.dtype)
         rgb_out[:, :, 2] = np.clip(b_out * y_max, 0.0, y_max).astype(planar_data.dtype)
-        return rgb_out
+        return rgb_out.transpose(2, 0, 1)  # [C, H, W] planar
 
     # ------------------------------------------------------------------
     # load_json / dump_json
@@ -896,7 +1026,7 @@ class AcmImplBase:
                 self.offset_wb = data["wbOffset"] if "wbOffset" in data else 0
                 self.offset_wg = data["wgOffset"] if "wgOffset" in data else 0
                 self.offset_wr = data["wrOffset"] if "wrOffset" in data else 0
-                self.isLut4Rgb = data["isLut4Rgb"] if "isLut4Rgb" in data else 0
+                self.is_lut4rgb = bool(data["isLut4Rgb"]) if "isLut4Rgb" in data else False
 
                 ## guess lut length from the file
                 len_h = data["lutLengthH"] if "lutLengthH" in data else len(lut_delta_ybyh)
@@ -932,18 +1062,18 @@ class AcmImplBase:
             raise ValueError(f"length of lut_delta_sbyh({len(lut_delta_sbyh)}) != len_h({len_h})!")
         if len(lut_delta_hbyh) != len_h:
             raise ValueError(f"length of lut_delta_hbyh({len(lut_delta_hbyh)}) != len_h({len_h})!")
-        if len(lut_gain_ybyy) != len_hd * len_y:
-            raise ValueError(f"length of lut_gain_ybyy({len(lut_gain_ybyy)}) != len_hd({len_hd}) x len_y({len_y})!")
-        if len(lut_gain_sbyy) != len_hd * len_y:
-            raise ValueError(f"length of lut_gain_sbyy({len(lut_gain_sbyy)}) != len_hd({len_hd}) x len_y({len_y})!")
-        if len(lut_gain_hbyy) != len_hd * len_y:
-            raise ValueError(f"length of lut_gain_hbyy({len(lut_gain_hbyy)}) != len_hd({len_hd}) x len_y({len_y})!")
-        if len(lut_gain_ybys) != len_hd * len_s:
-            raise ValueError(f"length of lut_gain_ybys({len(lut_gain_ybys)}) != len_hd({len_hd}) x len_s({len_s})!")
-        if len(lut_gain_sbys) != len_hd * len_s:
-            raise ValueError(f"length of lut_gain_sbys({len(lut_gain_sbys)}) != len_hd({len_hd}) x len_s({len_s})!")
-        if len(lut_gain_hbys) != len_hd * len_s:
-            raise ValueError(f"length of lut_gain_hbys({len(lut_gain_hbys)}) != len_hd({len_hd}) x len_s({len_s})!")
+        if lut_gain_ybyy.shape[0] * lut_gain_ybyy.shape[1] != len_hd * len_y:
+            raise ValueError(f"size of lut_gain_ybyy({lut_gain_ybyy.shape[0]} x {lut_gain_ybyy.shape[1]}) != len_hd({len_hd}) x len_y({len_y})!")
+        if lut_gain_sbyy.shape[0] * lut_gain_sbyy.shape[1] != len_hd * len_y:
+            raise ValueError(f"size of lut_gain_sbyy({lut_gain_sbyy.shape[0]} x {lut_gain_sbyy.shape[1]}) != len_hd({len_hd}) x len_y({len_y})!")
+        if lut_gain_hbyy.shape[0] * lut_gain_hbyy.shape[1] != len_hd * len_y:
+            raise ValueError(f"size of lut_gain_hbyy({lut_gain_hbyy.shape[0]} x {lut_gain_hbyy.shape[1]}) != len_hd({len_hd}) x len_y({len_y})!")
+        if lut_gain_ybys.shape[0] * lut_gain_ybys.shape[1] != len_hd * len_s:
+            raise ValueError(f"size of lut_gain_ybys({lut_gain_ybys.shape[0]} x {lut_gain_ybys.shape[1]}) != len_hd({len_hd}) x len_s({len_s})!")
+        if lut_gain_sbys.shape[0] * lut_gain_sbys.shape[1] != len_hd * len_s:
+            raise ValueError(f"size of lut_gain_sbys({lut_gain_sbys.shape[0]} x {lut_gain_sbys.shape[1]}) != len_hd({len_hd}) x len_s({len_s})!")
+        if lut_gain_hbys.shape[0] * lut_gain_hbys.shape[1] != len_hd * len_s:
+            raise ValueError(f"size of lut_gain_hbys({lut_gain_hbys.shape[0]} x {lut_gain_hbys.shape[1]}) != len_hd({len_hd}) x len_s({len_s})!")
 
         lut_gain_ybyy = lut_gain_ybyy.reshape(len_hd, len_y)
         lut_gain_sbyy = lut_gain_sbyy.reshape(len_hd, len_y)
@@ -995,7 +1125,7 @@ class AcmImplBase:
         data = {
             "version": (f"acm_impl_var_lut_rand_seed_{self.rand_seed}" if self.rand_seed > 0 else "acm_impl_var_lut"),
             "acmEnable": 1,
-            "isLut4Rgb": 1 if self.cvt_method == "hsv" else 0,
+            "isLut4Rgb": 1 if self.is_lut4rgb else 0,
             "lutLengthY": self._default_len_y,
             "lutLengthS": self._default_len_s,
             "lutLengthH": self._default_len_h,
@@ -1031,29 +1161,61 @@ class AcmImplBase:
                 return True
 
     def dump_lut(self, dir: str) -> None:
-        ## plot delta LUT (use the current set, which reflects runtime edits)
-        x = np.arange(self.len_h)
+        """Dump all LUT tables into a single figure.
 
-        plt.figure(figsize=(8, 6))
-        plt.plot(x, self.lut_delta_ybyh, label="delta_ybyh", color="red", linewidth=1.5)
-        plt.plot(x, self.lut_delta_sbyh, label="delta_sbyh", color="blue", linewidth=1.5)
-        plt.plot(x, self.lut_delta_hbyh, label="delta_hbyh", color="green", linewidth=1.5)
-        plt.legend()
-        plt.title("ACM Delta LUT YSH by H")
-        plt.xlabel("Hue")
-        plt.ylabel("Delta Y/S/H")
-        plt.grid(True, linestyle=":", alpha=0.7)
-        plt.savefig(f"{dir}/lut_delta_yshbyh_x{self.len_h}.png", dpi=600, bbox_inches="tight")
+        Top row:  3 delta curves (Y/S/H vs H)
+        Rows 2-3: 6 gain heatmaps (3×Y axis + 3×S axis)
+        Small LUTs are rendered with nearest-neighbour interpolation for clarity.
+        """
+        from matplotlib.gridspec import GridSpec
 
-        plt.imsave(f"{dir}/lut_gain_ybyy_{self.len_hd}x{self.len_y}.png", self.lut_gain_ybyy, cmap='gray')
-        plt.imsave(f"{dir}/lut_gain_sbyy_{self.len_hd}x{self.len_y}.png", self.lut_gain_sbyy, cmap='gray')
-        plt.imsave(f"{dir}/lut_gain_hbyy_{self.len_hd}x{self.len_y}.png", self.lut_gain_hbyy, cmap='gray')
-        plt.imsave(f"{dir}/lut_gain_ybys_{self.len_hd}x{self.len_s}.png", self.lut_gain_ybys, cmap='gray')
-        plt.imsave(f"{dir}/lut_gain_sbys_{self.len_hd}x{self.len_s}.png", self.lut_gain_sbys, cmap='gray')
-        plt.imsave(f"{dir}/lut_gain_hbys_{self.len_hd}x{self.len_s}.png", self.lut_gain_hbys, cmap='gray')
+        ny, ns, nh, nhd = self.len_y, self.len_s, self.len_h, self.len_hd
 
-        plt.close()
-        print(f"[ACM] dump LUT images to {dir}.")
+        fig = plt.figure(figsize=(16, 10))
+        gs = GridSpec(3, 3, figure=fig, height_ratios=[1.5, 1, 1],
+                      hspace=0.45, wspace=0.35)
+
+        # ---- Row 0: Delta curves ----
+        ax_delta = fig.add_subplot(gs[0, :])
+        x = np.arange(nh)
+        ax_delta.plot(x, self.lut_delta_ybyh, color="red",   linewidth=1.5, label="delta_ybyh")
+        ax_delta.plot(x, self.lut_delta_sbyh, color="blue",  linewidth=1.5, label="delta_sbyh")
+        ax_delta.plot(x, self.lut_delta_hbyh, color="green", linewidth=1.5, label="delta_hbyh")
+        ax_delta.axhline(0, color="gray", linestyle=":", linewidth=0.8)
+        ax_delta.legend(loc="upper right")
+        ax_delta.set_title(f"ACM Delta LUT by H  (len_h={nh})")
+        ax_delta.set_xlabel("H index")
+        ax_delta.set_ylabel("Delta value")
+        ax_delta.grid(True, linestyle=":", alpha=0.5)
+
+        # ---- Rows 1-2: Gain heatmaps ----
+        gain_specs = [
+            (1, 0, self.lut_gain_ybyy, "Gain Y by Y",    f"{nhd}×{ny}"),
+            (1, 1, self.lut_gain_sbyy, "Gain S by Y",    f"{nhd}×{ny}"),
+            (1, 2, self.lut_gain_hbyy, "Gain H by Y",    f"{nhd}×{ny}"),
+            (2, 0, self.lut_gain_ybys, "Gain Y by S",    f"{nhd}×{ns}"),
+            (2, 1, self.lut_gain_sbys, "Gain S by S",    f"{nhd}×{ns}"),
+            (2, 2, self.lut_gain_hbys, "Gain H by S",    f"{nhd}×{ns}"),
+        ]
+        for row, col, data, title, shape_str in gain_specs:
+            ax = fig.add_subplot(gs[row, col])
+            h, w = data.shape
+            # Use nearest-neighbour for tiny LUTs; keep aspect auto so they
+            # fill the subplot area regardless of native pixel count.
+            interpolation = "nearest" if max(h, w) < 50 else "bilinear"
+            im = ax.imshow(data, cmap="RdBu_r", vmin=-128, vmax=127,
+                           aspect="auto", origin="lower",
+                           interpolation=interpolation)
+            ax.set_title(f"{title}  [{shape_str}]")
+            ax.set_xlabel("Y/S index")
+            ax.set_ylabel("H index")
+            plt.colorbar(im, ax=ax, shrink=0.82)
+
+        fig.suptitle(f"ACM LUT Overview", fontsize=14, fontweight="bold")
+        out_path = f"{dir}/lut_all.png"
+        plt.savefig(out_path, dpi=200, bbox_inches="tight")
+        plt.close(fig)
+        print(f"[ACM] dump LUT overview to {out_path}.")
 
     def gen_test_config(self, b_strict: bool = True, random_seed: int = 114514) -> bool:
         if not self.b_lut_ready:

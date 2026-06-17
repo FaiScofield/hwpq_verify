@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1100</width>
+    <width>1132</width>
     <height>760</height>
    </rect>
   </property>
@@ -24,17 +24,42 @@
       </widget>
      </item>
      <item>
-      <spacer name="horizontalSpacer_3">
+      <widget class="Line" name="line">
        <property name="orientation">
-        <enum>Qt::Orientation::Horizontal</enum>
+        <enum>Qt::Orientation::Vertical</enum>
        </property>
-       <property name="sizeHint" stdset="0">
-        <size>
-         <width>40</width>
-         <height>20</height>
-        </size>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_acm_colorspace">
+       <property name="text">
+        <string>Input Data Type</string>
        </property>
-      </spacer>
+      </widget>
+     </item>
+     <item>
+      <widget class="QRadioButton" name="radioButton_colorspace_yhs">
+       <property name="text">
+        <string>YHS(YUV)</string>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QRadioButton" name="radioButton_colorspace_hsv">
+       <property name="text">
+        <string>HSV(RGB)</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="Line" name="line_2">
+       <property name="orientation">
+        <enum>Qt::Orientation::Vertical</enum>
+       </property>
+      </widget>
      </item>
      <item>
       <widget class="QLabel" name="label_algo_type">
@@ -68,17 +93,34 @@
       </widget>
      </item>
      <item>
-      <widget class="QCheckBox" name="checkBox_use_cordic">
+      <widget class="QLabel" name="label_clip_type">
        <property name="text">
-        <string>Use CORDIC</string>
+        <string>Clip Type</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QCheckBox" name="checkBox_lut_visualization">
-       <property name="text">
-        <string>LUT Visualization</string>
-       </property>
+      <widget class="QComboBox" name="comboBox_clip_type">
+       <item>
+        <property name="text">
+         <string>easy_clip</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>soft_clip</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>const_hue</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>radial_clip</string>
+        </property>
+       </item>
       </widget>
      </item>
      <item>
@@ -95,26 +137,16 @@
       </spacer>
      </item>
      <item>
-      <widget class="QLabel" name="label_acm_colorspace">
-       <property name="text">
-        <string>Colorspace</string>
+      <widget class="Line" name="line_3">
+       <property name="orientation">
+        <enum>Qt::Orientation::Vertical</enum>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QRadioButton" name="radioButton_colorspace_yhs">
+      <widget class="QCheckBox" name="checkBox_lut_visualization">
        <property name="text">
-        <string>YHS(YUV)</string>
-       </property>
-       <property name="checked">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QRadioButton" name="radioButton_colorspace_hsv">
-       <property name="text">
-        <string>HSV(RGB)</string>
+        <string>LUT Visualization</string>
        </property>
       </widget>
      </item>
@@ -149,10 +181,49 @@
       <bool>false</bool>
      </property>
      <layout class="QGridLayout" name="gridLayout_lut_lengths">
-      <item row="0" column="0">
-       <widget class="QLabel" name="label_len_y">
+      <item row="1" column="6">
+       <widget class="QLabel" name="label_max_delta_h">
         <property name="text">
-         <string>len_y</string>
+         <string>max_delta_h</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="label_max_delta_y">
+        <property name="text">
+         <string>max_delta_y(v)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="10">
+       <widget class="QSlider" name="slider_len_h2">
+        <property name="minimum">
+         <number>2</number>
+        </property>
+        <property name="maximum">
+         <number>180</number>
+        </property>
+        <property name="value">
+         <number>65</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="7">
+       <widget class="QSlider" name="slider_len_h">
+        <property name="minimum">
+         <number>4</number>
+        </property>
+        <property name="maximum">
+         <number>360</number>
+        </property>
+        <property name="value">
+         <number>65</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
         </property>
        </widget>
       </item>
@@ -169,22 +240,6 @@
         </property>
        </widget>
       </item>
-      <item row="0" column="1">
-       <widget class="QSlider" name="slider_len_y">
-        <property name="minimum">
-         <number>2</number>
-        </property>
-        <property name="maximum">
-         <number>128</number>
-        </property>
-        <property name="value">
-         <number>9</number>
-        </property>
-        <property name="orientation">
-         <enum>Qt::Orientation::Horizontal</enum>
-        </property>
-       </widget>
-      </item>
       <item row="0" column="3">
        <widget class="QLabel" name="label_len_s">
         <property name="text">
@@ -192,16 +247,42 @@
         </property>
        </widget>
       </item>
-      <item row="0" column="5">
-       <widget class="QSpinBox" name="spinBox_len_s">
+      <item row="1" column="4">
+       <widget class="QSlider" name="slider_max_delta_s">
         <property name="minimum">
-         <number>2</number>
+         <number>0</number>
         </property>
         <property name="maximum">
-         <number>90</number>
+         <number>200</number>
+        </property>
+        <property name="singleStep">
+         <number>5</number>
         </property>
         <property name="value">
-         <number>13</number>
+         <number>25</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="8">
+       <widget class="QSpinBox" name="spinBox_len_h">
+        <property name="minimum">
+         <number>4</number>
+        </property>
+        <property name="maximum">
+         <number>360</number>
+        </property>
+        <property name="value">
+         <number>65</number>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="9">
+       <widget class="QLabel" name="label_len_h2">
+        <property name="text">
+         <string>len_hd</string>
         </property>
        </widget>
       </item>
@@ -221,50 +302,93 @@
         </property>
        </widget>
       </item>
-      <item row="1" column="0">
-       <widget class="QLabel" name="label_len_h">
-        <property name="text">
-         <string>len_h</string>
+      <item row="1" column="8">
+       <widget class="QSpinBox" name="spinBox_max_delta_h">
+        <property name="minimum">
+         <number>1</number>
+        </property>
+        <property name="maximum">
+         <number>180</number>
+        </property>
+        <property name="value">
+         <number>64</number>
         </property>
        </widget>
       </item>
-      <item row="1" column="2">
-       <widget class="QSpinBox" name="spinBox_len_h">
+      <item row="1" column="5">
+       <widget class="QDoubleSpinBox" name="spinBox_max_delta_s">
+        <property name="decimals">
+         <number>2</number>
+        </property>
         <property name="minimum">
-         <number>4</number>
+         <double>0.000000000000000</double>
         </property>
         <property name="maximum">
-         <number>360</number>
+         <double>2.000000000000000</double>
+        </property>
+        <property name="singleStep">
+         <double>0.050000000000000</double>
         </property>
         <property name="value">
-         <number>65</number>
+         <double>0.250000000000000</double>
         </property>
        </widget>
       </item>
-      <item row="1" column="1">
-       <widget class="QSlider" name="slider_len_h">
+      <item row="0" column="1">
+       <widget class="QSlider" name="slider_len_y">
         <property name="minimum">
-         <number>4</number>
+         <number>2</number>
         </property>
         <property name="maximum">
-         <number>360</number>
+         <number>128</number>
         </property>
         <property name="value">
-         <number>65</number>
+         <number>9</number>
         </property>
         <property name="orientation">
          <enum>Qt::Orientation::Horizontal</enum>
         </property>
        </widget>
       </item>
-      <item row="1" column="3">
-       <widget class="QLabel" name="label_len_h2">
-        <property name="text">
-         <string>len_h2</string>
+      <item row="1" column="1">
+       <widget class="QSlider" name="slider_max_delta_y">
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>200</number>
+        </property>
+        <property name="singleStep">
+         <number>5</number>
+        </property>
+        <property name="value">
+         <number>25</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
         </property>
        </widget>
       </item>
-      <item row="1" column="5">
+      <item row="1" column="2">
+       <widget class="QDoubleSpinBox" name="spinBox_max_delta_y">
+        <property name="decimals">
+         <number>2</number>
+        </property>
+        <property name="minimum">
+         <double>0.000000000000000</double>
+        </property>
+        <property name="maximum">
+         <double>2.000000000000000</double>
+        </property>
+        <property name="singleStep">
+         <double>0.050000000000000</double>
+        </property>
+        <property name="value">
+         <double>0.250000000000000</double>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="11">
        <widget class="QSpinBox" name="spinBox_len_h2">
         <property name="minimum">
          <number>2</number>
@@ -277,41 +401,76 @@
         </property>
        </widget>
       </item>
-      <item row="1" column="4">
-       <widget class="QSlider" name="slider_len_h2">
+      <item row="0" column="6">
+       <widget class="QLabel" name="label_len_h">
+        <property name="text">
+         <string>len_h</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="3">
+       <widget class="QLabel" name="label_max_delta_s">
+        <property name="text">
+         <string>max_delta_s</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="7">
+       <widget class="QSlider" name="slider_max_delta_h">
         <property name="minimum">
-         <number>2</number>
+         <number>1</number>
         </property>
         <property name="maximum">
          <number>180</number>
         </property>
+        <property name="singleStep">
+         <number>1</number>
+        </property>
         <property name="value">
-         <number>65</number>
+         <number>64</number>
         </property>
         <property name="orientation">
          <enum>Qt::Orientation::Horizontal</enum>
         </property>
        </widget>
       </item>
-      <item row="2" column="0" colspan="4">
-       <spacer name="horizontalSpacer_lut_lengths">
-        <property name="orientation">
-         <enum>Qt::Orientation::Horizontal</enum>
+      <item row="0" column="5">
+       <widget class="QSpinBox" name="spinBox_len_s">
+        <property name="minimum">
+         <number>2</number>
         </property>
-        <property name="sizeHint" stdset="0">
-         <size>
-          <width>40</width>
-          <height>20</height>
-         </size>
+        <property name="maximum">
+         <number>90</number>
         </property>
-       </spacer>
+        <property name="value">
+         <number>13</number>
+        </property>
+       </widget>
       </item>
-      <item row="2" column="4" colspan="2">
-       <widget class="QPushButton" name="button_reset_lut_length">
+      <item row="0" column="0">
+       <widget class="QLabel" name="label_len_y">
         <property name="text">
-         <string>Reset LUT Length</string>
+         <string>len_y(v)</string>
         </property>
        </widget>
+      </item>
+      <item row="1" column="9" colspan="3">
+       <layout class="QHBoxLayout" name="horizontalLayout_4" stretch="0,0">
+        <item>
+         <widget class="QPushButton" name="button_reset_max_delta">
+          <property name="text">
+           <string>Reset Max Delta</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="button_reset_lut_length">
+          <property name="text">
+           <string>Reset LUT Length</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
      </layout>
     </widget>
