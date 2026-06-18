@@ -25,7 +25,7 @@ CORDIC_MAX_ITER_NUM = 15
 CORDIC_DEG180_FIX8 = 180 << 8
 
 
-def cordic_cbcr2hs(cb, cr, depth_uv: int, iter_num: int = 13, fix_bits_s: int = 0, keep_bits_s: int = 0):
+def cordic_cbcr2hs(cb, cr, depth_uv: int, iter_num: int = 13, fix_bits_s: int = 6, keep_bits_s: int = 0):
     """
     depth_uv: 8 or 10
     input cb range: [-128, 127] in S8 / [-512, 511] in S10
@@ -105,7 +105,7 @@ def cordic_cbcr2hs(cb, cr, depth_uv: int, iter_num: int = 13, fix_bits_s: int = 
     return h, s, depth_h, depth_s
 
 
-def cordic_hs2cbcr(h, s, depth_h: int, depth_s: int, out_depth_s: int, iter_num: int = 13, fix_bits_s: int = 5):
+def cordic_hs2cbcr(h, s, depth_h: int, depth_s: int, out_depth_s: int, iter_num: int = 13, fix_bits_s: int = 6):
     """
     depth_h: 8(+8)
     depth_s: [8,16] or [10,18]
