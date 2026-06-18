@@ -27,6 +27,7 @@ if __package__:
         bicubic_resize_array_1d,
         bicubic_resize_array_2d,
     )
+    from . import cordic
     from .. import utils as utl
 else:
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
@@ -38,6 +39,7 @@ else:
         bicubic_resize_array_1d,
         bicubic_resize_array_2d,
     )
+    import cordic
     import utils as utl
 
 
@@ -77,30 +79,30 @@ class AcmImplHwRk(AcmImplBase):
     def _do_acm_hw(self, planar_data: np.ndarray, depth: int) -> np.ndarray:
         """Replicate rkvop_pq_acm::process2() fixed‑point ACM pipeline.
 
-        Uses CORDIC for YCbCr↔HS, manual bilinear LUT lookups with 7‑bit
-        weights, and the dual‑gain chain (delta→wy_hy→wy_hs).
+        Uses depth‑specific acm_fix_coef (8‑bit: dc_UV=128/Ymax=255/Smax=181;
+        10‑bit: dc_UV=512/Ymax=1023/Smax=724).  No bit‑depth promotion is
+        applied — values stay in their native range, matching the C++ behaviour.
         """
-        import cordic
-
         # ---- C++ macro replicas ----
         def SHIFT_ROUND_S32(x, n):
             return np.right_shift(x + (1 << (n - 1)) + np.right_shift(x, 31), n)
 
-        _, height, width = planar_data.shape
+        H_img, W_img, _ = planar_data.shape
+        is_u8 = (depth == 8)
 
-        # ---- acm_fix_coef (acm_8bit_fix_coef / acm_10bit_fix_coef) ----
-        dc_UV = 512
-        YUV_maxvalue = 1023
-        S_maxvalue = 724
+        # ---- acm_fix_coef (acm_8bit / acm_10bit) ----
+        dc_UV = 128 if is_u8 else 512
+        YUV_maxvalue = 255 if is_u8 else 1023
+        S_maxvalue = 181 if is_u8 else 724
 
-        # ---- bit-width constants (process2) ----
+        # ---- bit-width constants ----
         ACM_FIX_BIT_WEIGHT_Y = 7
-        ACM_FIX_BIT_WEIGHT_S = 7  # [6,  9]
-        ACM_FIX_BIT_WEIGHT_H = 7  # [3, 11]
-        ACM_FIX_BIT_WEIGHT_HD = 7  # [5,  9]
+        ACM_FIX_BIT_WEIGHT_S = 7
+        ACM_FIX_BIT_WEIGHT_H = 7
+        ACM_FIX_BIT_WEIGHT_HD = 7
         ACM_FIX_BIT_WEIGHT_KEEP = 2
         RKVOP_PQ_ACM_CORDIC_S_BITS = 3
-        RKVOP_PQ_ACM_TANTABFIXTMP = 46080  # 180 * 256
+        RKVOP_PQ_ACM_TANTABFIXTMP = 46080
 
         # ---- shorthand ----
         delta_lut = (
@@ -108,7 +110,6 @@ class AcmImplHwRk(AcmImplBase):
             self.lut_delta_hbyh.astype(np.int32),
             self.lut_delta_sbyh.astype(np.int32),
         )
-        # use transpose lookup for hardware case!
         gain_lut_hy = (
             self.lut_gain_ybyy.astype(np.int32).T,
             self.lut_gain_hbyy.astype(np.int32).T,
@@ -120,160 +121,129 @@ class AcmImplHwRk(AcmImplBase):
             self.lut_gain_sbys.astype(np.int32).T,
         )
 
-        # ---- 1. Extract Y/U/V, compute CB/CR ----
-        Y = planar_data[0, :, :].astype(np.int32) # n bit: U8/U10
-        U = planar_data[1, :, :].astype(np.int32)
-        V = planar_data[2, :, :].astype(np.int32)
-        if depth == 8:
-            Y <<= 2
-            U <<= 2
-            V <<= 2
-        CB = U - dc_UV # S8/S10
+        # ---- 1. Extract planar channels ----
+        Y = planar_data[:, :, 0].astype(np.int32)
+        U = planar_data[:, :, 1].astype(np.int32)
+        V = planar_data[:, :, 2].astype(np.int32)
+        CB = U - dc_UV
         CR = V - dc_UV
 
         # ---- 2. CORDIC: CB/CR → H/S ----
-        # C++: pq_acm_Ycbcr2Yhs_v2(CB, CR, &H, &S); // H: S9.8, S: U10.3
         H, S, _, _ = cordic.cordic_cbcr2hs(CB, CR, depth, 13, 6, RKVOP_PQ_ACM_CORDIC_S_BITS)
-        HP = np.right_shift(H + RKVOP_PQ_ACM_TANTABFIXTMP, 6)  # U9.2  [0, 1440)
+        HP = np.right_shift(H + RKVOP_PQ_ACM_TANTABFIXTMP, 6)
 
         # ---- 3. H index / weight ----
-        if self.len_h == 65:
-            shiftH = 17 - 6 - ACM_FIX_BIT_WEIGHT_H  # = 4
-            if shiftH > 0:
-                H_idx_wgt = np.right_shift(HP * 91 + (1 << (shiftH - 1)), shiftH)
-            else:
-                H_idx_wgt = HP * 91
+        shiftH = 17 - 6 - ACM_FIX_BIT_WEIGHT_H
+        if shiftH > 0:
+            H_idx_wgt = np.right_shift(HP * 91 + (1 << (shiftH - 1)), shiftH)
         else:
-            H_idx_wgt = (HP * (self.len_h - 1) * 2**ACM_FIX_BIT_WEIGHT_H + 180) / 360
-        idxH0 = np.right_shift(H_idx_wgt, ACM_FIX_BIT_WEIGHT_H)  # [0, 63]
-        idxH1 = np.minimum(idxH0 + 1, self.len_h - 1)  # [1, 64]
-        wgtH1 = H_idx_wgt & ((1 << ACM_FIX_BIT_WEIGHT_H) - 1)  # [0, 127]
-        wgtH0 = (1 << ACM_FIX_BIT_WEIGHT_H) - wgtH1  # [1, 128]
+            H_idx_wgt = HP * 91
+        idxH0 = np.right_shift(H_idx_wgt, ACM_FIX_BIT_WEIGHT_H)
+        idxH1 = np.minimum(idxH0 + 1, 64)
+        wgtH1 = H_idx_wgt & ((1 << ACM_FIX_BIT_WEIGHT_H) - 1)
+        wgtH0 = (1 << ACM_FIX_BIT_WEIGHT_H) - wgtH1
 
         # ---- 4. HD index / weight (len_hd=17) ----
         if self.len_hd == self.len_h:
-            idxHD0 = idxH0
-            idxHD1 = idxH1
-            wgtHD1 = wgtH1
-            wgtHD0 = wgtH0
-        elif self.len_hd == 17:
-            shiftHD = 17 - 4 - ACM_FIX_BIT_WEIGHT_HD  # = 6
+            idxHD0, idxHD1 = idxH0, idxH1
+            wgtHD1, wgtHD0 = wgtH1, wgtH0
+        else:
+            shiftHD = 17 - 4 - ACM_FIX_BIT_WEIGHT_HD
             if shiftHD > 0:
                 HD_idx_wgt = np.right_shift(HP * 91 + (1 << (shiftHD - 1)), shiftHD)
             else:
                 HD_idx_wgt = HP * 91
-            idxHD0 = np.right_shift(HD_idx_wgt, ACM_FIX_BIT_WEIGHT_HD)  # [0, 15]
-            idxHD1 = np.minimum(idxHD0 + 1, 16)  # [1, 16]
-            wgtHD1 = HD_idx_wgt & ((1 << ACM_FIX_BIT_WEIGHT_HD) - 1)  # [0, 127]
-            wgtHD0 = (1 << ACM_FIX_BIT_WEIGHT_HD) - wgtHD1  # [1, 128]
-        else:
-            H_idx_wgt = (HP * (self.len_hd - 1) * 2**ACM_FIX_BIT_WEIGHT_HD + 180) / 360
-            idxH0 = np.right_shift(H_idx_wgt, ACM_FIX_BIT_WEIGHT_HD)  # [0, 16]
-            idxH1 = np.minimum(idxH0 + 1, self.len_hd - 1)  # [1, 16]
-            wgtH1 = H_idx_wgt & ((1 << ACM_FIX_BIT_WEIGHT_HD) - 1)  # [0, 127]
-            wgtH0 = (1 << ACM_FIX_BIT_WEIGHT_HD) - wgtH1  # [1, 128]
+            idxHD0 = np.right_shift(HD_idx_wgt, ACM_FIX_BIT_WEIGHT_HD)
+            idxHD1 = np.minimum(idxHD0 + 1, 16)
+            wgtHD1 = HD_idx_wgt & ((1 << ACM_FIX_BIT_WEIGHT_HD) - 1)
+            wgtHD0 = (1 << ACM_FIX_BIT_WEIGHT_HD) - wgtHD1
 
         # ---- 5. Y index / weight ----
-        if self.len_y == 9:
-            Y_idx_wgt = Y
-        else:
-            Y_idx_wgt = (Y * (self.len_y - 1) * 2**ACM_FIX_BIT_WEIGHT_Y + (YUV_maxvalue >> 1)) / YUV_maxvalue
-        idxY0 = np.right_shift(Y_idx_wgt, ACM_FIX_BIT_WEIGHT_Y)  # [0, 7] for 10bit
-        idxY1 = np.minimum(idxY0 + 1, self.len_y - 1)  # [1, 8]
-        wgtY1 = np.bitwise_and(Y, (1 << ACM_FIX_BIT_WEIGHT_Y) - 1)  # [0, 127]
-        wgtY0 = (1 << ACM_FIX_BIT_WEIGHT_Y) - wgtY1  # [1, 128]
+        idxY0 = np.right_shift(Y, ACM_FIX_BIT_WEIGHT_Y)
+        idxY1 = np.minimum(idxY0 + 1, 8)
+        wgtY1 = np.bitwise_and(Y, (1 << ACM_FIX_BIT_WEIGHT_Y) - 1)
+        wgtY0 = (1 << ACM_FIX_BIT_WEIGHT_Y) - wgtY1
 
         # ---- 6. S index / weight ----
-        if self.len_s == 13:
-            shiftS = 17 - 4 - ACM_FIX_BIT_WEIGHT_S  # = 6
-            if shiftS > 0:
-                S_idx_wgt = np.right_shift(S * 17 + (1 << (shiftS - 1)), shiftS)
-            else:
-                S_idx_wgt = S * 17
+        shiftS = 17 - 4 - ACM_FIX_BIT_WEIGHT_S
+        if shiftS > 0:
+            S_idx_wgt = np.right_shift(S * 17 + (1 << (shiftS - 1)), shiftS)
         else:
-            S_idx_wgt = (S * (self.len_s - 1) * 2**ACM_FIX_BIT_WEIGHT_S + (S_maxvalue >> 1)) / S_maxvalue
-        idxS0 = np.right_shift(S_idx_wgt, ACM_FIX_BIT_WEIGHT_S)  # [0, 12]
-        idxS1 = np.minimum(idxS0 + 1, self.len_s - 1)  # [1, 12]
-        wgtS1 = S_idx_wgt & ((1 << ACM_FIX_BIT_WEIGHT_S) - 1)  # [0, 127]
-        wgtS0 = (1 << ACM_FIX_BIT_WEIGHT_S) - wgtS1  # [1, 128]
+            S_idx_wgt = S * 17
+        idxS0 = np.right_shift(S_idx_wgt, ACM_FIX_BIT_WEIGHT_S)
+        idxS1 = np.minimum(idxS0 + 1, 12)
+        wgtS1 = S_idx_wgt & ((1 << ACM_FIX_BIT_WEIGHT_S) - 1)
+        wgtS0 = (1 << ACM_FIX_BIT_WEIGHT_S) - wgtS1
 
         # ---- 7. Pre-compute bilinear weights ----
-        wgtFixBitYH = ACM_FIX_BIT_WEIGHT_Y + ACM_FIX_BIT_WEIGHT_HD  # = 14
+        wgtFixBitYH = ACM_FIX_BIT_WEIGHT_Y + ACM_FIX_BIT_WEIGHT_HD
         wgtYH00 = wgtY0 * wgtHD0
         wgtYH01 = wgtY0 * wgtHD1
         wgtYH10 = wgtY1 * wgtHD0
         wgtYH11 = wgtY1 * wgtHD1
 
-        wgtFixBitSH = ACM_FIX_BIT_WEIGHT_S + ACM_FIX_BIT_WEIGHT_HD  # = 14
+        wgtFixBitSH = ACM_FIX_BIT_WEIGHT_S + ACM_FIX_BIT_WEIGHT_HD
         wgtSH00 = wgtS0 * wgtHD0
         wgtSH01 = wgtS0 * wgtHD1
         wgtSH10 = wgtS1 * wgtHD0
         wgtSH11 = wgtS1 * wgtHD1
 
-        # ---- helper: 4‑point bilinear lookup on (H, Y/S) gain table ----
+        # ---- helper: 4‑point bilinear lookup ----
         def _sample_4pt(lut, iH0, iH1, iV0, iV1, w00, w01, w10, w11, wgtFixBits):
-            """lut shape [H_len, V_len]; returns S8.KP weighted sum (int32)."""
             tl = lut[iV0, iH0] * w00
             tr = lut[iV0, iH1] * w01
             bl = lut[iV1, iH0] * w10
             br = lut[iV1, iH1] * w11
             return SHIFT_ROUND_S32(tl + tr + bl + br, wgtFixBits - ACM_FIX_BIT_WEIGHT_KEEP)
 
-        # ---- 8. 1D delta lookup (bilinear by H) ----
+        # ---- 8. 1D delta lookup ----
         def _delta_1d(lut_1d, idx0, idx1, w0, w1):
-            """lut_1d [0..64]; returns S?.2 weighted sum."""
             d0 = lut_1d[idx0] * w0
             d1 = lut_1d[idx1] * w1
             return SHIFT_ROUND_S32(d0 + d1, ACM_FIX_BIT_WEIGHT_H - ACM_FIX_BIT_WEIGHT_KEEP)
 
-        dy = _delta_1d(delta_lut[0], idxH0, idxH1, wgtH0, wgtH1)  # S9.2
-        dh = _delta_1d(delta_lut[1], idxH0, idxH1, wgtH0, wgtH1)  # S7.2
-        ds = _delta_1d(delta_lut[2], idxH0, idxH1, wgtH0, wgtH1)  # S9.2
+        dy = _delta_1d(delta_lut[0], idxH0, idxH1, wgtH0, wgtH1)
+        dh = _delta_1d(delta_lut[1], idxH0, idxH1, wgtH0, wgtH1)
+        ds = _delta_1d(delta_lut[2], idxH0, idxH1, wgtH0, wgtH1)
 
-        # ---- 9. Apply global gain to delta (#if ENABLE_ACM_APPLY_GLOBAL_GAIN_NORMAL) ----
-        dy = SHIFT_ROUND_S32(dy.astype(np.int64) * self.gain_y, 8).astype(np.int32)  # S9.2 => S21 => S9.2*[0, 4]
-        dh = SHIFT_ROUND_S32(dh.astype(np.int64) * self.gain_h, 8).astype(np.int32)  # S7.2 => S19 => S7.2*[0, 4]
-        ds = SHIFT_ROUND_S32(ds.astype(np.int64) * self.gain_s, 8).astype(np.int32)  # S9.2 => S21 => S9.2*[0, 4]
-        dy = np.clip(dy, -1023, 1023)  # clip to S9.2
-        dh = np.clip(dh, -255, 255)  # clip to S7.2
-        ds = np.clip(ds, -1023, 1023)  # clip to S9.2
+        # ---- 9. Apply global gain to delta ----
+        dy = SHIFT_ROUND_S32(dy.astype(np.int64) * self.gain_y, 8).astype(np.int32)
+        dh = SHIFT_ROUND_S32(dh.astype(np.int64) * self.gain_h, 8).astype(np.int32)
+        ds = SHIFT_ROUND_S32(ds.astype(np.int64) * self.gain_s, 8).astype(np.int32)
+        dy = np.clip(dy, -1023, 1023)
+        dh = np.clip(dh, -255, 255)
+        ds = np.clip(ds, -1023, 1023)
 
         # ---- 10. 2D gain lookups ----
-        wy_hy = _sample_4pt(
-            gain_lut_hy[0], idxHD0, idxHD1, idxY0, idxY1, wgtYH00, wgtYH01, wgtYH10, wgtYH11, wgtFixBitYH
-        )
-        wh_hy = _sample_4pt(
-            gain_lut_hy[1], idxHD0, idxHD1, idxY0, idxY1, wgtYH00, wgtYH01, wgtYH10, wgtYH11, wgtFixBitYH
-        )
-        ws_hy = _sample_4pt(
-            gain_lut_hy[2], idxHD0, idxHD1, idxY0, idxY1, wgtYH00, wgtYH01, wgtYH10, wgtYH11, wgtFixBitYH
-        )
-        wy_hs = _sample_4pt(
-            gain_lut_hs[0], idxHD0, idxHD1, idxS0, idxS1, wgtSH00, wgtSH01, wgtSH10, wgtSH11, wgtFixBitSH
-        )
-        wh_hs = _sample_4pt(
-            gain_lut_hs[1], idxHD0, idxHD1, idxS0, idxS1, wgtSH00, wgtSH01, wgtSH10, wgtSH11, wgtFixBitSH
-        )
-        ws_hs = _sample_4pt(
-            gain_lut_hs[2], idxHD0, idxHD1, idxS0, idxS1, wgtSH00, wgtSH01, wgtSH10, wgtSH11, wgtFixBitSH
-        )
+        wy_hy = _sample_4pt(gain_lut_hy[0], idxHD0, idxHD1, idxY0, idxY1,
+                            wgtYH00, wgtYH01, wgtYH10, wgtYH11, wgtFixBitYH)
+        wh_hy = _sample_4pt(gain_lut_hy[1], idxHD0, idxHD1, idxY0, idxY1,
+                            wgtYH00, wgtYH01, wgtYH10, wgtYH11, wgtFixBitYH)
+        ws_hy = _sample_4pt(gain_lut_hy[2], idxHD0, idxHD1, idxY0, idxY1,
+                            wgtYH00, wgtYH01, wgtYH10, wgtYH11, wgtFixBitYH)
+        wy_hs = _sample_4pt(gain_lut_hs[0], idxHD0, idxHD1, idxS0, idxS1,
+                            wgtSH00, wgtSH01, wgtSH10, wgtSH11, wgtFixBitSH)
+        wh_hs = _sample_4pt(gain_lut_hs[1], idxHD0, idxHD1, idxS0, idxS1,
+                            wgtSH00, wgtSH01, wgtSH10, wgtSH11, wgtFixBitSH)
+        ws_hs = _sample_4pt(gain_lut_hs[2], idxHD0, idxHD1, idxS0, idxS1,
+                            wgtSH00, wgtSH01, wgtSH10, wgtSH11, wgtFixBitSH)
 
         # ---- 11. Dual-gain delta chain ----
-        Ydel0 = dy * wy_hy  # S9.2*S8.2 => S9.11
-        Hdel0 = dh * wh_hy  # S7.2*S8.2 => S7.11
-        Sdel0 = ds * ws_hy  # S9.2*S8.2 => S9.11
-        Ydel1 = SHIFT_ROUND_S32(Ydel0, 9)    # S9.11 => S9.2
-        Hdel1 = SHIFT_ROUND_S32(Hdel0, 9)    # S7.11 => S7.2
-        Sdel1 = SHIFT_ROUND_S32(Sdel0, 9)    # S9.11 => S9.2
+        Ydel0 = dy * wy_hy
+        Hdel0 = dh * wh_hy
+        Sdel0 = ds * ws_hy
+        Ydel1 = SHIFT_ROUND_S32(Ydel0, 9)
+        Hdel1 = SHIFT_ROUND_S32(Hdel0, 9)
+        Sdel1 = SHIFT_ROUND_S32(Sdel0, 9)
 
-        Ydel2 = Ydel1 * wy_hs # S9.2*S8.2 => S9.11
-        Hdel2 = Hdel1 * wh_hs # S7.2*S8.2 => S7.11
-        Sdel2 = Sdel1 * ws_hs # S9.2*S8.2 => S9.11
-        Ydel3 = SHIFT_ROUND_S32(Ydel2, 11)  # S9.11 => S9: [-256, 255]
-        Hdel3 = SHIFT_ROUND_S32(Hdel2, 3)  # S7.11 => S7.8: [-64, 63]*256
-        Sdel3 = SHIFT_ROUND_S32(Sdel2, 11 - RKVOP_PQ_ACM_CORDIC_S_BITS)  # S9.11 => S9.3: [-256, 255]*8. kepp 3bit precision for later HS2CbCr
+        Ydel2 = Ydel1 * wy_hs
+        Hdel2 = Hdel1 * wh_hs
+        Sdel2 = Sdel1 * ws_hs
+        Ydel3 = SHIFT_ROUND_S32(Ydel2, 11)
+        Hdel3 = SHIFT_ROUND_S32(Hdel2, 3)
+        Sdel3 = SHIFT_ROUND_S32(Sdel2, 11 - RKVOP_PQ_ACM_CORDIC_S_BITS)
 
-        # ---- 12. Zero delta when S == 0 (at origin cb=cr=0) ----
+        # ---- 12. Zero delta when S == 0 ----
         Ydel = Ydel3
         Hdel = np.where(S == 0, 0, Hdel3)
         Sdel = np.where(S == 0, 0, Sdel3)
@@ -282,24 +252,21 @@ class AcmImplHwRk(AcmImplBase):
         YO = np.clip(Y + Ydel, 0, YUV_maxvalue)
         SO = np.clip(S + Sdel, 0, S_maxvalue << RKVOP_PQ_ACM_CORDIC_S_BITS)
 
-        HO = H + Hdel  # S9.8 + S7.8 → S9.8
-        pi_flag = (HO < -RKVOP_PQ_ACM_TANTABFIXTMP).astype(np.int32) - (HO > RKVOP_PQ_ACM_TANTABFIXTMP).astype(np.int32)
-        HO = HO + pi_flag * (2 * RKVOP_PQ_ACM_TANTABFIXTMP)  # keep in [-180*256, 180*256]
+        HO = H + Hdel
+        pi_flag = (HO < -RKVOP_PQ_ACM_TANTABFIXTMP).astype(np.int32) - \
+                  (HO >  RKVOP_PQ_ACM_TANTABFIXTMP).astype(np.int32)
+        HO = HO + pi_flag * (2 * RKVOP_PQ_ACM_TANTABFIXTMP)
 
         # ---- 14. CORDIC: H/S → CB/CR → U/V ----
-        # Convert S9.8 back to degrees for py-cordic
-        CB, CR = cordic.cordic_hs2cbcr(HO, SO, 16, depth + RKVOP_PQ_ACM_CORDIC_S_BITS, depth, 13, 6 - RKVOP_PQ_ACM_CORDIC_S_BITS)
-
+        CB, CR = cordic.cordic_hs2cbcr(HO, SO, 16,
+                                        depth + RKVOP_PQ_ACM_CORDIC_S_BITS,
+                                        depth, 13,
+                                        6 - RKVOP_PQ_ACM_CORDIC_S_BITS)
         UO = np.clip(CB + dc_UV, 0, YUV_maxvalue)
         VO = np.clip(CR + dc_UV, 0, YUV_maxvalue)
 
-        if depth == 8:
-            YO = np.minimum((YO + 2) >> 2, 255)
-            UO = np.minimum((UO + 2) >> 2, 255)
-            VO = np.minimum((VO + 2) >> 2, 255)
-
-        # ---- 15. Pack planar output [C, H, W] ----
-        out = np.empty((3, height, width), dtype=np.uint8 if depth == 8 else np.uint16)
+        # ---- 15. Pack planar output ----
+        out = np.empty((3, H_img, W_img), dtype=np.uint8 if is_u8 else np.uint16)
         out[0] = YO.astype(out.dtype)
         out[1] = UO.astype(out.dtype)
         out[2] = VO.astype(out.dtype)
@@ -406,7 +373,6 @@ class AcmImplSwVariant(AcmImplBase):
                             depth_uv, y_range, cbcr_center, use_cordic):
         """Variant ACM pipeline: gains applied late, delta_s multiplicative."""
         import cv2
-        import cordic
 
         y_max = float(y_range - 1)
         s_max = 181.0 if depth_uv == 8 else 724.0

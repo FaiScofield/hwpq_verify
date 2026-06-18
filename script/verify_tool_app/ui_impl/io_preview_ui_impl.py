@@ -48,10 +48,10 @@ class PreviewUiController(QObject):
 
         self.input_frame: ImageFrame | None = None
         self.output_frame: ImageFrame | None = None
-        self.input_yuv444: np.ndarray | None = None  # cached stacked array for pixel inspection
-        self.output_yuv444: np.ndarray | None = None  # cached stacked array for pixel inspection
-        self.input_rgb444: np.ndarray | None = None  # cached stacked array for pixel inspection
-        self.output_rgb444: np.ndarray | None = None  # cached stacked array for pixel inspection
+        self.input_cache_yuv444: np.ndarray | None = None  # cached stacked array for pixel inspection
+        self.output_cache_yuv444: np.ndarray | None = None  # cached stacked array for pixel inspection
+        self.input_cache_rgb444: np.ndarray | None = None  # cached stacked array for pixel inspection
+        self.output_cache_rgb444: np.ndarray | None = None  # cached stacked array for pixel inspection
         self.input_rgb_from_yuv: np.ndarray | None = None
         self.output_rgb_from_yuv: np.ndarray | None = None
         self.input_qimage = None
@@ -104,16 +104,16 @@ class PreviewUiController(QObject):
     def set_input_image(self, frame: ImageFrame | None) -> None:
         """Replace the current input image and refresh the left preview."""
         self.input_frame = frame
-        self.input_yuv444 = None
-        self.input_rgb444 = None
+        self.input_cache_yuv444 = None
+        self.input_cache_rgb444 = None
         self.input_rgb_from_yuv = None
         self._update_input_preview()
 
     def set_output_image(self, frame: ImageFrame | None) -> None:
         """Replace the current output image and refresh the right preview."""
         self.output_frame = frame
-        self.output_yuv444 = None
-        self.output_rgb444 = None
+        self.output_cache_yuv444 = None
+        self.output_cache_rgb444 = None
         self.output_rgb_from_yuv = None
         self._update_output_preview()
 
@@ -193,11 +193,11 @@ class PreviewUiController(QObject):
         self.ui.lineEdit_position.clear()
         if self.input_frame is not None:
             if self.input_frame.is_rgb:
-                self.input_rgb444 = np.stack([self.input_frame.pyr, self.input_frame.pug, self.input_frame.pvb], axis=-1)
-                self.input_qimage = self._rgb444_to_qimage(self.input_rgb444)
+                self.input_cache_rgb444 = np.stack([self.input_frame.pyr, self.input_frame.pug, self.input_frame.pvb], axis=-1)
+                self.input_qimage = self._rgb444_to_qimage(self.input_cache_rgb444)
             else:
-                self.input_yuv444 = self.input_frame.as_yuv444_stacked()
-                yuv_u8 = self._yuv444_to_u8(self.input_yuv444)
+                self.input_cache_yuv444 = self.input_frame.as_yuv444_stacked()
+                yuv_u8 = self._yuv444_to_u8(self.input_cache_yuv444)
                 red, green, blue = yuv_to_rgb(
                     yuv_u8[..., 0], yuv_u8[..., 1], yuv_u8[..., 2],
                     input_cs=self.input_frame.clrspc,
@@ -206,8 +206,8 @@ class PreviewUiController(QObject):
                 self.input_rgb_from_yuv = np.stack([red, green, blue], axis=-1).astype(np.uint8)
                 self.input_qimage = self._rgb444_to_qimage(self.input_rgb_from_yuv)
         else:
-            self.input_yuv444 = None
-            self.input_rgb444 = None
+            self.input_cache_yuv444 = None
+            self.input_cache_rgb444 = None
             self.input_rgb_from_yuv = None
         self._input_pixmap_item = self._update_scene(self.scene_input, self.input_qimage)
         self._apply_preview_scale()
@@ -219,11 +219,11 @@ class PreviewUiController(QObject):
         self.ui.lineEdit_output_pixel.clear()
         if self.output_frame is not None:
             if self.output_frame.is_rgb:
-                self.output_rgb444 = np.stack([self.output_frame.pyr, self.output_frame.pug, self.output_frame.pvb], axis=-1)
-                self.output_qimage = self._rgb444_to_qimage(self.output_rgb444)
+                self.output_cache_rgb444 = np.stack([self.output_frame.pyr, self.output_frame.pug, self.output_frame.pvb], axis=-1)
+                self.output_qimage = self._rgb444_to_qimage(self.output_cache_rgb444)
             else:
-                self.output_yuv444 = self.output_frame.as_yuv444_stacked()
-                yuv_u8 = self._yuv444_to_u8(self.output_yuv444)
+                self.output_cache_yuv444 = self.output_frame.as_yuv444_stacked()
+                yuv_u8 = self._yuv444_to_u8(self.output_cache_yuv444)
                 red, green, blue = yuv_to_rgb(
                     yuv_u8[..., 0], yuv_u8[..., 1], yuv_u8[..., 2],
                     input_cs=self.output_frame.clrspc,
@@ -232,8 +232,8 @@ class PreviewUiController(QObject):
                 self.output_rgb_from_yuv = np.stack([red, green, blue], axis=-1).astype(np.uint8)
                 self.output_qimage = self._rgb444_to_qimage(self.output_rgb_from_yuv)
         else:
-            self.output_yuv444 = None
-            self.output_rgb444 = None
+            self.output_cache_yuv444 = None
+            self.output_cache_rgb444 = None
             self.output_rgb_from_yuv = None
         self._output_pixmap_item = self._update_scene(self.scene_output, self.output_qimage)
         self._apply_preview_scale()
@@ -276,15 +276,15 @@ class PreviewUiController(QObject):
         x_pos, y_pos = mapped_pos
         self.mouse_pos = (x_pos, y_pos)
         self.ui.lineEdit_position.setText(f"({x_pos}, {y_pos})")
-        if self.input_rgb444 is not None:
-            r_val = self.input_rgb444[y_pos, x_pos, 0]
-            g_val = self.input_rgb444[y_pos, x_pos, 1]
-            b_val = self.input_rgb444[y_pos, x_pos, 2]
+        if self.input_cache_rgb444 is not None:
+            r_val = self.input_cache_rgb444[y_pos, x_pos, 0]
+            g_val = self.input_cache_rgb444[y_pos, x_pos, 1]
+            b_val = self.input_cache_rgb444[y_pos, x_pos, 2]
             self.ui.lineEdit_input_pixel.setText(f"R={r_val}, G={g_val}, B={b_val}")
-        elif self.input_yuv444 is not None and self.input_rgb_from_yuv is not None:
-            y_val = self.input_yuv444[y_pos, x_pos, 0]
-            u_val = self.input_yuv444[y_pos, x_pos, 1]
-            v_val = self.input_yuv444[y_pos, x_pos, 2]
+        elif self.input_cache_yuv444 is not None and self.input_rgb_from_yuv is not None:
+            y_val = self.input_cache_yuv444[y_pos, x_pos, 0]
+            u_val = self.input_cache_yuv444[y_pos, x_pos, 1]
+            v_val = self.input_cache_yuv444[y_pos, x_pos, 2]
             r_val = self.input_rgb_from_yuv[y_pos, x_pos, 0]
             g_val = self.input_rgb_from_yuv[y_pos, x_pos, 1]
             b_val = self.input_rgb_from_yuv[y_pos, x_pos, 2]
@@ -303,15 +303,15 @@ class PreviewUiController(QObject):
         if mapped_pos is None:
             return
         x_pos, y_pos = mapped_pos
-        if self.output_rgb444 is not None:
-            r_val = self.output_rgb444[y_pos, x_pos, 0]
-            g_val = self.output_rgb444[y_pos, x_pos, 1]
-            b_val = self.output_rgb444[y_pos, x_pos, 2]
+        if self.output_cache_rgb444 is not None:
+            r_val = self.output_cache_rgb444[y_pos, x_pos, 0]
+            g_val = self.output_cache_rgb444[y_pos, x_pos, 1]
+            b_val = self.output_cache_rgb444[y_pos, x_pos, 2]
             self.ui.lineEdit_output_pixel.setText(f"R={r_val}, G={g_val}, B={b_val}")
-        elif self.output_yuv444 is not None and self.output_rgb_from_yuv is not None:
-            y_val = self.output_yuv444[y_pos, x_pos, 0]
-            u_val = self.output_yuv444[y_pos, x_pos, 1]
-            v_val = self.output_yuv444[y_pos, x_pos, 2]
+        elif self.output_cache_yuv444 is not None and self.output_rgb_from_yuv is not None:
+            y_val = self.output_cache_yuv444[y_pos, x_pos, 0]
+            u_val = self.output_cache_yuv444[y_pos, x_pos, 1]
+            v_val = self.output_cache_yuv444[y_pos, x_pos, 2]
             r_val = self.output_rgb_from_yuv[y_pos, x_pos, 0]
             g_val = self.output_rgb_from_yuv[y_pos, x_pos, 1]
             b_val = self.output_rgb_from_yuv[y_pos, x_pos, 2]

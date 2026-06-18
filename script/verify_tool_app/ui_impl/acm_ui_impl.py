@@ -8,7 +8,7 @@ import time
 
 import numpy as np
 from PySide6.QtCore import QRect, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
@@ -74,11 +74,17 @@ class SingleCurveChartWidget(QWidget):
         value_range: tuple[int, int],
         curve_color: QColor,
         parent: QWidget | None = None,
+        bg_image_path: str = "",
     ) -> None:
-        """Create a chart widget with a configurable value range and color."""
+        """Create a chart widget with a configurable value range and color.
+
+        Args:
+            bg_image_path: optional background image (BMP) painted before data.
+        """
         super().__init__(parent)
         self.setMinimumSize(600, 200)
         self.setMaximumSize(1200, 400)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self.value_range = value_range
         self.curve_color = curve_color
         self.values: list[int] = [0]
@@ -88,6 +94,9 @@ class SingleCurveChartWidget(QWidget):
         self.dragging_sample: int | None = None
         self.selected_sample: int | None = None
         self.hover_sample: int | None = None
+        self._bg_pixmap: QPixmap | None = None
+        if bg_image_path and os.path.isfile(bg_image_path):
+            self._bg_pixmap = QPixmap(bg_image_path)
 
     def set_num_points(self, count: int) -> None:
         """No-op kept for API compatibility.
@@ -166,8 +175,17 @@ class SingleCurveChartWidget(QWidget):
 
         painter.fillRect(self.rect(), QColor(30, 30, 30))
 
-        # Horizontal grid lines
-        painter.setPen(QPen(QColor(60, 60, 60), 1))
+        # Background image (scaled to chart area, placed behind grid)
+        if self._bg_pixmap is not None:
+            bg = self._bg_pixmap.scaled(
+                self.width(), self.height(),
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            painter.drawPixmap(0, 0, bg)
+
+        # Horizontal grid lines (light gray dashed)
+        painter.setPen(QPen(QColor(140, 140, 140), 0.5, Qt.DashLine))
         for idx in range(9):
             y_pos = self.padding + chart_height * idx / 8
             painter.drawLine(self.padding, int(y_pos), width - self.padding, int(y_pos))
@@ -177,9 +195,9 @@ class SingleCurveChartWidget(QWidget):
         mid_y = self._value_to_y(0)
         painter.drawLine(self.padding, int(mid_y), width - self.padding, int(mid_y))
 
-        # Curve connecting integer-indexed points
+        # Curve connecting integer-indexed points (black solid)
         if n >= 2:
-            painter.setPen(QPen(self.curve_color, 2))
+            painter.setPen(QPen(QColor(0, 0, 0), 1))
             for idx in range(n - 1):
                 x1, y1 = self._index_position(idx)
                 x2, y2 = self._index_position(idx + 1)
@@ -206,16 +224,16 @@ class SingleCurveChartWidget(QWidget):
         # (even indices above the curve, odd indices below the curve)
         for idx in range(n):
             x_pos, y_pos = self._index_position(idx)
-            painter.setBrush(self.curve_color)
-            painter.setPen(QPen(self.curve_color.darker(130), 1))
-            painter.drawEllipse(int(x_pos) - 3, int(y_pos) - 3, 6, 6)
+            painter.setBrush(QColor(0, 0, 0))
+            painter.setPen(QPen(QColor(0, 0, 0), 1))
+            painter.drawEllipse(int(x_pos) - 2, int(y_pos) - 2, 4, 4)
             if idx % 2 == 0:
                 text_rect = QRect(int(x_pos) - 22, int(y_pos) - 22, 44, 14)
             else:
                 text_rect = QRect(int(x_pos) - 22, int(y_pos) + 8, 44, 14)
             painter.drawText(text_rect, Qt.AlignCenter, str(int(self.values[idx])))
 
-        # Sample-point overlay: white dashed hollow circles (filled when selected)
+        # Sample-point overlay: white dashed hollow circles (filled when selected).
         sample_radius = 4
         sample_diameter = sample_radius * 2
         for s_idx in range(len(self.sample_positions)):
@@ -262,14 +280,12 @@ class SingleCurveChartWidget(QWidget):
             value_min, value_max = self.value_range
             new_value = int(round(value_min + ratio * (value_max - value_min)))
             self.sample_values[self.dragging_sample] = new_value
-            # Keep the H-cycle closure pair (first and last sample) in sync.
-            # The first and last samples always carry the same value; dragging
-            # either one propagates the new value to the other so the LUT is
-            # actually updated.
-            if self.sample_positions and self.sample_positions[-1] >= len(self.values):
+            # H-cycle closure: sample 0 and sample n-1 share the same value.
+            n_vals = len(self.sample_values)
+            if n_vals > 1:
                 if self.dragging_sample == 0:
-                    self.sample_values[-1] = new_value
-                elif self.dragging_sample == len(self.sample_values) - 1:
+                    self.sample_values[n_vals - 1] = new_value
+                elif self.dragging_sample == n_vals - 1:
                     self.sample_values[0] = new_value
             self.samplePointChanged.emit(self.dragging_sample, list(self.sample_values))
             self.update()
@@ -364,7 +380,7 @@ class AcmUiController:
         acm_widget: AcmUiWidget,
         parent_window: QMainWindow | None = None,
         input_provider: Callable[[], np.ndarray | None] | None = None,
-        output_callback: Callable[[np.ndarray], None] | None = None,
+        output_callback: Callable[['ImageFrame'], None] | None = None,
         preview_time_callback: Callable[[float], None] | None = None,
         status_callback: Callable[[str], None] | None = None,
         config_path_getter: Callable[[], str] | None = None,
@@ -415,8 +431,7 @@ class AcmUiController:
         self.full_delta_hbyh = None
         self.ctrl_point_count = self.ui.slider_ctrl_points.value()
         self.interp_method = self.ui.comboBox_interp_method.currentText()
-        # Shared sample-point positions across Y/S/H charts (last entry is the
-        # H-cycle closure point at len_h whose value mirrors sample_positions[0]).
+        # Shared sample-point positions across Y/S/H charts.
         self.sample_positions: list[float] = []
         self.sample_values_y: list[float] = []
         self.sample_values_s: list[float] = []
@@ -424,9 +439,16 @@ class AcmUiController:
         self._suppress_sample_signal = False
 
         # --- Chart widgets (hosted inside ACM tab) ---
-        self.delta_chart_y = SingleCurveChartWidget((ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX), QColor(255, 200, 0))
-        self.delta_chart_s = SingleCurveChartWidget((ACM_DELTA_S_MIN, ACM_DELTA_S_MAX), QColor(0, 180, 0))
-        self.delta_chart_h = SingleCurveChartWidget((ACM_DELTA_H_MIN, ACM_DELTA_H_MAX), QColor(0, 100, 255))
+        _res_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resource")
+        self.delta_chart_y = SingleCurveChartWidget(
+            (ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX), QColor(255, 200, 0),
+            bg_image_path=os.path.join(_res_dir, "Y_deltaImg.bmp"))
+        self.delta_chart_s = SingleCurveChartWidget(
+            (ACM_DELTA_S_MIN, ACM_DELTA_S_MAX), QColor(0, 180, 0),
+            bg_image_path=os.path.join(_res_dir, "S_deltaImg.bmp"))
+        self.delta_chart_h = SingleCurveChartWidget(
+            (ACM_DELTA_H_MIN, ACM_DELTA_H_MAX), QColor(0, 100, 255),
+            bg_image_path=os.path.join(_res_dir, "H_deltaImg.bmp"))
         for host, chart in (
             (self.ui.widget_delta_y_host, self.delta_chart_y),
             (self.ui.widget_delta_s_host, self.delta_chart_s),
@@ -665,27 +687,24 @@ class AcmUiController:
 
     def _update_ctrl_point_hint(self, len_h: int) -> None:
         """Refresh the displayed control-point hint text."""
-        count = max(1, len(self.sample_positions) - 1)
-        step = (len_h - 1) / count
+        count = max(1, len(self.sample_positions))
+        step = (len_h - 1) / max(1, count - 1) if count > 1 else 0.0
         self.ui.label_delta_hint.setText(f"(len_h: {len_h}, step: {step:.2f})")
 
     def _compute_sample_positions(self, len_h: int, count: int) -> list[float]:
-        """Compute linspace sample positions plus the H-cycle closure point.
+        """Compute evenly spaced sample positions in [0, len_h - 1].
 
-        Produces ``count + 1`` positions: ``count`` evenly spaced in
-        ``[0, len_h - 1]`` (rounded to 2 decimals) plus one extra point at
-        ``len_h`` that closes the H cycle.
+        Returns exactly ``count`` positions, with the first at 0 and the
+        last at ``len_h - 1``.  H‑cycle closure is handled by mirroring the
+        value of sample 0 to sample ``count - 1`` at the data level, not by
+        adding an extra visual point.
         """
-        if count < 1:
-            return [float(len_h)]
+        if count < 2:
+            return [0.0]
         positions: list[float] = []
-        if count == 1:
-            positions.append(0.0)
-        else:
-            for i in range(count):
-                pos = (len_h - 1) * i / (count - 1)
-                positions.append(round(pos, 2))
-        positions.append(round(float(len_h), 2))
+        for i in range(count):
+            pos = (len_h - 1) * i / (count - 1)
+            positions.append(round(pos, 2))
         return positions
 
     def _sync_ctrl_point_slider(self, len_h: int) -> None:
@@ -748,11 +767,6 @@ class AcmUiController:
             self.sample_values_y = self._resize_sample_values(prev_values[0], len(positions))
             self.sample_values_s = self._resize_sample_values(prev_values[1], len(positions))
             self.sample_values_h = self._resize_sample_values(prev_values[2], len(positions))
-        # Force H-cycle closure: last sample mirrors first.
-        if self.sample_values_y:
-            self.sample_values_y[-1] = self.sample_values_y[0]
-            self.sample_values_s[-1] = self.sample_values_s[0]
-            self.sample_values_h[-1] = self.sample_values_h[0]
         self._refresh_sample_overlays()
 
     @staticmethod
@@ -873,10 +887,6 @@ class AcmUiController:
             target_max = nearest_indices[i + 1]
             if i == 0:
                 target_min = max(target_min, 1)  # preserve endpoint at index 0
-            if i == n - 2 and positions[i + 1] >= len_h:
-                # Last segment ends at the H-cycle closure; only update the
-                # integer indices strictly between left_pos and len_h - 1.
-                target_max = len_h - 1
             if target_max <= target_min:
                 continue
             target_indices = np.arange(target_min, target_max, dtype=np.int32)
@@ -1237,7 +1247,6 @@ class AcmUiController:
             input_yuv444 = input_frame.as_yuv444_stacked()
             input_cs = input_frame.clrspc
         input_depth = input_frame.depth
-        self._apply_lut_lengths()
         self._update_acm_gains()
         self._apply_delta_range_to_acm()
         self._apply_full_delta_to_acm()
@@ -1262,6 +1271,7 @@ class AcmUiController:
             self._update_heatmaps()
             self._status_callback(f"Processing completed in {elapsed_ms:.2f} ms")
         except Exception as exc:
+            print("processing failed:", exc)
             self._status_callback(f"Processing failed: {exc}")
 
     # ------------------------------------------------------------------ #
@@ -1318,10 +1328,53 @@ class AcmUiController:
         self._schedule_auto_run()
 
     def _on_algo_changed(self, index: int) -> None:
-        """Switch the active ACM algorithm and refresh the editor state."""
+        """Switch the active ACM algorithm, preserving current LUT data.
+
+        The current LUT data (9 tables) and LUT lengths from UI spinboxes
+        are written into the new instance before switching, so delta charts
+        stay unchanged and the new instance picks up the current edits.
+        """
         algo_names = ["VOP_VP_ACM", "SW_ACM", "EVIDEO_ACM", "SW_ACM_VARIANT"]
-        self.current_algo = algo_names[index]
-        self._refresh_acm_ui_from_current_acm()
+        new_algo = algo_names[index]
+        if new_algo == self.current_algo:
+            return
+
+        # Snapshot current UI state before switching
+        old_acm = self._get_current_acm()
+        saved_len = (self.ui.spinBox_len_y.value(), self.ui.spinBox_len_s.value(),
+                     self.ui.spinBox_len_h.value(), self.ui.spinBox_len_h2.value())
+
+        # Switch to new instance
+        self.current_algo = new_algo
+        new_acm = self._get_current_acm()
+
+        # Apply saved lengths to new instance
+        if saved_len != (new_acm.len_y, new_acm.len_s, new_acm.len_h, new_acm.len_hd):
+            new_acm.set_len(*saved_len)
+
+        # Copy current delta chart data into new instance
+        if self.full_delta_ybyh is not None:
+            new_acm.lut_delta_ybyh[:] = self.full_delta_ybyh
+            new_acm.lut_delta_sbyh[:] = self.full_delta_sbyh
+            new_acm.lut_delta_hbyh[:] = self.full_delta_hbyh
+
+        # Copy gain LUTs from old to new (resize if needed)
+        for name_2d in ('ybyy', 'sbyy', 'hbyy', 'ybys', 'sbys', 'hbys'):
+            src = getattr(old_acm, f'lut_gain_{name_2d}')
+            dst = getattr(new_acm, f'lut_gain_{name_2d}')
+            if src.shape == dst.shape:
+                dst[:] = src
+            # If shapes differ, leave new instance's default; user can re-edit
+
+        # Copy misc state
+        new_acm.gain_y = old_acm.gain_y
+        new_acm.gain_s = old_acm.gain_s
+        new_acm.gain_h = old_acm.gain_h
+        new_acm.delta_range = old_acm.delta_range
+        new_acm.clip_type = old_acm.clip_type
+
+        # Refresh UI controls (lengths already set, sync delta_range/clip_type)
+        self._refresh_acm_ui_controls()
         self._schedule_auto_run()
 
     def _on_len_h_changed(self, value: int) -> None:
@@ -1346,31 +1399,39 @@ class AcmUiController:
     # ------------------------------------------------------------------ #
 
     def _refresh_acm_ui_from_current_acm(self) -> None:
-        """Refresh the ACM widget controls from the active ACM instance."""
+        """Refresh the ACM widget controls from the active ACM instance.
+
+        This reloads delta chart data from the instance — use
+        :meth:`_refresh_acm_ui_controls` for algorithm switches where
+        chart data should be preserved.
+        """
+        self._refresh_acm_ui_controls()
+        self._reload_delta_controls_from_acm()
+
+    def _refresh_acm_ui_controls(self) -> None:
+        """Refresh UI spinboxes/combos from the active ACM instance,
+        without touching delta chart data.
+        """
         acm = self._get_current_acm()
         self.ui.groupBox_lut_lengths.setEnabled(True)
         self._set_slider_spin_value(self.ui.slider_len_y, self.ui.spinBox_len_y, acm.len_y)
         self._set_slider_spin_value(self.ui.slider_len_s, self.ui.spinBox_len_s, acm.len_s)
         self._set_slider_spin_value(self.ui.slider_len_h, self.ui.spinBox_len_h, acm.len_h)
-        # Enforce len_h2 <= len_h before setting its value.
         self.ui.spinBox_len_h2.setMaximum(acm.len_h)
         self.ui.slider_len_h2.setMaximum(acm.len_h)
         self._set_slider_spin_value(self.ui.slider_len_h2, self.ui.spinBox_len_h2, acm.len_hd)
         self._set_slider_spin_value(self.ui.slider_gain_y, self.ui.spinBox_gain_y, acm.gain_y)
         self._set_slider_spin_value(self.ui.slider_gain_s, self.ui.spinBox_gain_s, acm.gain_s)
         self._set_slider_spin_value(self.ui.slider_gain_h, self.ui.spinBox_gain_h, acm.gain_h)
-        # Sync delta_range
         dr = getattr(acm, 'delta_range', (0.25, 0.25, 64))
         self.ui.spinBox_max_delta_y.setValue(dr[0])
         self.ui.spinBox_max_delta_s.setValue(dr[1])
         self.ui.spinBox_max_delta_h.setValue(dr[2])
-        # Sync clip_type
         ct = getattr(acm, 'clip_type', 'easy_clip')
         idx = self.ui.comboBox_clip_type.findText(ct)
         if idx >= 0:
             self.ui.comboBox_clip_type.setCurrentIndex(idx)
         self._sync_ctrl_point_slider(acm.len_h)
-        self._reload_delta_controls_from_acm()
         self._update_heatmaps()
 
     def load_current_config(self, path: str) -> bool:
