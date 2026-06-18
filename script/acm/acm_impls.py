@@ -87,7 +87,7 @@ class AcmImplHwRk(AcmImplBase):
         def SHIFT_ROUND_S32(x, n):
             return np.right_shift(x + (1 << (n - 1)) + np.right_shift(x, 31), n)
 
-        H_img, W_img, _ = planar_data.shape
+        _, H_img, W_img = planar_data.shape
         is_u8 = (depth == 8)
 
         # ---- acm_fix_coef (acm_8bit / acm_10bit) ----
@@ -122,9 +122,9 @@ class AcmImplHwRk(AcmImplBase):
         )
 
         # ---- 1. Extract planar channels ----
-        Y = planar_data[:, :, 0].astype(np.int32)
-        U = planar_data[:, :, 1].astype(np.int32)
-        V = planar_data[:, :, 2].astype(np.int32)
+        Y = planar_data[0].astype(np.int32)
+        U = planar_data[1].astype(np.int32)
+        V = planar_data[2].astype(np.int32)
         CB = U - dc_UV
         CR = V - dc_UV
 

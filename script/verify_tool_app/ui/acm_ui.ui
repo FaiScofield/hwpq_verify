@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1132</width>
-    <height>760</height>
+    <height>756</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -542,14 +542,14 @@
         <item>
          <widget class="QPushButton" name="button_reset_curr">
           <property name="text">
-           <string>ResetCurr</string>
+           <string>Reset Curr Tab</string>
           </property>
          </widget>
         </item>
         <item>
          <widget class="QPushButton" name="button_reset_all">
           <property name="text">
-           <string>ResetAll</string>
+           <string>Reset All Tabs</string>
           </property>
          </widget>
         </item>
@@ -614,7 +614,7 @@
          </sizepolicy>
         </property>
         <property name="currentIndex">
-         <number>1</number>
+         <number>0</number>
         </property>
         <widget class="QWidget" name="tab_delta_y">
          <attribute name="title">

@@ -653,9 +653,9 @@ class AcmImplBase:
             data_out = self._do_acm_rgb(planar_data, range=256)
             return data_out
 
-        y  = planar_data[0, :, :].astype(np.int32)
-        cb = planar_data[1, :, :].astype(np.int32) - 128
-        cr = planar_data[2, :, :].astype(np.int32) - 128
+        y  = planar_data[0].astype(np.int32)
+        cb = planar_data[1].astype(np.int32) - 128
+        cr = planar_data[2].astype(np.int32) - 128
         s, h_deg, h_rad = self._cbcr_to_hs(cb, cr, depth_uv=8, use_cordic=use_cordic)
 
         yuv444p_out = self._do_acm_yuv(
@@ -683,9 +683,9 @@ class AcmImplBase:
             data_out = self._do_acm_rgb(planar_data, range=1024)
             return data_out
 
-        y  = planar_data[0, :, :].astype(np.int32)
-        cb = planar_data[1, :, :].astype(np.int32) - 512
-        cr = planar_data[2, :, :].astype(np.int32) - 512
+        y  = planar_data[0].astype(np.int32)
+        cb = planar_data[1].astype(np.int32) - 512
+        cr = planar_data[2].astype(np.int32) - 512
         s, h_deg, h_rad = self._cbcr_to_hs(cb, cr, depth_uv=10, use_cordic=use_cordic)
 
         yuv444p_out = self._do_acm_yuv(

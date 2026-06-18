@@ -17,7 +17,7 @@
    <item>
     <layout class="QFormLayout" name="formLayout">
      <property name="fieldGrowthPolicy">
-      <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
+      <enum>QFormLayout::FieldGrowthPolicy::AllNonFixedFieldsGrow</enum>
      </property>
      <item row="0" column="0">
       <widget class="QLabel" name="label_input_file">
@@ -89,7 +89,11 @@
      <item row="2" column="1">
       <layout class="QHBoxLayout" name="horizontalLayout_config_file">
        <item>
-        <widget class="QLineEdit" name="lineEdit_config_file"/>
+        <widget class="QLineEdit" name="lineEdit_config_file">
+         <property name="text">
+          <string>G:/Codes/gerrit_projects/hwpq_verify/data/vdpp_vop_config_3576.json</string>
+         </property>
+        </widget>
        </item>
        <item>
         <widget class="QPushButton" name="pushButton_browse_config">
@@ -249,7 +253,7 @@
      <item>
       <spacer name="horizontalSpacer">
        <property name="orientation">
-        <enum>Qt::Horizontal</enum>
+        <enum>Qt::Orientation::Horizontal</enum>
        </property>
        <property name="sizeHint" stdset="0">
         <size>
@@ -264,7 +268,7 @@
    <item>
     <spacer name="verticalSpacer">
      <property name="orientation">
-      <enum>Qt::Vertical</enum>
+      <enum>Qt::Orientation::Vertical</enum>
      </property>
      <property name="sizeHint" stdset="0">
       <size>

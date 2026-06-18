@@ -19,6 +19,7 @@ if PROJECT_ROOT not in sys.path:
 
 def _ensure_generated_ui_modules():
     """Regenerate ui_gen modules when they are missing or older than the source .ui files."""
+    print("run auto uic to generate ui_gen modules...")
     ui_pairs = (
         ("ui\\acm_test_app_mainwindow.ui", "ui_gen\\acm_test_app_mainwindow.py"),
         ("ui\\acm_ui.ui", "ui_gen\\acm_ui.py"),
@@ -55,7 +56,6 @@ def _ensure_generated_ui_modules():
 _ensure_generated_ui_modules()
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout
 
 from ui_impl.io_ui_impl import IoUiController, IoUiWidget
@@ -75,6 +75,7 @@ class AcmTestAppWindow(QMainWindow):
         super().__init__()
         self.ui = Ui_AcmTestAppWindow()
         self.ui.setupUi(self)
+        self.setWindowTitle("ACM Test App v1.0")
 
         self.io_widget = IoUiWidget(self)
         self.acm_widget = AcmUiWidget(self)
@@ -108,30 +109,30 @@ class AcmTestAppWindow(QMainWindow):
             dock_host=self,
         )
         self._install_view_menu()
+        # Propagate ACM enabled state to preview for BothInLeft mode.
+        self.acm_ctrl.ui.checkBox_enable_acm.toggled.connect(self.preview_ctrl.set_acm_enabled)
+        self.preview_ctrl.set_acm_enabled(self.acm_ctrl.ui.checkBox_enable_acm.isChecked())
+        # Keep actionPreview checked state in sync with manual dock close.
+        self.preview_ctrl.preview_dock.visibilityChanged.connect(
+            lambda visible: self.ui.actionPreview.setChecked(visible))
         self.ui.statusbar.showMessage("Ready")
 
     def _install_view_menu(self) -> None:
-        """Attach a View menu with a 'Show Preview' action to the menu bar.
+        """Wire the Preview action to toggle the preview dock visibility.
 
-        Allows re-displaying the preview dock after it has been closed.
+        The action is defined in acm_test_app_mainwindow.ui as checkable /
+        checked-by-default.  Toggling it shows or hides the preview dock.
         """
-        view_menu = self.ui.menuView
-        view_menu.clear()
-        show_preview_action = QAction("Show Preview", self)
-        show_preview_action.setShortcut(QKeySequence("Ctrl+P"))
-        show_preview_action.triggered.connect(self._show_preview_dock)
-        view_menu.addAction(show_preview_action)
+        action = self.ui.actionPreview
+        action.toggled.connect(self._on_preview_action_toggled)
 
-    def _show_preview_dock(self) -> None:
-        """Re-display the preview dock widget when the user requests it."""
-        if self.preview_ctrl.preview_dock is None:
-            return
+    def _on_preview_action_toggled(self, checked: bool) -> None:
+        """Show or hide the preview dock."""
         dock = self.preview_ctrl.preview_dock
-        dock.setVisible(True)
-        dock.show()
-        dock.raise_()
-        # Re-add to the same bottom dock area if Qt dropped it.
-        if not self.dockWidgetArea(dock):
+        if dock is None:
+            return
+        dock.setVisible(checked)
+        if checked and not self.dockWidgetArea(dock):
             self.addDockWidget(Qt.BottomDockWidgetArea, dock)
 
     def _mount_host_page(self, host_page, child_widget):

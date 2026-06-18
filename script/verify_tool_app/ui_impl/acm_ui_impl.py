@@ -1229,22 +1229,22 @@ class AcmUiController:
         if want_hsv:
             if input_is_rgb:
                 raise NotImplementedError("TODO: HSV(RGB) ACM path is not implemented yet.")
-            yuv444 = input_frame.as_yuv444_stacked()
-            yuv_u8 = yuv444 if yuv444.dtype == np.uint8 else ((yuv444 + 2) >> 2).astype(np.uint8)
-            r, g, b = yuv_to_rgb(yuv_u8[..., 0], yuv_u8[..., 1], yuv_u8[..., 2], input_cs=input_frame.clrspc, output_cs=1)
+            input_planar = np.stack([input_frame.pyr, input_frame.pug, input_frame.pvb], axis=0)
+            if input_planar.dtype != np.uint8:
+                input_planar = ((input_planar + 2) >> 2).astype(np.uint8)
+            r, g, b = yuv_to_rgb(input_planar[0], input_planar[1], input_planar[2],
+                                 input_cs=input_frame.clrspc, output_cs=1)
             del r, g, b
             raise NotImplementedError("TODO: HSV(RGB) ACM path is not implemented yet.")
 
         if input_is_rgb:
-            r = input_frame.pyr
-            g = input_frame.pug
-            b = input_frame.pvb
-            rgb_input_cs = input_frame.clrspc if input_frame.clrspc in (0, 1) else 1
-            y, u, v = rgb_to_yuv(r, g, b, input_cs=rgb_input_cs, output_cs=5)
-            input_yuv444 = np.stack([y, u, v], axis=-1)
+            y, u, v = rgb_to_yuv(input_frame.pyr, input_frame.pug, input_frame.pvb,
+                                 input_cs=input_frame.clrspc if input_frame.clrspc in (0, 1) else 1,
+                                 output_cs=5)
+            input_planar = np.stack([y, u, v], axis=0)  # [C, H, W]
             input_cs = 5
         else:
-            input_yuv444 = input_frame.as_yuv444_stacked()
+            input_planar = np.stack([input_frame.pyr, input_frame.pug, input_frame.pvb], axis=0)
             input_cs = input_frame.clrspc
         input_depth = input_frame.depth
         self._update_acm_gains()
@@ -1253,13 +1253,12 @@ class AcmUiController:
         acm = self._get_current_acm()
         start_time = time.time()
         try:
-            if input_depth >= 10 and input_yuv444.dtype == np.uint16:
-                output = acm.do_acm_u10(input_yuv444)
+            if input_depth >= 10 and input_planar.dtype == np.uint16:
+                output = acm.do_acm_u10(input_planar)
             else:
-                # Demote to 8-bit if necessary for the u8 pipeline.
-                if input_yuv444.dtype != np.uint8:
-                    input_yuv444 = (input_yuv444 >> (input_depth - 8)).astype(np.uint8)
-                output = acm.do_acm_u8(input_yuv444)
+                if input_planar.dtype != np.uint8:
+                    input_planar = ((input_planar + 2) >> 2).astype(np.uint8)
+                output = acm.do_acm_u8(input_planar)
             elapsed_ms = (time.time() - start_time) * 1000.0
             out_fmt = 0x13 if (input_depth >= 10 and output.dtype == np.uint16) else _PLANAR_YUV_8
             out_frame = ImageFrame(
@@ -1388,10 +1387,14 @@ class AcmUiController:
         self._schedule_auto_run()
 
     def _on_lut_lengths_changed(self, value: int) -> None:
-        """Handle LUT length changes via spinBox or slider (non-h)."""
+        """Handle LUT length changes for Y / S / HD (non-H) sliders.
+
+        Only the 2D gain tables are affected by Y/S/HD length changes —
+        the 1D delta LUTs are left untouched so the chart stays stable.
+        """
         del value
         self._apply_lut_lengths()
-        self._reload_delta_controls_from_acm()
+        self._update_heatmaps()
         self._schedule_auto_run()
 
     # ------------------------------------------------------------------ #

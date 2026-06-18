@@ -69,6 +69,7 @@ class IoUiController:
         self._status_callback = status_callback
         self._init_ui()
         self._connect_signals()
+        self._auto_load_defaults()
 
     def _init_ui(self) -> None:
         """Populate format/colorspace combo boxes with default selections."""
@@ -193,13 +194,35 @@ class IoUiController:
         self._recalc_frame_num()
         self._load_input_image()
 
-    def _on_set_color_toggled(self, enabled: bool) -> None:
-        """Toggle the explicit-color input edit."""
-        self.ui.lineEdit_set_color.setEnabled(enabled)
+    # ------------------------------------------------------------------ #
+    # Auto-load defaults on startup                                       #
+    # ------------------------------------------------------------------ #
 
-    # ------------------------------------------------------------------ #
-    # File helpers                                                       #
-    # ------------------------------------------------------------------ #
+    def _auto_load_defaults(self) -> None:
+        """Auto-load the input image and config file if defaults are valid."""
+        input_path = self.ui.lineEdit_input_file.text().strip()
+        config_path = self.ui.lineEdit_config_file.text().strip()
+
+        input_loaded = False
+        if input_path and os.path.isfile(input_path):
+            self._on_reload_input()
+            input_loaded = True
+
+        config_loaded = False
+        if config_path and os.path.isfile(config_path) and self._load_config_callback:
+            self._load_config_callback(config_path)
+            config_loaded = True
+
+        if self._status_callback:
+            if input_loaded and config_loaded:
+                self._status_callback("Auto-loaded input image and config.")
+            elif input_loaded:
+                self._status_callback("Auto-loaded input image.")
+
+    def _on_set_color_toggled(self, enabled: bool) -> None:
+        """Toggle the explicit-color input edit and reload."""
+        self.ui.lineEdit_set_color.setEnabled(enabled)
+        self._load_input_image()
 
     def _guess_input_params(self, filepath: str) -> None:
         """Guess format and resolution from the selected input file name."""
