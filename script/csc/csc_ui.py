@@ -66,7 +66,45 @@ UI_BCSH_KEY_TO_CONFIG_KEY = {
 }
 
 # VOP channel swap modes exposed in the BCSH Config tab.
-CHANNEL_SWAP_TYPES = ["None", "V1_SWAP", "V2_Y2R_R2R", "V2_R2Y_R2R", "V2_Y2R_Y2Y"]
+CHANNEL_SWAP_TYPES = ["None", "V1_SWAP", "V2_Y2R_R2R", "V2_R2Y_R2R", "V2_Y2R_Y2Y", "V2_R2Y_Y2Y"]
+
+def _apply_step2_channel_swap_display(swap_mode, coefs, offset, input_is_yuv, output_is_yuv):
+    """Apply the RK kernel channel-swap rule to step2 CSC values for UI display only."""
+    if coefs is None or offset is None or swap_mode in (None, "None"):
+        return coefs, offset
+
+    mat = np.asarray(coefs, dtype=np.int32).reshape(3, 3).copy()
+    vec = np.asarray(offset, dtype=np.int32).copy()
+
+    swap_mat = np.array([
+        [0, 0, 1],
+        [1, 0, 0],
+        [0, 1, 0],
+    ], dtype=np.int32)
+    inv_swap_mat = np.array([
+        [0, 1, 0],
+        [0, 0, 1],
+        [1, 0, 0],
+    ], dtype=np.int32)
+
+    if swap_mode == "V1_SWAP":
+        if not input_is_yuv:
+            mat = mat @ swap_mat
+        if output_is_yuv:
+            mat = swap_mat @ mat
+            vec = swap_mat @ vec
+    elif swap_mode == "V2_Y2R_R2R":
+        mat = mat @ swap_mat
+    elif swap_mode == "V2_R2Y_R2R":
+        mat = inv_swap_mat @ mat
+        vec = inv_swap_mat @ vec
+    elif swap_mode == "V2_Y2R_Y2Y":
+        mat = swap_mat @ mat
+        vec = swap_mat @ vec
+    elif swap_mode == "V2_R2Y_Y2Y":
+        mat = mat @ inv_swap_mat
+
+    return mat.astype(np.int32), vec.astype(np.int32)
 
 
 def _load_ui_font(size):
@@ -1674,6 +1712,19 @@ def open_csc_ui(args=None):
             remapped_value = remap_rgb_gain_value_for_algo_switch(current_value, old_algo_type, new_algo_type)
             set_bcsh_pair_value(window, values, slider_key, remapped_value)
 
+    def update_channel_swap_control(window, values, algo_type):
+        """Enable channel swap only for RK HW CSC and reset it otherwise."""
+        enabled = (algo_type == ALGO_RK_HW_CSC)
+        if not enabled:
+            window['-CHANNEL-SWAP-'].update(value='None', disabled=True)
+            values['-CHANNEL-SWAP-'] = 'None'
+        else:
+            current_value = values.get('-CHANNEL-SWAP-', 'None')
+            if current_value not in CHANNEL_SWAP_TYPES:
+                current_value = 'None'
+            window['-CHANNEL-SWAP-'].update(value=current_value, disabled=False)
+            values['-CHANNEL-SWAP-'] = current_value
+
     def update_pixel_info(window, orig_x, orig_y):
         nonlocal current_planar_in, current_planar_out
         nonlocal current_input_is_yuv, current_output_is_yuv
@@ -2036,8 +2087,15 @@ def open_csc_ui(args=None):
             )
             step1_coef_str = str(current_step1_coefs).replace('\n', ' ') if current_step1_coefs is not None else "None"
             step1_offset_str = str(current_step1_offset) if current_step1_offset is not None else "None"
-            step2_coef_str = str(current_step2_coefs).replace('\n', ' ') if current_step2_coefs is not None else "None"
-            step2_offset_str = str(current_step2_offset) if current_step2_offset is not None else "None"
+            step2_coefs_disp, step2_offset_disp = _apply_step2_channel_swap_display(
+                values.get('-CHANNEL-SWAP-', 'None'),
+                current_step2_coefs,
+                current_step2_offset,
+                current_input_is_yuv,
+                current_output_is_yuv,
+            )
+            step2_coef_str = str(step2_coefs_disp).replace('\n', ' ') if step2_coefs_disp is not None else "None"
+            step2_offset_str = str(step2_offset_disp) if step2_offset_disp is not None else "None"
             window['-DISPLAY-SIZE-'].update(value=f"{w}x{h} ({mode_desc})")
             # In dual mode the "Display Size" field is repurposed to show the
             # left-colormap trajectory "(xs, ys) -> (xe, ye) [Frozen]"; that
@@ -2063,6 +2121,7 @@ def open_csc_ui(args=None):
     # Initialize normalized value labels with default values
     default_bcsh_vals = {f'-BCSH-{k}-': 256 for _, k1, _, k2 in bcsh_names for k in (k1, k2)}
     update_bcsh_norm_labels(window, default_bcsh_vals, ALGO_RK_HW_CSC)
+    update_channel_swap_control(window, {'-CHANNEL-SWAP-': 'None'}, ALGO_RK_HW_CSC)
     update_sathue_map()
     _set_sat_preview_visible(False)
 
@@ -2137,8 +2196,11 @@ def open_csc_ui(args=None):
             update_rgb_gain_controls_for_algo_switch(window, values, current_algo_type, new_algo_type)
             current_algo_type = new_algo_type
             update_bcsh_norm_labels(window, values, current_algo_type)
+            update_channel_swap_control(window, values, current_algo_type)
             print(f"algo_type switch to: {new_algo_type}")
             trigger_convert(values, preserve_preview_size=True)
+        elif event == '-CHANNEL-SWAP-':
+            display_result(window, values)
         elif event == '-RESET-BCSH-':
             algo_type = values.get('-BCSH-ALGO-TYPE-', ALGO_RK_HW_CSC)
             default_values = get_default_bcsh_raw_values(algo_type)

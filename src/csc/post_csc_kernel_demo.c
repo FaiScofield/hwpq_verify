@@ -120,6 +120,7 @@ int get_cmd_config(int argc, char *const argv[], struct cmd_config_t *config)
             if (idx >= 0 && idx <= 9) {
                 config->bcsh_cfg.csc_enable = 1;
             }
+            printf("[CMD] set %dth option '%s': %s\n", idx, g_cmd_args_supported_options[idx].name, optarg);
         } break;
         case 'M': parse_csc_mode_str(optarg, &config->convert_mode); break;
         case 'D': config->convert_mode.pixel_depth = strtol(optarg, NULL, 10); break;
