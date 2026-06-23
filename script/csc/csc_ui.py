@@ -68,44 +68,6 @@ UI_BCSH_KEY_TO_CONFIG_KEY = {
 # VOP channel swap modes exposed in the BCSH Config tab.
 CHANNEL_SWAP_TYPES = ["None", "V1_SWAP", "V2_Y2R_R2R", "V2_R2Y_R2R", "V2_Y2R_Y2Y", "V2_R2Y_Y2Y"]
 
-def _apply_step2_channel_swap_display(swap_mode, coefs, offset, input_is_yuv, output_is_yuv):
-    """Apply the RK kernel channel-swap rule to step2 CSC values for UI display only."""
-    if coefs is None or offset is None or swap_mode in (None, "None"):
-        return coefs, offset
-
-    mat = np.asarray(coefs, dtype=np.int32).reshape(3, 3).copy()
-    vec = np.asarray(offset, dtype=np.int32).copy()
-
-    swap_mat = np.array([
-        [0, 0, 1],
-        [1, 0, 0],
-        [0, 1, 0],
-    ], dtype=np.int32)
-    inv_swap_mat = np.array([
-        [0, 1, 0],
-        [0, 0, 1],
-        [1, 0, 0],
-    ], dtype=np.int32)
-
-    if swap_mode == "V1_SWAP":
-        if not input_is_yuv:
-            mat = mat @ swap_mat
-        if output_is_yuv:
-            mat = swap_mat @ mat
-            vec = swap_mat @ vec
-    elif swap_mode == "V2_Y2R_R2R":
-        mat = mat @ swap_mat
-    elif swap_mode == "V2_R2Y_R2R":
-        mat = inv_swap_mat @ mat
-        vec = inv_swap_mat @ vec
-    elif swap_mode == "V2_Y2R_Y2Y":
-        mat = swap_mat @ mat
-        vec = swap_mat @ vec
-    elif swap_mode == "V2_R2Y_Y2Y":
-        mat = mat @ inv_swap_mat
-
-    return mat.astype(np.int32), vec.astype(np.int32)
-
 
 def _load_ui_font(size):
     """Load the UI font from the packaged bundle or repository data directory."""
@@ -245,9 +207,9 @@ def _rgb2hsv(r, g, b):
     delta = maxc - minc
     h = np.zeros_like(maxc)
     cond = delta != 0
-    rc = np.where(cond, (maxc - r) / delta, 0)
-    gc = np.where(cond, (maxc - g) / delta, 0)
-    bc = np.where(cond, (maxc - b) / delta, 0)
+    rc = np.divide(maxc - r, delta, out=np.zeros_like(maxc), where=cond)
+    gc = np.divide(maxc - g, delta, out=np.zeros_like(maxc), where=cond)
+    bc = np.divide(maxc - b, delta, out=np.zeros_like(maxc), where=cond)
     h = np.where(cond & (maxc == r), bc - gc, h)
     h = np.where(cond & (maxc == g), 2.0 + rc - bc, h)
     h = np.where(cond & (maxc == b), 4.0 + gc - rc, h)
@@ -280,10 +242,265 @@ def _hsv2rgb(h, s, v):
     return r, g, b
 
 
+SAT_HS_TYPES = ["HSV", "HSL", "HSI", "HSY"]
+SAT_COLORSPACE_OPTIONS = ["YCbCr", "HSV", "YCbCr=>HSV", "HSV=>YCbCr"]
+_HSY_LUMA_WEIGHTS = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+
+
+def _normalize_hs_type(hs_type):
+    """Normalize HS-family names to the supported tokens."""
+    hs_text = str(hs_type).upper()
+    return hs_text if hs_text in SAT_HS_TYPES else "HSV"
+
+
+def _get_hs_space_label(hs_type):
+    """Return the third-component label for the selected HS-family space."""
+    hs_space = _normalize_hs_type(hs_type)
+    return {"HSV": "V", "HSL": "L", "HSI": "I", "HSY": "Y"}[hs_space]
+
+
+def _rgb2hsl(r, g, b):
+    """Convert RGB (0-255) to HSL, returns h(0-360), s(0-1), l(0-1)."""
+    r_n = np.asarray(r, dtype=np.float32) / 255.0
+    g_n = np.asarray(g, dtype=np.float32) / 255.0
+    b_n = np.asarray(b, dtype=np.float32) / 255.0
+    maxc = np.maximum(np.maximum(r_n, g_n), b_n)
+    minc = np.minimum(np.minimum(r_n, g_n), b_n)
+    delta = maxc - minc
+    h = np.zeros_like(maxc)
+    cond = delta > 1e-6
+    rc = np.divide(maxc - r_n, delta, out=np.zeros_like(maxc), where=cond)
+    gc = np.divide(maxc - g_n, delta, out=np.zeros_like(maxc), where=cond)
+    bc = np.divide(maxc - b_n, delta, out=np.zeros_like(maxc), where=cond)
+    h = np.where(cond & (maxc == r_n), bc - gc, h)
+    h = np.where(cond & (maxc == g_n), 2.0 + rc - bc, h)
+    h = np.where(cond & (maxc == b_n), 4.0 + gc - rc, h)
+    h = (h / 6.0) % 1.0 * 360.0
+    l = (maxc + minc) * 0.5
+    denom = 1.0 - np.abs(2.0 * l - 1.0)
+    valid = cond & (denom > 1e-6)
+    s = np.divide(delta, denom, out=np.zeros_like(delta), where=valid)
+    return h, s, l
+
+
+def _hsl2rgb(h, s, l):
+    """Convert HSL to RGB, returns 0-255 uint8 arrays."""
+    h = np.asarray(h, dtype=np.float32) % 360.0
+    s = np.asarray(s, dtype=np.float32)
+    l = np.asarray(l, dtype=np.float32)
+    c = (1.0 - np.abs(2.0 * l - 1.0)) * s
+    x = c * (1.0 - np.abs((h / 60.0) % 2.0 - 1.0))
+    m = l - c * 0.5
+    r = np.zeros_like(h)
+    g = np.zeros_like(h)
+    b = np.zeros_like(h)
+    for lo, hi, rc, gc, bc in [(0, 60, c, x, 0), (60, 120, x, c, 0), (120, 180, 0, c, x),
+                                (180, 240, 0, x, c), (240, 300, x, 0, c), (300, 360, c, 0, x)]:
+        mask = (h >= lo) & (h < hi)
+        r[mask] = rc[mask] if isinstance(rc, np.ndarray) else rc
+        g[mask] = gc[mask] if isinstance(gc, np.ndarray) else gc
+        b[mask] = bc[mask] if isinstance(bc, np.ndarray) else bc
+    r = np.clip((r + m) * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    g = np.clip((g + m) * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    b = np.clip((b + m) * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    return r, g, b
+
+
+def _rgb2hsi(r, g, b):
+    """Convert RGB (0-255) to HSI, returns h(0-360), s(0-1), i(0-1)."""
+    r_n = np.asarray(r, dtype=np.float32) / 255.0
+    g_n = np.asarray(g, dtype=np.float32) / 255.0
+    b_n = np.asarray(b, dtype=np.float32) / 255.0
+    intensity = (r_n + g_n + b_n) / 3.0
+    minc = np.minimum(np.minimum(r_n, g_n), b_n)
+    sum_rgb = r_n + g_n + b_n
+    sat = np.where(sum_rgb > 1e-6, 1.0 - 3.0 * minc / sum_rgb, 0.0)
+    num = 0.5 * ((r_n - g_n) + (r_n - b_n))
+    den = np.sqrt((r_n - g_n) ** 2 + (r_n - b_n) * (g_n - b_n))
+    cos_theta = np.divide(num, den, out=np.ones_like(num), where=den > 1e-6)
+    theta = np.degrees(np.arccos(np.clip(cos_theta, -1.0, 1.0)))
+    hue = np.where(b_n <= g_n, theta, 360.0 - theta)
+    hue = np.where(den > 1e-6, hue, 0.0)
+    return hue, np.clip(sat, 0.0, 1.0), np.clip(intensity, 0.0, 1.0)
+
+
+def _hsi2rgb(h, s, i):
+    """Convert HSI to RGB, returns 0-255 uint8 arrays."""
+    h = np.asarray(h, dtype=np.float32) % 360.0
+    s = np.clip(np.asarray(s, dtype=np.float32), 0.0, 1.0)
+    intensity = np.clip(np.asarray(i, dtype=np.float32), 0.0, 1.0)
+    h_prime = h / 60.0
+    z = 1.0 - np.abs(np.mod(h_prime, 2.0) - 1.0)
+    c = np.divide(3.0 * intensity * s, 1.0 + z, out=np.zeros_like(h, dtype=np.float32), where=(1.0 + z) > 1e-6)
+    x = c * z
+    m = intensity * (1 - s)
+    r = np.zeros_like(h, dtype=np.float32)
+    g = np.zeros_like(h, dtype=np.float32)
+    b = np.zeros_like(h, dtype=np.float32)
+
+    for lo, hi, rc, gc, bc in [
+        (0.0, 1.0, c, x, 0.0),
+        (1.0, 2.0, x, c, 0.0),
+        (2.0, 3.0, 0.0, c, x),
+        (3.0, 4.0, 0.0, x, c),
+        (4.0, 5.0, x, 0.0, c),
+        (5.0, 6.0, c, 0.0, x),
+    ]:
+        mask = (h_prime >= lo) & (h_prime < hi)
+        r[mask] = rc[mask] if isinstance(rc, np.ndarray) else rc
+        g[mask] = gc[mask] if isinstance(gc, np.ndarray) else gc
+        b[mask] = bc[mask] if isinstance(bc, np.ndarray) else bc
+
+    r += m
+    g += m
+    b += m
+
+    r = np.clip(r * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    g = np.clip(g * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    b = np.clip(b * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    return r, g, b
+
+
+def _hsy_hue_basis(h):
+    """Return the unit-chroma RGB sector basis for an HSY hue."""
+    hue = np.asarray(h, dtype=np.float32) % 360.0
+    h_prime = hue / 60.0
+    z = 1.0 - np.abs(np.mod(h_prime, 2.0) - 1.0)
+    r = np.zeros_like(hue, dtype=np.float32)
+    g = np.zeros_like(hue, dtype=np.float32)
+    b = np.zeros_like(hue, dtype=np.float32)
+    for lo, hi, rc, gc, bc in [
+        (0.0, 1.0, 1.0, z, 0.0),
+        (1.0, 2.0, z, 1.0, 0.0),
+        (2.0, 3.0, 0.0, 1.0, z),
+        (3.0, 4.0, 0.0, z, 1.0),
+        (4.0, 5.0, z, 0.0, 1.0),
+        (5.0, 6.0, 1.0, 0.0, z),
+    ]:
+        mask = (h_prime >= lo) & (h_prime < hi)
+        r[mask] = rc[mask] if isinstance(rc, np.ndarray) else rc
+        g[mask] = gc[mask] if isinstance(gc, np.ndarray) else gc
+        b[mask] = bc[mask] if isinstance(bc, np.ndarray) else bc
+    return np.stack([r, g, b], axis=-1)
+
+
+def _hsy_chroma_limit(hue, lum):
+    """Return the maximum HSY chroma allowed by the fixed BT.709 luma."""
+    basis = _hsy_hue_basis(hue)
+    basis_luma = np.sum(basis * _HSY_LUMA_WEIGHTS, axis=-1)
+    lower = np.divide(lum, basis_luma, out=np.zeros_like(lum), where=basis_luma > 1e-6)
+    upper = np.divide(1.0 - lum, 1.0 - basis_luma, out=np.zeros_like(lum), where=(1.0 - basis_luma) > 1e-6)
+    return np.where(lum <= basis_luma, lower, upper)
+
+
+def _hsy_full_sat_rgb(h, y):
+    """Return the full-saturation RGB endpoint for the custom HSY model."""
+    hue = np.asarray(h, dtype=np.float32) % 360.0
+    lum = np.clip(np.asarray(y, dtype=np.float32), 0.0, 1.0)
+    h_prime = hue / 60.0
+    z = 1.0 - np.abs(np.mod(h_prime, 2.0) - 1.0)
+    chroma = _hsy_chroma_limit(hue, lum)
+    x = chroma * z
+    r1 = np.zeros_like(hue, dtype=np.float32)
+    g1 = np.zeros_like(hue, dtype=np.float32)
+    b1 = np.zeros_like(hue, dtype=np.float32)
+    for lo, hi, rc, gc, bc in [
+        (0.0, 1.0, chroma, x, 0.0),
+        (1.0, 2.0, x, chroma, 0.0),
+        (2.0, 3.0, 0.0, chroma, x),
+        (3.0, 4.0, 0.0, x, chroma),
+        (4.0, 5.0, x, 0.0, chroma),
+        (5.0, 6.0, chroma, 0.0, x),
+    ]:
+        mask = (h_prime >= lo) & (h_prime < hi)
+        r1[mask] = rc[mask] if isinstance(rc, np.ndarray) else rc
+        g1[mask] = gc[mask] if isinstance(gc, np.ndarray) else gc
+        b1[mask] = bc[mask] if isinstance(bc, np.ndarray) else bc
+    rgb1 = np.stack([r1, g1, b1], axis=-1)
+    m = lum - np.sum(rgb1 * _HSY_LUMA_WEIGHTS, axis=-1)
+    return np.clip(rgb1 + m[..., None], 0.0, 1.0)
+
+
+def _rgb2hsy(r, g, b):
+    """Convert RGB (0-255) to the custom HSY space used by the UI."""
+    hue, _, _ = _rgb2hsv(r, g, b)
+    rgb = np.stack([np.asarray(r, dtype=np.float32),
+                    np.asarray(g, dtype=np.float32),
+                    np.asarray(b, dtype=np.float32)], axis=-1) / 255.0
+    lum = np.sum(rgb * _HSY_LUMA_WEIGHTS, axis=-1)
+    gray = np.repeat(lum[..., None], 3, axis=-1)
+    boundary = _hsy_full_sat_rgb(hue, lum)
+    delta_boundary = boundary - gray
+    delta_rgb = rgb - gray
+    max_axis = np.argmax(np.abs(delta_boundary), axis=-1)
+    boundary_axis = np.take_along_axis(delta_boundary, max_axis[..., None], axis=-1)[..., 0]
+    rgb_axis = np.take_along_axis(delta_rgb, max_axis[..., None], axis=-1)[..., 0]
+    sat = np.where(np.abs(boundary_axis) > 1e-6, rgb_axis / boundary_axis, 0.0)
+    return hue, np.clip(sat, 0.0, 1.0), np.clip(lum, 0.0, 1.0)
+
+
+def _hsy2rgb(h, s, y):
+    """Convert the custom HSY space to RGB, returns 0-255 uint8 arrays."""
+    hue = np.asarray(h, dtype=np.float32) % 360.0
+    sat = np.clip(np.asarray(s, dtype=np.float32), 0.0, 1.0)
+    lum = np.clip(np.asarray(y, dtype=np.float32), 0.0, 1.0)
+    h_prime = hue / 60.0
+    z = 1.0 - np.abs(np.mod(h_prime, 2.0) - 1.0)
+    chroma = sat * _hsy_chroma_limit(hue, lum)
+    x = chroma * z
+    r1 = np.zeros_like(hue, dtype=np.float32)
+    g1 = np.zeros_like(hue, dtype=np.float32)
+    b1 = np.zeros_like(hue, dtype=np.float32)
+    for lo, hi, rc, gc, bc in [
+        (0.0, 1.0, chroma, x, 0.0),
+        (1.0, 2.0, x, chroma, 0.0),
+        (2.0, 3.0, 0.0, chroma, x),
+        (3.0, 4.0, 0.0, x, chroma),
+        (4.0, 5.0, x, 0.0, chroma),
+        (5.0, 6.0, chroma, 0.0, x),
+    ]:
+        mask = (h_prime >= lo) & (h_prime < hi)
+        r1[mask] = rc[mask] if isinstance(rc, np.ndarray) else rc
+        g1[mask] = gc[mask] if isinstance(gc, np.ndarray) else gc
+        b1[mask] = bc[mask] if isinstance(bc, np.ndarray) else bc
+    rgb1 = np.stack([r1, g1, b1], axis=-1)
+    m = lum - np.sum(rgb1 * _HSY_LUMA_WEIGHTS, axis=-1)
+    rgb = np.clip(rgb1 + m[..., None], 0.0, 1.0)
+    return (np.clip(rgb[..., 0] * 255.0 + 0.5, 0, 255).astype(np.uint8),
+            np.clip(rgb[..., 1] * 255.0 + 0.5, 0, 255).astype(np.uint8),
+            np.clip(rgb[..., 2] * 255.0 + 0.5, 0, 255).astype(np.uint8))
+
+
+def _rgb_to_hs_space(hs_type, r, g, b):
+    """Convert RGB bytes to the selected HS-family space."""
+    hs_space = _normalize_hs_type(hs_type)
+    if hs_space == "HSL":
+        return _rgb2hsl(r, g, b)
+    if hs_space == "HSI":
+        return _rgb2hsi(r, g, b)
+    if hs_space == "HSY":
+        return _rgb2hsy(r, g, b)
+    return _rgb2hsv(r, g, b)
+
+
+def _hs_space_to_rgb(hs_type, h, s, third):
+    """Convert the selected HS-family space to RGB bytes."""
+    hs_space = _normalize_hs_type(hs_type)
+    if hs_space == "HSL":
+        return _hsl2rgb(h, s, third)
+    if hs_space == "HSI":
+        return _hsi2rgb(h, s, third)
+    if hs_space == "HSY":
+        return _hsy2rgb(h, s, third)
+    return _hsv2rgb(h, s, third)
+
+
 SAT_COLORMAP_SIZE = 416  # effective image area size (px)
 SAT_MARGIN = 48          # border margin for axes/labels
 _DATA_RANGE_MAX = 128    # max data value, range is [-128, 127] or [-128, 128]
 _DATA_SIZE = 256         # total data range size (max - min + 1 for ticks)
+RGB_COLORMAP_MODE_CIRCLE = 'circle'
+RGB_COLORMAP_MODE_HEX = 'hex'
 
 
 def _data_to_pix(val):
@@ -302,6 +519,57 @@ def _pix_to_data_int(pix):
     """Map pixel [0, SIZE-1] to discrete integer data value in [-128, 127].
     Uses floor: each group of ceil(SIZE/256) pixels maps to one integer data value."""
     return int(pix * _DATA_SIZE / SAT_COLORMAP_SIZE) - _DATA_RANGE_MAX
+
+
+def _normalize_rgb_colormap_mode(mode):
+    """Normalize RGB colormap mode names to the internal circle/hex tokens."""
+    return RGB_COLORMAP_MODE_HEX if str(mode).lower() == RGB_COLORMAP_MODE_HEX else RGB_COLORMAP_MODE_CIRCLE
+
+
+def _rgb_colormap_boundary_radius(hue_deg, map_mode=RGB_COLORMAP_MODE_CIRCLE):
+    """Return the normalized boundary radius for a hue direction in the RGB map plane."""
+    hue = np.asarray(hue_deg, dtype=np.float32)
+    mode = _normalize_rgb_colormap_mode(map_mode)
+    if mode == RGB_COLORMAP_MODE_CIRCLE:
+        return np.ones_like(hue, dtype=np.float32)
+    sector = np.mod(hue, 60.0)
+    angle = np.radians(sector - 30.0)
+    cos_term = np.maximum(np.cos(angle), 1e-6)
+    return np.float32(np.cos(np.radians(30.0))) / cos_term
+
+
+def _rgb_hsv_to_colormap_coords(hue_deg, sat_val, map_mode=RGB_COLORMAP_MODE_CIRCLE):
+    """Map HSV hue/saturation to normalized RGB colormap plane coordinates."""
+    hue = np.asarray(hue_deg, dtype=np.float32)
+    sat = np.asarray(sat_val, dtype=np.float32)
+    radius = sat * _rgb_colormap_boundary_radius(hue, map_mode)
+    rad = np.radians(hue)
+    return radius * np.cos(rad), radius * np.sin(rad)
+
+
+def _rgb_colormap_coords_to_hsv(norm_x, norm_y, map_mode=RGB_COLORMAP_MODE_CIRCLE):
+    """Map normalized RGB colormap plane coordinates back to HSV hue/saturation."""
+    x = np.asarray(norm_x, dtype=np.float32)
+    y = np.asarray(norm_y, dtype=np.float32)
+    hue = (np.arctan2(y, x) * 180.0 / np.pi + 360.0) % 360.0
+    radius = np.sqrt(x ** 2 + y ** 2)
+    boundary = _rgb_colormap_boundary_radius(hue, map_mode)
+    sat = np.where(boundary > 1e-6, radius / boundary, 0.0)
+    return hue, np.maximum(sat, 0.0)
+
+
+def _rgb_colormap_labels(map_mode):
+    """Return title suffix and axis labels for the current RGB colormap geometry."""
+    mode = _normalize_rgb_colormap_mode(map_mode)
+    if mode == RGB_COLORMAP_MODE_HEX:
+        return 'Hex Boundary', 'Hex X', 'Hex Y'
+    return 'Circle', 'S*cos(H)', 'S*sin(H)'
+
+
+def _get_hs_space_title(hs_type):
+    """Return the colormap title prefix for the selected HS-family space."""
+    hs_space = _normalize_hs_type(hs_type)
+    return f"{hs_space}->RGB"
 
 
 def _build_colormap_yuv(luma_val, mark_clip_pixel=False):
@@ -339,18 +607,17 @@ def _build_colormap_yuv(luma_val, mark_clip_pixel=False):
     return Image.fromarray(np.stack([r, g, b], axis=-1), 'RGB')
 
 
-def _build_colormap_rgb(value_val):
-    """Build HSV->RGB colormap for a fixed V value. Returns PIL Image."""
+def _build_colormap_rgb(value_val, map_mode=RGB_COLORMAP_MODE_CIRCLE, hs_type="HSV"):
+    """Build an HS-family->RGB colormap for a fixed third component using circle or hex geometry."""
     w, h_img = SAT_COLORMAP_SIZE, SAT_COLORMAP_SIZE
     # Map pixel coords to [-128, 127] range, then to normalized [-1, 1]
     pix_x = np.tile(np.arange(w, dtype=np.float32), (h_img, 1))
     pix_y = np.tile(np.arange(h_img - 1, -1, -1, dtype=np.float32).reshape(-1, 1), (1, w))
     cx = _pix_to_data(pix_x) / _DATA_RANGE_MAX
     cy = _pix_to_data(pix_y) / _DATA_RANGE_MAX
-    h = (np.arctan2(cy, cx) * 180.0 / np.pi + 360.0) % 360.0
-    s = np.sqrt(cx ** 2 + cy ** 2)
-    v = np.full((h_img, w), float(value_val) / 255.0, dtype=np.float32)
-    r, g, b = _hsv2rgb(h, s, v)
+    h, s = _rgb_colormap_coords_to_hsv(cx, cy, map_mode)
+    third = np.full((h_img, w), float(value_val) / 255.0, dtype=np.float32)
+    r, g, b = _hs_space_to_rgb(hs_type, h, s, third)
     mask = s > 1.0
     r[mask], g[mask], b[mask] = 220, 220, 220
     return Image.fromarray(np.stack([r, g, b], axis=-1), 'RGB')
@@ -512,8 +779,14 @@ def open_csc_ui(args=None):
 
     sathue_tab_layout = [
         [sg.Text('Input Colorspace:', size=(14, 1)),
-         sg.Combo(['YUV', 'RGB', 'YUV=>RGB', 'RGB=>YUV'], default_value='YUV', key='-SAT-CLRSPC-',
+         sg.Combo(SAT_COLORSPACE_OPTIONS, default_value='YCbCr', key='-SAT-CLRSPC-',
                   readonly=True, size=(14, 1), enable_events=True),
+         sg.Text('HSV Type:', size=(9, 1)),
+         sg.Combo(SAT_HS_TYPES, default_value='HSV', key='-SAT-HS-TYPE-',
+                  readonly=True, size=(6, 1), enable_events=True),
+         sg.Text('RGB Map:', size=(8, 1)),
+         sg.Combo(['Circle', 'Hex'], default_value='Circle', key='-SAT-RGB-MAP-',
+                  readonly=True, size=(8, 1), enable_events=True),
          sg.Text('Input Depth:', size=(10, 1)),
          sg.Text('8bit', key='-SAT-DEPTH-', size=(5, 1)),
          sg.Push(),
@@ -675,6 +948,8 @@ def open_csc_ui(args=None):
     sathue_mode = 'single'  # 'single' = right colormap only; 'dual' = left+right colormaps (YUV=>RGB / RGB=>YUV)
     sathue_left_colorspace = 'YUV'
     sathue_right_colorspace = 'YUV'
+    sathue_hs_type = 'HSV'
+    sathue_rgb_map_mode = RGB_COLORMAP_MODE_CIRCLE
     sathue_luma_val = 204
     sathue_hue_val = 0
     sathue_sat_val = 1.0
@@ -727,6 +1002,37 @@ def open_csc_ui(args=None):
             return None
         return nums[:3]
 
+    def _get_rgb_display_meta():
+        """Return the active HS-family title and third-component label."""
+        return _get_hs_space_title(sathue_hs_type), _get_hs_space_label(sathue_hs_type)
+
+    def _convert_rgb_input_between_hs_types(input_vals, from_hs_type, to_hs_type):
+        """Convert a stored RGB-side HS tuple between two HS-family spaces."""
+        if input_vals is None:
+            return None
+        r_val, g_val, b_val = _hs_space_to_rgb(from_hs_type, input_vals[0], input_vals[1], input_vals[2])
+        r_arr = np.asarray(r_val, dtype=np.uint8).reshape(-1)
+        g_arr = np.asarray(g_val, dtype=np.uint8).reshape(-1)
+        b_arr = np.asarray(b_val, dtype=np.uint8).reshape(-1)
+        h_new, s_new, t_new = _rgb_to_hs_space(to_hs_type, r_arr, g_arr, b_arr)
+        return float(h_new[0]), float(s_new[0]), float(t_new[0])
+
+    def _remap_rgb_inputs_for_hs_type_change(old_hs_type, new_hs_type):
+        """Keep frozen RGB-side markers on the same color when the HS-family changes."""
+        nonlocal sathue_locked_input, sathue_left_locked_input, sathue_right_locked_input
+        if old_hs_type == new_hs_type:
+            return
+        if sathue_mode == 'single':
+            if sathue_colorspace == 'RGB' and sathue_locked_input is not None:
+                sathue_locked_input = _convert_rgb_input_between_hs_types(sathue_locked_input, old_hs_type, new_hs_type)
+        else:
+            if sathue_left_colorspace == 'RGB' and sathue_left_locked_input is not None:
+                sathue_left_locked_input = _convert_rgb_input_between_hs_types(sathue_left_locked_input, old_hs_type, new_hs_type)
+            if sathue_right_colorspace == 'RGB' and sathue_right_locked_input is not None:
+                sathue_right_locked_input = _convert_rgb_input_between_hs_types(sathue_right_locked_input, old_hs_type, new_hs_type)
+            if sathue_locked and sathue_left_locked_input is not None:
+                sathue_locked_input = sathue_left_locked_input
+
     def update_sathue_map(preserve_display_size=False):
         """Regenerate the Sat/Hue colormap image(s) and update the widget(s).
         Single mode: only -SAT-IMAGE- is updated. Dual mode: -LEFT-PREVIEW- and -SAT-IMAGE-
@@ -735,6 +1041,8 @@ def open_csc_ui(args=None):
         nonlocal sathue_display_scale
         nonlocal sathue_left_img_eff, sathue_left_img_full
         nonlocal sathue_right_img_eff, sathue_right_img_full
+        rgb_title_suffix, rgb_xlabel, rgb_ylabel = _rgb_colormap_labels(sathue_rgb_map_mode)
+        hs_title, hs_third_label = _get_rgb_display_meta()
 
         if sathue_mode == 'single':
             if sathue_colorspace == 'YUV':
@@ -742,9 +1050,9 @@ def open_csc_ui(args=None):
                 title = f"YCbCr->RGB  (Y={sathue_luma_val})"
                 xlabel, ylabel = "Cb", "Cr"
             else:
-                img_eff = _build_colormap_rgb(sathue_luma_val)
-                title = f"HSV->RGB  (V={sathue_luma_val})"
-                xlabel, ylabel = "S*cos(H)", "S*sin(H)"
+                img_eff = _build_colormap_rgb(sathue_luma_val, sathue_rgb_map_mode, sathue_hs_type)
+                title = f"{hs_title} [{rgb_title_suffix}]  ({hs_third_label}={sathue_luma_val})"
+                xlabel, ylabel = rgb_xlabel, rgb_ylabel
             sathue_img_eff = img_eff.copy()
 
             # Draw locked-point circles
@@ -801,9 +1109,9 @@ def open_csc_ui(args=None):
                 left_title = f"YCbCr->RGB  (Y={left_luma})"
                 left_xl, left_yl = "Cb", "Cr"
             else:
-                left_eff = _build_colormap_rgb(left_luma)
-                left_title = f"HSV->RGB  (V={left_luma})"
-                left_xl, left_yl = "S*cos(H)", "S*sin(H)"
+                left_eff = _build_colormap_rgb(left_luma, sathue_rgb_map_mode, sathue_hs_type)
+                left_title = f"{hs_title} [{rgb_title_suffix}]  ({hs_third_label}={left_luma})"
+                left_xl, left_yl = rgb_xlabel, rgb_ylabel
             sathue_left_img_eff = left_eff.copy()
             left_verbose = left_eff.copy()
             left_draw = ImageDraw.Draw(left_verbose)
@@ -819,9 +1127,9 @@ def open_csc_ui(args=None):
                 right_title = f"YCbCr->RGB  (Y={right_luma})"
                 right_xl, right_yl = "Cb", "Cr"
             else:
-                right_eff = _build_colormap_rgb(right_luma)
-                right_title = f"HSV->RGB  (V={right_luma})"
-                right_xl, right_yl = "S*cos(H)", "S*sin(H)"
+                right_eff = _build_colormap_rgb(right_luma, sathue_rgb_map_mode, sathue_hs_type)
+                right_title = f"{hs_title} [{rgb_title_suffix}]  ({hs_third_label}={right_luma})"
+                right_xl, right_yl = rgb_xlabel, rgb_ylabel
             sathue_right_img_eff = right_eff.copy()
             right_verbose = right_eff.copy()
             right_draw = ImageDraw.Draw(right_verbose)
@@ -930,17 +1238,16 @@ def open_csc_ui(args=None):
             r_val = int(np.clip(pixel_vals[0], 0, 255))
             g_val = int(np.clip(pixel_vals[1], 0, 255))
             b_val = int(np.clip(pixel_vals[2], 0, 255))
-            hue_arr, sat_arr, val_arr = _rgb2hsv(np.array([r_val]), np.array([g_val]), np.array([b_val]))
+            hue_arr, sat_arr, third_arr = _rgb_to_hs_space(sathue_hs_type, np.array([r_val]), np.array([g_val]), np.array([b_val]))
             hue = float(hue_arr[0])
             sat = float(sat_arr[0])
-            val = float(val_arr[0])
-            value_byte = int(np.clip(round(val * 255.0), 0, 255))
-            sathue_luma_val = value_byte
-            window['-SAT-LUMA-'].update(value=value_byte)
-            window['-SAT-LUMA-SPIN-'].update(value=str(value_byte))
-            lock_x = _data_to_pix(sat * _DATA_RANGE_MAX * np.cos(np.radians(hue)))
-            lock_y = SAT_COLORMAP_SIZE - 1 - _data_to_pix(sat * _DATA_RANGE_MAX * np.sin(np.radians(hue)))
-            sathue_locked_input = (hue, sat, val)
+            third = float(third_arr[0])
+            third_byte = int(np.clip(round(third * 255.0), 0, 255))
+            sathue_luma_val = third_byte
+            window['-SAT-LUMA-'].update(value=third_byte)
+            window['-SAT-LUMA-SPIN-'].update(value=str(third_byte))
+            sathue_locked_input = (hue, sat, third)
+            lock_x, lock_y = _input_to_lock_pix(sathue_locked_input, cs='RGB')
 
         lock_x = int(np.clip(lock_x, 0, SAT_COLORMAP_SIZE - 1))
         lock_y = int(np.clip(lock_y, 0, SAT_COLORMAP_SIZE - 1))
@@ -993,23 +1300,36 @@ def open_csc_ui(args=None):
             return _data_to_pix(cb), SAT_COLORMAP_SIZE - 1 - _data_to_pix(cr)
         else:
             hue, sat, val = input_vals
-            x = _data_to_pix(sat * _DATA_RANGE_MAX * np.cos(np.radians(hue)))
-            y = SAT_COLORMAP_SIZE - 1 - _data_to_pix(sat * _DATA_RANGE_MAX * np.sin(np.radians(hue)))
+            norm_x, norm_y = _rgb_hsv_to_colormap_coords(hue, sat, sathue_rgb_map_mode)
+            x = _data_to_pix(norm_x * _DATA_RANGE_MAX)
+            y = SAT_COLORMAP_SIZE - 1 - _data_to_pix(norm_y * _DATA_RANGE_MAX)
             return x, y
 
+    def _refresh_rgb_lock_pixels():
+        """Refresh lock marker coordinates after the RGB colormap geometry changes."""
+        nonlocal sathue_locked_pix, sathue_left_locked_pix, sathue_right_locked_pix
+        if sathue_locked and sathue_locked_input is not None and sathue_mode == 'single' and sathue_colorspace == 'RGB':
+            sathue_locked_pix = _input_to_lock_pix(sathue_locked_input, cs='RGB')
+        if sathue_left_locked and sathue_left_locked_input is not None and sathue_left_colorspace == 'RGB':
+            sathue_left_locked_pix = _input_to_lock_pix(sathue_left_locked_input, cs='RGB')
+            if sathue_locked:
+                sathue_locked_pix = sathue_left_locked_pix
+        if sathue_right_locked_input is not None and sathue_right_colorspace == 'RGB':
+            sathue_right_locked_pix = _input_to_lock_pix(sathue_right_locked_input, cs='RGB')
+
     def _yuv_to_rgb_input(yuv_input):
-        """Convert YUV input tuple (Y, Cb, Cr) to RGB (HSV) input tuple (H, S, V)."""
+        """Convert YUV input tuple (Y, Cb, Cr) to the active RGB-side HS tuple."""
         _, cb, cr = yuv_input
         y_byte = int(np.clip(round(float(yuv_input[0])), 0, 255))
         # _ycbcr2rgb is the BT.709 data-domain matrix; pass Cb/Cr directly without +128.
         r, g, b = _ycbcr2rgb(np.array([y_byte]), np.array([cb]), np.array([cr]))
-        h_arr, s_arr, v_arr = _rgb2hsv(np.array([r[0]]), np.array([g[0]]), np.array([b[0]]))
-        return (float(h_arr[0]), float(s_arr[0]), float(v_arr[0]))
+        h_arr, s_arr, third_arr = _rgb_to_hs_space(sathue_hs_type, np.array([r[0]]), np.array([g[0]]), np.array([b[0]]))
+        return (float(h_arr[0]), float(s_arr[0]), float(third_arr[0]))
 
     def _rgb_to_yuv_input(rgb_input):
-        """Convert RGB (HSV) input tuple (H, S, V) to YUV input tuple (Y, Cb, Cr)."""
-        h, s, v = rgb_input
-        r_arr, g_arr, b_arr = _hsv2rgb(np.array([h]), np.array([s]), np.array([v]))
+        """Convert the active RGB-side HS tuple to YUV input tuple (Y, Cb, Cr)."""
+        h, s, third = rgb_input
+        r_arr, g_arr, b_arr = _hs_space_to_rgb(sathue_hs_type, np.array([h]), np.array([s]), np.array([third]))
         y_arr, cb_arr, cr_arr = _rgb2ycbcr(np.array([r_arr[0]]), np.array([g_arr[0]]), np.array([b_arr[0]]))
         return (float(y_arr[0]), float(cb_arr[0]) - 128.0, float(cr_arr[0]) - 128.0)
 
@@ -1048,8 +1368,8 @@ def open_csc_ui(args=None):
             else:
                 # RGB=>YUV
                 if use_output:
-                    h2, s2, v2 = _apply_hue_sat_hsv(sathue_left_locked_input)
-                    converted = _rgb_to_yuv_input((h2, s2, v2))
+                    h2, s2, third2 = _apply_hue_sat_hs(sathue_left_locked_input)
+                    converted = _rgb_to_yuv_input((h2, s2, third2))
                 else:
                     converted = _rgb_to_yuv_input(sathue_left_locked_input)
                 right_luma = _get_luma_from_input(converted, 'YUV')
@@ -1210,8 +1530,10 @@ def open_csc_ui(args=None):
             s = float(c2)
             h2 = (h + hue_deg) % 360
             s2 = np.clip(s * sat_scale, 0.0, 1.0)
-            sx = _data_to_pix(s2 * _DATA_RANGE_MAX * np.cos(np.radians(h2)))
-            sy = _data_to_pix(-s2 * _DATA_RANGE_MAX * np.sin(np.radians(h2)))
+            norm_x, norm_y = _rgb_hsv_to_colormap_coords(h2, s2, sathue_rgb_map_mode)
+            sx = _data_to_pix(norm_x * _DATA_RANGE_MAX)
+            sy = _data_to_pix(-norm_y * _DATA_RANGE_MAX)
+            tx, ty = sx, sy
             tx, ty = sx, sy
         if 0 <= tx < SAT_COLORMAP_SIZE and 0 <= ty < SAT_COLORMAP_SIZE:
             return tx, ty
@@ -1332,13 +1654,14 @@ def open_csc_ui(args=None):
         if sathue_left_colorspace == 'YUV' and sathue_right_colorspace == 'RGB':
             out_yuv = _apply_hue_sat_yuv(invals)
             r, g, b = _yuv_tuple_to_rgb_bytes(out_yuv)
-            h_arr, s_arr, v_arr = _rgb2hsv(np.array([r]), np.array([g]), np.array([b]))
-            h, s, v = float(h_arr[0]), float(s_arr[0]), float(v_arr[0])
-            cx = s * _DATA_RANGE_MAX * np.cos(np.radians(h))
-            cy = s * _DATA_RANGE_MAX * np.sin(np.radians(h))
+            h_arr, s_arr, _third_arr = _rgb_to_hs_space(sathue_hs_type, np.array([r]), np.array([g]), np.array([b]))
+            h, s = float(h_arr[0]), float(s_arr[0])
+            norm_x, norm_y = _rgb_hsv_to_colormap_coords(h, s, sathue_rgb_map_mode)
+            cx = norm_x * _DATA_RANGE_MAX
+            cy = norm_y * _DATA_RANGE_MAX
         elif sathue_left_colorspace == 'RGB' and sathue_right_colorspace == 'YUV':
-            h2, s2, v2 = _apply_hue_sat_hsv(invals)
-            out_yuv_data = _rgb_to_yuv_input((h2, s2, v2))
+            h2, s2, third2 = _apply_hue_sat_hs(invals)
+            out_yuv_data = _rgb_to_yuv_input((h2, s2, third2))
             cx = float(out_yuv_data[1])
             cy = float(out_yuv_data[2])
         else:
@@ -1357,9 +1680,10 @@ def open_csc_ui(args=None):
         if right_invals is None:
             return None
         if sathue_left_colorspace == 'YUV' and sathue_right_colorspace == 'RGB':
-            h, s, v = right_invals
-            cx = s * _DATA_RANGE_MAX * np.cos(np.radians(h))
-            cy = s * _DATA_RANGE_MAX * np.sin(np.radians(h))
+            h, s, _third = right_invals
+            norm_x, norm_y = _rgb_hsv_to_colormap_coords(h, s, sathue_rgb_map_mode)
+            cx = norm_x * _DATA_RANGE_MAX
+            cy = norm_y * _DATA_RANGE_MAX
         elif sathue_left_colorspace == 'RGB' and sathue_right_colorspace == 'YUV':
             cx = float(right_invals[1])
             cy = float(right_invals[2])
@@ -1383,9 +1707,10 @@ def open_csc_ui(args=None):
             y, cb2, cr2 = _apply_hue_sat_yuv(invals)
             cx, cy = float(cb2), float(cr2)
         elif sathue_left_colorspace == 'RGB':
-            h2, s2, v2 = _apply_hue_sat_hsv(invals)
-            cx = s2 * _DATA_RANGE_MAX * np.cos(np.radians(h2))
-            cy = s2 * _DATA_RANGE_MAX * np.sin(np.radians(h2))
+            h2, s2, _third2 = _apply_hue_sat_hs(invals)
+            norm_x, norm_y = _rgb_hsv_to_colormap_coords(h2, s2, sathue_rgb_map_mode)
+            cx = norm_x * _DATA_RANGE_MAX
+            cy = norm_y * _DATA_RANGE_MAX
         else:
             return None
         if -128.0 <= cx < 128.0 and -128.0 <= cy < 128.0:
@@ -1456,8 +1781,7 @@ def open_csc_ui(args=None):
         else:
             cx = _pix_to_data(pix_x) / _DATA_RANGE_MAX
             cy = _pix_to_data(SAT_COLORMAP_SIZE - 1 - pix_y) / _DATA_RANGE_MAX
-            H = (np.arctan2(cy, cx) * 180.0 / np.pi + 360.0) % 360.0
-            S = np.sqrt(cx ** 2 + cy ** 2)
+            H, S = _rgb_colormap_coords_to_hsv(cx, cy, sathue_rgb_map_mode)
             return (H, max(S, 0.0), eff_luma / 255.0)
 
     def _format_sathue_input_str(invals, cs=None):
@@ -1469,9 +1793,9 @@ def open_csc_ui(args=None):
             y_val, cb, cr = int(round(invals[0])), int(round(invals[1])), int(round(invals[2]))
             return f"YCbCr({y_val:3d}, {cb:3d}, {cr:3d}) <=> YUV({y_val:3d}, {cb+128:3d}, {cr+128:3d})"
         else:
-            h_val, s_val, v_val = invals
-            r, g, b = _hsv2rgb(np.array([h_val]), np.array([s_val]), np.array([v_val]))
-            return f"HSV({h_val:3.1f}, {s_val:3.2f}, {v_val:3.2f}) <=> RGB({r[0]:3d}, {g[0]:3d}, {b[0]:3d})"
+            h_val, s_val, third_val = invals
+            r, g, b = _hs_space_to_rgb(sathue_hs_type, np.array([h_val]), np.array([s_val]), np.array([third_val]))
+            return f"{sathue_hs_type}({h_val:3.1f}, {s_val:3.2f}, {third_val:3.2f}) <=> RGB({r[0]:3d}, {g[0]:3d}, {b[0]:3d})"
 
     def _format_sathue_output_str(outvals, cs=None):
         """Format output pixel info string per the display template.
@@ -1483,8 +1807,8 @@ def open_csc_ui(args=None):
             return f"YCbCr({y_val:3d}, {cb:3d}, {cr:3d}) <=> YUV({y_val:3d}, {cb+128:3d}, {cr+128:3d})"
         else:
             r, g, b = outvals
-            h_val, s_val, v_val = _rgb2hsv(np.array([r]), np.array([g]), np.array([b]))
-            return f"HSV({h_val[0]:3.1f}, {s_val[0]:3.2f}, {v_val[0]:3.2f}) <=> RGB({r:3d}, {g:3d}, {b:3d})"
+            h_val, s_val, third_val = _rgb_to_hs_space(sathue_hs_type, np.array([r]), np.array([g]), np.array([b]))
+            return f"{sathue_hs_type}({h_val[0]:3.1f}, {s_val[0]:3.2f}, {third_val[0]:3.2f}) <=> RGB({r:3d}, {g:3d}, {b:3d})"
 
     def _yuv_tuple_to_rgb_bytes(yuv_input):
         """Return (R, G, B) 0-255 ints for a YUV data-domain tuple
@@ -1496,10 +1820,10 @@ def open_csc_ui(args=None):
         r, g, b = _ycbcr2rgb(np.array([y]), np.array([cb]), np.array([cr]))
         return int(np.clip(r[0], 0, 255)), int(np.clip(g[0], 0, 255)), int(np.clip(b[0], 0, 255))
 
-    def _hsv_tuple_to_rgb_bytes(hsv_input):
-        """Return (R, G, B) 0-255 ints for an HSV input tuple (H, S, V[0..1])."""
-        h, s, v = hsv_input
-        r_arr, g_arr, b_arr = _hsv2rgb(np.array([h]), np.array([s]), np.array([v]))
+    def _hs_tuple_to_rgb_bytes(hs_input):
+        """Return (R, G, B) 0-255 ints for the active HS-family tuple."""
+        h, s, third = hs_input
+        r_arr, g_arr, b_arr = _hs_space_to_rgb(sathue_hs_type, np.array([h]), np.array([s]), np.array([third]))
         return int(r_arr[0]), int(g_arr[0]), int(b_arr[0])
 
     def _yuv_data_to_pixel_yuv(yuv_input):
@@ -1522,14 +1846,13 @@ def open_csc_ui(args=None):
         cr2 = np.clip(sat_scale * (cb * np.sin(h_rad) + cr * np.cos(h_rad)), -128.0, 127.0)
         return y, cb2, cr2
 
-    def _apply_hue_sat_hsv(hsv_input):
-        """Apply the current sathue hue/sat transform to an HSV tuple (H, S, V[0..1]).
-        Returns (h2, s2, v2)."""
-        h, s, v = hsv_input
+    def _apply_hue_sat_hs(hs_input):
+        """Apply the current sathue hue/sat transform to an HS-family tuple."""
+        h, s, third = hs_input
         h2 = (float(h) + sathue_hue_val) % 360.0
         s2 = float(np.clip(s * sathue_sat_val, 0.0, 1.0))
-        v2 = float(v)
-        return h2, s2, v2
+        third2 = float(third)
+        return h2, s2, third2
 
     def _format_dual_input_str(input_cs, input_vals, out_pos, frozen):
         """Format the dual-mode Input Pixel line.  All printed Y/Cb/Cr values are in
@@ -1548,14 +1871,14 @@ def open_csc_ui(args=None):
             y_pix, cb_pix, cr_pix = _yuv_data_to_pixel_yuv(input_vals)
             ri, gi, bi = _yuv_tuple_to_rgb_bytes(input_vals)
         else:
-            ri, gi, bi = _hsv_tuple_to_rgb_bytes(input_vals)
+            ri, gi, bi = _hs_tuple_to_rgb_bytes(input_vals)
             yuv_data = _rgb_to_yuv_input(input_vals)
             y_pix, cb_pix, cr_pix = _yuv_data_to_pixel_yuv(yuv_data)
 
         if not frozen:
             if input_cs == 'YUV':
                 return f"YCbCr({y_pix:3d},{cb_pix:3d},{cr_pix:3d}) => YUV({y_pix:3d},{input_vals[1] + 128:3d},{input_vals[2] + 128:3d})"
-            return f"HSV({input_vals[0]:3.1f}, {input_vals[1]:3.2f}, {input_vals[2]:3.2f}) => RGB({ri:3d},{gi:3d},{bi:3d})"
+            return f"{sathue_hs_type}({input_vals[0]:3.1f}, {input_vals[1]:3.2f}, {input_vals[2]:3.2f}) => RGB({ri:3d},{gi:3d},{bi:3d})"
 
         # Frozen branch: show only the *input* pixel (left side) - the
         # corresponding *output* pixel is reported on the "Output Pixel"
@@ -1585,8 +1908,8 @@ def open_csc_ui(args=None):
         if input_cs == 'YUV':
             out_yuv_data = _apply_hue_sat_yuv(input_vals)
         else:
-            h2, s2, v2 = _apply_hue_sat_hsv(input_vals)
-            out_yuv_data = _rgb_to_yuv_input((h2, s2, v2))
+            h2, s2, third2 = _apply_hue_sat_hs(input_vals)
+            out_yuv_data = _rgb_to_yuv_input((h2, s2, third2))
         yo_pix, uo_pix, vo_pix = _yuv_data_to_pixel_yuv(out_yuv_data)
         ro, go, bo = _yuv_tuple_to_rgb_bytes(out_yuv_data)
         if input_cs == 'YUV':
@@ -1610,7 +1933,8 @@ def open_csc_ui(args=None):
         if cs == 'RGB':
             cx = _pix_to_data(pix_x) / _DATA_RANGE_MAX
             cy = _pix_to_data(SAT_COLORMAP_SIZE - 1 - pix_y) / _DATA_RANGE_MAX
-            if cx ** 2 + cy ** 2 > 1.0:
+            _, sat = _rgb_colormap_coords_to_hsv(cx, cy, sathue_rgb_map_mode)
+            if sat > 1.0:
                 return None
         px = img_eff.getpixel((pix_x, pix_y))
         r, g, b = px[0], px[1], px[2]
@@ -2292,12 +2616,12 @@ def open_csc_ui(args=None):
                     _clear_sathue_color_lock()
         elif event == '-SAT-CLRSPC-':
             new_cs = values['-SAT-CLRSPC-']
-            if new_cs in ('YUV=>RGB', 'RGB=>YUV'):
+            if new_cs in ('YCbCr=>HSV', 'HSV=>YCbCr'):
                 # Enter dual mode. The actual dual-colormap rendering only happens once
                 # -SAT-SHOW-MAP- is enabled (see _refresh_sathue_display).
                 sathue_mode = 'dual'
-                sathue_left_colorspace = 'YUV' if new_cs == 'YUV=>RGB' else 'RGB'
-                sathue_right_colorspace = 'RGB' if new_cs == 'YUV=>RGB' else 'YUV'
+                sathue_left_colorspace = 'YUV' if new_cs == 'YCbCr=>HSV' else 'RGB'
+                sathue_right_colorspace = 'RGB' if new_cs == 'YCbCr=>HSV' else 'YUV'
                 # Reset all frozen markers.
                 sathue_locked = False
                 sathue_locked_pix = None
@@ -2320,7 +2644,7 @@ def open_csc_ui(args=None):
             else:
                 # Single mode.
                 sathue_mode = 'single'
-                sathue_colorspace = new_cs
+                sathue_colorspace = 'YUV' if new_cs == 'YCbCr' else 'RGB'
                 # Reset all frozen markers.
                 sathue_locked = False
                 sathue_locked_pix = None
@@ -2338,6 +2662,18 @@ def open_csc_ui(args=None):
                 if sathue_locked and sathue_locked_pix is not None:
                     sathue_locked_input = _get_sathue_input_at(*sathue_locked_pix)
                 update_sathue_map()
+        elif event == '-SAT-HS-TYPE-':
+            old_hs_type = sathue_hs_type
+            sathue_hs_type = _normalize_hs_type(values.get('-SAT-HS-TYPE-', 'HSV'))
+            _remap_rgb_inputs_for_hs_type_change(old_hs_type, sathue_hs_type)
+            _refresh_rgb_lock_pixels()
+            if sat_preview_visible:
+                update_sathue_map(preserve_display_size=True)
+        elif event == '-SAT-RGB-MAP-':
+            sathue_rgb_map_mode = RGB_COLORMAP_MODE_HEX if values.get('-SAT-RGB-MAP-') == 'Hex' else RGB_COLORMAP_MODE_CIRCLE
+            _refresh_rgb_lock_pixels()
+            if sat_preview_visible:
+                update_sathue_map(preserve_display_size=True)
         elif event == '-SAT-LUMA-':
             sathue_luma_val = int(values['-SAT-LUMA-'])
             window['-SAT-LUMA-SPIN-'].update(value=str(sathue_luma_val))
@@ -2429,7 +2765,10 @@ def open_csc_ui(args=None):
             if sathue_set_color_enabled:
                 color_vals = parse_color_input(values.get('-SAT-COLOR-INPUT-', ''))
                 if color_vals is not None:
-                    _set_sathue_color_lock(color_vals)
+                    if sathue_mode == 'dual':
+                        _set_sathue_dual_color_lock(color_vals)
+                    else:
+                        _set_sathue_color_lock(color_vals)
         elif event_key.startswith('-SAT-') and event_key.endswith('-') and event_suffix in {'LEFT', 'RIGHT'}:
             delta = -1 if event_suffix == 'LEFT' else 1
             cur = int(values[event_key])
