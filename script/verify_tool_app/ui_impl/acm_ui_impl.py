@@ -491,6 +491,11 @@ class AcmUiController:
 
     def _init_state(self) -> None:
         """Perform initial state sync after all widgets are ready."""
+        if hasattr(self.ui, "radioButton_colorspace_hsv"):
+            self.ui.radioButton_colorspace_hsv.setEnabled(False)
+            self.ui.radioButton_colorspace_hsv.setToolTip(
+                "HSV ACM path is not implemented yet. Please use YHS."
+            )
         self._on_acm_colorspace_changed()
         self._sync_ctrl_point_slider(self._get_current_acm().len_h)
         self._reload_delta_controls_from_acm()
@@ -502,14 +507,13 @@ class AcmUiController:
         return bool(checkbox.isChecked())
 
     def _auto_select_colorspace_for_input(self, frame: ImageFrame) -> None:
+        """Auto-select the currently supported ACM colorspace for the input frame."""
         if self._colorspace_user_override:
             return
-        want_hsv = bool(frame.is_rgb)
         self._suppress_colorspace_signal = True
         try:
-            if want_hsv and hasattr(self.ui, "radioButton_colorspace_hsv"):
-                self.ui.radioButton_colorspace_hsv.setChecked(True)
-            elif hasattr(self.ui, "radioButton_colorspace_yhs"):
+            del frame
+            if hasattr(self.ui, "radioButton_colorspace_yhs"):
                 self.ui.radioButton_colorspace_yhs.setChecked(True)
         finally:
             self._suppress_colorspace_signal = False
@@ -1227,15 +1231,9 @@ class AcmUiController:
         input_is_rgb = bool(input_frame.is_rgb)
 
         if want_hsv:
-            if input_is_rgb:
-                raise NotImplementedError("TODO: HSV(RGB) ACM path is not implemented yet.")
-            input_planar = np.stack([input_frame.pyr, input_frame.pug, input_frame.pvb], axis=0)
-            if input_planar.dtype != np.uint8:
-                input_planar = ((input_planar + 2) >> 2).astype(np.uint8)
-            r, g, b = yuv_to_rgb(input_planar[0], input_planar[1], input_planar[2],
-                                 input_cs=input_frame.clrspc, output_cs=1)
-            del r, g, b
-            raise NotImplementedError("TODO: HSV(RGB) ACM path is not implemented yet.")
+            del input_is_rgb
+            self._status_callback("HSV ACM path is not implemented yet. Please use YHS.")
+            return
 
         if input_is_rgb:
             y, u, v = rgb_to_yuv(input_frame.pyr, input_frame.pug, input_frame.pvb,

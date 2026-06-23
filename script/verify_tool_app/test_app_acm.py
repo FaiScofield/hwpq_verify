@@ -19,7 +19,6 @@ if PROJECT_ROOT not in sys.path:
 
 def _ensure_generated_ui_modules():
     """Regenerate ui_gen modules when they are missing or older than the source .ui files."""
-    print("run auto uic to generate ui_gen modules...")
     ui_pairs = (
         ("ui\\acm_test_app_mainwindow.ui", "ui_gen\\acm_test_app_mainwindow.py"),
         ("ui\\acm_ui.ui", "ui_gen\\acm_ui.py"),
@@ -37,6 +36,7 @@ def _ensure_generated_ui_modules():
     if not needs_regen:
         return
 
+    print("run auto uic to generate ui_gen modules...")
     cmd_path = os.path.join(CURRENT_DIR, "uic.cmd")
     if not os.path.isfile(cmd_path):
         raise RuntimeError(f"Missing UI generator script: {cmd_path}")
@@ -58,13 +58,15 @@ _ensure_generated_ui_modules()
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout
 
-from ui_impl.io_ui_impl import IoUiController, IoUiWidget
-from ui_impl.acm_ui_impl import AcmUiController, AcmUiWidget
-from ui_impl.io_preview_ui_impl import PreviewUiController, PreviewUiWidget
-
 if __package__:
+    from .ui_impl.io_ui_impl import IoUiController, IoUiWidget
+    from .ui_impl.acm_ui_impl import AcmUiController, AcmUiWidget
+    from .ui_impl.io_preview_ui_impl import PreviewUiController, PreviewUiWidget
     from .ui_gen.acm_test_app_mainwindow import Ui_AcmTestAppWindow
 else:
+    from ui_impl.io_ui_impl import IoUiController, IoUiWidget
+    from ui_impl.acm_ui_impl import AcmUiController, AcmUiWidget
+    from ui_impl.io_preview_ui_impl import PreviewUiController, PreviewUiWidget
     from ui_gen.acm_test_app_mainwindow import Ui_AcmTestAppWindow
 
 
@@ -95,6 +97,7 @@ class AcmTestAppWindow(QMainWindow):
             on_input_loaded=self._on_input_loaded,
             on_load_config=lambda path: self.acm_ctrl.load_current_config(path),
             status_callback=self.ui.statusbar.showMessage,
+            auto_load_defaults=False,
         )
         self.preview_ctrl.set_output_dir_getter(self.io_ctrl.get_output_dir)
         self.acm_ctrl = AcmUiController(
@@ -115,6 +118,7 @@ class AcmTestAppWindow(QMainWindow):
         # Keep actionPreview checked state in sync with manual dock close.
         self.preview_ctrl.preview_dock.visibilityChanged.connect(
             lambda visible: self.ui.actionPreview.setChecked(visible))
+        self.io_ctrl.auto_load_defaults()
         self.ui.statusbar.showMessage("Ready")
 
     def _install_view_menu(self) -> None:

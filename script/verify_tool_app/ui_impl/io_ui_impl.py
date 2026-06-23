@@ -51,6 +51,7 @@ class IoUiController:
         on_input_loaded: Callable[[object, str], None] | None = None,
         on_load_config: Callable[[str], None] | None = None,
         status_callback: Callable[[str], None] | None = None,
+        auto_load_defaults: bool = True,
     ) -> None:
         """Bind to an IoUiWidget instance and explicit host callbacks.
 
@@ -60,6 +61,7 @@ class IoUiController:
             on_input_loaded: Optional callback receiving ``(input_yuv444, status_message)``.
             on_load_config: Optional callback receiving a config path.
             status_callback: Optional callback receiving a status-bar message.
+            auto_load_defaults: Whether to auto-load the default input/config during init.
         """
         self._win = parent_window
         self.widget = io_widget
@@ -69,7 +71,8 @@ class IoUiController:
         self._status_callback = status_callback
         self._init_ui()
         self._connect_signals()
-        self._auto_load_defaults()
+        if auto_load_defaults:
+            self._auto_load_defaults()
 
     def _init_ui(self) -> None:
         """Populate format/colorspace combo boxes with default selections."""
@@ -218,6 +221,10 @@ class IoUiController:
                 self._status_callback("Auto-loaded input image and config.")
             elif input_loaded:
                 self._status_callback("Auto-loaded input image.")
+
+    def auto_load_defaults(self) -> None:
+        """Public wrapper used by the host after all dependent controllers exist."""
+        self._auto_load_defaults()
 
     def _on_set_color_toggled(self, enabled: bool) -> None:
         """Toggle the explicit-color input edit and reload."""
