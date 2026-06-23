@@ -536,6 +536,7 @@ class AcmUiController:
         ui.slider_ctrl_points.valueChanged.connect(self._on_ctrl_points_changed)
         ui.comboBox_interp_method.currentTextChanged.connect(self._on_interp_method_changed)
         ui.comboBox_algo_type.currentIndexChanged.connect(self._on_algo_changed)
+        ui.groupBox_lut_lengths.toggled.connect(self._on_lut_lengths_group_toggled)
         if hasattr(ui, "checkBox_enable_acm"):
             ui.checkBox_enable_acm.toggled.connect(self._schedule_auto_run)
         ui.checkBox_lut_visualization.toggled.connect(self._on_lut_visualization_toggled)
@@ -569,6 +570,9 @@ class AcmUiController:
         ui.slider_gain_y.valueChanged.connect(self._schedule_auto_run)
         ui.slider_gain_s.valueChanged.connect(self._schedule_auto_run)
         ui.slider_gain_h.valueChanged.connect(self._schedule_auto_run)
+        ui.slider_offset_wr.valueChanged.connect(self._schedule_auto_run)
+        ui.slider_offset_wg.valueChanged.connect(self._schedule_auto_run)
+        ui.slider_offset_wb.valueChanged.connect(self._schedule_auto_run)
         # Max Delta controls
         ui.button_reset_max_delta.clicked.connect(self._on_reset_max_delta)
         ui.comboBox_clip_type.currentTextChanged.connect(self._on_clip_type_changed)
@@ -1116,6 +1120,7 @@ class AcmUiController:
             self.ui.spinBox_offset_wb,
         ):
             spinbox.setValue(256)
+        self._schedule_auto_run()
 
     # Default LUT lengths per algorithm: (len_y, len_s, len_h, len_h2)
     _DEFAULT_LUT_LENGTHS: dict[str, tuple[int, int, int, int]] = {
@@ -1125,20 +1130,74 @@ class AcmUiController:
         "SW_ACM_VARIANT": (9, 13, 65, 65),
     }
 
+    @classmethod
+    def _get_default_lut_lengths(cls, algo_name: str) -> tuple[int, int, int, int]:
+        """Return the default LUT lengths for a specific ACM algorithm."""
+        return cls._DEFAULT_LUT_LENGTHS.get(algo_name, (9, 13, 65, 65))
+
+    def _get_ui_lut_lengths(self) -> tuple[int, int, int, int]:
+        """Read the current LUT lengths from the UI controls."""
+        return (
+            self.ui.spinBox_len_y.value(),
+            self.ui.spinBox_len_s.value(),
+            self.ui.spinBox_len_h.value(),
+            self.ui.spinBox_len_h2.value(),
+        )
+
+    def _set_ui_lut_lengths(self, lengths: tuple[int, int, int, int]) -> None:
+        """Update all LUT length controls without emitting change notifications."""
+        len_y, len_s, len_h, len_h2 = lengths
+        self.ui.spinBox_len_h2.setMaximum(len_h)
+        self.ui.slider_len_h2.setMaximum(len_h)
+        self._set_slider_spin_value(self.ui.slider_len_y, self.ui.spinBox_len_y, len_y)
+        self._set_slider_spin_value(self.ui.slider_len_s, self.ui.spinBox_len_s, len_s)
+        self._set_slider_spin_value(self.ui.slider_len_h, self.ui.spinBox_len_h, len_h)
+        self._set_slider_spin_value(self.ui.slider_len_h2, self.ui.spinBox_len_h2, len_h2)
+
+    def _resolve_target_lut_lengths(self, algo_name: str) -> tuple[int, int, int, int]:
+        """Resolve the target LUT lengths based on the group-box checked state."""
+        if self.ui.groupBox_lut_lengths.isChecked():
+            return self._get_ui_lut_lengths()
+        return self._get_default_lut_lengths(algo_name)
+
+    def _resize_delta_arrays_for_len_h(
+        self, len_h: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+        """Resize cached delta arrays to a target ``len_h`` for algorithm switches."""
+        if self.full_delta_ybyh is None:
+            return None
+
+        if len(self.full_delta_ybyh) == len_h:
+            return (
+                np.array(self.full_delta_ybyh, dtype=np.int16),
+                np.array(self.full_delta_sbyh, dtype=np.int16),
+                np.array(self.full_delta_hbyh, dtype=np.int16),
+            )
+
+        from script.acm.acm_impl_base import bicubic_resize_array_1d
+
+        return (
+            np.clip(
+                bicubic_resize_array_1d(self.full_delta_ybyh, len_h),
+                ACM_DELTA_Y_MIN,
+                ACM_DELTA_Y_MAX,
+            ).astype(np.int16),
+            np.clip(
+                bicubic_resize_array_1d(self.full_delta_sbyh, len_h),
+                ACM_DELTA_S_MIN,
+                ACM_DELTA_S_MAX,
+            ).astype(np.int16),
+            np.clip(
+                bicubic_resize_array_1d(self.full_delta_hbyh, len_h),
+                ACM_DELTA_H_MIN,
+                ACM_DELTA_H_MAX,
+            ).astype(np.int16),
+        )
+
     def _on_reset_lut_length(self) -> None:
         """Reset all LUT length controls to defaults for the current algorithm."""
-        defaults = self._DEFAULT_LUT_LENGTHS.get(self.current_algo, (9, 13, 65, 65))
-        self._set_slider_spin_value(
-            self.ui.slider_len_y, self.ui.spinBox_len_y, defaults[0])
-        self._set_slider_spin_value(
-            self.ui.slider_len_s, self.ui.spinBox_len_s, defaults[1])
-        # Update len_h controls; constrain len_h2 max before applying.
-        self.ui.spinBox_len_h2.setMaximum(defaults[2])
-        self.ui.slider_len_h2.setMaximum(defaults[2])
-        self._set_slider_spin_value(
-            self.ui.slider_len_h, self.ui.spinBox_len_h, defaults[2])
-        self._set_slider_spin_value(
-            self.ui.slider_len_h2, self.ui.spinBox_len_h2, defaults[3])
+        defaults = self._get_default_lut_lengths(self.current_algo)
+        self._set_ui_lut_lengths(defaults)
         self._apply_lut_lengths()
         self._sync_ctrl_point_slider(defaults[2])
         self._reload_delta_controls_from_acm()
@@ -1197,6 +1256,12 @@ class AcmUiController:
         self._get_current_acm().gain_s = self.ui.spinBox_gain_s.value()
         self._get_current_acm().gain_h = self.ui.spinBox_gain_h.value()
 
+    def _update_acm_offsets(self) -> None:
+        """Write the current WR/WG/WB offset controls back to the active ACM instance."""
+        self._get_current_acm().offset_wr = self.ui.spinBox_offset_wr.value()
+        self._get_current_acm().offset_wg = self.ui.spinBox_offset_wg.value()
+        self._get_current_acm().offset_wb = self.ui.spinBox_offset_wb.value()
+
     def _apply_delta_range_to_acm(self) -> None:
         """Write the current max delta controls back to the active ACM instance."""
         dy = self.ui.spinBox_max_delta_y.value()
@@ -1246,6 +1311,7 @@ class AcmUiController:
             input_cs = input_frame.clrspc
         input_depth = input_frame.depth
         self._update_acm_gains()
+        self._update_acm_offsets()
         self._apply_delta_range_to_acm()
         self._apply_full_delta_to_acm()
         acm = self._get_current_acm()
@@ -1338,22 +1404,24 @@ class AcmUiController:
 
         # Snapshot current UI state before switching
         old_acm = self._get_current_acm()
-        saved_len = (self.ui.spinBox_len_y.value(), self.ui.spinBox_len_s.value(),
-                     self.ui.spinBox_len_h.value(), self.ui.spinBox_len_h2.value())
+        target_len = self._resolve_target_lut_lengths(new_algo)
+        resized_deltas = self._resize_delta_arrays_for_len_h(target_len[2])
 
         # Switch to new instance
         self.current_algo = new_algo
         new_acm = self._get_current_acm()
+        self._set_ui_lut_lengths(target_len)
 
-        # Apply saved lengths to new instance
-        if saved_len != (new_acm.len_y, new_acm.len_s, new_acm.len_h, new_acm.len_hd):
-            new_acm.set_len(*saved_len)
+        # Apply target lengths to the new instance.
+        if target_len != (new_acm.len_y, new_acm.len_s, new_acm.len_h, new_acm.len_hd):
+            new_acm.set_len(*target_len)
 
-        # Copy current delta chart data into new instance
-        if self.full_delta_ybyh is not None:
-            new_acm.lut_delta_ybyh[:] = self.full_delta_ybyh
-            new_acm.lut_delta_sbyh[:] = self.full_delta_sbyh
-            new_acm.lut_delta_hbyh[:] = self.full_delta_hbyh
+        # Copy current delta chart data into the new instance, resizing when
+        # the target algorithm uses a different len_h.
+        if resized_deltas is not None:
+            new_acm.lut_delta_ybyh[:] = resized_deltas[0]
+            new_acm.lut_delta_sbyh[:] = resized_deltas[1]
+            new_acm.lut_delta_hbyh[:] = resized_deltas[2]
 
         # Copy gain LUTs from old to new (resize if needed)
         for name_2d in ('ybyy', 'sbyy', 'hbyy', 'ybys', 'sbys', 'hbys'):
@@ -1367,11 +1435,33 @@ class AcmUiController:
         new_acm.gain_y = old_acm.gain_y
         new_acm.gain_s = old_acm.gain_s
         new_acm.gain_h = old_acm.gain_h
+        new_acm.offset_wr = old_acm.offset_wr
+        new_acm.offset_wg = old_acm.offset_wg
+        new_acm.offset_wb = old_acm.offset_wb
         new_acm.delta_range = old_acm.delta_range
         new_acm.clip_type = old_acm.clip_type
 
-        # Refresh UI controls (lengths already set, sync delta_range/clip_type)
+        # Refresh UI controls while keeping the in-memory delta editor state.
         self._refresh_acm_ui_controls()
+        if resized_deltas is not None:
+            self.full_delta_ybyh = np.array(resized_deltas[0], dtype=np.int16)
+            self.full_delta_sbyh = np.array(resized_deltas[1], dtype=np.int16)
+            self.full_delta_hbyh = np.array(resized_deltas[2], dtype=np.int16)
+            self.delta_chart_y.set_values(self.full_delta_ybyh)
+            self.delta_chart_s.set_values(self.full_delta_sbyh)
+            self.delta_chart_h.set_values(self.full_delta_hbyh)
+            self._recompute_sample_points(target_len[2], self.ctrl_point_count, force=False)
+            self._refresh_sample_overlays()
+        self._schedule_auto_run()
+
+    def _on_lut_lengths_group_toggled(self, checked: bool) -> None:
+        """Synchronize LUT lengths when the override group checked state changes."""
+        del checked
+        target_lengths = self._resolve_target_lut_lengths(self.current_algo)
+        self._set_ui_lut_lengths(target_lengths)
+        self._apply_lut_lengths()
+        self._sync_ctrl_point_slider(target_lengths[2])
+        self._reload_delta_controls_from_acm()
         self._schedule_auto_run()
 
     def _on_len_h_changed(self, value: int) -> None:
@@ -1424,6 +1514,9 @@ class AcmUiController:
         self._set_slider_spin_value(self.ui.slider_gain_y, self.ui.spinBox_gain_y, acm.gain_y)
         self._set_slider_spin_value(self.ui.slider_gain_s, self.ui.spinBox_gain_s, acm.gain_s)
         self._set_slider_spin_value(self.ui.slider_gain_h, self.ui.spinBox_gain_h, acm.gain_h)
+        self._set_slider_spin_value(self.ui.slider_offset_wr, self.ui.spinBox_offset_wr, acm.offset_wr)
+        self._set_slider_spin_value(self.ui.slider_offset_wg, self.ui.spinBox_offset_wg, acm.offset_wg)
+        self._set_slider_spin_value(self.ui.slider_offset_wb, self.ui.spinBox_offset_wb, acm.offset_wb)
         dr = getattr(acm, 'delta_range', (0.25, 0.25, 64))
         self.ui.spinBox_max_delta_y.setValue(dr[0])
         self.ui.spinBox_max_delta_s.setValue(dr[1])
