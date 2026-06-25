@@ -8,14 +8,13 @@ import time
 
 import numpy as np
 from PySide6.QtCore import QRect, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QDockWidget,
     QFileDialog,
+    QLabel,
     QMainWindow,
     QMessageBox,
     QSizePolicy,
-    QSpacerItem,
     QVBoxLayout,
     QWidget,
 )
@@ -54,6 +53,32 @@ class AcmUiWidget(QWidget):
         super().__init__(parent)
         self.ui = Ui_AcmUiWidget()
         self.ui.setupUi(self)
+
+
+class LutImageWindow(QWidget):
+    """Standalone non-modal window for displaying the LUT overview image."""
+
+    def __init__(self, on_close: Callable[[], None], parent: QWidget | None = None) -> None:
+        """Create a top-level window with a stretch-filled image label."""
+        super().__init__(parent, Qt.Window)
+        self._on_close = on_close
+        self.setWindowTitle("LUT Visualization")
+        self.resize(540, 480)
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setMinimumSize(100, 80)
+        self.image_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self.image_label.setScaledContents(True)
+        self.image_label.setText("No LUT")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.image_label)
+
+    def closeEvent(self, event: object) -> None:
+        """Notify the controller when the window is manually closed."""
+        if self._on_close is not None:
+            self._on_close()
+        super().closeEvent(event)
 
 
 class SingleCurveChartWidget(QWidget):
@@ -315,61 +340,10 @@ class SingleCurveChartWidget(QWidget):
         return best_index
 
 
-class HeatmapWidget(QWidget):
-    """Simple heatmap widget for ACM LUT visualization."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        """Create an empty heatmap widget."""
-        super().__init__(parent)
-        self.setMinimumSize(160, 120)
-        self.data = None
-        self.value_min = -128
-        self.value_max = 127
-
-    def set_data(self, data: np.ndarray | None, value_min: int = -128, value_max: int = 127) -> None:
-        """Update the heatmap data and repaint."""
-        self.data = None if data is None else np.array(data, copy=True)
-        self.value_min = value_min
-        self.value_max = value_max
-        self.update()
-
-    def paintEvent(self, event: object) -> None:
-        """Paint the heatmap or a placeholder background."""
-        del event
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(30, 30, 30))
-        if self.data is None or self.data.size == 0:
-            painter.setPen(QColor(180, 180, 180))
-            painter.drawText(self.rect(), Qt.AlignCenter, "No LUT")
-            return
-        rows, cols = self.data.shape
-        cell_w = self.width() / max(cols, 1)
-        cell_h = self.height() / max(rows, 1)
-        for row in range(rows):
-            for col in range(cols):
-                raw_value = int(self.data[row, col])
-                display_value = min(abs(raw_value) * 2, 255)
-                norm = max(0.0, min(1.0, display_value / 255.0))
-                if raw_value < 0:
-                    color = QColor(
-                        int(30 + 70 * norm),
-                        int(70 + 110 * norm),
-                        int(110 + 145 * norm),
-                    )
-                else:
-                    gray = int(40 + 190 * norm)
-                    color = QColor(gray, gray, gray)
-                painter.fillRect(
-                    int(col * cell_w),
-                    int(row * cell_h),
-                    max(1, int(cell_w + 1)),
-                    max(1, int(cell_h + 1)),
-                    color,
-                )
-
-
 class AcmUiController:
-    """Controls the ACM tab: algorithm selection, delta editing, heatmaps, and LUT viz."""
+    """Controls the ACM tab: algorithm selection, delta editing, and LUT visualization."""
+
+    _SUPPORTED_CLIP_TYPES: tuple[str, ...] = ("easy_clip", "radial_clip", "luma_clip")
 
     # ------------------------------------------------------------------ #
     # Initialization                                                     #
@@ -398,10 +372,10 @@ class AcmUiController:
             status_callback: Optional callback receiving status-bar text.
             config_path_getter: Optional callback returning the current config path string.
             config_path_setter: Optional callback receiving a config path string.
-            dock_host: Optional QMainWindow used to host the LUT visualization dock.
+            dock_host: Unused legacy parameter kept for compatibility.
         """
+        del dock_host
         self._win = parent_window
-        self._dock_host = dock_host or parent_window
         self.widget = acm_widget
         self.ui = acm_widget.ui
         self._input_provider = input_provider or (lambda: None)
@@ -458,33 +432,13 @@ class AcmUiController:
             layout.setContentsMargins(0, 0, 0, 0)
             layout.addWidget(chart)
 
-        # --- Heatmap widgets ---
-        self.heatmap_widgets = {}
-        for key, host in (
-            ("gain_ybyy", self.ui.widget_gain_ybyy_host),
-            ("gain_sbyy", self.ui.widget_gain_sbyy_host),
-            ("gain_hbyy", self.ui.widget_gain_hbyy_host),
-            ("gain_ybys", self.ui.widget_gain_ybys_host),
-            ("gain_sbys", self.ui.widget_gain_sbys_host),
-            ("gain_hbys", self.ui.widget_gain_hbys_host),
-        ):
-            heatmap = HeatmapWidget()
-            layout = QVBoxLayout(host)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.addWidget(heatmap)
-            self.heatmap_widgets[key] = heatmap
+        # --- LUT overview window ---
+        self.lut_image_window: LutImageWindow | None = None
 
         # --- Auto-run debounce timer ---
         self.auto_run_timer = QTimer(self.widget)
         self.auto_run_timer.setSingleShot(True)
         self.auto_run_timer.timeout.connect(self._do_auto_run)
-
-        # --- LUT dock (lazy) ---
-        self.lut_dock = None
-        self._lut_gb_original_layout = None
-
-        # Hide LUT Visualization groupBox by default
-        self.ui.groupBox_lut_visualization.setVisible(False)
 
         self._connect_signals()
         self._init_state()
@@ -499,6 +453,7 @@ class AcmUiController:
         self._on_acm_colorspace_changed()
         self._sync_ctrl_point_slider(self._get_current_acm().len_h)
         self._reload_delta_controls_from_acm()
+        self._on_lut_visualization_toggled(bool(self.ui.checkBox_lut_visualization.isChecked()))
 
     def _is_acm_enabled(self) -> bool:
         checkbox = getattr(self.ui, "checkBox_enable_acm", None)
@@ -746,6 +701,7 @@ class AcmUiController:
         self.delta_chart_h.set_values(self.full_delta_hbyh)
         self._recompute_sample_points(len_h, self.ctrl_point_count, force=True)
         self._refresh_sample_overlays()
+        self._update_lut_visualization()
 
     def _recompute_sample_points(self, len_h: int, count: int, force: bool = False) -> None:
         """Recompute sample-point positions and refresh the overlay on each chart.
@@ -944,7 +900,7 @@ class AcmUiController:
         setattr(self, f"sample_values_{curve_key}", [float(v) for v in sample_values])
         self._apply_sample_point_change(curve_key, changed_idx=idx)
         self._apply_full_delta_to_acm()
-        self._update_heatmaps()
+        self._update_lut_visualization()
         self._schedule_auto_run()
 
     def _apply_full_delta_to_acm(self) -> None:
@@ -970,7 +926,7 @@ class AcmUiController:
                 values[i] = 0.0
             self._refresh_sample_overlays()
         self._apply_full_delta_to_acm()
-        self._update_heatmaps()
+        self._update_lut_visualization()
         self._schedule_auto_run()
 
     @staticmethod
@@ -1077,7 +1033,7 @@ class AcmUiController:
                 self._refresh_sample_overlays()
         getattr(self, f"delta_chart_{curve_key}").set_values(full_lut)
         self._apply_full_delta_to_acm()
-        self._update_heatmaps()
+        self._update_lut_visualization()
         self._schedule_auto_run()
 
     def _current_curve_key(self) -> str:
@@ -1222,29 +1178,58 @@ class AcmUiController:
 
     def _on_clip_type_changed(self, text: str) -> None:
         """Apply clip_type change to ACM instance."""
-        self._get_current_acm().clip_type = text
+        clip_type = text if text in self._SUPPORTED_CLIP_TYPES else "easy_clip"
+        self._get_current_acm().clip_type = clip_type
         self._schedule_auto_run()
 
     # ------------------------------------------------------------------ #
-    # Heatmap refresh                                                    #
+    # LUT visualization                                                  #
     # ------------------------------------------------------------------ #
 
-    def _update_heatmaps(self) -> None:
-        """Refresh the mounted LUT heatmap widgets."""
+    @staticmethod
+    def _lut_image_to_pixmap(image: np.ndarray | None) -> QPixmap | None:
+        """Convert an RGBA/RGB numpy image from ``dump_luts`` to a pixmap."""
+        if image is None or image.size == 0:
+            return None
+        if image.ndim != 3 or image.shape[2] not in (3, 4):
+            return None
+        h, w, channels = image.shape
+        image = np.ascontiguousarray(image)
+        fmt = QImage.Format_RGBA8888 if channels == 4 else QImage.Format_RGB888
+        qimage = QImage(image.data, w, h, image.strides[0], fmt).copy()
+        return QPixmap.fromImage(qimage)
+
+    def _ensure_lut_image_window(self) -> LutImageWindow:
+        """Create the standalone LUT visualization window on first use."""
+        if self.lut_image_window is None:
+            self.lut_image_window = LutImageWindow(self._on_lut_window_closed)
+            host_frame = self._win.frameGeometry()
+            self.lut_image_window.move(host_frame.right() + 12, host_frame.top())
+        return self.lut_image_window
+
+    def _on_lut_window_closed(self) -> None:
+        """Keep the LUT visualization checkbox in sync when the window is closed manually."""
+        if self.ui.checkBox_lut_visualization.isChecked():
+            self.ui.checkBox_lut_visualization.blockSignals(True)
+            self.ui.checkBox_lut_visualization.setChecked(False)
+            self.ui.checkBox_lut_visualization.blockSignals(False)
+
+    def _update_lut_visualization(self) -> None:
+        """Refresh the LUT overview image when the standalone window is visible."""
+        if self.lut_image_window is None or not self.lut_image_window.isVisible():
+            return
         acm = self._get_current_acm()
         if not getattr(acm, "b_lut_ready", False):
+            self.lut_image_window.image_label.clear()
+            self.lut_image_window.image_label.setText("No LUT")
             return
-        lut_map = {
-            "gain_ybyy": acm.lut_gain_ybyy,
-            "gain_sbyy": acm.lut_gain_sbyy,
-            "gain_hbyy": acm.lut_gain_hbyy,
-            "gain_ybys": acm.lut_gain_ybys,
-            "gain_sbys": acm.lut_gain_sbys,
-            "gain_hbys": acm.lut_gain_hbys,
-        }
-        for key, data in lut_map.items():
-            if key in self.heatmap_widgets:
-                self.heatmap_widgets[key].set_data(data, ACM_GAIN_MIN, ACM_GAIN_MAX)
+        pixmap = self._lut_image_to_pixmap(acm.dump_luts(return_image=True))
+        if pixmap is None:
+            self.lut_image_window.image_label.clear()
+            self.lut_image_window.image_label.setText("No LUT")
+            return
+        self.lut_image_window.image_label.setText("")
+        self.lut_image_window.image_label.setPixmap(pixmap)
 
     # ------------------------------------------------------------------ #
     # ACM processing                                                     #
@@ -1331,7 +1316,6 @@ class AcmUiController:
             )
             self._output_callback(out_frame)
             self._preview_time_callback(elapsed_ms)
-            self._update_heatmaps()
             self._status_callback(f"Processing completed in {elapsed_ms:.2f} ms")
         except Exception as exc:
             print("processing failed:", exc)
@@ -1439,7 +1423,7 @@ class AcmUiController:
         new_acm.offset_wg = old_acm.offset_wg
         new_acm.offset_wb = old_acm.offset_wb
         new_acm.delta_range = old_acm.delta_range
-        new_acm.clip_type = old_acm.clip_type
+        new_acm.clip_type = old_acm.clip_type if old_acm.clip_type in self._SUPPORTED_CLIP_TYPES else "easy_clip"
 
         # Refresh UI controls while keeping the in-memory delta editor state.
         self._refresh_acm_ui_controls()
@@ -1452,6 +1436,7 @@ class AcmUiController:
             self.delta_chart_h.set_values(self.full_delta_hbyh)
             self._recompute_sample_points(target_len[2], self.ctrl_point_count, force=False)
             self._refresh_sample_overlays()
+        self._update_lut_visualization()
         self._schedule_auto_run()
 
     def _on_lut_lengths_group_toggled(self, checked: bool) -> None:
@@ -1482,7 +1467,7 @@ class AcmUiController:
         """
         del value
         self._apply_lut_lengths()
-        self._update_heatmaps()
+        self._update_lut_visualization()
         self._schedule_auto_run()
 
     # ------------------------------------------------------------------ #
@@ -1522,11 +1507,14 @@ class AcmUiController:
         self.ui.spinBox_max_delta_s.setValue(dr[1])
         self.ui.spinBox_max_delta_h.setValue(dr[2])
         ct = getattr(acm, 'clip_type', 'easy_clip')
+        if ct not in self._SUPPORTED_CLIP_TYPES:
+            ct = "easy_clip"
+            acm.clip_type = ct
         idx = self.ui.comboBox_clip_type.findText(ct)
         if idx >= 0:
             self.ui.comboBox_clip_type.setCurrentIndex(idx)
         self._sync_ctrl_point_slider(acm.len_h)
-        self._update_heatmaps()
+        self._update_lut_visualization()
 
     def load_current_config(self, path: str) -> bool:
         """Load a JSON config into the active ACM instance and refresh the UI."""
@@ -1566,49 +1554,13 @@ class AcmUiController:
         if path:
             self.load_current_config(path)
 
-    # ------------------------------------------------------------------ #
-    # LUT Visualization dock                                             #
-    # ------------------------------------------------------------------ #
-
-    def _on_lut_visualization_toggled(self, checked: bool):
-        """Detach or re-attach groupBox_lut_visualization to a standalone dock."""
-        if self._dock_host is None:
-            return
-        gb = self.ui.groupBox_lut_visualization
-
+    def _on_lut_visualization_toggled(self, checked: bool) -> None:
+        """Show or close the standalone LUT overview window."""
         if checked:
-            gb.setVisible(False)
-            self._lut_gb_original_layout = gb.parent().layout()
-            self.lut_dock = QDockWidget("LUT Visualization", self._dock_host)
-            self.lut_dock.setObjectName("lut_visualization_dock")
-            self.lut_dock.setAllowedAreas(Qt.AllDockWidgetAreas)
-            self.lut_dock.setFeatures(
-                QDockWidget.DockWidgetMovable
-                | QDockWidget.DockWidgetFloatable
-                | QDockWidget.DockWidgetClosable
-            )
-            if self._lut_gb_original_layout:
-                self._lut_gb_original_layout.removeWidget(gb)
-            gb.setParent(self.lut_dock)
-            self.lut_dock.setWidget(gb)
-            gb.setVisible(True)
-            self._dock_host.addDockWidget(Qt.RightDockWidgetArea, self.lut_dock)
-            self.lut_dock.setVisible(True)
-            self.lut_dock.visibilityChanged.connect(self._on_lut_dock_visibility_changed)
-        else:
-            if self.lut_dock is not None:
-                gb.setVisible(False)
-                self.lut_dock.setWidget(None)
-                gb.setParent(self.widget)
-                if self._lut_gb_original_layout is not None:
-                    self._lut_gb_original_layout.addWidget(gb)
-                gb.setVisible(False)
-                self._dock_host.removeDockWidget(self.lut_dock)
-                self.lut_dock.deleteLater()
-                self.lut_dock = None
-
-    def _on_lut_dock_visibility_changed(self, visible: bool):
-        """Sync the LUT Visualization checkbox when the dock is closed by the user."""
-        if not visible:
-            if self.ui.checkBox_lut_visualization.isChecked():
-                self.ui.checkBox_lut_visualization.setChecked(False)
+            window = self._ensure_lut_image_window()
+            window.show()
+            window.raise_()
+            window.activateWindow()
+            self._update_lut_visualization()
+        elif self.lut_image_window is not None and self.lut_image_window.isVisible():
+            self.lut_image_window.close()

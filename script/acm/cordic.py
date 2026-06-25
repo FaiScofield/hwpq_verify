@@ -4,7 +4,7 @@ FilePath    : cordic.py
 Author      : vance.wu@rock-chips.com
 Date        : 2025-11-27
 Description :
-LastEditTime: 2025-11-27
+LastEditTime: 2026-06-25
 """
 
 import os
@@ -406,28 +406,6 @@ def test_cordic_uv2hs2uv(depth: int, iter_num: int, fix_bits_s: int, keep_bits_s
     print(f"sum error for {depth}bit uv->hs->uv: eu={np.abs(ud).sum()}, ev={np.abs(vd).sum()}")
     print(f"final configs: iter_num={iter_num}, fix_bits={fix_bits_s}, inc_bits={keep_bits_s}")
 
-"""
-def gen_hue_map(depth: int):
-    assert depth in [8, 10]
-    if depth == 10:
-        uv_half = 512
-        uv_range = 1024
-        s_range = 725
-    else:
-        uv_half = 128
-        uv_range = 256
-        s_range = 182
-
-    h = np.full((361, s_range), np.arange(-180, 181).reshape(-1, 1))
-    _, s = np.indices((361, s_range))
-
-    u = np.clip(s * np.cos(np.radians(h)) + uv_half, 0, uv_range - 1)
-    v = np.clip(s * np.sin(np.radians(h)) + uv_half, 0, uv_range - 1)
-    u = (u + 0.5).astype(np.int32)
-    v = (v + 0.5).astype(np.int32)
-"""
-
-
 
 if __name__ == '__main__':
     ## arg parser
@@ -452,8 +430,5 @@ if __name__ == '__main__':
     elif args.mode in ["2", "uv2uv", "uv2hs2uv"]:
         print("Do test_cordic_uv2hs2uv...")
         test_cordic_uv2hs2uv(args.depth, args.iter_num, args.fix_bits, args.keep_bits, args.acm, pixel)
-    # elif args.mode in ["3", "gen_hue"]:
-    #     print("Do gen_hue...")
-    #     gen_hue_map(args.depth)
     else:
         print(f"Error: unknown mode {args.mode}! Only support 0-uv2hs, 1-hs2uv, 2-uv2uv")
