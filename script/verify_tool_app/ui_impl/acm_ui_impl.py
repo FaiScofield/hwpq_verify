@@ -8,7 +8,7 @@ import time
 
 import numpy as np
 from PySide6.QtCore import QRect, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QFileDialog,
     QLabel,
@@ -63,7 +63,7 @@ class LutImageWindow(QWidget):
         super().__init__(parent, Qt.Window)
         self._on_close = on_close
         self.setWindowTitle("LUT Visualization")
-        self.resize(540, 480)
+        self.resize(960, 540)
         self.image_label = QLabel()
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setMinimumSize(100, 80)
@@ -107,8 +107,8 @@ class SingleCurveChartWidget(QWidget):
             bg_image_path: optional background image (BMP) painted before data.
         """
         super().__init__(parent)
-        self.setMinimumSize(600, 200)
-        self.setMaximumSize(1200, 400)
+        self.setMinimumSize(600, 400)
+        self.setMaximumSize(1200, 800)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self.value_range = value_range
         self.curve_color = curve_color
@@ -197,17 +197,19 @@ class SingleCurveChartWidget(QWidget):
         chart_width = width - 2 * self.padding
         chart_height = height - 2 * self.padding
         n = len(self.values)
+        chart_rect = QRect(self.padding, self.padding, int(chart_width), int(chart_height))
 
         painter.fillRect(self.rect(), QColor(30, 30, 30))
+        painter.fillRect(chart_rect, QColor(255, 255, 255))
 
         # Background image (scaled to chart area, placed behind grid)
         if self._bg_pixmap is not None:
             bg = self._bg_pixmap.scaled(
-                self.width(), self.height(),
+                chart_rect.width(), chart_rect.height(),
                 Qt.AspectRatioMode.IgnoreAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
-            painter.drawPixmap(0, 0, bg)
+            painter.drawPixmap(chart_rect.topLeft(), bg)
 
         # Horizontal grid lines (light gray dashed)
         painter.setPen(QPen(QColor(140, 140, 140), 0.5, Qt.DashLine))
@@ -232,13 +234,13 @@ class SingleCurveChartWidget(QWidget):
         font = painter.font()
         font.setPointSize(9)
         painter.setFont(font)
-        painter.setPen(QColor(200, 200, 200))
+        painter.setPen(QColor(40, 40, 40))
         if n >= 2:
             for idx in range(0, n, 2):
                 x_pos, _ = self._index_position(idx)
                 painter.drawLine(int(x_pos), int(height - self.padding),
                                  int(x_pos), int(height - self.padding + 4))
-                text_rect = QRect(int(x_pos) - 18, int(height - self.padding + 6), 36, 14)
+                text_rect = self._clamp_text_rect(QRect(int(x_pos) - 18, int(height - self.padding + 6), 36, 14))
                 painter.drawText(text_rect, Qt.AlignCenter, str(idx))
 
         # Y-axis range labels
@@ -256,6 +258,7 @@ class SingleCurveChartWidget(QWidget):
                 text_rect = QRect(int(x_pos) - 22, int(y_pos) - 22, 44, 14)
             else:
                 text_rect = QRect(int(x_pos) - 22, int(y_pos) + 8, 44, 14)
+            text_rect = self._clamp_text_rect(text_rect)
             painter.drawText(text_rect, Qt.AlignCenter, str(int(self.values[idx])))
 
         # Sample-point overlay: white dashed hollow circles (filled when selected).
@@ -282,6 +285,12 @@ class SingleCurveChartWidget(QWidget):
                 sample_diameter,
                 sample_diameter,
             )
+
+    def _clamp_text_rect(self, rect: QRect) -> QRect:
+        """Clamp annotation rectangles to the widget bounds so edge labels stay visible."""
+        x_pos = max(0, min(rect.x(), self.width() - rect.width()))
+        y_pos = max(0, min(rect.y(), self.height() - rect.height()))
+        return QRect(x_pos, y_pos, rect.width(), rect.height())
 
     def mousePressEvent(self, event: object) -> None:
         """Select or start dragging the nearest sample point."""
@@ -1204,7 +1213,21 @@ class AcmUiController:
         if self.lut_image_window is None:
             self.lut_image_window = LutImageWindow(self._on_lut_window_closed)
             host_frame = self._win.frameGeometry()
-            self.lut_image_window.move(host_frame.right() + 12, host_frame.top())
+            screen = self._win.screen() or QGuiApplication.primaryScreen()
+            available = screen.availableGeometry() if screen is not None else host_frame
+            margin = 12
+            window_width = self.lut_image_window.frameGeometry().width()
+            window_height = self.lut_image_window.frameGeometry().height()
+
+            right_x = host_frame.right() + margin
+            left_x = host_frame.left() - margin - window_width
+            if right_x + window_width <= available.right():
+                target_x = right_x
+            else:
+                target_x = max(available.left(), left_x)
+
+            target_y = min(max(host_frame.top(), available.top()), available.bottom() - window_height)
+            self.lut_image_window.move(target_x, target_y)
         return self.lut_image_window
 
     def _on_lut_window_closed(self) -> None:
@@ -1543,6 +1566,7 @@ class AcmUiController:
         if path:
             if not path.endswith(".json"):
                 path += ".json"
+            acm.sync_to_default()
             acm.dump_json(path)
             self._status_callback(f"Config saved: {path}")
 

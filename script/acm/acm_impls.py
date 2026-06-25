@@ -424,12 +424,12 @@ class AcmImplSwVariant(AcmImplBase):
         )  # [-64, 64]
 
         # ---- 5. Sample gain tables (2D, indexed by (Y/S, HD)) ----
-        gain_yy = cv2.remap(lut_gy_y, idx_y, idx_hd, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_ys = cv2.remap(lut_gs_y, idx_y, idx_hd, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_hy = cv2.remap(lut_gh_y, idx_y, idx_hd, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_sy = cv2.remap(lut_gy_s, idx_s, idx_hd, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_ss = cv2.remap(lut_gs_s, idx_s, idx_hd, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_hs = cv2.remap(lut_gh_s, idx_s, idx_hd, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_yy = cv2.remap(lut_gy_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_ys = cv2.remap(lut_gs_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_hy = cv2.remap(lut_gh_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_sy = cv2.remap(lut_gy_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_ss = cv2.remap(lut_gs_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_hs = cv2.remap(lut_gh_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
         # ---- 6. Combine deltas (apply global gains HERE instead of upfront) ----
         g_y = self.gain_y / 256.0
@@ -510,24 +510,24 @@ class AcmImplSwVariant(AcmImplBase):
 
         # 2D gain LUTs (Y axis)
         self._default_lut_gain_ybyy = bicubic_resize_array_2d(
-            source_acm._default_lut_gain_ybyy, source_acm._default_len_hd, source_acm._default_len_y, kernel
+            source_acm._default_lut_gain_ybyy, self._default_len_y, self._default_len_hd, kernel
         )
         self._default_lut_gain_sbyy = bicubic_resize_array_2d(
-            source_acm._default_lut_gain_sbyy, source_acm._default_len_hd, source_acm._default_len_y, kernel
+            source_acm._default_lut_gain_sbyy, self._default_len_y, self._default_len_hd, kernel
         )
         self._default_lut_gain_hbyy = bicubic_resize_array_2d(
-            source_acm._default_lut_gain_hbyy, source_acm._default_len_hd, source_acm._default_len_y, kernel
+            source_acm._default_lut_gain_hbyy, self._default_len_y, self._default_len_hd, kernel
         )
 
         # 2D gain LUTs (S axis)
         self._default_lut_gain_ybys = bicubic_resize_array_2d(
-            source_acm._default_lut_gain_ybys, source_acm._default_len_hd, source_acm._default_len_s, kernel
+            source_acm._default_lut_gain_ybys, self._default_len_s, self._default_len_hd, kernel
         )
         self._default_lut_gain_sbys = bicubic_resize_array_2d(
-            source_acm._default_lut_gain_sbys, source_acm._default_len_hd, source_acm._default_len_s, kernel
+            source_acm._default_lut_gain_sbys, self._default_len_s, self._default_len_hd, kernel
         )
         self._default_lut_gain_hbys = bicubic_resize_array_2d(
-            source_acm._default_lut_gain_hbys, source_acm._default_len_hd, source_acm._default_len_s, kernel
+            source_acm._default_lut_gain_hbys, self._default_len_s, self._default_len_hd, kernel
         )
 
         # Copy gains

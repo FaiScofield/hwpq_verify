@@ -55,8 +55,8 @@ def _ensure_generated_ui_modules():
 
 _ensure_generated_ui_modules()
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout
+from PySide6.QtCore import QSignalBlocker, Qt
+from PySide6.QtWidgets import QApplication, QMainWindow, QScrollArea, QVBoxLayout
 
 if __package__:
     from .ui_impl.io_ui_impl import IoUiController, IoUiWidget
@@ -78,19 +78,22 @@ class AcmTestAppWindow(QMainWindow):
         self.ui = Ui_AcmTestAppWindow()
         self.ui.setupUi(self)
         self.setWindowTitle("ACM Test App v1.0")
+        self._syncing_preview_action = False
 
         self.io_widget = IoUiWidget(self)
         self.acm_widget = AcmUiWidget(self)
         self.preview_widget = PreviewUiWidget(self)
 
-        self._mount_host_page(self.ui.tab_io_host, self.io_widget)
-        self._mount_host_page(self.ui.tab_acm_host, self.acm_widget)
+        self._mount_host_page(self.ui.tab_io_host, self.io_widget, use_scroll_area=True)
+        self._mount_host_page(self.ui.tab_acm_host, self.acm_widget, use_scroll_area=True)
 
         self.preview_ctrl = PreviewUiController(
             self.preview_widget,
             parent_window=self,
             status_callback=self.ui.statusbar.showMessage,
         )
+        # self.preview_widget.ui.label_time_cost.setVisible(False)
+        # self.preview_widget.ui.lineEdit_time_cost.setVisible(False)
         self.io_ctrl = IoUiController(
             self.io_widget,
             parent_window=self,
@@ -115,9 +118,8 @@ class AcmTestAppWindow(QMainWindow):
         # Propagate ACM enabled state to preview for BothInLeft mode.
         self.acm_ctrl.ui.checkBox_enable_acm.toggled.connect(self.preview_ctrl.set_acm_enabled)
         self.preview_ctrl.set_acm_enabled(self.acm_ctrl.ui.checkBox_enable_acm.isChecked())
-        # Keep actionPreview checked state in sync with manual dock close.
-        self.preview_ctrl.preview_dock.visibilityChanged.connect(
-            lambda visible: self.ui.actionPreview.setChecked(visible))
+        # Keep actionPreview checked state in sync with dock visibility without re-entering toggle logic.
+        self.preview_ctrl.preview_dock.visibilityChanged.connect(self._on_preview_dock_visibility_changed)
         self.io_ctrl.auto_load_defaults()
         self.ui.statusbar.showMessage("Ready")
 
@@ -132,6 +134,8 @@ class AcmTestAppWindow(QMainWindow):
 
     def _on_preview_action_toggled(self, checked: bool) -> None:
         """Show or hide the preview dock."""
+        if self._syncing_preview_action:
+            return
         dock = self.preview_ctrl.preview_dock
         if dock is None:
             return
@@ -139,10 +143,29 @@ class AcmTestAppWindow(QMainWindow):
         if checked and not self.dockWidgetArea(dock):
             self.addDockWidget(Qt.BottomDockWidgetArea, dock)
 
-    def _mount_host_page(self, host_page, child_widget):
+    def _on_preview_dock_visibility_changed(self, visible: bool) -> None:
+        """Sync the View action without recursively toggling the dock."""
+        if self.ui.actionPreview.isChecked() == visible:
+            return
+        self._syncing_preview_action = True
+        blocker = QSignalBlocker(self.ui.actionPreview)
+        self.ui.actionPreview.setChecked(visible)
+        del blocker
+        self._syncing_preview_action = False
+
+    def _mount_host_page(self, host_page, child_widget, use_scroll_area: bool = False):
         """Mount a reusable child widget into a host tab page."""
         layout = QVBoxLayout(host_page)
         layout.setContentsMargins(0, 0, 0, 0)
+        if use_scroll_area:
+            scroll_area = QScrollArea(host_page)
+            scroll_area.setWidgetResizable(True)
+            scroll_area.setFrameShape(QScrollArea.NoFrame)
+            scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            scroll_area.setWidget(child_widget)
+            layout.addWidget(scroll_area)
+            return
         layout.addWidget(child_widget)
 
     def _on_input_loaded(self, frame, status_message):

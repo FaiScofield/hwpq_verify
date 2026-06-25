@@ -343,12 +343,12 @@ class AcmImplBase:
 
         for name in LUT_2D_Y_NAMES:
             setattr(
-                self, f"_default_lut_{name}", np.ones((self._default_len_hd, self._default_len_y), dtype=np.int8) * 127
+                self, f"_default_lut_{name}", np.ones((self._default_len_y, self._default_len_hd), dtype=np.int8) * 127
             )
             setattr(self, f"lut_{name}", getattr(self, f"_default_lut_{name}").copy())
         for name in LUT_2D_S_NAMES:
             setattr(
-                self, f"_default_lut_{name}", np.ones((self._default_len_hd, self._default_len_s), dtype=np.int8) * 127
+                self, f"_default_lut_{name}", np.ones((self._default_len_s, self._default_len_hd), dtype=np.int8) * 127
             )
             setattr(self, f"lut_{name}", getattr(self, f"_default_lut_{name}").copy())
         self.b_lut_ready = True
@@ -444,16 +444,16 @@ class AcmImplBase:
 
         for name in LUT_2D_Y_NAMES:
             default_lut = getattr(self, f"_default_lut_{name}")
-            if default_lut.shape != (self.len_hd, self.len_y):
-                new_lut = resample_2d(default_lut, self.len_hd, self.len_y, kernel)
+            if default_lut.shape != (self.len_y, self.len_hd):
+                new_lut = resample_2d(default_lut, self.len_y, self.len_hd, kernel)
                 setattr(self, f"lut_{name}", new_lut)
                 print(f"[ACM] resample {name}: {default_lut.shape} => {new_lut.shape} ({method})")
             else:
                 setattr(self, f"lut_{name}", default_lut.copy())
         for name in LUT_2D_S_NAMES:
             default_lut = getattr(self, f"_default_lut_{name}")
-            if default_lut.shape != (self.len_hd, self.len_s):
-                new_lut = resample_2d(default_lut, self.len_hd, self.len_s, kernel)
+            if default_lut.shape != (self.len_s, self.len_hd):
+                new_lut = resample_2d(default_lut, self.len_s, self.len_hd, kernel)
                 setattr(self, f"lut_{name}", new_lut)
                 print(f"[ACM] resample {name}: {default_lut.shape} => {new_lut.shape} ({method})")
             else:
@@ -480,8 +480,8 @@ class AcmImplBase:
             print(f"[ACM] sync delta LUT to default: {self.lut_delta_ybyh.shape[0]} " f"=> {self._default_len_h}")
         else:
             self._default_lut_delta_ybyh = self.lut_delta_ybyh.copy()
-            self._default_lut_sbyh = self.lut_delta_sbyh.copy()
-            self._default_lut_hbyh = self.lut_delta_hbyh.copy()
+            self._default_lut_delta_sbyh = self.lut_delta_sbyh.copy()
+            self._default_lut_delta_hbyh = self.lut_delta_hbyh.copy()
 
         # 2D gain LUTs
         for name in LUT_2D_Y_NAMES:
@@ -609,12 +609,12 @@ class AcmImplBase:
         )  # [-64, 64]
 
         # ---- 5. Sample gain tables (2D, indexed by (Y/S, HD)) ----
-        gain_yy = cv2.remap(lut_gy_y, idx_y, idx_hd, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_sy = cv2.remap(lut_gs_y, idx_y, idx_hd, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_hy = cv2.remap(lut_gh_y, idx_y, idx_hd, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_ys = cv2.remap(lut_gy_s, idx_s, idx_hd, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_ss = cv2.remap(lut_gs_s, idx_s, idx_hd, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_hs = cv2.remap(lut_gh_s, idx_s, idx_hd, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_yy = cv2.remap(lut_gy_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_sy = cv2.remap(lut_gs_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_hy = cv2.remap(lut_gh_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_ys = cv2.remap(lut_gy_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_ss = cv2.remap(lut_gs_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_hs = cv2.remap(lut_gh_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
         # ---- 6. Combine deltas (all in normalised float) ----
         delta_y = delta_y * gain_yy * gain_ys # [-dr_y, dr_y]
@@ -736,12 +736,12 @@ class AcmImplBase:
         delta_h = cv2.remap(lut_dh, idx_hp, idx_zeros, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
         # ---- 7. Sample gain tables (2D LUTs indexed by (V,H) and (S,H)) ----
-        gain_yy = cv2.remap(lut_g_yy, idx_v, idx_hp, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_ys = cv2.remap(lut_g_ys, idx_v, idx_hp, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_yh = cv2.remap(lut_g_yh, idx_v, idx_hp, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_sy = cv2.remap(lut_g_sy, idx_s, idx_hp, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_ss = cv2.remap(lut_g_ss, idx_s, idx_hp, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_sh = cv2.remap(lut_g_sh, idx_s, idx_hp, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_yy = cv2.remap(lut_g_yy, idx_hp, idx_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_ys = cv2.remap(lut_g_ys, idx_hp, idx_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_yh = cv2.remap(lut_g_yh, idx_hp, idx_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_sy = cv2.remap(lut_g_sy, idx_hp, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_ss = cv2.remap(lut_g_ss, idx_hp, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        gain_sh = cv2.remap(lut_g_sh, idx_hp, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
         # ---- 8. Combine deltas ----
         delta_y = delta_y * gain_yy * gain_sy
@@ -824,7 +824,7 @@ class AcmImplBase:
         len_s = 13
         len_h = 65
         len_hd = 65
-        lut2dAxis4HD = 0
+        lut2dAxis4HD = 1
 
         ## read json config
         try:
@@ -846,14 +846,14 @@ class AcmImplBase:
                 lut_gain_sbys = np.array(data["acmTableGainSbyS"], dtype=np.int8)
                 lut_gain_hbys = np.array(data["acmTableGainHbyS"], dtype=np.int8)
 
-                lut2dAxis4HD = data["lut2dAxis4HD"] if "lut2dAxis4HD" in data else 0
+                lut2dAxis4HD = data["lut2dAxis4HD"] if "lut2dAxis4HD" in data else 1
 
                 self.gain_y = data["lumGain"] if "lumGain" in data else 256
                 self.gain_s = data["satGain"] if "satGain" in data else 256
                 self.gain_h = data["hueGain"] if "hueGain" in data else 256
-                self.offset_wb = data["wbOffset"] if "wbOffset" in data else 0
-                self.offset_wg = data["wgOffset"] if "wgOffset" in data else 0
-                self.offset_wr = data["wrOffset"] if "wrOffset" in data else 0
+                self.offset_wb = data["wbOffset"] if "wbOffset" in data else 256
+                self.offset_wg = data["wgOffset"] if "wgOffset" in data else 256
+                self.offset_wr = data["wrOffset"] if "wrOffset" in data else 256
                 self.is_lut4rgb = bool(data["isLut4Rgb"]) if "isLut4Rgb" in data else False
 
                 ## guess lut length from the file
@@ -870,15 +870,23 @@ class AcmImplBase:
                     print("WARNING: unknown len_y/s/hd !!! use default value.")
 
                 if lut2dAxis4HD:
+                    lut_gain_ybyy = lut_gain_ybyy.reshape(len_y, len_hd)
+                    lut_gain_sbyy = lut_gain_sbyy.reshape(len_y, len_hd)
+                    lut_gain_hbyy = lut_gain_hbyy.reshape(len_y, len_hd)
+                    lut_gain_ybys = lut_gain_ybys.reshape(len_s, len_hd)
+                    lut_gain_sbys = lut_gain_sbys.reshape(len_s, len_hd)
+                    lut_gain_hbys = lut_gain_hbys.reshape(len_s, len_hd)
+                else:
                     print(
-                        f"[ACM] gain luts reshape to {len_hd}(H) x {len_y}/{len_s}(W) since lut2dAxis4HD={lut2dAxis4HD}"
+                        f"[ACM] gain luts reshape to {len_y}/{len_s}(W) x {len_hd}(H) since lut2dAxis4HD={lut2dAxis4HD}"
                     )
-                    lut_gain_ybyy = lut_gain_ybyy.reshape(len_y, len_hd).T
-                    lut_gain_sbyy = lut_gain_sbyy.reshape(len_y, len_hd).T
-                    lut_gain_hbyy = lut_gain_hbyy.reshape(len_y, len_hd).T
-                    lut_gain_ybys = lut_gain_ybys.reshape(len_s, len_hd).T
-                    lut_gain_sbys = lut_gain_sbys.reshape(len_s, len_hd).T
-                    lut_gain_hbys = lut_gain_hbys.reshape(len_s, len_hd).T
+                    lut_gain_ybyy = lut_gain_ybyy.reshape(len_hd, len_y).T
+                    lut_gain_sbyy = lut_gain_sbyy.reshape(len_hd, len_y).T
+                    lut_gain_hbyy = lut_gain_hbyy.reshape(len_hd, len_y).T
+                    lut_gain_ybys = lut_gain_ybys.reshape(len_hd, len_s).T
+                    lut_gain_sbys = lut_gain_sbys.reshape(len_hd, len_s).T
+                    lut_gain_hbys = lut_gain_hbys.reshape(len_hd, len_s).T
+
 
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]
@@ -892,37 +900,37 @@ class AcmImplBase:
             raise ValueError(f"length of lut_delta_sbyh({len(lut_delta_sbyh)}) != len_h({len_h})!")
         if len(lut_delta_hbyh) != len_h:
             raise ValueError(f"length of lut_delta_hbyh({len(lut_delta_hbyh)}) != len_h({len_h})!")
-        if lut_gain_ybyy.shape[0] * lut_gain_ybyy.shape[1] != len_hd * len_y:
+        if lut_gain_ybyy.shape != (len_y, len_hd):
             raise ValueError(
-                f"size of lut_gain_ybyy({lut_gain_ybyy.shape[0]} x {lut_gain_ybyy.shape[1]}) != len_hd({len_hd}) x len_y({len_y})!"
+                f"shape of lut_gain_ybyy{lut_gain_ybyy.shape} != ({len_y}, {len_hd})!"
             )
-        if lut_gain_sbyy.shape[0] * lut_gain_sbyy.shape[1] != len_hd * len_y:
+        if lut_gain_sbyy.shape != (len_y, len_hd):
             raise ValueError(
-                f"size of lut_gain_sbyy({lut_gain_sbyy.shape[0]} x {lut_gain_sbyy.shape[1]}) != len_hd({len_hd}) x len_y({len_y})!"
+                f"shape of lut_gain_sbyy{lut_gain_sbyy.shape} != ({len_y}, {len_hd})!"
             )
-        if lut_gain_hbyy.shape[0] * lut_gain_hbyy.shape[1] != len_hd * len_y:
+        if lut_gain_hbyy.shape != (len_y, len_hd):
             raise ValueError(
-                f"size of lut_gain_hbyy({lut_gain_hbyy.shape[0]} x {lut_gain_hbyy.shape[1]}) != len_hd({len_hd}) x len_y({len_y})!"
+                f"shape of lut_gain_hbyy{lut_gain_hbyy.shape} != ({len_y}, {len_hd})!"
             )
-        if lut_gain_ybys.shape[0] * lut_gain_ybys.shape[1] != len_hd * len_s:
+        if lut_gain_ybys.shape != (len_s, len_hd):
             raise ValueError(
-                f"size of lut_gain_ybys({lut_gain_ybys.shape[0]} x {lut_gain_ybys.shape[1]}) != len_hd({len_hd}) x len_s({len_s})!"
+                f"shape of lut_gain_ybys{lut_gain_ybys.shape} != ({len_s}, {len_hd})!"
             )
-        if lut_gain_sbys.shape[0] * lut_gain_sbys.shape[1] != len_hd * len_s:
+        if lut_gain_sbys.shape != (len_s, len_hd):
             raise ValueError(
-                f"size of lut_gain_sbys({lut_gain_sbys.shape[0]} x {lut_gain_sbys.shape[1]}) != len_hd({len_hd}) x len_s({len_s})!"
+                f"shape of lut_gain_sbys{lut_gain_sbys.shape} != ({len_s}, {len_hd})!"
             )
-        if lut_gain_hbys.shape[0] * lut_gain_hbys.shape[1] != len_hd * len_s:
+        if lut_gain_hbys.shape != (len_s, len_hd):
             raise ValueError(
-                f"size of lut_gain_hbys({lut_gain_hbys.shape[0]} x {lut_gain_hbys.shape[1]}) != len_hd({len_hd}) x len_s({len_s})!"
+                f"shape of lut_gain_hbys{lut_gain_hbys.shape} != ({len_s}, {len_hd})!"
             )
 
-        lut_gain_ybyy = lut_gain_ybyy.reshape(len_hd, len_y)
-        lut_gain_sbyy = lut_gain_sbyy.reshape(len_hd, len_y)
-        lut_gain_hbyy = lut_gain_hbyy.reshape(len_hd, len_y)
-        lut_gain_ybys = lut_gain_ybys.reshape(len_hd, len_s)
-        lut_gain_sbys = lut_gain_sbys.reshape(len_hd, len_s)
-        lut_gain_hbys = lut_gain_hbys.reshape(len_hd, len_s)
+        lut_gain_ybyy = lut_gain_ybyy.reshape(len_y, len_hd)
+        lut_gain_sbyy = lut_gain_sbyy.reshape(len_y, len_hd)
+        lut_gain_hbyy = lut_gain_hbyy.reshape(len_y, len_hd)
+        lut_gain_ybys = lut_gain_ybys.reshape(len_s, len_hd)
+        lut_gain_sbys = lut_gain_sbys.reshape(len_s, len_hd)
+        lut_gain_hbys = lut_gain_hbys.reshape(len_s, len_hd)
 
         ## resample the loaded LUTs to the default length (if they differ)
         target_h = self._default_len_h
@@ -936,16 +944,16 @@ class AcmImplBase:
             lut_delta_sbyh = linear_resize_array_1d(lut_delta_sbyh, target_h)
             lut_delta_hbyh = linear_resize_array_1d(lut_delta_hbyh, target_h)
 
-        if lut_gain_ybyy.shape != (target_hd, target_y):
-            print(f"[ACM] resample loaded gain_ybyy: {lut_gain_ybyy.shape} => ({target_hd}, {target_y}) (bilinear)")
-            lut_gain_ybyy = linear_resize_array_2d(lut_gain_ybyy, target_hd, target_y)
-            lut_gain_sbyy = linear_resize_array_2d(lut_gain_sbyy, target_hd, target_y)
-            lut_gain_hbyy = linear_resize_array_2d(lut_gain_hbyy, target_hd, target_y)
-        if lut_gain_ybys.shape != (target_hd, target_s):
-            print(f"[ACM] resample loaded gain_ybys: {lut_gain_ybys.shape} => ({target_hd}, {target_s}) (bilinear)")
-            lut_gain_ybys = linear_resize_array_2d(lut_gain_ybys, target_hd, target_s)
-            lut_gain_sbys = linear_resize_array_2d(lut_gain_sbys, target_hd, target_s)
-            lut_gain_hbys = linear_resize_array_2d(lut_gain_hbys, target_hd, target_s)
+        if lut_gain_ybyy.shape != (target_y, target_hd):
+            print(f"[ACM] resample loaded gain_ybyy: {lut_gain_ybyy.shape} => ({target_y}, {target_hd}) (bilinear)")
+            lut_gain_ybyy = linear_resize_array_2d(lut_gain_ybyy, target_y, target_hd)
+            lut_gain_sbyy = linear_resize_array_2d(lut_gain_sbyy, target_y, target_hd)
+            lut_gain_hbyy = linear_resize_array_2d(lut_gain_hbyy, target_y, target_hd)
+        if lut_gain_ybys.shape != (target_s, target_hd):
+            print(f"[ACM] resample loaded gain_ybys: {lut_gain_ybys.shape} => ({target_s}, {target_hd}) (bilinear)")
+            lut_gain_ybys = linear_resize_array_2d(lut_gain_ybys, target_s, target_hd)
+            lut_gain_sbys = linear_resize_array_2d(lut_gain_sbys, target_s, target_hd)
+            lut_gain_hbys = linear_resize_array_2d(lut_gain_hbys, target_s, target_hd)
 
         ## write into default set, then propagate to current set (uses bicubic)
         self._default_lut_delta_ybyh = np.clip(lut_delta_ybyh, ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX).astype(np.int16)
@@ -967,12 +975,12 @@ class AcmImplBase:
         data = {
             "version": (f"acm_impl_var_lut_rand_seed_{self.rand_seed}" if self.rand_seed > 0 else "acm_impl_var_lut"),
             "acmEnable": 1,
-            "isLut4Rgb": 1 if self.is_lut4rgb else 0,
+            "isLut4Rgb": int(self.is_lut4rgb),
             "lutLengthY": self._default_len_y,
             "lutLengthS": self._default_len_s,
             "lutLengthH": self._default_len_h,
             "lutLengthHD": self._default_len_hd,
-            "lut2dAxis4HD": (0 if self._default_lut_gain_ybyy.shape[0] == self._default_len_hd else 1),
+            "lut2dAxis4HD": 1,
             "wrOffset": self.offset_wr,
             "wgOffset": self.offset_wg,
             "wbOffset": self.offset_wb,
@@ -986,8 +994,8 @@ class AcmImplBase:
             "acmTableGainHbyY": utl.NoIndent(self._default_lut_gain_hbyy.flatten().tolist()),
             "acmTableGainSbyY": utl.NoIndent(self._default_lut_gain_sbyy.flatten().tolist()),
             "acmTableGainYbyS": utl.NoIndent(self._default_lut_gain_ybys.flatten().tolist()),
-            "acmTableGainHbyS": utl.NoIndent(self._default_lut_gain_sbys.flatten().tolist()),
-            "acmTableGainSbyS": utl.NoIndent(self._default_lut_gain_hbys.flatten().tolist()),
+            "acmTableGainHbyS": utl.NoIndent(self._default_lut_gain_hbys.flatten().tolist()),
+            "acmTableGainSbyS": utl.NoIndent(self._default_lut_gain_sbys.flatten().tolist()),
         }
 
         nest_data = {"pq_tuning_param": {"acm": data}}
@@ -1031,12 +1039,12 @@ class AcmImplBase:
 
         # ---- Rows 1-2: Gain heatmaps ----
         gain_specs = [
-            (1, 0, self.lut_gain_ybyy, "Gain Y by Y", f"{nhd}×{ny}"),
-            (1, 1, self.lut_gain_sbyy, "Gain S by Y", f"{nhd}×{ny}"),
-            (1, 2, self.lut_gain_hbyy, "Gain H by Y", f"{nhd}×{ny}"),
-            (2, 0, self.lut_gain_ybys, "Gain Y by S", f"{nhd}×{ns}"),
-            (2, 1, self.lut_gain_sbys, "Gain S by S", f"{nhd}×{ns}"),
-            (2, 2, self.lut_gain_hbys, "Gain H by S", f"{nhd}×{ns}"),
+            (1, 0, self.lut_gain_ybyy, "Gain Y by Y", f"{nhd}x{ny}"),
+            (1, 1, self.lut_gain_sbyy, "Gain S by Y", f"{nhd}x{ny}"),
+            (1, 2, self.lut_gain_hbyy, "Gain H by Y", f"{nhd}x{ny}"),
+            (2, 0, self.lut_gain_ybys, "Gain Y by S", f"{nhd}x{ns}"),
+            (2, 1, self.lut_gain_sbys, "Gain S by S", f"{nhd}x{ns}"),
+            (2, 2, self.lut_gain_hbys, "Gain H by S", f"{nhd}x{ns}"),
         ]
         for row, col, data, title, shape_str in gain_specs:
             ax = fig.add_subplot(gs[row, col])
@@ -1048,8 +1056,10 @@ class AcmImplBase:
                 data, cmap="RdBu_r", vmin=-128, vmax=127, aspect="auto", origin="lower", interpolation=interpolation
             )
             ax.set_title(f"{title}  [{shape_str}]")
-            ax.set_xlabel("Y/S index")
-            ax.set_ylabel("H index")
+            ax.set_xlabel("H index")
+            ax.set_ylabel("Y/S index")
+            ax.set_xticks(np.arange(0, w, 2, dtype=int))
+            ax.set_yticks(np.arange(0, h, 2, dtype=int))
             plt.colorbar(im, ax=ax, shrink=0.82)
 
         fig.suptitle(f"ACM LUT Overview", fontsize=14, fontweight="bold")
@@ -1071,12 +1081,12 @@ class AcmImplBase:
             return False
 
         np.random.seed(random_seed)
-        tmp_lut_gain_ybyy = np.random.normal(0.0, 64.0, size=(self._default_len_hd, self._default_len_y)) * 16
-        tmp_lut_gain_sbyy = np.random.normal(0.0, 64.0, size=(self._default_len_hd, self._default_len_y)) * 16
-        tmp_lut_gain_hbyy = np.random.normal(0.0, 64.0, size=(self._default_len_hd, self._default_len_y)) * 16
-        tmp_lut_gain_ybys = np.random.normal(0.0, 64.0, size=(self._default_len_hd, self._default_len_s)) * 16
-        tmp_lut_gain_sbys = np.random.normal(0.0, 64.0, size=(self._default_len_hd, self._default_len_s)) * 16
-        tmp_lut_gain_hbys = np.random.normal(0.0, 64.0, size=(self._default_len_hd, self._default_len_s)) * 16
+        tmp_lut_gain_ybyy = np.random.normal(0.0, 64.0, size=(self._default_len_y, self._default_len_hd)) * 16
+        tmp_lut_gain_sbyy = np.random.normal(0.0, 64.0, size=(self._default_len_y, self._default_len_hd)) * 16
+        tmp_lut_gain_hbyy = np.random.normal(0.0, 64.0, size=(self._default_len_y, self._default_len_hd)) * 16
+        tmp_lut_gain_ybys = np.random.normal(0.0, 64.0, size=(self._default_len_s, self._default_len_hd)) * 16
+        tmp_lut_gain_sbys = np.random.normal(0.0, 64.0, size=(self._default_len_s, self._default_len_hd)) * 16
+        tmp_lut_gain_hbys = np.random.normal(0.0, 64.0, size=(self._default_len_s, self._default_len_hd)) * 16
         tmp_lut_gain_ybyy = cv2.GaussianBlur(tmp_lut_gain_ybyy, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
         tmp_lut_gain_sbyy = cv2.GaussianBlur(tmp_lut_gain_sbyy, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)
         tmp_lut_gain_hbyy = cv2.GaussianBlur(tmp_lut_gain_hbyy, ksize=(0, 0), sigmaX=3.0, sigmaY=3.0)

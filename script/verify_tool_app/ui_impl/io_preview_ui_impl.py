@@ -8,7 +8,14 @@ import os
 import numpy as np
 from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QDockWidget, QGraphicsScene, QMainWindow, QMessageBox, QWidget
+from PySide6.QtWidgets import (
+    QDockWidget,
+    QGraphicsScene,
+    QMainWindow,
+    QMessageBox,
+    QSizePolicy,
+    QWidget,
+)
 
 from script.img_io import ImageFrame, yuv_to_rgb
 
@@ -26,6 +33,16 @@ class PreviewUiWidget(QWidget):
         super().__init__(parent)
         self.ui = Ui_PreviewUiWidget()
         self.ui.setupUi(self)
+        self.ui.verticalLayout.setStretch(0, 0)
+        self.ui.verticalLayout.setStretch(1, 0)
+        self.ui.verticalLayout.setStretch(2, 0)
+        self.ui.verticalLayout.setStretch(3, 1)
+        self.ui.gridLayout_info.setColumnStretch(0, 0)
+        self.ui.gridLayout_info.setColumnStretch(1, 2)
+        self.ui.gridLayout_info.setColumnStretch(2, 0)
+        self.ui.gridLayout_info.setColumnStretch(3, 2)
+        self.ui.gridLayout_info.setColumnStretch(4, 0)
+        self.ui.gridLayout_info.setColumnStretch(5, 2)
 
 
 class PreviewUiController(QObject):
@@ -68,6 +85,7 @@ class PreviewUiController(QObject):
         self.scene_right = QGraphicsScene(self)
         self.ui.graphicsView_left.setScene(self.scene_left)
         self.ui.graphicsView_right.setScene(self.scene_right)
+        self._relax_minimum_sizes()
 
         self.preview_dock = None
         if self._win is not None:
@@ -80,11 +98,41 @@ class PreviewUiController(QObject):
                 | QDockWidget.DockWidgetClosable
             )
             self.preview_dock.setWidget(self.widget)
+            self.preview_dock.setMinimumSize(360, 320)
             self._win.addDockWidget(Qt.BottomDockWidgetArea, self.preview_dock)
+            self._win.resizeDocks([self.preview_dock], [400], Qt.Vertical)
 
         self._connect_signals()
         self._on_preview_scale_changed(self.ui.slider_preview_scale.value())
         self._sync_preview_layout()
+
+    def _relax_minimum_sizes(self) -> None:
+        """Prefer resizing the preview canvases while keeping the info rows stable."""
+        self.widget.setMinimumSize(0, 0)
+        self.widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+
+        for widget in (
+            self.ui.graphicsView_left,
+            self.ui.graphicsView_right,
+            self.ui.groupBox_left_preview,
+            self.ui.groupBox_right_preview,
+        ):
+            widget.setMinimumSize(0, 0)
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        for widget in (
+            self.ui.lineEdit_display_size,
+            self.ui.lineEdit_position,
+            self.ui.lineEdit_time_cost,
+            self.ui.lineEdit_input_pixel,
+            self.ui.lineEdit_output_pixel,
+            self.ui.comboBox_preview_type,
+            self.ui.slider_preview_scale,
+            self.ui.pushButton_save_left,
+            self.ui.pushButton_save_right,
+            self.ui.checkBox_show_input,
+        ):
+            widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
     # ------------------------------------------------------------------ #
     # Public interface                                                   #
