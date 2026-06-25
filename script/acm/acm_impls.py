@@ -114,16 +114,16 @@ class AcmImplHwRk(AcmImplBase):
             self.lut_delta_hbyh.astype(np.int32),
             self.lut_delta_sbyh.astype(np.int32),
         )
-        # 将gain表转置，保持和硬件实现一致
+        # Keep gain LUTs in the unified (Y/S, HD) layout used by the sampler.
         gain_lut_hy = (
-            self.lut_gain_ybyy.astype(np.int32).T,
-            self.lut_gain_hbyy.astype(np.int32).T,
-            self.lut_gain_sbyy.astype(np.int32).T,
+            self.lut_gain_ybyy.astype(np.int32),
+            self.lut_gain_hbyy.astype(np.int32),
+            self.lut_gain_sbyy.astype(np.int32),
         )
         gain_lut_hs = (
-            self.lut_gain_ybys.astype(np.int32).T,
-            self.lut_gain_hbys.astype(np.int32).T,
-            self.lut_gain_sbys.astype(np.int32).T,
+            self.lut_gain_ybys.astype(np.int32),
+            self.lut_gain_hbys.astype(np.int32),
+            self.lut_gain_sbys.astype(np.int32),
         )
 
         # ---- 1. Extract planar channels ----
@@ -220,39 +220,47 @@ class AcmImplHwRk(AcmImplBase):
         ds = np.clip(ds, -1023, 1023)
 
         # ---- 10. 2D gain lookups ----
-        wy_hy = _sample_4pt(
-            gain_lut_hy[0], idxHD0, idxHD1, idxY0, idxY1, wgtYH00, wgtYH01, wgtYH10, wgtYH11, wgtFixBitYH
-        )
-        wh_hy = _sample_4pt(
-            gain_lut_hy[1], idxHD0, idxHD1, idxY0, idxY1, wgtYH00, wgtYH01, wgtYH10, wgtYH11, wgtFixBitYH
-        )
-        ws_hy = _sample_4pt(
-            gain_lut_hy[2], idxHD0, idxHD1, idxY0, idxY1, wgtYH00, wgtYH01, wgtYH10, wgtYH11, wgtFixBitYH
-        )
-        wy_hs = _sample_4pt(
-            gain_lut_hs[0], idxHD0, idxHD1, idxS0, idxS1, wgtSH00, wgtSH01, wgtSH10, wgtSH11, wgtFixBitSH
-        )
-        wh_hs = _sample_4pt(
-            gain_lut_hs[1], idxHD0, idxHD1, idxS0, idxS1, wgtSH00, wgtSH01, wgtSH10, wgtSH11, wgtFixBitSH
-        )
-        ws_hs = _sample_4pt(
-            gain_lut_hs[2], idxHD0, idxHD1, idxS0, idxS1, wgtSH00, wgtSH01, wgtSH10, wgtSH11, wgtFixBitSH
-        )
+        if self.ignore_gain_luts:
+            wy_hy = np.full_like(dy, 128 << ACM_FIX_BIT_WEIGHT_KEEP, dtype=np.int32)
+            wh_hy = np.full_like(dh, 128 << ACM_FIX_BIT_WEIGHT_KEEP, dtype=np.int32)
+            ws_hy = np.full_like(ds, 128 << ACM_FIX_BIT_WEIGHT_KEEP, dtype=np.int32)
+            wy_hs = np.full_like(dy, 128 << ACM_FIX_BIT_WEIGHT_KEEP, dtype=np.int32)
+            wh_hs = np.full_like(dh, 128 << ACM_FIX_BIT_WEIGHT_KEEP, dtype=np.int32)
+            ws_hs = np.full_like(ds, 128 << ACM_FIX_BIT_WEIGHT_KEEP, dtype=np.int32)
+        else:
+            wy_hy = _sample_4pt(
+                gain_lut_hy[0], idxHD0, idxHD1, idxY0, idxY1, wgtYH00, wgtYH01, wgtYH10, wgtYH11, wgtFixBitYH
+            )
+            wh_hy = _sample_4pt(
+                gain_lut_hy[1], idxHD0, idxHD1, idxY0, idxY1, wgtYH00, wgtYH01, wgtYH10, wgtYH11, wgtFixBitYH
+            )
+            ws_hy = _sample_4pt(
+                gain_lut_hy[2], idxHD0, idxHD1, idxY0, idxY1, wgtYH00, wgtYH01, wgtYH10, wgtYH11, wgtFixBitYH
+            )
+            wy_hs = _sample_4pt(
+                gain_lut_hs[0], idxHD0, idxHD1, idxS0, idxS1, wgtSH00, wgtSH01, wgtSH10, wgtSH11, wgtFixBitSH
+            )
+            wh_hs = _sample_4pt(
+                gain_lut_hs[1], idxHD0, idxHD1, idxS0, idxS1, wgtSH00, wgtSH01, wgtSH10, wgtSH11, wgtFixBitSH
+            )
+            ws_hs = _sample_4pt(
+                gain_lut_hs[2], idxHD0, idxHD1, idxS0, idxS1, wgtSH00, wgtSH01, wgtSH10, wgtSH11, wgtFixBitSH
+            )
 
         # ---- 11. Dual-gain delta chain ----
-        Ydel0 = dy * wy_hy
+        Ydel0 = dy * wy_hy # S9*S8.2
         Hdel0 = dh * wh_hy
         Sdel0 = ds * ws_hy
-        Ydel1 = SHIFT_ROUND_S32(Ydel0, 9)
+        Ydel1 = SHIFT_ROUND_S32(Ydel0, 9) # S8.2
         Hdel1 = SHIFT_ROUND_S32(Hdel0, 9)
         Sdel1 = SHIFT_ROUND_S32(Sdel0, 9)
 
-        Ydel2 = Ydel1 * wy_hs
+        Ydel2 = Ydel1 * wy_hs #S8.2*S8.2
         Hdel2 = Hdel1 * wh_hs
         Sdel2 = Sdel1 * ws_hs
-        Ydel3 = SHIFT_ROUND_S32(Ydel2, 11)
+        Ydel3 = SHIFT_ROUND_S32(Ydel2, 11) # S9
         Hdel3 = SHIFT_ROUND_S32(Hdel2, 3)
-        Sdel3 = SHIFT_ROUND_S32(Sdel2, 11 - RKVOP_PQ_ACM_CORDIC_S_BITS)
+        Sdel3 = SHIFT_ROUND_S32(Sdel2, 11 - RKVOP_PQ_ACM_CORDIC_S_BITS) # S9.3
 
         # ---- 12. Zero delta when S == 0 ----
         Ydel = Ydel3
@@ -424,12 +432,20 @@ class AcmImplSwVariant(AcmImplBase):
         )  # [-64, 64]
 
         # ---- 5. Sample gain tables (2D, indexed by (Y/S, HD)) ----
-        gain_yy = cv2.remap(lut_gy_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_ys = cv2.remap(lut_gs_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_hy = cv2.remap(lut_gh_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_sy = cv2.remap(lut_gy_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_ss = cv2.remap(lut_gs_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_hs = cv2.remap(lut_gh_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        if self.ignore_gain_luts:
+            gain_yy = np.ones_like(delta_y, dtype=np.float32)
+            gain_ys = np.ones_like(delta_s, dtype=np.float32)
+            gain_hy = np.ones_like(delta_h, dtype=np.float32)
+            gain_sy = np.ones_like(delta_y, dtype=np.float32)
+            gain_ss = np.ones_like(delta_s, dtype=np.float32)
+            gain_hs = np.ones_like(delta_h, dtype=np.float32)
+        else:
+            gain_yy = cv2.remap(lut_gy_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_ys = cv2.remap(lut_gs_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_hy = cv2.remap(lut_gh_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_sy = cv2.remap(lut_gy_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_ss = cv2.remap(lut_gs_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_hs = cv2.remap(lut_gh_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
         # ---- 6. Combine deltas (apply global gains HERE instead of upfront) ----
         g_y = self.gain_y / 256.0

@@ -91,7 +91,7 @@
        <item>
         <widget class="QLineEdit" name="lineEdit_config_file">
          <property name="text">
-          <string>G:/Codes/gerrit_projects/hwpq_verify/data/vdpp_vop_config_3576.json</string>
+          <string>G:/Codes/gerrit_projects/hwpq_verify/data/tmp_acm_config.json</string>
          </property>
         </widget>
        </item>

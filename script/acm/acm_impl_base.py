@@ -293,6 +293,7 @@ class AcmImplBase:
         self.use_cordic = use_cordic
         self.is_lut4rgb = is_lut4rgb
         self.clip_type = clip_type
+        self.ignore_gain_luts = False
 
         # --- gains ---
         self.gain_y = 256  # [0, (256), 1023], 8bit fixed
@@ -609,12 +610,20 @@ class AcmImplBase:
         )  # [-64, 64]
 
         # ---- 5. Sample gain tables (2D, indexed by (Y/S, HD)) ----
-        gain_yy = cv2.remap(lut_gy_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_sy = cv2.remap(lut_gs_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_hy = cv2.remap(lut_gh_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_ys = cv2.remap(lut_gy_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_ss = cv2.remap(lut_gs_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_hs = cv2.remap(lut_gh_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        if self.ignore_gain_luts:
+            gain_yy = np.ones_like(delta_y, dtype=np.float32)
+            gain_sy = np.ones_like(delta_s, dtype=np.float32)
+            gain_hy = np.ones_like(delta_h, dtype=np.float32)
+            gain_ys = np.ones_like(delta_y, dtype=np.float32)
+            gain_ss = np.ones_like(delta_s, dtype=np.float32)
+            gain_hs = np.ones_like(delta_h, dtype=np.float32)
+        else:
+            gain_yy = cv2.remap(lut_gy_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_sy = cv2.remap(lut_gs_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_hy = cv2.remap(lut_gh_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_ys = cv2.remap(lut_gy_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_ss = cv2.remap(lut_gs_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_hs = cv2.remap(lut_gh_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
         # ---- 6. Combine deltas (all in normalised float) ----
         delta_y = delta_y * gain_yy * gain_ys # [-dr_y, dr_y]
@@ -736,12 +745,20 @@ class AcmImplBase:
         delta_h = cv2.remap(lut_dh, idx_hp, idx_zeros, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
         # ---- 7. Sample gain tables (2D LUTs indexed by (V,H) and (S,H)) ----
-        gain_yy = cv2.remap(lut_g_yy, idx_hp, idx_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_ys = cv2.remap(lut_g_ys, idx_hp, idx_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_yh = cv2.remap(lut_g_yh, idx_hp, idx_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_sy = cv2.remap(lut_g_sy, idx_hp, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_ss = cv2.remap(lut_g_ss, idx_hp, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-        gain_sh = cv2.remap(lut_g_sh, idx_hp, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        if self.ignore_gain_luts:
+            gain_yy = np.ones_like(delta_y, dtype=np.float32)
+            gain_ys = np.ones_like(delta_s, dtype=np.float32)
+            gain_yh = np.ones_like(delta_h, dtype=np.float32)
+            gain_sy = np.ones_like(delta_y, dtype=np.float32)
+            gain_ss = np.ones_like(delta_s, dtype=np.float32)
+            gain_sh = np.ones_like(delta_h, dtype=np.float32)
+        else:
+            gain_yy = cv2.remap(lut_g_yy, idx_hp, idx_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_ys = cv2.remap(lut_g_ys, idx_hp, idx_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_yh = cv2.remap(lut_g_yh, idx_hp, idx_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_sy = cv2.remap(lut_g_sy, idx_hp, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_ss = cv2.remap(lut_g_ss, idx_hp, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_sh = cv2.remap(lut_g_sh, idx_hp, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
         # ---- 8. Combine deltas ----
         delta_y = delta_y * gain_yy * gain_sy

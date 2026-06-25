@@ -538,6 +538,13 @@
          </spacer>
         </item>
         <item>
+         <widget class="QCheckBox" name="checkBox_ignore_gain_luts">
+          <property name="text">
+           <string>Force Ignore Gain LUTs</string>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QPushButton" name="button_reset_curr">
           <property name="text">
            <string>Reset Curr Tab</string>

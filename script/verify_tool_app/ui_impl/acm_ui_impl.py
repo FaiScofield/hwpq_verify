@@ -199,8 +199,8 @@ class SingleCurveChartWidget(QWidget):
         n = len(self.values)
         chart_rect = QRect(self.padding, self.padding, int(chart_width), int(chart_height))
 
-        painter.fillRect(self.rect(), QColor(30, 30, 30))
-        painter.fillRect(chart_rect, QColor(255, 255, 255))
+        painter.fillRect(self.rect(), QColor(255, 255, 255))
+        # painter.fillRect(chart_rect, QColor(255, 255, 255))
 
         # Background image (scaled to chart area, placed behind grid)
         if self._bg_pixmap is not None:
@@ -503,6 +503,8 @@ class AcmUiController:
         ui.groupBox_lut_lengths.toggled.connect(self._on_lut_lengths_group_toggled)
         if hasattr(ui, "checkBox_enable_acm"):
             ui.checkBox_enable_acm.toggled.connect(self._schedule_auto_run)
+        if hasattr(ui, "checkBox_ignore_gain_luts"):
+            ui.checkBox_ignore_gain_luts.toggled.connect(self._on_ignore_gain_luts_toggled)
         ui.checkBox_lut_visualization.toggled.connect(self._on_lut_visualization_toggled)
         ui.spinBox_len_h.valueChanged.connect(self._on_len_h_changed)
         ui.spinBox_len_y.valueChanged.connect(self._on_lut_lengths_changed)
@@ -1270,6 +1272,11 @@ class AcmUiController:
         self._get_current_acm().offset_wg = self.ui.spinBox_offset_wg.value()
         self._get_current_acm().offset_wb = self.ui.spinBox_offset_wb.value()
 
+    def _update_ignore_gain_luts(self) -> None:
+        """Write the current ignore-gain-LUTs checkbox state to the active ACM instance."""
+        if hasattr(self.ui, "checkBox_ignore_gain_luts"):
+            self._get_current_acm().ignore_gain_luts = bool(self.ui.checkBox_ignore_gain_luts.isChecked())
+
     def _apply_delta_range_to_acm(self) -> None:
         """Write the current max delta controls back to the active ACM instance."""
         dy = self.ui.spinBox_max_delta_y.value()
@@ -1320,6 +1327,7 @@ class AcmUiController:
         input_depth = input_frame.depth
         self._update_acm_gains()
         self._update_acm_offsets()
+        self._update_ignore_gain_luts()
         self._apply_delta_range_to_acm()
         self._apply_full_delta_to_acm()
         acm = self._get_current_acm()
@@ -1445,6 +1453,7 @@ class AcmUiController:
         new_acm.offset_wr = old_acm.offset_wr
         new_acm.offset_wg = old_acm.offset_wg
         new_acm.offset_wb = old_acm.offset_wb
+        new_acm.ignore_gain_luts = old_acm.ignore_gain_luts
         new_acm.delta_range = old_acm.delta_range
         new_acm.clip_type = old_acm.clip_type if old_acm.clip_type in self._SUPPORTED_CLIP_TYPES else "easy_clip"
 
@@ -1493,6 +1502,11 @@ class AcmUiController:
         self._update_lut_visualization()
         self._schedule_auto_run()
 
+    def _on_ignore_gain_luts_toggled(self, checked: bool) -> None:
+        """Toggle whether the active ACM instance ignores the six 2D gain LUTs."""
+        self._get_current_acm().ignore_gain_luts = bool(checked)
+        self._schedule_auto_run()
+
     # ------------------------------------------------------------------ #
     # Config persistence                                                 #
     # ------------------------------------------------------------------ #
@@ -1522,6 +1536,10 @@ class AcmUiController:
         self._set_slider_spin_value(self.ui.slider_gain_y, self.ui.spinBox_gain_y, acm.gain_y)
         self._set_slider_spin_value(self.ui.slider_gain_s, self.ui.spinBox_gain_s, acm.gain_s)
         self._set_slider_spin_value(self.ui.slider_gain_h, self.ui.spinBox_gain_h, acm.gain_h)
+        if hasattr(self.ui, "checkBox_ignore_gain_luts"):
+            self.ui.checkBox_ignore_gain_luts.blockSignals(True)
+            self.ui.checkBox_ignore_gain_luts.setChecked(bool(getattr(acm, "ignore_gain_luts", False)))
+            self.ui.checkBox_ignore_gain_luts.blockSignals(False)
         self._set_slider_spin_value(self.ui.slider_offset_wr, self.ui.spinBox_offset_wr, acm.offset_wr)
         self._set_slider_spin_value(self.ui.slider_offset_wg, self.ui.spinBox_offset_wg, acm.offset_wg)
         self._set_slider_spin_value(self.ui.slider_offset_wb, self.ui.spinBox_offset_wb, acm.offset_wb)
