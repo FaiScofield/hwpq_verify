@@ -114,6 +114,7 @@ class AcmTestAppWindow(QMainWindow):
             config_path_setter=self.io_ctrl.set_config_path,
             dock_host=self,
         )
+        self.preview_ctrl.set_pixel_selection_callback(self._on_preview_pixel_selection_changed)
         self._install_view_menu()
         # Propagate ACM enabled state to preview for BothInLeft mode.
         self.acm_ctrl.ui.checkBox_enable_acm.toggled.connect(self.preview_ctrl.set_acm_enabled)
@@ -173,8 +174,16 @@ class AcmTestAppWindow(QMainWindow):
         self.preview_ctrl.set_input_image(frame)
         self.preview_ctrl.set_output_image(None)
         self.preview_ctrl.set_time_cost_ms(None)
+        self.acm_ctrl.clear_preview_h_marker()
         self.ui.statusbar.showMessage(status_message)
         self.acm_ctrl.request_auto_run()
+
+    def _on_preview_pixel_selection_changed(self, selection: dict | None) -> None:
+        """Bridge preview freeze state into the ACM H-axis marker overlay."""
+        if not selection or not selection.get("frozen", False):
+            self.acm_ctrl.clear_preview_h_marker()
+            return
+        self.acm_ctrl.update_preview_h_marker(selection["x"], selection["y"])
 
     def keyPressEvent(self, event):
         """Delegate preview hotkeys before falling back to the base window handler."""

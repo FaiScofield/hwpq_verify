@@ -25,6 +25,11 @@ except ImportError:
     from ui_gen.acm_ui import Ui_AcmUiWidget
 
 try:
+    from ...script.acm import cordic
+except ImportError:
+    from script.acm import cordic
+
+try:
     from ...script.acm.acm_impl_base import (
         DELTA_Y_MIN, DELTA_Y_MAX,
         DELTA_S_MIN, DELTA_S_MAX,
@@ -119,6 +124,7 @@ class SingleCurveChartWidget(QWidget):
         self.dragging_sample: int | None = None
         self.selected_sample: int | None = None
         self.hover_sample: int | None = None
+        self.reference_h_index: float | None = None
         self._bg_pixmap: QPixmap | None = None
         if bg_image_path and os.path.isfile(bg_image_path):
             self._bg_pixmap = QPixmap(bg_image_path)
@@ -159,6 +165,11 @@ class SingleCurveChartWidget(QWidget):
         self.selected_sample = index
         self.update()
 
+    def set_reference_h_index(self, h_index: float | None) -> None:
+        """Update the optional dashed H-axis reference marker."""
+        self.reference_h_index = h_index
+        self.update()
+
     def _value_to_y(self, value: int | float) -> float:
         """Map a chart value to widget coordinates."""
         value_min, value_max = self.value_range
@@ -186,6 +197,15 @@ class SingleCurveChartWidget(QWidget):
             x_pos = self.padding + chart_width * max(0.0, min(1.0, ratio))
         y_value = self.sample_values[index] if 0 <= index < len(self.sample_values) else 0.0
         return x_pos, self._value_to_y(y_value)
+
+    def _reference_x_position(self) -> float | None:
+        """Map the floating H index to the widget x position."""
+        if self.reference_h_index is None or len(self.values) <= 1:
+            return None
+        chart_width = self.width() - 2 * self.padding
+        ratio = self.reference_h_index / max(1, len(self.values) - 1)
+        ratio = max(0.0, min(1.0, ratio))
+        return self.padding + chart_width * ratio
 
     def paintEvent(self, event: object) -> None:
         """Paint the chart background, integer-indexed points and sample points."""
@@ -221,6 +241,11 @@ class SingleCurveChartWidget(QWidget):
         painter.setPen(QPen(QColor(100, 100, 100), 2, Qt.DashLine))
         mid_y = self._value_to_y(0)
         painter.drawLine(self.padding, int(mid_y), width - self.padding, int(mid_y))
+
+        ref_x = self._reference_x_position()
+        if ref_x is not None:
+            painter.setPen(QPen(QColor(60, 60, 60), 1, Qt.DashLine))
+            painter.drawLine(int(ref_x), self.padding, int(ref_x), height - self.padding)
 
         # Curve connecting integer-indexed points (black solid)
         if n >= 2:
@@ -353,6 +378,14 @@ class AcmUiController:
     """Controls the ACM tab: algorithm selection, delta editing, and LUT visualization."""
 
     _SUPPORTED_CLIP_TYPES: tuple[str, ...] = ("easy_clip", "radial_clip", "luma_clip")
+    _ALGO_KEYS: tuple[str, ...] = ("VOP_VP_ACM", "SW_ACM", "EVIDEO_ACM", "SW_ACM_VARIANT")
+    _ALGO_DISPLAY_TEXTS: tuple[str, ...] = (
+        "HW_ACM(VOP) (9,13,65,17)",
+        "SW_ACM (9,13,65,65)",
+        "EVIDEO_ACM (9,13,65,65)",
+        "SW_ACM_VARIANT (custom)",
+    )
+    _HW_ALGO_KEY = "VOP_VP_ACM"
 
     # ------------------------------------------------------------------ #
     # Initialization                                                     #
@@ -362,7 +395,7 @@ class AcmUiController:
         self,
         acm_widget: AcmUiWidget,
         parent_window: QMainWindow | None = None,
-        input_provider: Callable[[], np.ndarray | None] | None = None,
+        input_provider: Callable[[], ImageFrame | None] | None = None,
         output_callback: Callable[['ImageFrame'], None] | None = None,
         preview_time_callback: Callable[[float], None] | None = None,
         status_callback: Callable[[str], None] | None = None,
@@ -407,6 +440,7 @@ class AcmUiController:
             "SW_ACM_VARIANT": AcmImplSwVariant(),
         }
         self.current_algo = "VOP_VP_ACM"
+        self._apply_algo_display_names()
 
         # --- Delta chart state ---
         self.full_delta_ybyh = None
@@ -459,6 +493,7 @@ class AcmUiController:
             self.ui.radioButton_colorspace_hsv.setToolTip(
                 "HSV ACM path is not implemented yet. Please use YHS."
             )
+        self._sync_clip_type_ui_state()
         self._on_acm_colorspace_changed()
         self._sync_ctrl_point_slider(self._get_current_acm().len_h)
         self._reload_delta_controls_from_acm()
@@ -608,6 +643,75 @@ class AcmUiController:
     def _get_current_acm(self) -> object:
         """Return the current ACM implementation instance."""
         return self.acm_instances[self.current_algo]
+
+    def _apply_algo_display_names(self) -> None:
+        """Refresh the visible algorithm names shown by the combo box."""
+        combo = self.ui.comboBox_algo_type
+        for index, text in enumerate(self._ALGO_DISPLAY_TEXTS):
+            if index < combo.count():
+                combo.setItemText(index, text)
+
+    def _sync_clip_type_ui_state(self) -> None:
+        """Enable clip-type controls only for algorithms that actually consume them."""
+        is_supported = self.current_algo != self._HW_ALGO_KEY
+        tooltip = ""
+        if not is_supported:
+            tooltip = "clip_type is only supported by software ACM paths; HW_ACM(VOP) ignores this setting."
+        self.ui.comboBox_clip_type.setEnabled(is_supported)
+        self.ui.comboBox_clip_type.setToolTip(tooltip)
+        if hasattr(self.ui, "label_clip_type"):
+            self.ui.label_clip_type.setEnabled(is_supported)
+            self.ui.label_clip_type.setToolTip(tooltip)
+
+    def clear_preview_h_marker(self) -> None:
+        """Remove the preview-linked H marker from all delta charts."""
+        for chart in (self.delta_chart_y, self.delta_chart_s, self.delta_chart_h):
+            chart.set_reference_h_index(None)
+
+    def _pixel_to_h_index(self, frame: ImageFrame, x_pos: int, y_pos: int) -> float | None:
+        """Convert one input pixel to the current ACM H-domain index."""
+        if x_pos < 0 or y_pos < 0 or y_pos >= frame.pyr.shape[0] or x_pos >= frame.pyr.shape[1]:
+            return None
+        acm = self._get_current_acm()
+        if frame.is_rgb:
+            r = np.array([[frame.pyr[y_pos, x_pos]]], dtype=frame.pyr.dtype)
+            g = np.array([[frame.pug[y_pos, x_pos]]], dtype=frame.pug.dtype)
+            b = np.array([[frame.pvb[y_pos, x_pos]]], dtype=frame.pvb.dtype)
+            y_arr, u_arr, v_arr = rgb_to_yuv(
+                r,
+                g,
+                b,
+                input_cs=frame.clrspc if frame.clrspc in (0, 1) else 1,
+                output_cs=5,
+            )
+            yuv = np.stack([y_arr, u_arr, v_arr], axis=-1)
+        else:
+            yuv = frame.as_yuv444_stacked()[y_pos:y_pos + 1, x_pos:x_pos + 1, :]
+
+        depth = 10 if yuv.dtype == np.uint16 else 8
+        cbcr_center = 512 if depth == 10 else 128
+        cb = yuv[..., 1].astype(np.int32) - cbcr_center
+        cr = yuv[..., 2].astype(np.int32) - cbcr_center
+        if getattr(acm, "use_cordic", False):
+            h_deg, _, _, _ = cordic.cordic_cbcr2hs(cb, cr, depth, 13, 6, False)
+            h_deg = h_deg.astype(np.float32)
+        else:
+            h_deg = np.rad2deg(np.arctan2(cr, cb)).astype(np.float32)
+        h_f = (h_deg + 180.0) / 360.0
+        return float(h_f[0, 0] * (acm.len_h - 1))
+
+    def update_preview_h_marker(self, x_pos: int, y_pos: int) -> None:
+        """Compute the ACM H-domain position for one input pixel and update all charts."""
+        frame = self._input_provider()
+        if frame is None:
+            self.clear_preview_h_marker()
+            return
+        h_index = self._pixel_to_h_index(frame, x_pos, y_pos)
+        if h_index is None:
+            self.clear_preview_h_marker()
+            return
+        for chart in (self.delta_chart_y, self.delta_chart_s, self.delta_chart_h):
+            chart.set_reference_h_index(h_index)
 
     def _apply_lut_lengths(self) -> None:
         """Apply the current spinBox LUT lengths to the active ACM instance.
@@ -1412,8 +1516,7 @@ class AcmUiController:
         are written into the new instance before switching, so delta charts
         stay unchanged and the new instance picks up the current edits.
         """
-        algo_names = ["VOP_VP_ACM", "SW_ACM", "EVIDEO_ACM", "SW_ACM_VARIANT"]
-        new_algo = algo_names[index]
+        new_algo = self._ALGO_KEYS[index]
         if new_algo == self.current_algo:
             return
 
@@ -1554,6 +1657,7 @@ class AcmUiController:
         idx = self.ui.comboBox_clip_type.findText(ct)
         if idx >= 0:
             self.ui.comboBox_clip_type.setCurrentIndex(idx)
+        self._sync_clip_type_ui_state()
         self._sync_ctrl_point_slider(acm.len_h)
         self._update_lut_visualization()
 

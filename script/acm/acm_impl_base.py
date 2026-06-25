@@ -633,7 +633,8 @@ class AcmImplBase:
         # ---- 7. Apply to normalised values ----
         if self.clip_type == "luma_clip":
             y_new = np.clip(y_f + delta_y, 0.0, 1.0)
-            s_new, s_max_old, s_max_new = self._sat_adjust_triangle(y_f, y_new, s_f)
+            h_deg_new = np.mod(h_deg + delta_h, 360.0)
+            s_new, s_max_old, s_max_new = self._sat_adjust_triangle(y_f, h_deg, s_f, y_new, h_deg_new)
             s_f = np.clip(s_new + delta_s * s_max_new, 0.0, s_max_new)
             y_f = y_new
         else:
@@ -787,7 +788,7 @@ class AcmImplBase:
         rgb_out[:, :, 2] = np.clip(b_out * y_max, 0.0, y_max).astype(planar_data.dtype)
         return rgb_out.transpose(2, 0, 1)  # [C, H, W] planar
 
-    def _sat_adjust_triangle(self, y_f_old: np.ndarray, y_f_new: np.ndarray, s_f_old: np.ndarray) -> tuple:
+    def _sat_adjust_triangle(self, y_f_old: np.ndarray, h_deg_old: np.ndarray, s_f_old: np.ndarray, y_f_new: np.ndarray, h_deg_new: np.ndarray) -> tuple:
         """
         Apply triangle saturation adjustment to s_f.
         """
@@ -823,7 +824,14 @@ class AcmImplBase:
         s_max_old = np.interp(y_f_old, y_range, max_s_lut_by_y, 0, 240)
         s_max_new = np.interp(y_f_new, y_range, max_s_lut_by_y, 0, 240)
         s_f_old = np.minimum(s_f_old, s_max_old)
-        s_f_new = s_f_old * s_max_new / s_max_old
+        with np.errstate(divide='ignore', invalid='ignore'):
+            scale = np.divide(
+                s_max_new,
+                s_max_old,
+                out=np.zeros_like(s_max_new, dtype=np.float32),
+                where=s_max_old > 0,
+            )
+        s_f_new = s_f_old * scale
         return s_f_new, s_max_old, s_max_new
 
     # ------------------------------------------------------------------
