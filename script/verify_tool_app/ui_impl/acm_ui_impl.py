@@ -125,6 +125,9 @@ class SingleCurveChartWidget(QWidget):
         self.selected_sample: int | None = None
         self.hover_sample: int | None = None
         self.reference_h_index: float | None = None
+        self.reference_h_index_out: float | None = None
+        self.input_value: float | None = None
+        self.output_value: float | None = None
         self._bg_pixmap: QPixmap | None = None
         if bg_image_path and os.path.isfile(bg_image_path):
             self._bg_pixmap = QPixmap(bg_image_path)
@@ -166,8 +169,28 @@ class SingleCurveChartWidget(QWidget):
         self.update()
 
     def set_reference_h_index(self, h_index: float | None) -> None:
-        """Update the optional dashed H-axis reference marker."""
-        self.reference_h_index = h_index
+        """Update the input H-axis reference marker (backward compat)."""
+        self.set_h_markers(h_index, None, None, None)
+
+    def set_h_markers(
+        self,
+        h_index_in: float | None,
+        h_index_out: float | None,
+        input_value: float | None,
+        output_value: float | None,
+    ) -> None:
+        """Set H-axis reference markers and input/output value markers.
+
+        Args:
+            h_index_in:  input H index  → black dashed line + black × marker.
+            h_index_out: output H index → white dashed line + white × marker.
+            input_value:  chart-space Y value for the input marker (black ×).
+            output_value: chart-space Y value for the output marker (white ×).
+        """
+        self.reference_h_index = h_index_in
+        self.reference_h_index_out = h_index_out
+        self.input_value = input_value
+        self.output_value = output_value
         self.update()
 
     def _value_to_y(self, value: int | float) -> float:
@@ -199,11 +222,20 @@ class SingleCurveChartWidget(QWidget):
         return x_pos, self._value_to_y(y_value)
 
     def _reference_x_position(self) -> float | None:
-        """Map the floating H index to the widget x position."""
+        """Map the input H index to the widget x position."""
         if self.reference_h_index is None or len(self.values) <= 1:
             return None
         chart_width = self.width() - 2 * self.padding
         ratio = self.reference_h_index / max(1, len(self.values) - 1)
+        ratio = max(0.0, min(1.0, ratio))
+        return self.padding + chart_width * ratio
+
+    def _reference_x_position_out(self) -> float | None:
+        """Map the output H index to the widget x position."""
+        if self.reference_h_index_out is None or len(self.values) <= 1:
+            return None
+        chart_width = self.width() - 2 * self.padding
+        ratio = self.reference_h_index_out / max(1, len(self.values) - 1)
         ratio = max(0.0, min(1.0, ratio))
         return self.padding + chart_width * ratio
 
@@ -242,10 +274,34 @@ class SingleCurveChartWidget(QWidget):
         mid_y = self._value_to_y(0)
         painter.drawLine(self.padding, int(mid_y), width - self.padding, int(mid_y))
 
+        # H_in reference line (dark dashed)
         ref_x = self._reference_x_position()
         if ref_x is not None:
             painter.setPen(QPen(QColor(60, 60, 60), 1, Qt.DashLine))
             painter.drawLine(int(ref_x), self.padding, int(ref_x), height - self.padding)
+
+        # H_out reference line (white dashed)
+        ref_x_out = self._reference_x_position_out()
+        if ref_x_out is not None:
+            painter.setPen(QPen(QColor(200, 200, 200), 1, Qt.DashLine))
+            painter.drawLine(int(ref_x_out), self.padding, int(ref_x_out), height - self.padding)
+
+        # Input / output value markers (×)
+        marker_size = 4
+        if ref_x is not None and self.input_value is not None:
+            y_marker = self._value_to_y(self.input_value)
+            painter.setPen(QPen(QColor(0, 0, 0), 2))  # black
+            painter.drawLine(int(ref_x) - marker_size, int(y_marker) - marker_size,
+                             int(ref_x) + marker_size, int(y_marker) + marker_size)
+            painter.drawLine(int(ref_x) + marker_size, int(y_marker) - marker_size,
+                             int(ref_x) - marker_size, int(y_marker) + marker_size)
+        if ref_x_out is not None and self.output_value is not None:
+            y_marker = self._value_to_y(self.output_value)
+            painter.setPen(QPen(QColor(255, 255, 255), 2))  # white
+            painter.drawLine(int(ref_x_out) - marker_size, int(y_marker) - marker_size,
+                             int(ref_x_out) + marker_size, int(y_marker) + marker_size)
+            painter.drawLine(int(ref_x_out) + marker_size, int(y_marker) - marker_size,
+                             int(ref_x_out) - marker_size, int(y_marker) + marker_size)
 
         # Curve connecting integer-indexed points (black solid)
         if n >= 2:
@@ -427,6 +483,9 @@ class AcmUiController:
         self._config_path_getter = config_path_getter or (lambda: "")
         self._config_path_setter = config_path_setter or (lambda path: None)
         self._last_input_key: tuple | None = None
+        self._latest_output_frame: ImageFrame | None = None
+        self._frozen_pixel_x: int | None = None
+        self._frozen_pixel_y: int | None = None
         self._colorspace_user_override = False
         self._suppress_colorspace_signal = False
 
@@ -664,54 +723,131 @@ class AcmUiController:
             self.ui.label_clip_type.setToolTip(tooltip)
 
     def clear_preview_h_marker(self) -> None:
-        """Remove the preview-linked H marker from all delta charts."""
+        """Remove all preview-linked H markers and value markers from all delta charts."""
+        self._frozen_pixel_x = None
+        self._frozen_pixel_y = None
         for chart in (self.delta_chart_y, self.delta_chart_s, self.delta_chart_h):
-            chart.set_reference_h_index(None)
+            chart.set_h_markers(None, None, None, None)
 
-    def _pixel_to_h_index(self, frame: ImageFrame, x_pos: int, y_pos: int) -> float | None:
-        """Convert one input pixel to the current ACM H-domain index."""
+    def _get_pixel_yhs(
+        self, frame: ImageFrame, x_pos: int, y_pos: int
+    ) -> tuple[float, float, float] | None:
+        """Extract (Y_val, S_val, H_deg) from a single pixel in a frame.
+
+        Y_val  in [0, 255] or [0, 1023] depending on depth.
+        S_val  in [0, s_max_raw] (raw saturation, not normalised).
+        H_deg  in [-180, 180].
+        """
         if x_pos < 0 or y_pos < 0 or y_pos >= frame.pyr.shape[0] or x_pos >= frame.pyr.shape[1]:
             return None
-        acm = self._get_current_acm()
         if frame.is_rgb:
-            r = np.array([[frame.pyr[y_pos, x_pos]]], dtype=frame.pyr.dtype)
-            g = np.array([[frame.pug[y_pos, x_pos]]], dtype=frame.pug.dtype)
-            b = np.array([[frame.pvb[y_pos, x_pos]]], dtype=frame.pvb.dtype)
+            r = frame.pyr[y_pos:y_pos + 1, x_pos:x_pos + 1]
+            g = frame.pug[y_pos:y_pos + 1, x_pos:x_pos + 1]
+            b = frame.pvb[y_pos:y_pos + 1, x_pos:x_pos + 1]
             y_arr, u_arr, v_arr = rgb_to_yuv(
-                r,
-                g,
-                b,
+                r, g, b,
                 input_cs=frame.clrspc if frame.clrspc in (0, 1) else 1,
                 output_cs=5,
             )
-            yuv = np.stack([y_arr, u_arr, v_arr], axis=-1)
+            yuv_dtype = y_arr.dtype
+            y_val = float(y_arr[0, 0])
+            cb = int(u_arr[0, 0])
+            cr = int(v_arr[0, 0])
         else:
             yuv = frame.as_yuv444_stacked()[y_pos:y_pos + 1, x_pos:x_pos + 1, :]
+            yuv_dtype = yuv.dtype
+            y_val = float(yuv[0, 0, 0])
+            cb = int(yuv[0, 0, 1])
+            cr = int(yuv[0, 0, 2])
 
-        depth = 10 if yuv.dtype == np.uint16 else 8
+        depth = 10 if yuv_dtype == np.uint16 else 8
         cbcr_center = 512 if depth == 10 else 128
-        cb = yuv[..., 1].astype(np.int32) - cbcr_center
-        cr = yuv[..., 2].astype(np.int32) - cbcr_center
+        cb -= cbcr_center
+        cr -= cbcr_center
+
+        acm = self._get_current_acm()
         if getattr(acm, "use_cordic", False):
-            h_deg, _, _, _ = cordic.cordic_cbcr2hs(cb, cr, depth, 13, 6, False)
-            h_deg = h_deg.astype(np.float32)
+            h_deg_arr, s_arr, _, _ = cordic.cordic_cbcr2hs(
+                np.array([[cb]], dtype=np.int32), np.array([[cr]], dtype=np.int32),
+                depth, 13, 6, False)
+            h_deg = float(h_deg_arr[0, 0])
+            s_val = float(s_arr[0, 0])
         else:
-            h_deg = np.rad2deg(np.arctan2(cr, cb)).astype(np.float32)
+            s_val = float(int(np.sqrt(cb * cb + cr * cr) + 0.5))  # match pipeline rounding
+            h_deg = float(np.rad2deg(np.arctan2(cr, cb)).astype(np.int32))  # match pipeline truncation
+        return y_val, s_val, h_deg
+
+    @staticmethod
+    def _norm_ys_to_chart(y_val: float, s_val: float, depth: int, s_max: int) -> tuple[float, float]:
+        """Normalise raw Y and S values to the chart display range [0, 255].
+
+        Y: 8-bit values pass through; 10-bit values are scaled down.
+        S: scaled from [0, s_max] to [0, 255] using ``s_max`` from the
+            active ACM pipeline.
+        """
+        if depth >= 10:
+            y_norm = y_val / 1023.0 * 255.0
+        else:
+            y_norm = float(y_val)
+        s_norm = min(s_val / max(float(s_max), 1.0), 1.0) * 255.0
+        return y_norm, s_norm
+
+    def _h_deg_to_index(self, h_deg: float) -> float:
+        """Convert hue in degrees [-180, 180] to the current ACM H index."""
+        acm = self._get_current_acm()
         h_f = (h_deg + 180.0) / 360.0
-        return float(h_f[0, 0] * (acm.len_h - 1))
+        return float(h_f * (acm.len_h - 1))
 
     def update_preview_h_marker(self, x_pos: int, y_pos: int) -> None:
-        """Compute the ACM H-domain position for one input pixel and update all charts."""
-        frame = self._input_provider()
-        if frame is None:
+        """Compute the ACM H-domain markers for one pixel and update all charts.
+
+        Reads the raw pixel from the input frame and the processed pixel from
+        the latest output frame, then places black × markers on the H_in line
+        and white × markers on the H_out line for the delta_y and delta_s charts.
+        """
+        # Cache frozen pixel coordinates so markers can be refreshed after processing.
+        self._frozen_pixel_x = x_pos
+        self._frozen_pixel_y = y_pos
+
+        in_frame = self._input_provider()
+        out_frame = self._latest_output_frame
+        if in_frame is None:
             self.clear_preview_h_marker()
             return
-        h_index = self._pixel_to_h_index(frame, x_pos, y_pos)
-        if h_index is None:
+
+        # Determine depth / s_max once from the input frame.
+        in_depth = 10 if in_frame.pyr.dtype == np.uint16 else 8
+        clip_type = getattr(self._get_current_acm(), 'clip_type', 'easy_clip')
+        if in_depth >= 10:
+            s_max = 511 if clip_type in ('radial_clip', 'luma_clip') else 724
+        else:
+            s_max = 127 if clip_type in ('radial_clip', 'luma_clip') else 181
+
+        # Input pixel
+        in_ysh = self._get_pixel_yhs(in_frame, x_pos, y_pos)
+        if in_ysh is None:
             self.clear_preview_h_marker()
             return
-        for chart in (self.delta_chart_y, self.delta_chart_s, self.delta_chart_h):
-            chart.set_reference_h_index(h_index)
+        y_in, s_in, h_in = in_ysh
+        h_idx_in = self._h_deg_to_index(h_in)
+        y_in_norm, s_in_norm = self._norm_ys_to_chart(y_in, s_in, in_depth, s_max)
+
+        # Output pixel (if available)
+        if out_frame is not None:
+            out_ysh = self._get_pixel_yhs(out_frame, x_pos, y_pos)
+            if out_ysh is not None:
+                y_out, s_out, h_out = out_ysh
+                h_idx_out = self._h_deg_to_index(h_out)
+                y_out_norm, s_out_norm = self._norm_ys_to_chart(y_out, s_out, in_depth, s_max)
+            else:
+                h_idx_out, y_out_norm, s_out_norm = None, None, None
+        else:
+            h_idx_out, y_out_norm, s_out_norm = None, None, None
+
+        # Update charts
+        self.delta_chart_y.set_h_markers(h_idx_in, h_idx_out, y_in_norm, y_out_norm)
+        self.delta_chart_s.set_h_markers(h_idx_in, h_idx_out, s_in_norm, s_out_norm)
+        self.delta_chart_h.set_h_markers(h_idx_in, h_idx_out, None, None)
 
     def _apply_lut_lengths(self) -> None:
         """Apply the current spinBox LUT lengths to the active ACM instance.
@@ -1450,6 +1586,9 @@ class AcmUiController:
                 out_fmt, input_cs,
             )
             self._output_callback(out_frame)
+            self._latest_output_frame = out_frame
+            if self._frozen_pixel_x is not None and self._frozen_pixel_y is not None:
+                self.update_preview_h_marker(self._frozen_pixel_x, self._frozen_pixel_y)
             self._preview_time_callback(elapsed_ms)
             self._status_callback(f"Processing completed in {elapsed_ms:.2f} ms")
         except Exception as exc:

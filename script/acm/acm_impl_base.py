@@ -39,6 +39,20 @@ _DEFAULT_GAUSSIAN_KERNEL_1D = np.array([1, 4, 6, 4, 1], dtype=np.float32)
 _DEFAULT_GAUSSIAN_KERNEL = np.outer(_DEFAULT_GAUSSIAN_KERNEL_1D, _DEFAULT_GAUSSIAN_KERNEL_1D)
 _DEFAULT_GAUSSIAN_KERNEL /= _DEFAULT_GAUSSIAN_KERNEL.sum()
 
+_BT709_TRIANGLE_REGION_PEAKS = np.array(
+    [
+        # (s, y)
+        [0.96, 96.0 / 255.0],  # M
+        [0.94, 123.0 / 255.0],  # R
+        [0.91, 163.0 / 255.0],  # Y
+        [0.96, 158.0 / 255.0],  # G
+        [0.94, 131.0 / 255.0],  # C
+        [0.91, 91.0 / 255.0],  # B
+    ],
+    dtype=np.float32,
+)
+_BT709_TRIANGLE_REGION_CENTERS_DEG = np.array([25, 85, 145, 205, 265, 325], dtype=np.float32)
+
 
 def _clip_cast(arr_float: np.ndarray, target_dtype: np.dtype) -> np.ndarray:
     """Cast a float array to ``target_dtype`` while clipping to the dtype's
@@ -558,11 +572,11 @@ class AcmImplBase:
         if depth == 10:
             y_max = 1023
             cbcr_center = 512
-            s_max = 511 if self.clip_type == 'radial_clip' else 724
+            s_max = 724 if self.clip_type == 'easy_clip' else 511
         else:
             y_max = 255
             cbcr_center = 128
-            s_max = 127 if self.clip_type == 'radial_clip' else 181
+            s_max = 181 if self.clip_type == 'easy_clip' else 127
 
         # ---- 1. do yuv2yhs ----
         y = planar_data[0].astype(np.int32)  # [0,255]/[0,1023]
@@ -573,7 +587,7 @@ class AcmImplBase:
             h_deg, s, _, _ = cordic.cordic_cbcr2hs(cb, cr, depth, 13, 6, False)  # h:[-180, 180], s:[0,181]/[0,724]
             h_rad = np.deg2rad(h_deg)  # [-pi, pi]
         else:
-            s = (np.sqrt(cb * cb + cr * cr) + 0.5).astype(np.int32) # [0,181]/[0,724]
+            s = (np.sqrt(cb * cb + cr * cr) + 0.5).astype(np.int32)  # [0,181]/[0,724]
             h_rad = np.arctan2(cr, cb)  # [-pi, pi]
             h_deg = np.rad2deg(h_rad).astype(np.int32)  # [-180, 180]
 
@@ -618,22 +632,34 @@ class AcmImplBase:
             gain_ss = np.ones_like(delta_s, dtype=np.float32)
             gain_hs = np.ones_like(delta_h, dtype=np.float32)
         else:
-            gain_yy = cv2.remap(lut_gy_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-            gain_sy = cv2.remap(lut_gs_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-            gain_hy = cv2.remap(lut_gh_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-            gain_ys = cv2.remap(lut_gy_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-            gain_ss = cv2.remap(lut_gs_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-            gain_hs = cv2.remap(lut_gh_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_yy = cv2.remap(
+                lut_gy_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+            )
+            gain_sy = cv2.remap(
+                lut_gs_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+            )
+            gain_hy = cv2.remap(
+                lut_gh_y, idx_hd, idx_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+            )
+            gain_ys = cv2.remap(
+                lut_gy_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+            )
+            gain_ss = cv2.remap(
+                lut_gs_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+            )
+            gain_hs = cv2.remap(
+                lut_gh_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+            )
 
         # ---- 6. Combine deltas (all in normalised float) ----
-        delta_y = delta_y * gain_yy * gain_ys # [-dr_y, dr_y]
-        delta_s = delta_s * gain_sy * gain_ss # [-dr_s, dr_s]
-        delta_h = delta_h * gain_hy * gain_hs # [-dr_h, dr_h]
+        delta_y = delta_y * gain_yy * gain_ys  # [-dr_y, dr_y]
+        delta_s = delta_s * gain_sy * gain_ss  # [-dr_s, dr_s]
+        delta_h = delta_h * gain_hy * gain_hs  # [-dr_h, dr_h]
 
         # ---- 7. Apply to normalised values ----
+        h_deg_new = np.mod(h_deg + delta_h, 360.0) # [0, 360]
         if self.clip_type == "luma_clip":
             y_new = np.clip(y_f + delta_y, 0.0, 1.0)
-            h_deg_new = np.mod(h_deg + delta_h, 360.0)
             s_new, s_max_old, s_max_new = self._sat_adjust_triangle(y_f, h_deg, s_f, y_new, h_deg_new)
             s_f = np.clip(s_new + delta_s * s_max_new, 0.0, s_max_new)
             y_f = y_new
@@ -642,8 +668,6 @@ class AcmImplBase:
             s_f = np.clip(s_f + delta_s, 0.0, 1.0)
 
         # ---- 8. Convert back to integer pixel domain ----
-        h_deg_new = np.mod(h_deg + delta_h, 360.0)
-        h_deg_new = np.where(h_deg_new < 0, h_deg_new + 360.0, h_deg_new)
         s_pix_f = s_f * s_max
         if use_cordic:
             s_pix = (s_pix_f + 0.5).astype(np.int32)
@@ -754,12 +778,24 @@ class AcmImplBase:
             gain_ss = np.ones_like(delta_s, dtype=np.float32)
             gain_sh = np.ones_like(delta_h, dtype=np.float32)
         else:
-            gain_yy = cv2.remap(lut_g_yy, idx_hp, idx_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-            gain_ys = cv2.remap(lut_g_ys, idx_hp, idx_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-            gain_yh = cv2.remap(lut_g_yh, idx_hp, idx_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-            gain_sy = cv2.remap(lut_g_sy, idx_hp, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-            gain_ss = cv2.remap(lut_g_ss, idx_hp, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-            gain_sh = cv2.remap(lut_g_sh, idx_hp, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            gain_yy = cv2.remap(
+                lut_g_yy, idx_hp, idx_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+            )
+            gain_ys = cv2.remap(
+                lut_g_ys, idx_hp, idx_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+            )
+            gain_yh = cv2.remap(
+                lut_g_yh, idx_hp, idx_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+            )
+            gain_sy = cv2.remap(
+                lut_g_sy, idx_hp, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+            )
+            gain_ss = cv2.remap(
+                lut_g_ss, idx_hp, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+            )
+            gain_sh = cv2.remap(
+                lut_g_sh, idx_hp, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+            )
 
         # ---- 8. Combine deltas ----
         delta_y = delta_y * gain_yy * gain_sy
@@ -788,49 +824,43 @@ class AcmImplBase:
         rgb_out[:, :, 2] = np.clip(b_out * y_max, 0.0, y_max).astype(planar_data.dtype)
         return rgb_out.transpose(2, 0, 1)  # [C, H, W] planar
 
-    def _sat_adjust_triangle(self, y_f_old: np.ndarray, h_deg_old: np.ndarray, s_f_old: np.ndarray, y_f_new: np.ndarray, h_deg_new: np.ndarray) -> tuple:
-        """
-        Apply triangle saturation adjustment to s_f.
-        """
-        # corner point: (s=94, 127)
-        # k = 0.94 / 0.5
-        # s_max = 0.94 * np.ones_like(s_f, dtype=np.float32)
-        # s_max = np.where(y_f <= 0.5, y_f * k, s_max)
-        # s_max = np.where(y_f > 0.5, (1 - y_f) * k, s_max)
+    def _calc_bt709_triangle_slopes(self, h_deg: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Blend the six BT709 region triangles and return lower/upper edge slopes."""
+        h_norm = np.mod(h_deg.astype(np.float32), 360.0)
+        h_ext = np.where(h_norm < _BT709_TRIANGLE_REGION_CENTERS_DEG[0], h_norm + 360.0, h_norm)
+        idx = np.searchsorted(_BT709_TRIANGLE_REGION_CENTERS_DEG, h_ext, side="right") % 6
+        center_pts = _BT709_TRIANGLE_REGION_PEAKS[idx]  # (s,y)
+        # (s,y) -> (y,s)
+        lower = center_pts[:, :, 0] / center_pts[:, :, 1]
+        upper = center_pts[:, :, 0] / (1.0 - center_pts[:, :, 1])
+        th = center_pts[:, : ,1]
 
-        max_s_lut_by_y = np.array([
-            0,   2,   4,   6,   8,   9,  11,  13,  15,  17,  19,  21,  23,
-            25,  26,  28,  30,  32,  34,  36,  38,  40,  42,  43,  45,  47,
-            49,  51,  53,  55,  57,  59,  60,  62,  64,  66,  68,  70,  72,
-            74,  75,  77,  79,  81,  83,  85,  87,  89,  91,  92,  94,  96,
-            98, 100, 102, 104, 106, 108, 109, 111, 113, 115, 117, 119, 121,
-            123, 125, 126, 128, 130, 132, 134, 136, 138, 140, 142, 143, 145,
-            147, 149, 151, 153, 155, 157, 159, 160, 162, 164, 166, 168, 170,
-            172, 174, 176, 177, 179, 181, 183, 185, 187, 189, 191, 193, 194,
-            196, 198, 200, 202, 204, 206, 208, 209, 211, 213, 215, 217, 219,
-            221, 223, 225, 226, 228, 230, 232, 234, 236, 238, 240, 240, 238,
-            236, 234, 232, 230, 228, 226, 225, 223, 221, 219, 217, 215, 213,
-            211, 209, 208, 206, 204, 202, 200, 198, 196, 194, 193, 191, 189,
-            187, 185, 183, 181, 179, 177, 176, 174, 172, 170, 168, 166, 164,
-            162, 160, 159, 157, 155, 153, 151, 149, 147, 145, 143, 142, 140,
-            138, 136, 134, 132, 130, 128, 126, 125, 123, 121, 119, 117, 115,
-            113, 111, 109, 108, 106, 104, 102, 100,  98,  96,  94,  92,  91,
-            89,  87,  85,  83,  81,  79,  77,  75,  74,  72,  70,  68,  66,
-            64,  62,  60,  59,  57,  55,  53,  51,  49,  47,  45,  43,  42,
-            40,  38,  36,  34,  32,  30,  28,  26,  25,  23,  21,  19,  17,
-            15,  13,  11,   9,   8,   6,   4,   2,   0], dtype=np.float32) / 256.0
+        return lower.astype(np.float32), upper.astype(np.float32), th
 
-        y_range = np.linspace(0, 1.0, 256)
-        s_max_old = np.interp(y_f_old, y_range, max_s_lut_by_y, 0, 240)
-        s_max_new = np.interp(y_f_new, y_range, max_s_lut_by_y, 0, 240)
-        s_f_old = np.minimum(s_f_old, s_max_old)
+    def _triangle_s_max_bt709(self, y_f: np.ndarray, h_deg: np.ndarray) -> np.ndarray:
+        """Compute the BT709 luma-clip saturation limit for one Y/H slice."""
+        y_clamped = np.clip(y_f.astype(np.float32), 0.0, 1.0)
+        lower_slopes, upper_slopes, ths = self._calc_bt709_triangle_slopes(h_deg)
+        s_max_lower = y_clamped * lower_slopes
+        s_max_upper = (1.0 - y_clamped) * upper_slopes
+        s_max = np.where(y_clamped <= ths, s_max_lower, s_max_upper)
+
+        return s_max
+
+    def _sat_adjust_triangle(
+        self,
+        y_f_old: np.ndarray,  # [0, 1]
+        h_deg_old: np.ndarray,  # [0, 360]
+        s_f_old: np.ndarray,  # [0, 1]
+        y_f_new: np.ndarray,  # [0, 1]
+        h_deg_new: np.ndarray,  # [0, 360]
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Project saturation between BT709 hue-weighted luma triangles."""
+        s_max_old = self._triangle_s_max_bt709(y_f_old, h_deg_old)
+        s_max_new = self._triangle_s_max_bt709(y_f_new, h_deg_new)
+        s_f_old = np.minimum(s_f_old.astype(np.float32), s_max_old)
         with np.errstate(divide='ignore', invalid='ignore'):
-            scale = np.divide(
-                s_max_new,
-                s_max_old,
-                out=np.zeros_like(s_max_new, dtype=np.float32),
-                where=s_max_old > 0,
-            )
+            scale = np.divide(s_max_new, s_max_old, out=np.zeros_like(s_max_new, dtype=np.float32), where=s_max_old > 0)
         s_f_new = s_f_old * scale
         return s_f_new, s_max_old, s_max_new
 
@@ -912,7 +942,6 @@ class AcmImplBase:
                     lut_gain_sbys = lut_gain_sbys.reshape(len_hd, len_s).T
                     lut_gain_hbys = lut_gain_hbys.reshape(len_hd, len_s).T
 
-
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]
             print(f"[ACM] load config '{filename}' failed in " f"'{os.path.basename(tb.filename)}'-{tb.lineno}: {e}")
@@ -926,29 +955,17 @@ class AcmImplBase:
         if len(lut_delta_hbyh) != len_h:
             raise ValueError(f"length of lut_delta_hbyh({len(lut_delta_hbyh)}) != len_h({len_h})!")
         if lut_gain_ybyy.shape != (len_y, len_hd):
-            raise ValueError(
-                f"shape of lut_gain_ybyy{lut_gain_ybyy.shape} != ({len_y}, {len_hd})!"
-            )
+            raise ValueError(f"shape of lut_gain_ybyy{lut_gain_ybyy.shape} != ({len_y}, {len_hd})!")
         if lut_gain_sbyy.shape != (len_y, len_hd):
-            raise ValueError(
-                f"shape of lut_gain_sbyy{lut_gain_sbyy.shape} != ({len_y}, {len_hd})!"
-            )
+            raise ValueError(f"shape of lut_gain_sbyy{lut_gain_sbyy.shape} != ({len_y}, {len_hd})!")
         if lut_gain_hbyy.shape != (len_y, len_hd):
-            raise ValueError(
-                f"shape of lut_gain_hbyy{lut_gain_hbyy.shape} != ({len_y}, {len_hd})!"
-            )
+            raise ValueError(f"shape of lut_gain_hbyy{lut_gain_hbyy.shape} != ({len_y}, {len_hd})!")
         if lut_gain_ybys.shape != (len_s, len_hd):
-            raise ValueError(
-                f"shape of lut_gain_ybys{lut_gain_ybys.shape} != ({len_s}, {len_hd})!"
-            )
+            raise ValueError(f"shape of lut_gain_ybys{lut_gain_ybys.shape} != ({len_s}, {len_hd})!")
         if lut_gain_sbys.shape != (len_s, len_hd):
-            raise ValueError(
-                f"shape of lut_gain_sbys{lut_gain_sbys.shape} != ({len_s}, {len_hd})!"
-            )
+            raise ValueError(f"shape of lut_gain_sbys{lut_gain_sbys.shape} != ({len_s}, {len_hd})!")
         if lut_gain_hbys.shape != (len_s, len_hd):
-            raise ValueError(
-                f"shape of lut_gain_hbys{lut_gain_hbys.shape} != ({len_s}, {len_hd})!"
-            )
+            raise ValueError(f"shape of lut_gain_hbys{lut_gain_hbys.shape} != ({len_s}, {len_hd})!")
 
         lut_gain_ybyy = lut_gain_ybyy.reshape(len_y, len_hd)
         lut_gain_sbyy = lut_gain_sbyy.reshape(len_y, len_hd)

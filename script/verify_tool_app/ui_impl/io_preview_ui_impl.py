@@ -191,10 +191,10 @@ class PreviewUiController(QObject):
         self.output_cache_rgb444 = None
         self.output_rgb_from_yuv = None
         self.output_qimage = None
-        self.ui.lineEdit_output_pixel.clear()
         if frame is not None:
             self.output_qimage = self._frame_to_qimage(frame, is_input=False)
         self._sync_preview_layout()
+        self._restore_frozen_pixel_readout()
 
     def set_time_cost_ms(self, elapsed_ms: float | None) -> None:
         """Update the displayed processing time."""
@@ -209,8 +209,11 @@ class PreviewUiController(QObject):
             return False
         self.is_pixel_info_frozen = not self.is_pixel_info_frozen
         if self.is_pixel_info_frozen:
+            if self._last_pixel_selection is not None:
+                self._set_position_text(self._last_pixel_selection.x_pos, self._last_pixel_selection.y_pos)
             self._emit_pixel_selection()
         else:
+            self._set_position_text(*self.mouse_pos)
             self._clear_pixel_selection(notify=True)
         status = "Frozen" if self.is_pixel_info_frozen else "Live"
         self._status_callback(f"Pixel info: {status}")
@@ -396,6 +399,39 @@ class PreviewUiController(QObject):
             display_role=display_role,
         )
         self.mouse_pos = (x_pos, y_pos)
+        self._set_position_text(x_pos, y_pos)
+
+    def _set_position_text(self, x_pos: int, y_pos: int) -> None:
+        """Render the current pixel position together with the freeze state."""
+        state = "Frozen" if self.is_pixel_info_frozen else "Live"
+        self.ui.lineEdit_position.setText(f"({x_pos}, {y_pos}) [{state}]")
+
+    @staticmethod
+    def _fill_pixel_readout(line_edit, rgb_cache, yuv_cache, rgb_from_yuv, x_pos, y_pos):
+        """Fill a QLineEdit with the pixel value from available caches."""
+        if rgb_cache is not None:
+            r, g, b = rgb_cache[y_pos, x_pos]
+            line_edit.setText(f"R={r}, G={g}, B={b}")
+        elif yuv_cache is not None and rgb_from_yuv is not None:
+            yv, uv, vv = yuv_cache[y_pos, x_pos]
+            r, g, b = rgb_from_yuv[y_pos, x_pos]
+            line_edit.setText(f"YUV({yv}, {uv}, {vv}) => RGB({r}, {g}, {b})")
+        else:
+            line_edit.clear()
+
+    def _restore_frozen_pixel_readout(self) -> None:
+        """Re-fill pixel readout fields from current caches after a frame update."""
+        if not self.is_pixel_info_frozen or self._last_pixel_selection is None:
+            return
+        x, y = self._last_pixel_selection.x_pos, self._last_pixel_selection.y_pos
+        self._fill_pixel_readout(
+            self.ui.lineEdit_input_pixel,
+            self.input_cache_rgb444, self.input_cache_yuv444, self.input_rgb_from_yuv,
+            x, y)
+        self._fill_pixel_readout(
+            self.ui.lineEdit_output_pixel,
+            self.output_cache_rgb444, self.output_cache_yuv444, self.output_rgb_from_yuv,
+            x, y)
 
     def _handle_view_leave(self) -> None:
         """Clear live pixel text when the cursor leaves a preview viewport."""
@@ -445,25 +481,16 @@ class PreviewUiController(QObject):
             y_pos=y_pos,
             display_role="output" if is_showing_output else "input",
         )
-        self.ui.lineEdit_position.setText(f"({x_pos}, {y_pos})")
 
-        # Determine which cache to read based on what the left scene shows
-        if is_showing_output:
-            if self.output_cache_rgb444 is not None:
-                r, g, b = self.output_cache_rgb444[y_pos, x_pos]
-                self.ui.lineEdit_input_pixel.setText(f"R={r}, G={g}, B={b}")
-            elif self.output_cache_yuv444 is not None and self.output_rgb_from_yuv is not None:
-                yv, uv, vv = self.output_cache_yuv444[y_pos, x_pos]
-                r, g, b = self.output_rgb_from_yuv[y_pos, x_pos]
-                self.ui.lineEdit_input_pixel.setText(f"YUV({yv}, {uv}, {vv}) => RGB({r}, {g}, {b})")
-        else:
-            if self.input_cache_rgb444 is not None:
-                r, g, b = self.input_cache_rgb444[y_pos, x_pos]
-                self.ui.lineEdit_input_pixel.setText(f"R={r}, G={g}, B={b}")
-            elif self.input_cache_yuv444 is not None and self.input_rgb_from_yuv is not None:
-                yv, uv, vv = self.input_cache_yuv444[y_pos, x_pos]
-                r, g, b = self.input_rgb_from_yuv[y_pos, x_pos]
-                self.ui.lineEdit_input_pixel.setText(f"YUV({yv}, {uv}, {vv}) => RGB({r}, {g}, {b})")
+        # Always fill both input and output pixel readouts.
+        self._fill_pixel_readout(
+            self.ui.lineEdit_input_pixel,
+            self.input_cache_rgb444, self.input_cache_yuv444, self.input_rgb_from_yuv,
+            x_pos, y_pos)
+        self._fill_pixel_readout(
+            self.ui.lineEdit_output_pixel,
+            self.output_cache_rgb444, self.output_cache_yuv444, self.output_rgb_from_yuv,
+            x_pos, y_pos)
 
     def _on_mouse_move_right(self, pos) -> None:
         """Right preview pixel readout."""
@@ -480,7 +507,6 @@ class PreviewUiController(QObject):
             y_pos=y_pos,
             display_role="output",
         )
-        self.ui.lineEdit_position.setText(f"({x_pos}, {y_pos})")
         if self.output_cache_rgb444 is not None:
             r, g, b = self.output_cache_rgb444[y_pos, x_pos]
             self.ui.lineEdit_output_pixel.setText(f"R={r}, G={g}, B={b}")
@@ -488,6 +514,11 @@ class PreviewUiController(QObject):
             yv, uv, vv = self.output_cache_yuv444[y_pos, x_pos]
             r, g, b = self.output_rgb_from_yuv[y_pos, x_pos]
             self.ui.lineEdit_output_pixel.setText(f"YUV({yv}, {uv}, {vv}) => RGB({r}, {g}, {b})")
+        # Always fill both input and output pixel readouts.
+        self._fill_pixel_readout(
+            self.ui.lineEdit_input_pixel,
+            self.input_cache_rgb444, self.input_cache_yuv444, self.input_rgb_from_yuv,
+            x_pos, y_pos)
 
     def eventFilter(self, obj: object, event: QEvent) -> bool:
         if event.type() == QEvent.MouseMove:

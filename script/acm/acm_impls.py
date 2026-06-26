@@ -455,15 +455,17 @@ class AcmImplSwVariant(AcmImplBase):
         delta_s = np.clip(delta_s * gain_sy * gain_ss * g_s, 0, 2)  # [0, 2]
         delta_h = np.clip(delta_h * gain_hy * gain_hs * g_h, -dr_h, dr_h)
 
-       # ---- 7. Apply to normalised values ----
+        # ---- 7. Apply to normalised values ----
+        h_deg_new = np.mod(h_deg + delta_h, 360.0) # [0, 360]
         if self.clip_type == "luma_clip":
             y_new = np.clip(y_f + delta_y, 0.0, 1.0)
-            s_new, s_max_old, s_max_new = self._sat_adjust_triangle(y_f, y_new, s_f)
-            s_f = np.clip(s_new + delta_s * s_max_new, 0.0, s_max_new)
+            h_deg_new = np.mod(h_deg + delta_h, 360.0)
+            s_new, s_max_old, s_max_new = self._sat_adjust_triangle(y_f, h_deg, s_f, y_new, h_deg_new)
+            s_f = np.clip(s_new * delta_s, 0.0, s_max_new)
             y_f = y_new
         else:
             y_f = np.clip(y_f + delta_y, 0.0, 1.0)
-            s_f = np.clip(s_f + delta_s, 0.0, 1.0)
+            s_f = np.clip(s_f * delta_s, 0.0, 1.0)
 
         # ---- 8. Convert back to integer pixel domain ----
         h_deg_new = np.mod(h_deg + delta_h, 360.0)
