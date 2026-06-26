@@ -65,6 +65,7 @@ class AcmImplHwRk(AcmImplBase):
         super().__init__(
             len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_range=delta_range, use_cordic=use_cordic
         )
+        self.name = "AcmImplHwRk"
         print("[ACM] created AcmImplHwRk.")
 
     ## override
@@ -263,9 +264,11 @@ class AcmImplHwRk(AcmImplBase):
         Sdel3 = SHIFT_ROUND_S32(Sdel2, 11 - RKVOP_PQ_ACM_CORDIC_S_BITS) # S9.3
 
         # ---- 12. Zero delta when S == 0 ----
-        Ydel = Ydel3
+        # 1/4 scale for 8-bit (10-bit delta domain)
+        Ydel = SHIFT_ROUND_S32(Ydel3, 2) if is_u8 else Ydel3
+        Sdel = SHIFT_ROUND_S32(Sdel3, 2) if is_u8 else Sdel3
+        Sdel = np.where(S == 0, 0, Sdel)
         Hdel = np.where(S == 0, 0, Hdel3)
-        Sdel = np.where(S == 0, 0, Sdel3)
 
         # ---- 13. Apply result to Y / S / H ----
         YO = np.clip(Y + Ydel, 0, YUV_maxvalue)
@@ -308,6 +311,7 @@ class AcmImplSwRk(AcmImplBase):
         super().__init__(
             len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_range=delta_range, use_cordic=use_cordic
         )
+        self.name = "AcmImplSwRk"
         print("[ACM] created AcmImplSwRk.")
 
 
@@ -333,6 +337,7 @@ class AcmImplSwEvideo(AcmImplBase):
         super().__init__(
             len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_range=delta_range, use_cordic=use_cordic
         )
+        self.name = "AcmImplSwEvideo"
         print("[ACM] created AcmImplSwEvideo.")
 
 
@@ -360,6 +365,7 @@ class AcmImplSwVariant(AcmImplBase):
         super().__init__(
             len_y=len_y, len_s=len_s, len_h=len_h, len_hd=len_h2, delta_range=delta_range, use_cordic=use_cordic
         )
+        self.name = "AcmImplSwVariant"
         print("[ACM] created AcmImplSwVariant.")
 
     def do_acm_u8(self, planar_data: np.ndarray, isRgb=False, use_cordic=None):
@@ -398,9 +404,9 @@ class AcmImplSwVariant(AcmImplBase):
             h_deg, s, _, _ = cordic.cordic_cbcr2hs(cb, cr, depth, 13, 6, False)  # h:[-180, 180], s:[0,181]/[0,724]
             h_rad = np.deg2rad(h_deg)  # [-pi, pi]
         else:
-            s = (np.sqrt(cb * cb + cr * cr) + 0.5).astype(np.int32) # [0,181]/[0,724]
+            s = np.rint(np.sqrt(cb * cb + cr * cr)).astype(np.int32) # [0,181]/[0,724]
             h_rad = np.arctan2(cr, cb)  # [-pi, pi]
-            h_deg = np.rad2deg(h_rad).astype(np.int32)  # [-180, 180]
+            h_deg = np.rint(np.rad2deg(h_rad)).astype(np.int32)  # [-180, 180]
 
         # ---- 2. Normalise LUT tables (apply gain & delta_range upfront) ----
         dr_y, _, dr_h = self.delta_range  # (0.25, 0.25, 64) or (1.0, 1.0, 64)
@@ -417,7 +423,7 @@ class AcmImplSwVariant(AcmImplBase):
         # ---- 3. Compute remap indices ----
         y_f = y.astype(np.float32) / y_max
         s_f = np.minimum(s.astype(np.float32) / s_max, 1.0)
-        h_f = (h_deg.astype(np.float32) + 180.0) / 360.0
+        h_f = ((h_rad + np.pi) / (2.0 * np.pi)).astype(np.float32)
         idx_y = y_f * (self.len_y - 1)
         idx_s = s_f * (self.len_s - 1)
         idx_h = h_f * (self.len_h - 1)
@@ -425,6 +431,9 @@ class AcmImplSwVariant(AcmImplBase):
         idx_zeros = np.zeros_like(idx_h)
 
         # ---- 4. Sample delta tables (1D, indexed by H) → additive deltas ----
+        lut_dy = lut_dy.reshape(1, -1) # need to reshape to (1, len_h) for cv2.remap
+        lut_ds = lut_ds.reshape(1, -1)
+        lut_dh = lut_dh.reshape(1, -1)
         delta_y = cv2.remap(lut_dy, idx_h, idx_zeros, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
         delta_s = cv2.remap(lut_ds, idx_h, idx_zeros, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
         delta_h = cv2.remap(
@@ -472,17 +481,17 @@ class AcmImplSwVariant(AcmImplBase):
         h_deg_new = np.where(h_deg_new < 0, h_deg_new + 360.0, h_deg_new)
         s_pix_f = s_f * s_max
         if use_cordic:
-            s_pix = (s_pix_f + 0.5).astype(np.int32)
+            s_pix = np.rint(s_pix_f).astype(np.int32)
             cb, cr = cordic.cordic_hs2cbcr(h_deg_new, s_pix, 8, depth, depth, 13, 6)
         else:
             new_rad = np.deg2rad(h_deg_new)
             new_cb = s_pix_f * np.cos(new_rad)
             new_cr = s_pix_f * np.sin(new_rad)
-            cb = (new_cb + np.sign(new_cb) * 0.5).astype(np.int32)
-            cr = (new_cr + np.sign(new_cr) * 0.5).astype(np.int32)
+            cb = np.rint(new_cb).astype(np.int32)
+            cr = np.rint(new_cr).astype(np.int32)
 
         # ---- 9. Final clip ----
-        y_out = (y_f * y_max + 0.5).astype(np.int32)
+        y_out = np.rint(y_f * y_max).astype(np.int32)
 
         out_dtype = np.uint8 if depth == 8 else np.uint16
         yuv444p_out = np.empty((3, y.shape[0], y.shape[1]), dtype=out_dtype)
@@ -605,7 +614,7 @@ def main() -> None:
     )
     outfile = f"{DEF_OUT_DIR}/out_acm_1920x1080_yuv444p_601F.yuv" if args.output == "" else args.output
     cfgfile = (
-        "G:/Codes/gerrit_projects/hwpq_verify/data/vdpp_vop_config_3576.json" if args.config == "" else args.config
+        "G:/Codes/gerrit_projects/hwpq_verify/data/tmp_acm_config.json" if args.config == "" else args.config
     )
 
     ## read YUV444 planar (Y | Cb | Cr)

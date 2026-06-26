@@ -1686,7 +1686,14 @@ class AcmUiController:
             dst = getattr(new_acm, f'lut_gain_{name_2d}')
             if src.shape == dst.shape:
                 dst[:] = src
-            # If shapes differ, leave new instance's default; user can re-edit
+            else:
+                from script.acm.acm_impl_base import bicubic_resize_array_2d
+                resampled = bicubic_resize_array_2d(src, dst.shape[0], dst.shape[1])
+                dst[:] = resampled
+                print(f"[ACM] resampled gain_{name_2d}: {src.shape} => {dst.shape}")
+        # Sync active tables back to default tables, so the gain data survives
+        # future LUT length changes (set_len / set_step).
+        new_acm.sync_to_default()
 
         # Copy misc state
         new_acm.gain_y = old_acm.gain_y
@@ -1696,7 +1703,7 @@ class AcmUiController:
         new_acm.offset_wg = old_acm.offset_wg
         new_acm.offset_wb = old_acm.offset_wb
         new_acm.ignore_gain_luts = old_acm.ignore_gain_luts
-        new_acm.delta_range = old_acm.delta_range
+        # new_acm.delta_range = old_acm.delta_range
         new_acm.clip_type = old_acm.clip_type if old_acm.clip_type in self._SUPPORTED_CLIP_TYPES else "easy_clip"
 
         # Refresh UI controls while keeping the in-memory delta editor state.

@@ -587,9 +587,9 @@ class AcmImplBase:
             h_deg, s, _, _ = cordic.cordic_cbcr2hs(cb, cr, depth, 13, 6, False)  # h:[-180, 180], s:[0,181]/[0,724]
             h_rad = np.deg2rad(h_deg)  # [-pi, pi]
         else:
-            s = (np.sqrt(cb * cb + cr * cr) + 0.5).astype(np.int32)  # [0,181]/[0,724]
+            s = np.rint(np.sqrt(cb * cb + cr * cr)).astype(np.int32)  # [0,181]/[0,724]
             h_rad = np.arctan2(cr, cb)  # [-pi, pi]
-            h_deg = np.rad2deg(h_rad).astype(np.int32)  # [-180, 180]
+            h_deg = np.rint(np.rad2deg(h_rad)).astype(np.int32)  # [-180, 180]
 
         # ---- 2. Normalise LUT tables (apply gain & delta_range upfront) ----
         g_y = self.gain_y / 256.0
@@ -609,7 +609,7 @@ class AcmImplBase:
         # ---- 3. Compute remap indices ----
         y_f = y.astype(np.float32) / y_max
         s_f = np.minimum(s.astype(np.float32) / s_max, 1.0)
-        h_f = (h_deg.astype(np.float32) + 180.0) / 360.0
+        h_f = ((h_rad + np.pi) / (2.0 * np.pi)).astype(np.float32)
         idx_y = y_f * (self.len_y - 1)
         idx_s = s_f * (self.len_s - 1)
         idx_h = h_f * (self.len_h - 1)
@@ -617,6 +617,9 @@ class AcmImplBase:
         idx_zeros = np.zeros_like(idx_h)
 
         # ---- 4. Sample delta tables (1D, indexed by H) → additive deltas ----
+        lut_dy = lut_dy.reshape(1, -1) # need to reshape to (1, len_h) for cv2.remap
+        lut_ds = lut_ds.reshape(1, -1)
+        lut_dh = lut_dh.reshape(1, -1)
         delta_y = cv2.remap(lut_dy, idx_h, idx_zeros, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
         delta_s = cv2.remap(lut_ds, idx_h, idx_zeros, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
         delta_h = cv2.remap(
@@ -655,6 +658,8 @@ class AcmImplBase:
         delta_y = delta_y * gain_yy * gain_ys  # [-dr_y, dr_y]
         delta_s = delta_s * gain_sy * gain_ss  # [-dr_s, dr_s]
         delta_h = delta_h * gain_hy * gain_hs  # [-dr_h, dr_h]
+        delta_s = np.where(s_f < 1.0/s_max, 0.0, delta_s)
+        delta_h = np.where(s_f < 1.0/s_max, 0.0, delta_h)
 
         # ---- 7. Apply to normalised values ----
         h_deg_new = np.mod(h_deg + delta_h, 360.0) # [0, 360]
@@ -670,17 +675,17 @@ class AcmImplBase:
         # ---- 8. Convert back to integer pixel domain ----
         s_pix_f = s_f * s_max
         if use_cordic:
-            s_pix = (s_pix_f + 0.5).astype(np.int32)
+            s_pix = np.rint(s_pix_f).astype(np.int32)
             cb, cr = cordic.cordic_hs2cbcr(h_deg_new, s_pix, 8, depth, depth, 13, 6)
         else:
             new_rad = np.deg2rad(h_deg_new)
             new_cb = s_pix_f * np.cos(new_rad)
             new_cr = s_pix_f * np.sin(new_rad)
-            cb = (new_cb + np.sign(new_cb) * 0.5).astype(np.int32)
-            cr = (new_cr + np.sign(new_cr) * 0.5).astype(np.int32)
+            cb = np.rint(new_cb).astype(np.int32)
+            cr = np.rint(new_cr).astype(np.int32)
 
         # ---- 9. Final clip ----
-        y_out = (y_f * y_max + 0.5).astype(np.int32)
+        y_out = np.rint(y_f * y_max).astype(np.int32)
 
         out_dtype = np.uint8 if depth == 8 else np.uint16
         yuv444p_out = np.empty((3, y.shape[0], y.shape[1]), dtype=out_dtype)
@@ -765,6 +770,9 @@ class AcmImplBase:
         idx_zeros = np.zeros_like(idx_v)
 
         # ---- 6. Sample delta tables (1D LUTs indexed by H) ----
+        lut_dy = lut_dy.reshape(1, -1) # need to reshape to (1, len_h) for cv2.remap
+        lut_ds = lut_ds.reshape(1, -1)
+        lut_dh = lut_dh.reshape(1, -1)
         delta_y = cv2.remap(lut_dy, idx_hp, idx_zeros, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
         delta_s = cv2.remap(lut_ds, idx_hp, idx_zeros, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
         delta_h = cv2.remap(lut_dh, idx_hp, idx_zeros, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
@@ -1091,6 +1099,8 @@ class AcmImplBase:
         for row, col, data, title, shape_str in gain_specs:
             ax = fig.add_subplot(gs[row, col])
             h, w = data.shape
+            step_y = (h + 3) // 4
+            step_x = (w + 7) // 8
             # Use nearest-neighbour for tiny LUTs; keep aspect auto so they
             # fill the subplot area regardless of native pixel count.
             interpolation = "nearest" if max(h, w) < 50 else "bilinear"
@@ -1100,8 +1110,8 @@ class AcmImplBase:
             ax.set_title(f"{title}  [{shape_str}]")
             ax.set_xlabel("H index")
             ax.set_ylabel("Y/S index")
-            ax.set_xticks(np.arange(0, w, 2, dtype=int))
-            ax.set_yticks(np.arange(0, h, 2, dtype=int))
+            ax.set_xticks(np.arange(0, w, step_x, dtype=int))
+            ax.set_yticks(np.arange(0, h, step_y, dtype=int))
             plt.colorbar(im, ax=ax, shrink=0.82)
 
         fig.suptitle(f"ACM LUT Overview", fontsize=14, fontweight="bold")
