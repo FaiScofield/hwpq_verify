@@ -132,3 +132,13 @@ GUI 层统一工具使用 **PySimpleGUI**，ACM 测试应用使用 **PySide6 (Qt
   - 影响范围跟在类型后面，用中括号 `[]` 包含，例如: `feat[acm_ui]`, `fix[csc]`
   - 首行为总结性语句，后续隔行开始用 `-` 起始描述具体更改内容，每条一句话
 - 禁止提交以下内容: `script/verify_tool_app/ui_gen/`、`build/`、`dist/`、`output/` 下的文件，以及 `*.json` 测试数据文件
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
