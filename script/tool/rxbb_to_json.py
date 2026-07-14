@@ -71,13 +71,13 @@ if __name__ == "__main__":
     args = sys.argv
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("-i", "--xlsx_name", required=True)
-    parser.add_argument("-odir", "--dst_path", required=True)
+    parser.add_argument("-i", "--input_xlsx_file", required=True)
+    parser.add_argument("-o", "--out_path", required=True)
 
     args = parser.parse_args()
 
-    xlsx_name = args.xlsx_name
-    dst_path = args.dst_path
+    input_xlsx_file = args.input_xlsx_file
+    out_path = args.out_path
 
-    rxbb_proc = rxbb_reader(xlsx_name)
-    rxbb_proc.save_to_json(dst_path)
+    rxbb_proc = rxbb_reader(input_xlsx_file)
+    rxbb_proc.save_to_json(out_path)
