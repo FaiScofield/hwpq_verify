@@ -2,6 +2,7 @@
 .vscode/
 # .trae/
 .vite/
+.codex/
 .understand-anything/
 graphify-out/
 __pycache__
