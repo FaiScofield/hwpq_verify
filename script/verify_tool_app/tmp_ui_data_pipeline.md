@@ -87,7 +87,7 @@
 | `comboBox_algo_type` | `QComboBox` | `currentIndexChanged` | `_on_algo_changed()` | 切换算法实例、同步 LUT 长度、迁移 delta/gain/clip 状态、刷新 UI、请求自动运行 | 是 |
 | `comboBox_clip_type` | `QComboBox` | `currentTextChanged` | `_on_clip_type_changed()` | 写回 `acm.clip_type`，请求自动运行 | 是 |
 | `comboBox_interp_method` | `QComboBox` | `currentTextChanged` | `_on_interp_method_changed()` | 只更新插值方式，供后续 delta 平滑/重建使用 | 否 |
-| `checkBox_lut_visualization` | `QCheckBox` | `toggled` | `_on_lut_visualization_toggled()` | 将 LUT 可视化区拆到 dock 或收回 | 否 |
+| `checkBox_lut_config` | `QCheckBox` | `toggled` | `_on_lut_visualization_toggled()` | 将 LUT 可视化区拆到 dock 或收回 | 否 |
 | `groupBox_lut_lengths` | `QGroupBox(checkable)` | `toggled` | `_on_lut_lengths_group_toggled()` | 按勾选状态决定长度来源，应用长度、刷新 delta 控件、请求自动运行 | 是 |
 | `slider_ctrl_points` | `QSlider` | `valueChanged` | `_on_ctrl_points_changed()` | 改控制点数量、重算 sample positions、更新 hint | 否 |
 | `slider_len_y` | `QSlider` | `valueChanged` | `spinBox_len_y.setValue()` + `_on_lut_lengths_changed()` | 和 `spinBox_len_y` 双向同步；改 2D LUT 长度并请求自动运行 | 是 |
@@ -167,7 +167,7 @@
 | 算法切换、长度变更、delta 编辑、delta reset/smooth、gain 变更、max delta 变更、读配置、colorspace 切换 | 会 | 这些是当前主要的 `do_acm` 入口 |
 | `checkBox_enable_acm` | 条件 | 勾上时会调度；取消勾选时 `_schedule_auto_run()` 会被 `_is_acm_enabled()` 提前返回 |
 | `offset` 相关控件 | 不会 | 当前只同步数值，不触发自动运行 |
-| `checkBox_lut_visualization`、保存配置、插值方式切换、控制点数量切换 | 不会 | 只改 UI / 内部状态，不直接跑 ACM |
+| `checkBox_lut_config`、保存配置、插值方式切换、控制点数量切换 | 不会 | 只改 UI / 内部状态，不直接跑 ACM |
 
 **我认为最值得你审核的几个点**
 

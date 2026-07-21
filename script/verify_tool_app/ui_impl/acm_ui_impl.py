@@ -178,19 +178,25 @@ class SingleCurveChartWidget(QWidget):
         h_index_out: float | None,
         input_value: float | None,
         output_value: float | None,
+        input_label: str | None = None,
+        output_label: str | None = None,
     ) -> None:
         """Set H-axis reference markers and input/output value markers.
 
         Args:
-            h_index_in:  input H index  → black dashed line + black × marker.
-            h_index_out: output H index → white dashed line + white × marker.
+            h_index_in:   input H index  → black dashed line + black × marker.
+            h_index_out:  output H index → white dashed line + white × marker.
             input_value:  chart-space Y value for the input marker (black ×).
             output_value: chart-space Y value for the output marker (white ×).
+            input_label:  optional text label drawn next to the input marker.
+            output_label: optional text label drawn next to the output marker.
         """
         self.reference_h_index = h_index_in
         self.reference_h_index_out = h_index_out
         self.input_value = input_value
         self.output_value = output_value
+        self.input_label = input_label
+        self.output_label = output_label
         self.update()
 
     def _value_to_y(self, value: int | float) -> float:
@@ -295,6 +301,13 @@ class SingleCurveChartWidget(QWidget):
                              int(ref_x) + marker_size, int(y_marker) + marker_size)
             painter.drawLine(int(ref_x) + marker_size, int(y_marker) - marker_size,
                              int(ref_x) - marker_size, int(y_marker) + marker_size)
+            if self.input_label is not None:
+                painter.setPen(QPen(QColor(0, 0, 0), 1))
+                font_small = painter.font()
+                font_small.setPointSize(8)
+                painter.setFont(font_small)
+                painter.drawText(int(ref_x) + marker_size + 4, int(y_marker) + marker_size + 12,
+                                 self.input_label)
         if ref_x_out is not None and self.output_value is not None:
             y_marker = self._value_to_y(self.output_value)
             painter.setPen(QPen(QColor(255, 255, 255), 2))  # white
@@ -302,6 +315,13 @@ class SingleCurveChartWidget(QWidget):
                              int(ref_x_out) + marker_size, int(y_marker) + marker_size)
             painter.drawLine(int(ref_x_out) + marker_size, int(y_marker) - marker_size,
                              int(ref_x_out) - marker_size, int(y_marker) + marker_size)
+            if self.output_label is not None:
+                painter.setPen(QPen(QColor(255, 255, 255), 1))
+                font_small = painter.font()
+                font_small.setPointSize(8)
+                painter.setFont(font_small)
+                painter.drawText(int(ref_x_out) + marker_size + 4, int(y_marker) - marker_size - 4,
+                                 self.output_label)
 
         # Curve connecting integer-indexed points (black solid)
         if n >= 2:
@@ -536,6 +556,7 @@ class AcmUiController:
 
         # --- LUT overview window ---
         self.lut_image_window: LutImageWindow | None = None
+        self.lut_result_window: LutImageWindow | None = None
 
         # --- Auto-run debounce timer ---
         self.auto_run_timer = QTimer(self.widget)
@@ -556,7 +577,7 @@ class AcmUiController:
         self._on_acm_colorspace_changed()
         self._sync_ctrl_point_slider(self._get_current_acm().len_h)
         self._reload_delta_controls_from_acm()
-        self._on_lut_visualization_toggled(bool(self.ui.checkBox_lut_visualization.isChecked()))
+        self._on_lut_visualization_toggled(bool(self.ui.checkBox_lut_config.isChecked()))
 
     def _is_acm_enabled(self) -> bool:
         checkbox = getattr(self.ui, "checkBox_enable_acm", None)
@@ -599,7 +620,8 @@ class AcmUiController:
             ui.checkBox_enable_acm.toggled.connect(self._schedule_auto_run)
         if hasattr(ui, "checkBox_ignore_gain_luts"):
             ui.checkBox_ignore_gain_luts.toggled.connect(self._on_ignore_gain_luts_toggled)
-        ui.checkBox_lut_visualization.toggled.connect(self._on_lut_visualization_toggled)
+        ui.checkBox_lut_config.toggled.connect(self._on_lut_visualization_toggled)
+        ui.checkBox_lut_result.toggled.connect(self._on_lut_result_toggled)
         ui.spinBox_len_h.valueChanged.connect(self._on_len_h_changed)
         ui.spinBox_len_y.valueChanged.connect(self._on_lut_lengths_changed)
         ui.spinBox_len_s.valueChanged.connect(self._on_lut_lengths_changed)
@@ -845,9 +867,33 @@ class AcmUiController:
             h_idx_out, y_out_norm, s_out_norm = None, None, None
 
         # Update charts
-        self.delta_chart_y.set_h_markers(h_idx_in, h_idx_out, y_in_norm, y_out_norm)
-        self.delta_chart_s.set_h_markers(h_idx_in, h_idx_out, s_in_norm, s_out_norm)
-        self.delta_chart_h.set_h_markers(h_idx_in, h_idx_out, None, None)
+        # --- fetch intermediate ACM delta/gain values for annotation ---
+        intermediates = self._get_current_acm().get_pixel_intermediates(x_pos, y_pos)
+        if intermediates is not None:
+            dy = intermediates['delta_y']
+            ds = intermediates['delta_s']
+            dh = intermediates['delta_h']
+            gyy = intermediates['gain_yy']
+            gys = intermediates['gain_ys']
+            gsy = intermediates['gain_sy']
+            gss = intermediates['gain_ss']
+            ghy = intermediates['gain_hy']
+            ghs = intermediates['gain_hs']
+            # Per-channel labels: each chart only shows its own delta/gain values.
+            y_in  = f'orig_dY={dy:.2f}, final_dY={dy*gyy*gys:.3f}'
+            y_out = f'gain_yy={gyy:.3f}, gain_ys={gys:.3f}'
+            s_in  = f'orig_dS={ds:.2f}, final_dS={ds*gsy*gss:.3f}'
+            s_out = f'gain_sy={gsy:.3f}, gain_ss={gss:.3f}'
+            h_in  = f'orig_dH={dh:.2f}, final_dH={dh*ghy*ghs:.3f}'
+            h_out = f'gain_hy={ghy:.3f}, gain_hs={ghs:.3f}'
+        else:
+            y_in = y_out = s_in = s_out = h_in = h_out = None
+        self.delta_chart_y.set_h_markers(h_idx_in, h_idx_out, y_in_norm, y_out_norm,
+                                         input_label=y_in, output_label=y_out)
+        self.delta_chart_s.set_h_markers(h_idx_in, h_idx_out, s_in_norm, s_out_norm,
+                                         input_label=s_in, output_label=s_out)
+        self.delta_chart_h.set_h_markers(h_idx_in, h_idx_out, None, None,
+                                         input_label=h_in, output_label=h_out)
 
     def _apply_lut_lengths(self) -> None:
         """Apply the current spinBox LUT lengths to the active ACM instance.
@@ -1450,6 +1496,76 @@ class AcmUiController:
         qimage = QImage(image.data, w, h, image.strides[0], fmt).copy()
         return QPixmap.fromImage(qimage)
 
+    # ------------------------------------------------------------------ #
+    # Lut Result window                                                 #
+    # ------------------------------------------------------------------ #
+
+    def _ensure_lut_result_window(self) -> LutImageWindow:
+        """Create the standalone LUT result visualization window on first use."""
+        if self.lut_result_window is None:
+            self.lut_result_window = LutImageWindow(self._on_lut_result_closed)
+            self.lut_result_window.setWindowTitle("LUT Result")
+            host_frame = self._win.frameGeometry()
+            screen = self._win.screen() or QGuiApplication.primaryScreen()
+            available = screen.availableGeometry() if screen is not None else host_frame
+            margin = 12
+            ww = self.lut_result_window.frameGeometry().width()
+            wh = self.lut_result_window.frameGeometry().height()
+            rx = host_frame.right() + margin
+            lx = host_frame.left() - margin - ww
+            tx = rx if rx + ww <= available.right() else max(available.left(), lx)
+            ty = min(max(host_frame.top(), available.top()), available.bottom() - wh)
+            self.lut_result_window.move(tx + 400, ty + 200)
+        return self.lut_result_window
+
+    def _on_lut_result_closed(self) -> None:
+        """Keep the View Lut Result checkbox in sync when the window is closed manually."""
+        if hasattr(self.ui, "checkBox_lut_result") and self.ui.checkBox_lut_result.isChecked():
+            self.ui.checkBox_lut_result.blockSignals(True)
+            self.ui.checkBox_lut_result.setChecked(False)
+            self.ui.checkBox_lut_result.blockSignals(False)
+
+    def _update_lut_result(self) -> None:
+        """Refresh the LUT result image when the result window is visible."""
+        if self.lut_result_window is None or not self.lut_result_window.isVisible():
+            return
+        acm = self._get_current_acm()
+        if not hasattr(acm, "_last_intermediate_shape"):
+            self.lut_result_window.image_label.clear()
+            self.lut_result_window.image_label.setText("No result data")
+            return
+        pixmap = self._lut_image_to_pixmap(acm.dump_lut_results(return_image=True))
+        if pixmap is None:
+            self.lut_result_window.image_label.clear()
+            self.lut_result_window.image_label.setText("No result data")
+            return
+        self.lut_result_window.image_label.setText("")
+        self.lut_result_window.image_label.setPixmap(pixmap)
+
+    def _on_lut_result_toggled(self, checked: bool) -> None:
+        """Show or close the standalone LUT result window."""
+        if checked:
+            window = self._ensure_lut_result_window()
+            window.show()
+            window.raise_()
+            window.activateWindow()
+            frame = self._input_provider()
+            if frame is None:
+                window.image_label.clear()
+                window.image_label.setText("No input loaded")
+            elif not self._is_acm_enabled():
+                window.image_label.clear()
+                window.image_label.setText("ACM is disabled")
+            else:
+                acm = self._get_current_acm()
+                if not hasattr(acm, "_last_intermediate_shape"):
+                    window.image_label.setText("Acquiring result...")
+                    self._schedule_auto_run()
+                else:
+                    self._update_lut_result()
+        elif self.lut_result_window is not None and self.lut_result_window.isVisible():
+            self.lut_result_window.close()
+
     def _ensure_lut_image_window(self) -> LutImageWindow:
         """Create the standalone LUT visualization window on first use."""
         if self.lut_image_window is None:
@@ -1474,10 +1590,10 @@ class AcmUiController:
 
     def _on_lut_window_closed(self) -> None:
         """Keep the LUT visualization checkbox in sync when the window is closed manually."""
-        if self.ui.checkBox_lut_visualization.isChecked():
-            self.ui.checkBox_lut_visualization.blockSignals(True)
-            self.ui.checkBox_lut_visualization.setChecked(False)
-            self.ui.checkBox_lut_visualization.blockSignals(False)
+        if self.ui.checkBox_lut_config.isChecked():
+            self.ui.checkBox_lut_config.blockSignals(True)
+            self.ui.checkBox_lut_config.setChecked(False)
+            self.ui.checkBox_lut_config.blockSignals(False)
 
     def _update_lut_visualization(self) -> None:
         """Refresh the LUT overview image when the standalone window is visible."""
@@ -1528,14 +1644,14 @@ class AcmUiController:
         """Debounce ACM processing after UI edits."""
         input_frame = self._input_provider()
         if input_frame is None:
-            return
+                return
         key = (input_frame.fmt, input_frame.clrspc, input_frame.width, input_frame.height, input_frame.frame_idx)
         if key != self._last_input_key:
             self._last_input_key = key
             self._colorspace_user_override = False
             self._auto_select_colorspace_for_input(input_frame)
         if not self._is_acm_enabled():
-            return
+                return
         self.auto_run_timer.start(300)
 
     def _do_auto_run(self) -> None:
@@ -1589,6 +1705,7 @@ class AcmUiController:
             self._latest_output_frame = out_frame
             if self._frozen_pixel_x is not None and self._frozen_pixel_y is not None:
                 self.update_preview_h_marker(self._frozen_pixel_x, self._frozen_pixel_y)
+            self._update_lut_result()
             self._preview_time_callback(elapsed_ms)
             self._status_callback(f"Processing completed in {elapsed_ms:.2f} ms")
         except Exception as exc:

@@ -69,6 +69,7 @@ class IoUiController:
         self._on_input_loaded = on_input_loaded
         self._load_config_callback = on_load_config
         self._status_callback = status_callback
+        self._input_loaded = False
         self._init_ui()
         self._connect_signals()
         if auto_load_defaults:
@@ -151,7 +152,9 @@ class IoUiController:
         self.ui.checkBox_set_color.setChecked(False)
         path = self.ui.lineEdit_input_file.text()
         if path:
-            self._guess_input_params(path)
+            # Only re-guess format if no input has been loaded yet.
+            if not self._input_loaded:
+                self._guess_input_params(path)
             self._recalc_frame_num()
             self._load_input_image()
 
@@ -424,5 +427,6 @@ class IoUiController:
                 )
             self._emit_input_loaded(
                 frame, f"Input loaded: {frame.width}x{frame.height}, idx={frame_idx}")
+            self._input_loaded = True
         except Exception as exc:
             QMessageBox.critical(None, "Error", f"Failed to load image: {exc}")

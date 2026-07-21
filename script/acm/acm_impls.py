@@ -248,6 +248,21 @@ class AcmImplHwRk(AcmImplBase):
                 gain_lut_hs[2], idxHD0, idxHD1, idxS0, idxS1, wgtSH00, wgtSH01, wgtSH10, wgtSH11, wgtFixBitSH
             )
 
+        # ---- 10b. Save raw intermediate values for UI inspection ----
+        # Normalise HW fixed-point values to match _do_acm_yuv semantics.
+        # delta_y/s: HW range [-1023,1023] -> normalised [-0.25, 0.25]
+        # delta_h:   HW range [-255, 255]  -> normalised [-64, 64]
+        # gain_*:    HW range (unity=512)  -> normalised [-1, 1]
+        self._last_delta_y_raw = dy.astype(np.float32) / 4095.0
+        self._last_delta_s_raw = ds.astype(np.float32) / 4095.0
+        self._last_delta_h_raw = dh.astype(np.float32) / 4.0
+        self._last_gain_yy = wy_hy.astype(np.float32) / 511.0
+        self._last_gain_ys = wy_hs.astype(np.float32) / 511.0
+        self._last_gain_sy = ws_hy.astype(np.float32) / 511.0
+        self._last_gain_ss = ws_hs.astype(np.float32) / 511.0
+        self._last_gain_hy = wh_hy.astype(np.float32) / 511.0
+        self._last_gain_hs = wh_hs.astype(np.float32) / 511.0
+        self._last_intermediate_shape = dy.shape
         # ---- 11. Dual-gain delta chain ----
         Ydel0 = dy * wy_hy # S9*S8.2
         Hdel0 = dh * wh_hy
@@ -456,6 +471,18 @@ class AcmImplSwVariant(AcmImplBase):
             gain_ss = cv2.remap(lut_gs_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
             gain_hs = cv2.remap(lut_gh_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
+
+        # ---- 5b. Save raw intermediate values for UI inspection ----
+        self._last_delta_y_raw = delta_y.copy()
+        self._last_delta_s_raw = delta_s.copy()
+        self._last_delta_h_raw = delta_h.copy()
+        self._last_gain_yy = gain_yy.copy()
+        self._last_gain_ys = gain_ys.copy()
+        self._last_gain_sy = gain_sy.copy()
+        self._last_gain_ss = gain_ss.copy()
+        self._last_gain_hy = gain_hy.copy()
+        self._last_gain_hs = gain_hs.copy()
+        self._last_intermediate_shape = delta_y.shape
         # ---- 6. Combine deltas (apply global gains HERE instead of upfront) ----
         g_y = self.gain_y / 256.0
         g_s = self.gain_s / 256.0

@@ -654,6 +654,19 @@ class AcmImplBase:
                 lut_gh_s, idx_hd, idx_s, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
             )
 
+
+        # ---- 5b. Save raw intermediate values for UI inspection ----
+        self._last_delta_y_raw = delta_y.copy()
+        self._last_delta_s_raw = delta_s.copy()
+        self._last_delta_h_raw = delta_h.copy()
+        self._last_gain_yy = gain_yy.copy()
+        self._last_gain_ys = gain_ys.copy()
+        self._last_gain_sy = gain_sy.copy()
+        self._last_gain_ss = gain_ss.copy()
+        self._last_gain_hy = gain_hy.copy()
+        self._last_gain_hs = gain_hs.copy()
+        self._last_intermediate_shape = delta_y.shape
+
         # ---- 6. Combine deltas (all in normalised float) ----
         delta_y = delta_y * gain_yy * gain_ys  # [-dr_y, dr_y]
         delta_s = delta_s * gain_sy * gain_ss  # [-dr_s, dr_s]
@@ -1060,11 +1073,34 @@ class AcmImplBase:
                 print(f"[ACM] Config parameters saved to file '{filename}'")
                 return True
 
+
+    def get_pixel_intermediates(self, x: int, y: int) -> dict | None:
+        """Return raw intermediate delta/gain values for a specific pixel.
+
+        Returns a dict with keys delta_y, delta_s, delta_h, gain_yy, gain_ys,
+        gain_sy, gain_ss, gain_hy, gain_hs, or None if no intermediate data
+        has been stored yet (i.e. no image has been processed).
+        """
+        if not hasattr(self, "_last_intermediate_shape"):
+            return None
+        h, w = self._last_intermediate_shape
+        if y < 0 or y >= h or x < 0 or x >= w:
+            return None
+        return {
+            "delta_y": float(self._last_delta_y_raw[y, x]),
+            "delta_s": float(self._last_delta_s_raw[y, x]),
+            "delta_h": float(self._last_delta_h_raw[y, x]),
+            "gain_yy": float(self._last_gain_yy[y, x]),
+            "gain_ys": float(self._last_gain_ys[y, x]),
+            "gain_sy": float(self._last_gain_sy[y, x]),
+            "gain_ss": float(self._last_gain_ss[y, x]),
+            "gain_hy": float(self._last_gain_hy[y, x]),
+            "gain_hs": float(self._last_gain_hs[y, x]),
+        }
     def dump_luts(self, dir: str = "", return_image: bool = False) -> np.ndarray | None:
         """Dump all LUT tables into a single figure and optionally return the image.
 
-        Top row:  3 delta curves (Y/S/H vs H)
-        Rows 2-3: 6 gain heatmaps (3×Y axis + 3×S axis)
+        All rows: 9 heatmaps (3 delta strips + 6 gain LUTs) in a 3×3 grid.
         Small LUTs are rendered with nearest-neighbour interpolation for clarity.
         """
         from matplotlib.gridspec import GridSpec
@@ -1082,7 +1118,7 @@ class AcmImplBase:
         ax_delta.plot(x, self.lut_delta_hbyh, color="green", linewidth=1.5, label="delta_hbyh")
         ax_delta.axhline(0, color="gray", linestyle=":", linewidth=0.8)
         ax_delta.legend(loc="upper right")
-        ax_delta.set_title(f"ACM Delta LUT by H  (len_h={nh})")
+        ax_delta.set_title(f'ACM Delta LUT by H  (len_h={nh})')
         ax_delta.set_xlabel("H index")
         ax_delta.set_ylabel("Delta value")
         ax_delta.grid(True, linestyle=":", alpha=0.5)
@@ -1125,6 +1161,57 @@ class AcmImplBase:
             out_path = f"{dir}/lut_all.png"
             plt.savefig(out_path, dpi=200, bbox_inches="tight")
             print(f"[ACM] dump LUT overview to {out_path}.")
+        plt.close(fig)
+        return image
+
+    def dump_lut_results(self, return_image: bool = False) -> object:
+        """Dump per-pixel LUT lookup results as 9 heatmaps in a 3x3 grid.
+
+        Shows the 9 intermediate arrays (delta_y/s/h + 6 gains) from the
+        last ACM processing run at full image resolution.
+        """
+        if not hasattr(self, "_last_intermediate_shape"):
+            print("[LUT Result] dump_lut_results: no _last_intermediate_shape")
+            return None
+        print(f"[LUT Result] dump_lut_results: shape={self._last_intermediate_shape}")
+        from matplotlib.gridspec import GridSpec
+
+        fig = plt.figure(figsize=(16, 12))
+        gs = GridSpec(3, 3, figure=fig, hspace=0.45, wspace=0.35)
+
+        specs = [
+            (0, 0, "_last_delta_y_raw", "delta_y (raw)", "RdBu_r", 1.0),
+            (0, 1, "_last_delta_s_raw", "delta_s (raw)", "RdBu_r", 1.0),
+            (0, 2, "_last_delta_h_raw", "delta_h (raw)", "RdBu_r", 64.0),
+            (1, 0, "_last_gain_yy", "gain_yy", "RdBu_r", 1.0),
+            (1, 1, "_last_gain_sy", "gain_sy", "RdBu_r", 1.0),
+            (1, 2, "_last_gain_hy", "gain_hy", "RdBu_r", 1.0),
+            (2, 0, "_last_gain_ys", "gain_ys", "RdBu_r", 1.0),
+            (2, 1, "_last_gain_ss", "gain_ss", "RdBu_r", 1.0),
+            (2, 2, "_last_gain_hs", "gain_hs", "RdBu_r", 1.0),
+        ]
+        for row, col, attr, title, cmap, vmax in specs:
+            data = getattr(self, attr, None)
+            if data is None:
+                continue
+            ax = fig.add_subplot(gs[row, col])
+            # vmax = np.percentile(np.abs(data), 99) if data.size > 0 else 1.0
+            # vmax = max(vmax, 0.01)
+            h, w = data.shape
+            im = ax.imshow(data, cmap=cmap, vmin=-vmax, vmax=vmax,
+                          aspect="auto", origin="lower",
+                          interpolation="bilinear" if max(h, w) > 256 else "nearest")
+            ax.set_title(f"{title}  [{w}x{h}]", fontsize=12)
+            ax.set_xlabel("X pixel")
+            ax.set_ylabel("Y pixel")
+            plt.colorbar(im, ax=ax, shrink=0.82)
+
+        fig.suptitle("ACM Per-Pixel LUT Lookup Results", fontsize=14, fontweight="bold")
+
+        image = None
+        if return_image:
+            fig.canvas.draw()
+            image = np.asarray(fig.canvas.buffer_rgba()).copy()
         plt.close(fig)
         return image
 
