@@ -601,14 +601,14 @@ def run_selected_algo(planar_in, bcsh, pixel_depth, coef_precision, algo_type, i
         )
         runtime_steps = get_evideo_plan_a_runtime_steps(csc_config, bcsh, base_mat, base_ofs)
         if not input_is_rgb and not output_is_rgb:
-            # Y2Y 为 One-Step，仅 YUV 域
-            runtime_domains = [False]
+            # Y2Y：输入中间层 RGB（Q_rgb）-> 输出 YUV（Q_yuv）
+            runtime_domains = [False, False]
         elif not input_is_rgb and output_is_rgb:
             runtime_domains = [False, True]
         elif input_is_rgb and not output_is_rgb:
             runtime_domains = [True, False]
         else:
-            # R2R：输入 RGB -> 输出 RGB（中间 YUV 已合成，无中间 clip）
+            # R2R：输入中间层 YUV（Q_yuv）-> 输出 RGB（Q_rgb）
             runtime_domains = [True, True]
 
         planar_out = planar_in

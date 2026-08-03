@@ -359,9 +359,18 @@ def _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs):
 
 def get_evideo_plan_a_steps(config, bcsh_cfg, base_mat, base_ofs):
     """
-    Build the UI-visible YUV/RGB domain transforms for Plan A.
+    Build the UI-visible YUV/RGB domain transforms for Plan A（按模式分支显示 Step1/Step2）.
     """
     _, _, quad_rgb, quad_yuv_raw, _ = _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs)
+    mode = config.csc_mode
+    # Step1=输入侧域矩阵，Step2=输出侧域矩阵（中间域转换 M 不单独显示）
+    if mode.is_input_yuv and mode.is_output_yuv:  # Y2Y: Q_rgb(输入中间层) -> Q_yuv(输出)
+        return _split_quad_to_step(quad_rgb, config), _split_quad_to_step(quad_yuv_raw, config)
+    if mode.is_input_yuv and not mode.is_output_yuv:  # Y2R: Q_yuv(输入) -> Q_rgb(输出)
+        return _split_quad_to_step(quad_yuv_raw, config), _split_quad_to_step(quad_rgb, config)
+    if not mode.is_input_yuv and mode.is_output_yuv:  # R2Y: Q_rgb(输入) -> Q_yuv(输出)
+        return _split_quad_to_step(quad_rgb, config), _split_quad_to_step(quad_yuv_raw, config)
+    # R2R: Q_yuv(输入中间层) -> Q_rgb(输出)
     return _split_quad_to_step(quad_yuv_raw, config), _split_quad_to_step(quad_rgb, config)
 
 
@@ -373,16 +382,15 @@ def get_evideo_plan_a_runtime_steps(config, bcsh_cfg, base_mat, base_ofs):
     mode = config.csc_mode
 
     if mode.is_input_yuv and mode.is_output_yuv:
-        # Y2Y 按文档为 One-Step：Q_yuv 直接作用于 YUV，RgbGain/RgbOffset 不生效
-        runtime_quads = [quad_yuv_raw @ quad_base]
+        # Y2Y：Q_rgb 作用于输入中间层 RGB（MI），Q_yuv 作用于输出 YUV（O）
+        runtime_quads = [quads["quad_r2y"] @ quad_rgb @ quads["quad_y2r"], quad_yuv_raw @ quad_base]
     elif mode.is_input_yuv and not mode.is_output_yuv:
         runtime_quads = [quad_yuv_raw, quad_rgb @ quad_base]
     elif not mode.is_input_yuv and mode.is_output_yuv:
         runtime_quads = [quad_rgb, quad_yuv_raw @ quad_base]
     else:
-        # R2R：Q_rgb 作用于输入 RGB；Q_yuv 作用于输出中间层 YUV，
-        # 中间转换 (r2y->Q_yuv->y2r) 合成一步，避免中间层 clip 破坏负色度
-        runtime_quads = [quad_rgb, quads["quad_y2r"] @ quad_yuv_signed @ quads["quad_r2y"] @ quad_base]
+        # R2R：Q_yuv 作用于输入中间层 YUV（MI），Q_rgb 作用于输出 RGB（O）
+        runtime_quads = [quads["quad_y2r"] @ quad_yuv_signed @ quads["quad_r2y"], quad_rgb @ quad_base]
 
     return [_split_quad_to_step(quad, config) for quad in runtime_quads]
 
@@ -391,7 +399,7 @@ def get_evideo_plan_b_steps(config, bcsh_cfg, base_mat, base_ofs):
     """
     Build the confirmed two-step homogeneous transforms for Plan B.
     """
-    quads, quad_base, quad_rgb, quad_yuv_raw, quad_yuv_signed = _get_plan_domain_quads(
+    quads, quad_base, quad_rgb, quad_yuv_raw, _ = _get_plan_domain_quads(
         config, bcsh_cfg, base_mat, base_ofs
     )
     mode = config.csc_mode
@@ -406,10 +414,9 @@ def get_evideo_plan_b_steps(config, bcsh_cfg, base_mat, base_ofs):
         step1_quad = quad_rgb
         step2_quad = quad_yuv_raw @ quad_base
     else:
-        # R2R：Q_yuv 作用于输出中间层 YUV，Q_rgb 作用于输出 RGB；
-        # 中间转换 (r2y->Q_yuv->y2r->Q_rgb) 合成一步，避免中间层 clip 破坏负色度
+        # R2R：仅 Q_rgb 作用于输出 RGB，Q_yuv 不生效（X）
         step1_quad = None
-        step2_quad = quad_rgb @ quads["quad_y2r"] @ quad_yuv_signed @ quads["quad_r2y"] @ quad_base
+        step2_quad = quad_rgb @ quad_base
 
     return _split_quad_to_step(step1_quad, config), _split_quad_to_step(step2_quad, config)
 

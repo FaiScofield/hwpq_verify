@@ -39,6 +39,7 @@ from csc.get_csc_coef_hsv import (
     ALGO_EVIDEO_CSC,
     ALGO_EVIDEO_CSC_PLAN_A,
     ALGO_EVIDEO_CSC_PLAN_B,
+    ALGO_EVIDEO_CSC_PLAN_C,
     normalize_algo_type,
 )
 from csc.run_csc import (
@@ -105,6 +106,7 @@ ALGO_TYPE_OPTIONS = [
     ALGO_EVIDEO_CSC,
     ALGO_EVIDEO_CSC_PLAN_A,
     ALGO_EVIDEO_CSC_PLAN_B,
+    ALGO_EVIDEO_CSC_PLAN_C,
 ]
 
 BCSH_NAMES = [

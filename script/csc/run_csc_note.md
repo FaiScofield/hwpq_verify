@@ -10,7 +10,8 @@
 | `ALGO_RK_SW_CSC` / `RK SW CSC` | 现行算法 | ^ | 运行时固定为 `10bit` 系数 | 软件 CSC，基础 BCSH 路径与 `RK HW CSC` 同源；仅 `R2Y` 场景会把 `RgbGain` 抽成独立 `step1` 以减轻偏色 |
 | `ALGO_EVIDEO_CSC` / `eVideo CSC` | 现行算法<br>(索诺克定制版) | `eVideo` 映射 | ^ | 仍是单次 `apply_csc()` 路径，和 `RK SW CSC` 的主要差异在于 BCSH 参数映射范围不同 |
 | `ALGO_EVIDEO_CSC_PLAN_A` / `eVideo CSC Plan A` | 改进方案A | ^ | `step1/step2` 分别量化 | Two-Step，Y2Y时不生效`RgbGain/RgbOffset`参数 |
-| `ALGO_EVIDEO_CSC_PLAN_B` / `eVideo CSC Plan B` | 改进方案B | ^ | ^ | 在PLAN_A 基础上，以输出域为参考做BCSH，RGB转到HSV实现 |
+| `ALGO_EVIDEO_CSC_PLAN_B` / `eVideo CSC Plan B` | 改进方案B | ^ | ^ | 在PLAN_A 基础上，以输出域为参考做BCSH |
+| `ALGO_EVIDEO_CSC_PLAN_C` / `eVideo CSC Plan C` | 改进方案C | `eVideo` 映射 | ^ | 所有参数统一转到 RGB，再进入 HSV 域调色，调色后转回输出色域，四模式全参数生效 |
 
 ### RK HW CSC
 
@@ -82,28 +83,28 @@
 - BCSH参数生效总结：
   - `BCSH` 4 个参数融合成齐次矩阵 `Q_yuv`，作用对象按优先级从高到低排列：输出 YUV（`R2Y/Y2Y`）、输入 YUV（`Y2R`）、输入中间层 YUV（`R2R`）
   - `RgbGain/RgbOffset` 6 个参数融合成齐次矩阵 `Q_rgb`，作用对象按优先级从高到低排列：输出 RGB（`Y2R/R2R`）、输入 RGB（`R2Y`）、输入中间层 RGB（`Y2Y`）
-  - 运行时按域拆分为齐次矩阵路径：**Two-Step** 实现，`Y2Y` 时为**One-Step**，且`RgbGain/RgbOffset`参数不生效
+  - 运行时按域拆分为齐次矩阵路径：**Two-Step** 实现，四个模式均按 $I' \to O'$ 两步执行
     - 对于 `R2Y`：$I'_{rgb} = clip(Q_{rgb} * I_{rgb}, 0, 1);\quad O'_{yuv} = clip((Q_{yuv} * M_{r2y}) * I'_{rgb}, 0, 1)$
     - 对于 `Y2R`：$I'_{yuv} = clip(Q_{yuv} * I_{yuv}, 0, 1);\quad O'_{rgb} = clip((Q_{rgb} * M_{y2r}) * I'_{yuv}, 0, 1)$
-    - 对于 `R2R`：$I'_{rgb} = clip(Q_{rgb} * I_{rgb}, 0, 1);\quad O'_{rgb} = clip(M_{y2r} * Q_{yuv} * M_{r2y} * I'_{rgb}, 0, 1);$
-    - 对于 `Y2Y`：$O'_{yuv} = clip((Q_{yuv} * M_{y2y}) * I_{yuv}, 0, 1)$
+    - 对于 `R2R`：$I'_{rgb} = clip(M_{y2r} * Q_{yuv} * M_{r2y} * I_{rgb}, 0, 1);\quad O'_{rgb} = clip(Q_{rgb} * I'_{rgb}, 0, 1);$
+    - 对于 `Y2Y`：$I'_{yuv} = clip(M_{r2y} * Q_{rgb} * M_{y2r} * I_{yuv}, 0, 1);\quad O'_{yuv} = clip((Q_{yuv} * M_{y2y}) * I'_{yuv}, 0, 1)$
   - UI 中仍只显示两组齐次矩阵参数：
-    - `Step1` 显示 `Q_yuv` 的系数和偏移
-    - `Step2` 显示 `Q_rgb` 的系数和偏移
+    - `Step1` 根据以上4个模式的分支显示 `Q_yuv/Q_rgb` 的系数和偏移
+    - `Step2` 根据以上4个模式的分支显示 `Q_yuv/Q_rgb` 的系数和偏移
     - 中间域转换使用的 `M_{r2y}` / `M_{y2r}` 不在 UI 中单独显示
 
     | 参数类型 | 映射范围 | 作用域 |  R2Y | Y2R | R2R | Y2Y |
     | ------- | ------- | ------ | :----:|:---:|:---:|:---:|
-    | 亮度 `Brightness`   | `[-1.0, 1.0]`  | YUV |  O | I | MO | O |
-    | 对比度 `Contrast`   | `[0.0, 2.0]`   | YUV |  O | I | MO | O |
-    | 饱和度 `Saturation` | `[0.0, 2.0]`   | YUV |  O | I | MO | O |
-    | 色调 `Hue`          |`[-180, 180]deg`| YUV |  O | I | MO | O |
-    | RGB增益 `RgbGain`   | `[0.0, 8.0]`   | RGB |  I | O | I  | X |
-    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]`  | RGB |  I | O | I  | X |
+    | 亮度 `Brightness`   | `[-1.0, 1.0]`  | YUV |  O | I | MI | O |
+    | 对比度 `Contrast`   | `[0.0, 2.0]`   | YUV |  O | I | MI | O |
+    | 饱和度 `Saturation` | `[0.0, 2.0]`   | YUV |  O | I | MI | O |
+    | 色调 `Hue`          |`[-180, 180]deg`| YUV |  O | I | MI | O |
+    | RGB增益 `RgbGain`   | `[0.0, 8.0]`   | RGB |  I | O | O  | MI |
+    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]`  | RGB |  I | O | O  | MI |
 
 ### eVideo CSC Plan B
 
-- eVideo CSC 软件改进版本B，当前代码中的实现已经收敛为“确认版齐次矩阵路径”，不再走早期文档中的 `RGB => HSV` 运行时分支
+- eVideo CSC 软件改进版本B
 - 参数构成沿用 eVideo 映射，并复用与 Plan A 相同的两个域矩阵：
   - `Q_yuv`：由 `Brightness/Contrast/Saturation/Hue` 组合而成，只表示 YUV 域参数
   - `Q_rgb`：由 `RgbGain/RgbOffset` 组合而成，只表示 RGB 域参数
@@ -116,26 +117,52 @@
 
     | 参数类型 | 映射范围 | 作用域 |  R2Y | Y2R | R2R | Y2Y |
     | ------- | ------- | ------ | :----:|:---:|:---:|:---:|
-    | 亮度 `Brightness`   | `[-1.0, 1.0]`    | YUV |  O | MO | MO | O |
-    | 对比度 `Contrast`   | `[0.0, 2.0]`     | YUV |  O | MO | MO | O |
-    | 饱和度 `Saturation` | `[0.0, 2.0]`     | YUV |  O | MO | MO | O |
-    | 色调 `Hue`          | `[-180, 180]deg` | YUV |  O | MO | MO | O |
+    | 亮度 `Brightness`   | `[-1.0, 1.0]`    | YUV |  O | I | X | O |
+    | 对比度 `Contrast`   | `[0.0, 2.0]`     | YUV |  O | I | X | O |
+    | 饱和度 `Saturation` | `[0.0, 2.0]`     | YUV |  O | I | X | O |
+    | 色调 `Hue`          | `[-180, 180]deg` | YUV |  O | I | X | O |
     | RGB增益 `RgbGain`   | `[0.0, 8.0]`     | RGB |  I | O | O | X |
     | RGB偏移 `RgbOffset` | `[-1.0, 1.0]`    | RGB |  I | O | O | X |
+
+### eVideo CSC Plan C
+
+- eVideo CSC 软件改进版本C：把所有参数统一转到 RGB 域，再进入 HSV 色域调色，调色完成后转回原（输出）色域
+- 参数构成沿用 eVideo 映射，全部参数在 `RGB -> HSV -> RGB` 调色路径中生效：
+  - `Hue` 作用于 HSV 的 `H`：$H' = (H + hue) \bmod 360$
+  - `Saturation` 作用于 HSV 的 `S`：$S' = clip(S \times saturation, 0, 1)$
+  - `Brightness/Contrast` 作用于 HSV 的 `V`：$V' = clip((V - 0.5) \times contrast + 0.5 + brightness, 0, 1)$
+  - `RgbGain/RgbOffset` 在 HSV 转回 RGB 后应用：$RGB' = clip(RGB \times rgb\_gains + rgb\_offsets, 0, 1)$
+- 运行时按模式调度（输入/输出的 YUV↔RGB 转换按实际色彩空间构建）：
+  - 对于 `R2R`：`RGB -> HSV(调色) -> RGB`
+  - 对于 `R2Y`：`RGB -> HSV(调色) -> RGB -> M_{r2y}`
+  - 对于 `Y2R`：`M_{y2r} -> RGB -> HSV(调色) -> RGB`
+  - 对于 `Y2Y`：`M_{y2r} -> RGB -> HSV(调色) -> RGB -> M_{r2y}`
+- 特点：
+  - 调色全程在 HSV 域进行，为非线性路径（非矩阵合成），因此不参与固定点系数量化，精度为浮点
+  - 四模式下所有参数均生效，无 `X` 项；`RgbGain/RgbOffset` 在转回 RGB 后应用
+
+    | 参数类型 | 映射范围 | 作用域 |  R2Y | Y2R | R2R | Y2Y |
+    | ------- | ------- | ------ | :----:|:---:|:---:|:---:|
+    | 亮度 `Brightness`   | `[-1.0, 1.0]`  | HSV-V |  I | O | O | MO |
+    | 对比度 `Contrast`   | `[0.0, 2.0]`   | HSV-V |  I | O | O | MO |
+    | 饱和度 `Saturation` | `[0.0, 2.0]`   | HSV-S |  I | O | O | MO |
+    | 色调 `Hue`          |`[-180, 180]deg`| HSV-H |  I | O | O | MO |
+    | RGB增益 `RgbGain`   | `[0.0, 8.0]`   | RGB |  I | O | O | MO |
+    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]`  | RGB |  I | O | O | MO |
 
 ## 其他
 
 **关键差异**
 
-| 对比项 | `RK HW CSC` | `RK SW CSC` | `eVideo CSC` | `eVideo CSC Plan A` | `eVideo CSC Plan B` |
-| --- | --- | --- | --- | --- | --- |
-| 文档/代码对应 | `ALGO_RK_HW_CSC` | `ALGO_RK_SW_CSC` | `ALGO_EVIDEO_CSC` | `ALGO_EVIDEO_CSC_PLAN_A` | `ALGO_EVIDEO_CSC_PLAN_B` |
-| 实现形态 | 硬件 One-Step CSC | 软件浮点 CSC | 软件浮点 CSC | 软件浮点 CSC 改进方案 A | 软件浮点 CSC 改进方案 B |
-| BCSH 映射范围 | `RK` 旧映射 | `RK` 旧映射 | `eVideo` 映射 | `eVideo` 映射 | `eVideo` 映射 |
-| 运行时步数 | 固定 1 步 | 常规 1 步，`R2Y` 额外 `step1` | 固定 1 步 | `R2Y/Y2R` 2 步，`R2R/Y2Y` 4 步 | `R2Y/Y2R` 2 步，`R2R/Y2Y` 仅 `step2` |
-| 亮度/对比度/饱和度/色调 | 按原始 RK 规则折叠入单组 CSC | 基本同 `RK HW CSC`，但 `R2Y` 可先抽离 `RgbGain` | 按 eVideo 规则折叠入单组仿射 CSC | 合并进 `Q_yuv`，按域拆分执行 | 合并进 `Q_yuv`，但仅在 `Y2R/R2Y/Y2Y` 生效，`R2R` 不生效 |
-| `RgbGain` / `RgbOffset` | RGB 域 / 输出 RGB 域 | `RgbGain` 在 `R2Y` 可抽成独立 `step1` | RGB 域 / 输出 RGB 域 | 合并进 `Q_rgb`，UI 固定显示为 `Step2` 参数 | 合并进 `Q_rgb`，`R2Y/Y2R/R2R` 生效，`Y2Y` 不生效 |
-| 主要备注 | 输入域参数过大时可能偏色 | 运行时精度固定为 `10bit` | 主要差异在参数映射范围与仿射量化 | UI 只显示 `Q_yuv/Q_rgb` 两组参数，四步中的中间域转换不单独显示 | `step1` 允许为空，当前实现不包含 HSV 专用运行时分支 |
+| 对比项 | `RK HW CSC` | `RK SW CSC` | `eVideo CSC` | `eVideo CSC Plan A` | `eVideo CSC Plan B` | `eVideo CSC Plan C` |
+| --- | --- | --- | --- | --- | --- | --- |
+| 文档/代码对应 | `ALGO_RK_HW_CSC` | `ALGO_RK_SW_CSC` | `ALGO_EVIDEO_CSC` | `ALGO_EVIDEO_CSC_PLAN_A` | `ALGO_EVIDEO_CSC_PLAN_B` | `ALGO_EVIDEO_CSC_PLAN_C` |
+| 实现形态 | 硬件 One-Step CSC | 软件浮点 CSC | 软件浮点 CSC | 软件浮点 CSC 改进方案 A | 软件浮点 CSC 改进方案 B | 软件浮点 CSC 改进方案 C（HSV 域调色） |
+| BCSH 映射范围 | `RK` 旧映射 | `RK` 旧映射 | `eVideo` 映射 | `eVideo` 映射 | `eVideo` 映射 | `eVideo` 映射 |
+| 运行时步数 | 固定 1 步 | 常规 1 步，`R2Y` 额外 `step1` | 固定 1 步 | `R2Y/Y2R/R2R/Y2Y` 均 2 步 | `R2Y/Y2R` 2 步，`R2R/Y2Y` 仅 `step2` | 统一 `RGB→HSV→RGB` 调色路径（YUV 输入/输出额外各一次域转换） |
+| 亮度/对比度/饱和度/色调 | 按原始 RK 规则折叠入单组 CSC | 基本同 `RK HW CSC`，但 `R2Y` 可先抽离 `RgbGain` | 按 eVideo 规则折叠入单组仿射 CSC | 合并进 `Q_yuv`：`R2Y/Y2Y` 输出 YUV、`Y2R` 输入 YUV、`R2R` 输入中间层（MI） | 合并进 `Q_yuv`：`R2Y/Y2Y` 输出 YUV、`Y2R` 输入 YUV、`R2R` 不生效（X） | 合并进 HSV 的 H/S/V，四模式均生效 |
+| `RgbGain` / `RgbOffset` | RGB 域 / 输出 RGB 域 | `RgbGain` 在 `R2Y` 可抽成独立 `step1` | RGB 域 / 输出 RGB 域 | 合并进 `Q_rgb`：`R2Y` 输入、`Y2R/R2R` 输出、`Y2Y` 输入中间层（MI） | 合并进 `Q_rgb`：`R2Y` 输入、`Y2R/R2R` 输出、`Y2Y` 不生效（X） | 在 HSV 转回 RGB 后应用，四模式均生效 |
+| 主要备注 | 输入域参数过大时可能偏色 | 运行时精度固定为 `10bit` | 主要差异在参数映射范围与仿射量化 | UI 显示 `Q_yuv/Q_rgb` 两组（按模式分支），中间域转换不单独显示 | `step1` 允许为空，当前实现不包含 HSV 专用运行时分支 | 调色为非线性 HSV 路径（浮点），不参与固定点量化；中间 YUV↔RGB 固定 BT709 全范围 |
 
 **BCSH 参数范围对比**
 
