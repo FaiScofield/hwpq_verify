@@ -30,6 +30,7 @@ from get_csc_coef_hsv import (
     ALGO_EVIDEO_CSC,
     ALGO_EVIDEO_CSC_PLAN_A,
     ALGO_EVIDEO_CSC_PLAN_B,
+    ALGO_EVIDEO_CSC_PLAN_C,
     normalize_algo_type,
     get_evideo_plan_a_steps,
     get_evideo_plan_a_runtime_steps,
@@ -47,6 +48,8 @@ from run_csc import (
     is_yuv_format,
     is_rgb_format,
     get_pixel_depth,
+    is_image_file,
+    read_image_to_planar,
     read_raw_to_planar,
     write_planar_to_raw,
     apply_csc,
@@ -112,7 +115,7 @@ def get_bcsh_norm_value(param_key, raw_value, algo_type):
     Compute the normalized display value for a BCSH parameter.
     Returns a formatted string according to the algorithm's mapping range.
     """
-    evideo_algos = {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_PLAN_A, ALGO_EVIDEO_CSC_PLAN_B}
+    evideo_algos = {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_PLAN_A, ALGO_EVIDEO_CSC_PLAN_B, ALGO_EVIDEO_CSC_PLAN_C}
     is_evideo = algo_type in evideo_algos
 
     if param_key in ("r_gain", "g_gain", "b_gain"):
@@ -155,7 +158,7 @@ def remap_rgb_gain_value_for_algo_switch(value, old_algo_type, new_algo_type):
 
     remapped = float(value)
     rk_algo_types = {ALGO_RK_HW_CSC, ALGO_RK_SW_CSC}
-    evideo_algo_types = {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_PLAN_A, ALGO_EVIDEO_CSC_PLAN_B}
+    evideo_algo_types = {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_PLAN_A, ALGO_EVIDEO_CSC_PLAN_B, ALGO_EVIDEO_CSC_PLAN_C}
     if old_algo_type in rk_algo_types and new_algo_type in evideo_algo_types:
         remapped /= 4.0
     elif old_algo_type in evideo_algo_types and new_algo_type in rk_algo_types:
@@ -760,6 +763,7 @@ def open_csc_ui(args=None):
         ALGO_EVIDEO_CSC,
         ALGO_EVIDEO_CSC_PLAN_A,
         ALGO_EVIDEO_CSC_PLAN_B,
+        ALGO_EVIDEO_CSC_PLAN_C,
     ]
     bcsh_tab_layout = [
         [sg.Text('Algo Type:', size=(8, 1)),
@@ -2229,11 +2233,36 @@ def open_csc_ui(args=None):
         if not input_file or not os.path.isfile(input_file):
             return
 
+        is_image = is_image_file(input_file)
+
         try:
-            w = int(values['-WIDTH-'])
-            h = int(values['-HEIGHT-'])
-            ifmt = get_fmt_from_display(values['-IN-FMT-'])
-            iclr = get_clrspc_from_display(values['-IN-CLR-'])
+            if is_image:
+                # 图片文件（PNG/JPEG/BMP）：直接解码为 RGB planar，分辨率取图像实际尺寸
+                decoded_planar, img_w, img_h = read_image_to_planar(input_file)
+                planar_in_full = decoded_planar
+                w, h = int(img_w), int(img_h)
+                ifmt = 0x0  # RGB888：解码后的像素为 RGB
+                iclr = 1    # RGB_Full：PIL 解码为全范围 RGB
+                current_input_file_params = (input_file, w, h, ifmt)
+
+                # 自动更新界面上的分辨率
+                window['-WIDTH-'].update(value=str(w))
+                values['-WIDTH-'] = str(w)
+                window['-HEIGHT-'].update(value=str(h))
+                values['-HEIGHT-'] = str(h)
+                # 输入格式/色彩空间固定为 RGB888 + RGB_Full
+                rgb_fmt = next((f for f in fmt_display if f.startswith('0x0 ')), None)
+                if rgb_fmt:
+                    window['-IN-FMT-'].update(value=rgb_fmt)
+                    values['-IN-FMT-'] = rgb_fmt
+                window['-IN-CLR-'].update(value=clrspc_rgb[1])
+                values['-IN-CLR-'] = clrspc_rgb[1]
+            else:
+                w = int(values['-WIDTH-'])
+                h = int(values['-HEIGHT-'])
+                ifmt = get_fmt_from_display(values['-IN-FMT-'])
+                iclr = get_clrspc_from_display(values['-IN-CLR-'])
+
             ofmt = get_fmt_from_display(values['-OUT-FMT-'])
             oclr = get_clrspc_from_display(values['-OUT-CLR-'])
             precision = int(values['-PRECISION-'])
@@ -2244,29 +2273,34 @@ def open_csc_ui(args=None):
 
             # Update the displayed pixel depth on UI
             window['-DISP-DEPTH-'].update(str(depth))
-        except (ValueError, IndexError):
+        except (ValueError, IndexError, OSError):
             return
 
         if h <= 0 or w <= 0:
             return
 
-        from run_csc import get_frame_size
+        if not is_image:
+            from run_csc import get_frame_size
 
-        expected_size = get_frame_size(w, h, ifmt)
-        actual_size = os.path.getsize(input_file)
-        if actual_size < expected_size:
-            current_main_display_size = (400, 400)
-            window['-DISPLAY-SIZE-'].update(value=f"Error: file too small ({actual_size} < {expected_size})")
-            window['-POSITION-INFO-'].update(value='')
-            window['-INPUT-PIXEL-INFO-'].update(value='')
-            window['-OUTPUT-PIXEL-INFO-'].update(value='')
-            window['-IMAGE-'].update(data=b'', size=current_main_display_size)
-            return
+            expected_size = get_frame_size(w, h, ifmt)
+            actual_size = os.path.getsize(input_file)
+            if actual_size < expected_size:
+                current_main_display_size = (400, 400)
+                window['-DISPLAY-SIZE-'].update(value=f"Error: file too small ({actual_size} < {expected_size})")
+                window['-POSITION-INFO-'].update(value='')
+                window['-INPUT-PIXEL-INFO-'].update(value='')
+                window['-OUTPUT-PIXEL-INFO-'].update(value='')
+                window['-IMAGE-'].update(data=b'', size=current_main_display_size)
+                return
 
         try:
             file_params = (input_file, w, h, ifmt)
             if planar_in_full is None or current_input_file_params != file_params:
-                planar_in_full, _ = read_raw_to_planar(input_file, w, h, ifmt)
+                if is_image:
+                    # 缓存失效时重新解码图片
+                    planar_in_full, _, _ = read_image_to_planar(input_file)
+                else:
+                    planar_in_full, _ = read_raw_to_planar(input_file, w, h, ifmt)
                 current_input_file_params = file_params
 
             # Calculate downsampling factors
@@ -2824,6 +2858,14 @@ def open_csc_ui(args=None):
                         _update_clrspc_for_fmt(window, values, '-IN-CLR-', yuv_fmt, clrspc_yuv[3])
                 elif ext == '.rgb':
                     # RGB888 is 0x0, RGB_Full is 1
+                    rgb_fmt = next((f for f in fmt_display if f.startswith('0x0 ')), None)
+                    if rgb_fmt:
+                        window['-IN-FMT-'].update(value=rgb_fmt)
+                        values['-IN-FMT-'] = rgb_fmt
+                    if rgb_fmt:
+                        _update_clrspc_for_fmt(window, values, '-IN-CLR-', rgb_fmt, clrspc_rgb[1])
+                elif ext in ('.png', '.jpg', '.jpeg', '.bmp'):
+                    # 图片文件按 RGB888 + RGB_Full 处理；分辨率在 trigger_convert 中解码后自动更新
                     rgb_fmt = next((f for f in fmt_display if f.startswith('0x0 ')), None)
                     if rgb_fmt:
                         window['-IN-FMT-'].update(value=rgb_fmt)

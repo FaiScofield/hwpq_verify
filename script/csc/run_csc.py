@@ -27,10 +27,12 @@ from get_csc_coef_hsv import (
     ALGO_EVIDEO_CSC,
     ALGO_EVIDEO_CSC_PLAN_A,
     ALGO_EVIDEO_CSC_PLAN_B,
+    ALGO_EVIDEO_CSC_PLAN_C,
     normalize_algo_type,
     get_evideo_plan_a_steps,
     get_evideo_plan_a_runtime_steps,
     get_evideo_plan_b_steps,
+    apply_bcsh_hsv,
 )
 
 DEBUG_DUMP_PATH = "D:/RkDefaultDumpData/"
@@ -311,6 +313,34 @@ def read_raw_to_planar(filepath, width, height, fmt, repeat_to_444=False):
     return planar, fmt
 
 
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp"}
+
+
+def is_image_file(filepath):
+    """按扩展名判断是否为受支持的图片文件（PNG/JPEG/BMP）。"""
+    return os.path.splitext(filepath)[1].lower() in IMAGE_EXTENSIONS
+
+
+def read_image_to_planar(filepath):
+    """解码 PNG/JPEG/BMP 图片为 planar RGB 数据。
+
+    返回 (planar, width, height)，其中 planar 为 uint8 数组 (3, H, W)，
+    通道顺序为 R/G/B。
+    """
+    from PIL import Image
+
+    with Image.open(filepath) as img:
+        rgb = img.convert("RGB")
+        width, height = rgb.size
+        arr = np.asarray(rgb, dtype=np.uint8)
+
+    planar = np.zeros((3, height, width), dtype=np.uint8)
+    planar[0] = arr[:, :, 0]
+    planar[1] = arr[:, :, 1]
+    planar[2] = arr[:, :, 2]
+    return planar, width, height
+
+
 def write_planar_to_raw(planar, filepath, width, height, fmt):
     """Write planar numpy array (3, H, W) to raw file in specified format"""
     base = fmt & 0xF
@@ -431,12 +461,12 @@ def build_csc_config(pixel_depth, coef_precision, algo_type, input_clrspc, outpu
 
 def is_rgb_on_hsv_algo_type(algo_type):
     """Check whether the algorithm is one of the RGB-on-HSV runtime modes."""
-    return algo_type == ALGO_EVIDEO_CSC_PLAN_B
+    return algo_type in {ALGO_EVIDEO_CSC_PLAN_B, ALGO_EVIDEO_CSC_PLAN_C}
 
 
 def get_rgb_gain_default_value(algo_type):
     """Return the default raw RGB gain value for the selected algorithm."""
-    evideo_algo_types = {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_PLAN_A, ALGO_EVIDEO_CSC_PLAN_B}
+    evideo_algo_types = {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_PLAN_A, ALGO_EVIDEO_CSC_PLAN_B, ALGO_EVIDEO_CSC_PLAN_C}
     return 64 if algo_type in evideo_algo_types else 256
 
 
@@ -571,13 +601,15 @@ def run_selected_algo(planar_in, bcsh, pixel_depth, coef_precision, algo_type, i
         )
         runtime_steps = get_evideo_plan_a_runtime_steps(csc_config, bcsh, base_mat, base_ofs)
         if not input_is_rgb and not output_is_rgb:
-            runtime_domains = [True, True, False, False]
+            # Y2Y 为 One-Step，仅 YUV 域
+            runtime_domains = [False]
         elif not input_is_rgb and output_is_rgb:
             runtime_domains = [False, True]
         elif input_is_rgb and not output_is_rgb:
             runtime_domains = [True, False]
         else:
-            runtime_domains = [False, False, True, True]
+            # R2R：输入 RGB -> 输出 RGB（中间 YUV 已合成，无中间 clip）
+            runtime_domains = [True, True]
 
         planar_out = planar_in
         for step_index, ((runtime_coefs, runtime_offset), is_rgb_domain) in enumerate(zip(runtime_steps, runtime_domains), start=1):
@@ -599,6 +631,26 @@ def run_selected_algo(planar_in, bcsh, pixel_depth, coef_precision, algo_type, i
         if dump_enabled:
             _dump_step_planar(planar_out, "step2", step2_is_rgb, pixel_depth)
         return planar_out, step1_coefs, step1_offset, step2_coefs, step2_offset
+
+    if algo_type == ALGO_EVIDEO_CSC_PLAN_C:
+        # Plan C：输入统一转到 RGB，再进入 HSV 域调色，调色完成后转回输出色域。
+        # 调色路径为非线性的 HSV 域操作（apply_bcsh_hsv），不使用矩阵固定点量化。
+        if input_is_rgb:
+            rgb_planar = planar_in
+        else:
+            rgb_planar, _, _ = convert_planar(planar_in, input_clrspc, 1, 0, pixel_depth)
+            if dump_enabled:
+                _dump_step_planar(rgb_planar, "step1_y2r", True, pixel_depth)
+        rgb_planar = apply_bcsh_hsv(rgb_planar, bcsh, pixel_depth, algo_type)
+        if dump_enabled:
+            _dump_step_planar(rgb_planar, "step2_hsv", True, pixel_depth)
+        if output_is_rgb:
+            planar_out = rgb_planar
+        else:
+            planar_out, _, _ = convert_planar(rgb_planar, 1, output_clrspc, 0, pixel_depth)
+            if dump_enabled:
+                _dump_step_planar(planar_out, "step3_r2y", False, pixel_depth)
+        return planar_out, None, None, None, None
 
     raise ValueError(f"Unsupported algorithm type: {algo_type}")
 
@@ -802,7 +854,8 @@ def main():
     parser.add_argument("--b_offset", type=int, default=None, help="BCSH B offset [0, 511], default: 256")
     parser.add_argument("-t", "--algo-type", type=str, default=ALGO_RK_HW_CSC,
                         help=f"BCSH algorithm type: '{ALGO_RK_HW_CSC}', '{ALGO_RK_SW_CSC}', "
-                             f"'{ALGO_EVIDEO_CSC}', '{ALGO_EVIDEO_CSC_PLAN_A}', '{ALGO_EVIDEO_CSC_PLAN_B}'")
+                             f"'{ALGO_EVIDEO_CSC}', '{ALGO_EVIDEO_CSC_PLAN_A}', "
+                             f"'{ALGO_EVIDEO_CSC_PLAN_B}', '{ALGO_EVIDEO_CSC_PLAN_C}'")
 
     args, _ = parser.parse_known_args()
 

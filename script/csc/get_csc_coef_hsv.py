@@ -13,6 +13,7 @@ ALGO_RK_SW_CSC = "RK SW CSC"
 ALGO_EVIDEO_CSC = "eVideo CSC"
 ALGO_EVIDEO_CSC_PLAN_A = "eVideo CSC Plan A"
 ALGO_EVIDEO_CSC_PLAN_B = "eVideo CSC Plan B"
+ALGO_EVIDEO_CSC_PLAN_C = "eVideo CSC Plan C"
 ALGO_RK_CSC = ALGO_RK_HW_CSC
 ALGO_EVIDEO_CSC_FIX = ALGO_EVIDEO_CSC_PLAN_A
 ALGO_RGB_ON_HSV_ON = ALGO_EVIDEO_CSC_PLAN_B
@@ -87,7 +88,7 @@ def get_evideo_bcsh_param_pack(algo_type, bcsh_cfg, pixel_depth):
     """
     Map raw BCSH register values to the eVideo family parameter domain.
     """
-    if algo_type not in {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_PLAN_A, ALGO_EVIDEO_CSC_PLAN_B}:
+    if algo_type not in {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_PLAN_A, ALGO_EVIDEO_CSC_PLAN_B, ALGO_EVIDEO_CSC_PLAN_C}:
         raise ValueError(f"Algorithm '{algo_type}' is not an eVideo family mode")
 
     max_pixel_val = float((1 << pixel_depth) - 1)
@@ -183,7 +184,8 @@ def _adjust_convert_quad_evideo(config, bcsh_cfg, quad_t):
     quad_rgb_legacy_contrast = _make_homogeneous_mat(
         np.diag([params["contrast"], params["contrast"], params["contrast"]]).astype(np.float32)
     )
-    quad_rgb_legacy_bright = _make_homogeneous_mat(np.eye(3), np.ones(3) * params["brightness_unit"]).astype(np.float32)
+    # RGB 输出路径的亮度同样用像素域偏移，与 YUV 路径保持一致
+    quad_rgb_legacy_bright = _make_homogeneous_mat(np.eye(3), np.ones(3) * params["brightness_pixel"]).astype(np.float32)
 
     if mode.is_input_yuv and mode.is_output_yuv:
         # Y2Y case, rgb_offsets not work here
@@ -371,13 +373,16 @@ def get_evideo_plan_a_runtime_steps(config, bcsh_cfg, base_mat, base_ofs):
     mode = config.csc_mode
 
     if mode.is_input_yuv and mode.is_output_yuv:
-        runtime_quads = [quads["quad_y2r"], quad_rgb, quads["quad_r2y"], quad_yuv_raw @ quad_base]
+        # Y2Y 按文档为 One-Step：Q_yuv 直接作用于 YUV，RgbGain/RgbOffset 不生效
+        runtime_quads = [quad_yuv_raw @ quad_base]
     elif mode.is_input_yuv and not mode.is_output_yuv:
         runtime_quads = [quad_yuv_raw, quad_rgb @ quad_base]
     elif not mode.is_input_yuv and mode.is_output_yuv:
         runtime_quads = [quad_rgb, quad_yuv_raw @ quad_base]
     else:
-        runtime_quads = [quads["quad_r2y"], quad_yuv_signed, quads["quad_y2r"], quad_rgb @ quad_base]
+        # R2R：Q_rgb 作用于输入 RGB；Q_yuv 作用于输出中间层 YUV，
+        # 中间转换 (r2y->Q_yuv->y2r) 合成一步，避免中间层 clip 破坏负色度
+        runtime_quads = [quad_rgb, quads["quad_y2r"] @ quad_yuv_signed @ quads["quad_r2y"] @ quad_base]
 
     return [_split_quad_to_step(quad, config) for quad in runtime_quads]
 
@@ -386,7 +391,9 @@ def get_evideo_plan_b_steps(config, bcsh_cfg, base_mat, base_ofs):
     """
     Build the confirmed two-step homogeneous transforms for Plan B.
     """
-    quads, quad_base, quad_rgb, quad_yuv_raw, _ = _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs)
+    quads, quad_base, quad_rgb, quad_yuv_raw, quad_yuv_signed = _get_plan_domain_quads(
+        config, bcsh_cfg, base_mat, base_ofs
+    )
     mode = config.csc_mode
 
     if mode.is_input_yuv and mode.is_output_yuv:
@@ -399,8 +406,10 @@ def get_evideo_plan_b_steps(config, bcsh_cfg, base_mat, base_ofs):
         step1_quad = quad_rgb
         step2_quad = quad_yuv_raw @ quad_base
     else:
+        # R2R：Q_yuv 作用于输出中间层 YUV，Q_rgb 作用于输出 RGB；
+        # 中间转换 (r2y->Q_yuv->y2r->Q_rgb) 合成一步，避免中间层 clip 破坏负色度
         step1_quad = None
-        step2_quad = quad_rgb @ quad_base
+        step2_quad = quad_rgb @ quads["quad_y2r"] @ quad_yuv_signed @ quads["quad_r2y"] @ quad_base
 
     return _split_quad_to_step(step1_quad, config), _split_quad_to_step(step2_quad, config)
 

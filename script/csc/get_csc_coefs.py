@@ -316,7 +316,6 @@ def adjust_convert_mat_evideo(config, bcsh_cfg, out_mat, out_vec):
     rgb_gains = params["rgb_gains"]
     rgb_offsets = params["rgb_offset_pixels"]
     brightness = params["brightness_pixel"]
-    brightness_unit = params["brightness_unit"]
     mid_pixel_val = params["mid_pixel_val"]
 
     zero3 = np.zeros(3, dtype=np.float32)
@@ -334,7 +333,8 @@ def adjust_convert_mat_evideo(config, bcsh_cfg, out_mat, out_vec):
     tf_rgbGains = (gain_matrix, zero3)
     tf_rgbOffsets = (ident, rgb_offsets)
     tf_bright_yuv = (ident, np.array([brightness, 0.0, 0.0], dtype=np.float32))
-    tf_bright_rgb = (ident, np.full(3, brightness_unit, dtype=np.float32))
+    # RGB 输出路径的亮度同样用像素域偏移，与 YUV 路径保持一致
+    tf_bright_rgb = (ident, np.full(3, brightness, dtype=np.float32))
 
     # Center-scaled around chroma_center_raw (unsigned YUV)
     sat_raw_ofs = chroma_center_raw - saturation_matrix @ chroma_center_raw
