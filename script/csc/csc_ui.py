@@ -870,14 +870,14 @@ def open_csc_ui(args=None):
                   sg.Slider(range=(0, 360), default_value=0, resolution=1, orientation='h',
                             size=(12, 15), key='-SAT-FIX-HUE-', enable_events=True, disable_number_display=True),
                   sg.Spin([str(i) for i in range(361)], initial_value='0', key='-SAT-FIX-HUE-SPIN-', size=(5, 1))],
-                 [sg.Text('Start Hue:', size=(10, 1)),
-                  sg.Slider(range=(0, 360), default_value=0, resolution=1, orientation='h',
-                            size=(15, 15), key='-SAT-TARGET-HB-', enable_events=True, disable_number_display=True),
-                  sg.Spin([str(i) for i in range(361)], initial_value='0', key='-SAT-TARGET-HB-SPIN-', size=(5, 1))],
-                 [sg.Text('End Hue:', size=(10, 1)),
-                  sg.Slider(range=(0, 360), default_value=360, resolution=1, orientation='h',
-                            size=(15, 15), key='-SAT-TARGET-HE-', enable_events=True, disable_number_display=True),
-                  sg.Spin([str(i) for i in range(361)], initial_value='360', key='-SAT-TARGET-HE-SPIN-', size=(5, 1))],
+                 [sg.Text('Start Hue:', size=(8, 1)),
+                  sg.Spin([str(i) for i in range(361)], initial_value='0', key='-SAT-TARGET-HS-SPIN-', size=(5, 1)),
+                  sg.Text('Start Overlay:', size=(13, 1)),
+                  sg.Spin([str(i) for i in range(61)], initial_value='0', key='-SAT-TARGET-HSO-SPIN-', size=(5, 1))],
+                 [sg.Text('End Hue:', size=(8, 1)),
+                  sg.Spin([str(i) for i in range(361)], initial_value='360', key='-SAT-TARGET-HE-SPIN-', size=(5, 1)),
+                  sg.Text('End Overlay:', size=(13, 1)),
+                  sg.Spin([str(i) for i in range(61)], initial_value='0', key='-SAT-TARGET-HEO-SPIN-', size=(5, 1))],
              ], expand_x=True)],
          ], vertical_alignment='top', pad=(10, 0))],
     ]
@@ -1028,8 +1028,10 @@ def open_csc_ui(args=None):
     # Target-color-range selective adjustment (Sat/Hue tab).
     sathue_delta_luma_val = 0      # Delta Luma [-255, 255], added to V (normalized /255)
     sathue_target_enabled = False  # Adjust Target Color Range checkbox
-    sathue_target_hb = 0           # Start Hue [0, 360]
+    sathue_target_hs = 0           # Start Hue [0, 360]
     sathue_target_he = 360         # End Hue [0, 360]
+    sathue_target_hso = 0          # Start Overlay [0, 60]
+    sathue_target_heo = 0          # End Overlay [0, 60]
     sathue_gray_thrd = 0.01        # Fixed gray threshold: pixels with S below this are treated as gray and untouched
     sathue_fix_hue_enabled = False # Fix Target Hue checkbox
     sathue_fix_hue_val = 0         # TargHue [0, 360]
@@ -1934,16 +1936,21 @@ def open_csc_ui(args=None):
         third2 = float(third)
         return h2, s2, third2
 
-    def _apply_target_color_range(planar_rgb, pixel_depth, delta_hue, delta_sat, delta_luma, hb, he, gray_thrd=0.0, fix_hue_enabled=False, targ_hue=0.0):
-        """Selectively adjust colors whose hue lies inside the target range [hb, he].
+    def _apply_target_color_range(planar_rgb, pixel_depth, delta_hue, delta_sat, delta_luma, hs, he, gray_thrd=0.0, fix_hue_enabled=False, targ_hue=0.0, hso=0.0, heo=0.0):
+        """Selectively adjust colors whose hue lies inside the target range [hs, he].
 
-        When hb > he the range wraps around: [hb, 360] U [0, he].  Only pixels
+        When hs > he the range wraps around: [hs, 360] U [0, he].  Only pixels
         inside the range are modified, in HSV space:
           H' = (H + delta_hue) % 360            (default)
           S' = clip(S * delta_sat, 0, 1)
           V' = clip(V + delta_luma / 255, 0, 1)
         Pixels with saturation below gray_thrd are treated as gray (black/gray/
         white) and are left untouched regardless of hue.
+
+        The overlay zones [hs, hs+hso] and [he-heo, he] (mod 360) are the soft
+        edges inside the range: there the fully-adjusted result is alpha-blended
+        with the input pixel (alpha fades 0 -> 1 across each zone), so the
+        adjustment eases in/out; the middle of the range keeps the full result.
 
         When fix_hue_enabled, Delta Hue is treated as a percentage (clamped to
         [-100, 100]): all in-range pixels rotate toward +targ_hue (positive
@@ -1957,15 +1964,36 @@ def open_csc_ui(args=None):
         rgb_norm = planar_rgb.reshape(3, -1).T.astype(np.float32) / max_val
         hsv = rgb_to_hsv(rgb_norm)                      # H in [0, 1] (fraction of 360)
         h_deg = hsv[:, 0] * 360.0
-        if hb <= he:
-            mask = (h_deg >= hb) & (h_deg <= he)
+
+        # Small tolerance (deg) to absorb hue quantization at the range edges:
+        # in 8-bit the color nearest to hue=330 computes to 329.9 (and 30 to
+        # 30.1), so an exact >= hs / <= he test would wrongly exclude them.
+        eps = 0.5
+        if hs <= he:
+            in_range = (h_deg >= hs - eps) & (h_deg <= he + eps)
         else:
-            mask = (h_deg >= hb) | (h_deg <= he)
+            in_range = (h_deg >= hs - eps) | (h_deg <= he + eps)
+
+        # Overlay alpha: the soft edges inside the range.  The fade spans
+        # [hs-eps, hs+hso] (start) and [he-heo-eps, he+eps] (end) so the
+        # quantization edge is part of the fade instead of a hard seam.
+        hso = float(hso)
+        heo = float(heo)
+        d_start = (h_deg - (float(hs) - eps)) % 360.0
+        d_end = (h_deg - (float(he) - float(heo) - eps)) % 360.0
+        alpha = np.ones_like(h_deg)
+        if hso > 0.0:
+            zs = d_start <= (hso + eps)
+            alpha[zs] = np.minimum(alpha[zs], np.clip(d_start[zs] / (hso + eps), 0.0, 1.0))
+        if heo > 0.0:
+            ze = d_end <= (heo + eps)
+            alpha[ze] = np.minimum(alpha[ze], np.clip(1.0 - d_end[ze] / (heo + eps), 0.0, 1.0))
         # Black/gray/white pixels (saturation below the threshold) must not change.
         if gray_thrd and gray_thrd > 0.0:
-            mask = mask & (hsv[:, 1] >= gray_thrd)
+            in_range = in_range & (hsv[:, 1] >= gray_thrd)
 
-        hsv_new = hsv.copy()
+        # Compute the fully adjusted HSV for every pixel.
+        hsv_adj = hsv.copy()
         if fix_hue_enabled:
             # Delta Hue is a percentage in [-100, 100]; the sign picks the
             # rotation direction (+targ_hue / -targ_hue) and the magnitude is
@@ -1973,15 +2001,22 @@ def open_csc_ui(args=None):
             progress = np.clip(float(delta_hue), -100.0, 100.0) / 100.0
             target = float(targ_hue) if progress >= 0.0 else float((-targ_hue) % 360.0)
             arc = ((target - h_deg + 180.0) % 360.0) - 180.0   # shortest signed arc
-            h_new = (h_deg + abs(progress) * arc) % 360.0
-            hsv_new[mask, 0] = h_new[mask] / 360.0
+            h_adj = (h_deg + abs(progress) * arc) % 360.0
         else:
-            hsv_new[mask, 0] = ((h_deg[mask] + delta_hue) % 360.0) / 360.0
-        hsv_new[mask, 1] = np.clip(hsv[mask, 1] * delta_sat, 0.0, 1.0)
-        hsv_new[mask, 2] = np.clip(hsv[mask, 2] + delta_luma / 255.0, 0.0, 1.0)
+            h_adj = (h_deg + delta_hue) % 360.0
+        hsv_adj[:, 0] = h_adj / 360.0
+        hsv_adj[:, 1] = np.clip(hsv[:, 1] * delta_sat, 0.0, 1.0)
+        hsv_adj[:, 2] = np.clip(hsv[:, 2] + delta_luma / 255.0, 0.0, 1.0)
 
-        rgb_new = hsv_to_rgb(hsv_new)
-        planar_out = np.clip(rgb_new.T * max_val + 0.5, 0, max_val).astype(planar_rgb.dtype)
+        rgb_out = rgb_norm.copy()
+        rgb_adj = hsv_to_rgb(hsv_adj)
+        # In-range pixels: alpha-blend the adjusted result with the input.
+        # The overlay zones fade (alpha < 1) near the edges; the core keeps
+        # alpha = 1, i.e. the full adjustment.
+        rgb_out[in_range] = (alpha[in_range, None] * rgb_adj[in_range]
+                             + (1.0 - alpha[in_range, None]) * rgb_out[in_range])
+
+        planar_out = np.clip(rgb_out.T * max_val + 0.5, 0, max_val).astype(planar_rgb.dtype)
         return planar_out.reshape(3, h, w)
 
     def _render_target_color_preview(window, values):
@@ -2019,10 +2054,12 @@ def open_csc_ui(args=None):
             rgb_planar = _apply_target_color_range(
                 rgb_planar, depth,
                 sathue_hue_val, sathue_sat_val, sathue_delta_luma_val,
-                sathue_target_hb, sathue_target_he,
+                sathue_target_hs, sathue_target_he,
                 sathue_gray_thrd,
                 sathue_fix_hue_enabled,
                 sathue_fix_hue_val,
+                sathue_target_hso,
+                sathue_target_heo,
             )
             # 3) Back to the output colorspace (RGB_Full -> oclr).
             out_clr = get_clrspc_from_display(values['-OUT-CLR-'])
@@ -2333,7 +2370,8 @@ def open_csc_ui(args=None):
 
     # Sat/Hue spin bindings
     for spin_key in ('-SAT-LUMA-SPIN-', '-SAT-HUE-SPIN-', '-SAT-SAT-SPIN-',
-                     '-SAT-DELTA-LUMA-SPIN-', '-SAT-TARGET-HB-SPIN-', '-SAT-TARGET-HE-SPIN-',
+                     '-SAT-DELTA-LUMA-SPIN-', '-SAT-TARGET-HS-SPIN-', '-SAT-TARGET-HE-SPIN-',
+                     '-SAT-TARGET-HSO-SPIN-', '-SAT-TARGET-HEO-SPIN-',
                      '-SAT-FIX-HUE-SPIN-'):
         window[spin_key].bind('<Return>', '+ENTER')
         window[spin_key].bind('<KP_Enter>', '+ENTER')
@@ -2341,7 +2379,7 @@ def open_csc_ui(args=None):
 
     # Sat/Hue slider left/right key bindings
     for slider_key in ('-SAT-LUMA-', '-SAT-HUE-', '-SAT-SAT-',
-                       '-SAT-DELTA-LUMA-', '-SAT-TARGET-HB-', '-SAT-TARGET-HE-',
+                       '-SAT-DELTA-LUMA-',
                        '-SAT-FIX-HUE-'):
         sw = window[slider_key].Widget
         sw.configure(takefocus=1)
@@ -2723,10 +2761,10 @@ def open_csc_ui(args=None):
     _set_sat_preview_visible(False)
 
     # Start with the target-color-range controls disabled until Enable is checked.
-    window['-SAT-TARGET-HB-'].update(disabled=True)
-    window['-SAT-TARGET-HB-SPIN-'].update(disabled=True)
-    window['-SAT-TARGET-HE-'].update(disabled=True)
+    window['-SAT-TARGET-HS-SPIN-'].update(disabled=True)
     window['-SAT-TARGET-HE-SPIN-'].update(disabled=True)
+    window['-SAT-TARGET-HSO-SPIN-'].update(disabled=True)
+    window['-SAT-TARGET-HEO-SPIN-'].update(disabled=True)
     # Fix Target Hue value controls are disabled until its checkbox is checked.
     window['-SAT-FIX-HUE-'].update(disabled=True)
     window['-SAT-FIX-HUE-SPIN-'].update(disabled=True)
@@ -2980,10 +3018,10 @@ def open_csc_ui(args=None):
                 display_result(window, values)
         elif event == '-SAT-TARGET-ENABLE-':
             sathue_target_enabled = values.get('-SAT-TARGET-ENABLE-', False)
-            window['-SAT-TARGET-HB-'].update(disabled=not sathue_target_enabled)
-            window['-SAT-TARGET-HB-SPIN-'].update(disabled=not sathue_target_enabled)
-            window['-SAT-TARGET-HE-'].update(disabled=not sathue_target_enabled)
+            window['-SAT-TARGET-HS-SPIN-'].update(disabled=not sathue_target_enabled)
             window['-SAT-TARGET-HE-SPIN-'].update(disabled=not sathue_target_enabled)
+            window['-SAT-TARGET-HSO-SPIN-'].update(disabled=not sathue_target_enabled)
+            window['-SAT-TARGET-HEO-SPIN-'].update(disabled=not sathue_target_enabled)
             if current_planar_in is not None:
                 display_result(window, values)
         elif event == '-SAT-FIX-HUE-ENABLE-':
@@ -3008,14 +3046,39 @@ def open_csc_ui(args=None):
             window['-SAT-DELTA-LUMA-SPIN-'].update(value='0')
             if sathue_target_enabled and current_planar_in is not None:
                 display_result(window, values)
-        elif event == '-SAT-TARGET-HB-':
-            sathue_target_hb = int(values['-SAT-TARGET-HB-'])
-            window['-SAT-TARGET-HB-SPIN-'].update(value=str(sathue_target_hb))
-            if sathue_target_enabled and current_planar_in is not None:
-                display_result(window, values)
-        elif event == '-SAT-TARGET-HE-':
-            sathue_target_he = int(values['-SAT-TARGET-HE-'])
-            window['-SAT-TARGET-HE-SPIN-'].update(value=str(sathue_target_he))
+        elif event_key in ('-SAT-TARGET-HS-SPIN-', '-SAT-TARGET-HE-SPIN-',
+                           '-SAT-TARGET-HSO-SPIN-', '-SAT-TARGET-HEO-SPIN-') and event_suffix in {'STEP', 'ENTER'}:
+            # Start/End Hue (HS/HE) and their Overlay values (HSO/HEO).  The
+            # HS/HE sliders were removed, so these spins are the only input.
+            if event_key == '-SAT-TARGET-HS-SPIN-':
+                try:
+                    v = int(values.get(event_key, sathue_target_hs))
+                    v = max(0, min(360, v))
+                except (TypeError, ValueError):
+                    v = sathue_target_hs
+                sathue_target_hs = v
+            elif event_key == '-SAT-TARGET-HE-SPIN-':
+                try:
+                    v = int(values.get(event_key, sathue_target_he))
+                    v = max(0, min(360, v))
+                except (TypeError, ValueError):
+                    v = sathue_target_he
+                sathue_target_he = v
+            elif event_key == '-SAT-TARGET-HSO-SPIN-':
+                try:
+                    v = int(values.get(event_key, sathue_target_hso))
+                    v = max(0, min(60, v))
+                except (TypeError, ValueError):
+                    v = sathue_target_hso
+                sathue_target_hso = v
+            else:
+                try:
+                    v = int(values.get(event_key, sathue_target_heo))
+                    v = max(0, min(60, v))
+                except (TypeError, ValueError):
+                    v = sathue_target_heo
+                sathue_target_heo = v
+            window[event_key].update(value=str(v))
             if sathue_target_enabled and current_planar_in is not None:
                 display_result(window, values)
         elif event_key == '-SAT-FIX-HUE-SPIN-' and event_suffix in {'STEP', 'ENTER'}:
@@ -3052,22 +3115,6 @@ def open_csc_ui(args=None):
                 except ValueError:
                     v = sathue_delta_luma_val
                 sathue_delta_luma_val = v
-                window[slider_key].update(value=v)
-            elif event_key == '-SAT-TARGET-HB-SPIN-':
-                try:
-                    v = int(values[event_key])
-                    v = max(0, min(360, v))
-                except ValueError:
-                    v = sathue_target_hb
-                sathue_target_hb = v
-                window[slider_key].update(value=v)
-            elif event_key == '-SAT-TARGET-HE-SPIN-':
-                try:
-                    v = int(values[event_key])
-                    v = max(0, min(360, v))
-                except ValueError:
-                    v = sathue_target_he
-                sathue_target_he = v
                 window[slider_key].update(value=v)
             else:
                 try:
@@ -3111,24 +3158,6 @@ def open_csc_ui(args=None):
                 except ValueError:
                     v = sathue_delta_luma_val
                 sathue_delta_luma_val = v
-                window[slider_key].update(value=v)
-                window[event_key].update(value=str(v))
-            elif event_key == '-SAT-TARGET-HB-SPIN-':
-                try:
-                    v = int(values[event_key])
-                    v = max(0, min(360, v))
-                except ValueError:
-                    v = sathue_target_hb
-                sathue_target_hb = v
-                window[slider_key].update(value=v)
-                window[event_key].update(value=str(v))
-            elif event_key == '-SAT-TARGET-HE-SPIN-':
-                try:
-                    v = int(values[event_key])
-                    v = max(0, min(360, v))
-                except ValueError:
-                    v = sathue_target_he
-                sathue_target_he = v
                 window[slider_key].update(value=v)
                 window[event_key].update(value=str(v))
             else:
@@ -3193,16 +3222,6 @@ def open_csc_ui(args=None):
                 cur = max(-255, min(255, cur + delta))
                 sathue_delta_luma_val = cur
                 window['-SAT-DELTA-LUMA-SPIN-'].update(value=str(cur))
-                window[event_key].update(value=cur)
-            elif event_key == '-SAT-TARGET-HB-':
-                cur = max(0, min(360, cur + delta))
-                sathue_target_hb = cur
-                window['-SAT-TARGET-HB-SPIN-'].update(value=str(cur))
-                window[event_key].update(value=cur)
-            elif event_key == '-SAT-TARGET-HE-':
-                cur = max(0, min(360, cur + delta))
-                sathue_target_he = cur
-                window['-SAT-TARGET-HE-SPIN-'].update(value=str(cur))
                 window[event_key].update(value=cur)
             elif event_key == '-SAT-FIX-HUE-':
                 cur = max(0, min(360, cur + delta))
