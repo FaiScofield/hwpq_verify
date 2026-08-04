@@ -485,6 +485,12 @@ def _hsv_to_rgb(hsv):
     return np.stack([r, g, b], axis=-1)
 
 
+# Public aliases for the normalized RGB<->HSV conversions (values in [0, 1]).
+# Depth-independent; used by the Sat/Hue target-color-range preview in csc_ui.
+rgb_to_hsv = _rgb_to_hsv
+hsv_to_rgb = _hsv_to_rgb
+
+
 def apply_rgb_gain_offset(planar_rgb, bcsh_cfg, pixel_depth, algo_type):
     """
     Apply per-channel RGB gain and offset in normalized RGB space.
