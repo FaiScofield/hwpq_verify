@@ -1,6 +1,6 @@
 # CSC 实现算法对比
 
-## 算法实现
+## CSC 算法实现
 
 **对比表**
 
@@ -30,14 +30,14 @@
   - 注： `I`表示作用于输入, `O`表示作用于输出, `MO`表示作用于输出的中间层，`MI`表示作用于输入的中间层, `X`表示不生效（下同）
   - 所谓中间层指：Y2Y时 yuv 数据需要先转到 rgb 的中间层再应用 rgb 域的BCSH参数，最后再转回 yuv 域； R2R时亦然。
 
-    | 参数类型 | 映射范围 | 作用域 |  R2Y | Y2R | R2R | Y2Y |
-    | ------- | ------- | ------ | :----:|:---:|:---:|:---:|
-    | 亮度 `Brightness`   | `[-1/4, 1/4]`  | RGB/YUV OUT |  O | O | O  | O |
-    | 对比度 `Contrast`   | `[0.0, 2.0]`   | RGB |  I | O | O  | MO |
-    | 饱和度 `Saturation` | `[0.0, 2.0]`   | YUV |  O | I | MO | O |
-    | 色调 `Hue`          | `[-30, 30]deg` | YUV |  O | I | MO | O |
-    | RGB增益 `RgbGain`   | `[0.0, 2.0]`   | RGB |  I | O | O  | MO |
-    | RGB偏移 `RgbOffset` | `[-1/8, 1/8]`  | RGB OUT |  X | O | O  | X |
+    | 参数类型 | 映射范围 | 作用域 | R2Y | Y2R | R2R | Y2Y |
+    | ------- | ------- | ------ | :----: | :---: | :---: | :---: |
+    | 亮度 `Brightness` | `[-1/4, 1/4]` | RGB/YUV OUT | O | O | O | O |
+    | 对比度 `Contrast` | `[0.0, 2.0]` | RGB | I | O | O | MO |
+    | 饱和度 `Saturation` | `[0.0, 2.0]` | YUV | O | I | MO | O |
+    | 色调 `Hue` | `[-30, 30]deg` | YUV | O | I | MO | O |
+    | RGB增益 `RgbGain` | `[0.0, 2.0]` | RGB | I | O | O | MO |
+    | RGB偏移 `RgbOffset` | `[-1/8, 1/8]` | RGB OUT | X | O | O | X |
 
 ### RK SW CSC
 
@@ -56,14 +56,14 @@
   - 当 `coef_precision > 0` 时，量化入口改为 `get_fixed_coefs_affine()`
 - BCSH参数生效表：
 
-    | 参数类型 | 映射范围 | 作用域 |  R2Y | Y2R | R2R | Y2Y |
-    | ------- | ------- | ------ | :----:|:---:|:---:|:---:|
-    | 亮度 `Brightness`   | `[-1.0, 1.0]`  | RGB/YUV OUT |  O | O | O  | O |
-    | 对比度 `Contrast`   | `[0.0, 2.0]`   | RGB |  I | O | O  | MO |
-    | 饱和度 `Saturation` | `[0.0, 2.0]`   | YUV |  O | I | MO | O |
-    | 色调 `Hue`          |`[-180, 180]deg`| YUV |  O | I | MO | O |
-    | RGB增益 `RgbGain`   | `[0.0, 8.0]`   | RGB |  I | O | O  | MO |
-    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]`  | RGB OUT |  X | O | O  | X |
+    | 参数类型 | 映射范围 | 作用域 | R2Y | Y2R | R2R | Y2Y |
+    | ------- | ------- | ------ | :----: | :---: | :---: | :---: |
+    | 亮度 `Brightness` | `[-1.0, 1.0]` | RGB/YUV OUT | O | O | O | O |
+    | 对比度 `Contrast` | `[0.0, 2.0]` | RGB | I | O | O | MO |
+    | 饱和度 `Saturation` | `[0.0, 2.0]` | YUV | O | I | MO | O |
+    | 色调 `Hue` | `[-180, 180]deg` | YUV | O | I | MO | O |
+    | RGB增益 `RgbGain` | `[0.0, 8.0]` | RGB | I | O | O | MO |
+    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]` | RGB OUT | X | O | O | X |
 
 - BCSH 色偏现象理论与 RK SW CSC 一致
 
@@ -93,14 +93,14 @@
     - `Step2` 根据以上4个模式的分支显示 `Q_yuv/Q_rgb` 的系数和偏移
     - 中间域转换使用的 `M_{r2y}` / `M_{y2r}` 不在 UI 中单独显示
 
-    | 参数类型 | 映射范围 | 作用域 |  R2Y | Y2R | R2R | Y2Y |
-    | ------- | ------- | ------ | :----:|:---:|:---:|:---:|
-    | 亮度 `Brightness`   | `[-1.0, 1.0]`  | YUV |  O | I | MI | O |
-    | 对比度 `Contrast`   | `[0.0, 2.0]`   | YUV |  O | I | MI | O |
-    | 饱和度 `Saturation` | `[0.0, 2.0]`   | YUV |  O | I | MI | O |
-    | 色调 `Hue`          |`[-180, 180]deg`| YUV |  O | I | MI | O |
-    | RGB增益 `RgbGain`   | `[0.0, 8.0]`   | RGB |  I | O | O  | MI |
-    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]`  | RGB |  I | O | O  | MI |
+    | 参数类型 | 映射范围 | 作用域 | R2Y | Y2R | R2R | Y2Y |
+    | ------- | ------- | ------ | :----: | :---: | :---: | :---: |
+    | 亮度 `Brightness` | `[-1.0, 1.0]` | YUV | O | I | MI | O |
+    | 对比度 `Contrast` | `[0.0, 2.0]` | YUV | O | I | MI | O |
+    | 饱和度 `Saturation` | `[0.0, 2.0]` | YUV | O | I | MI | O |
+    | 色调 `Hue` | `[-180, 180]deg` | YUV | O | I | MI | O |
+    | RGB增益 `RgbGain` | `[0.0, 8.0]` | RGB | I | O | O | MI |
+    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]` | RGB | I | O | O | MI |
 
 ### eVideo CSC Plan B
 
@@ -115,14 +115,14 @@
   - 对于 `R2R`：`step1 = None`，`step2 = Q_rgb * M_{r2r}`
 - 因此当前代码中的参数生效范围可以总结为：
 
-    | 参数类型 | 映射范围 | 作用域 |  R2Y | Y2R | R2R | Y2Y |
-    | ------- | ------- | ------ | :----:|:---:|:---:|:---:|
-    | 亮度 `Brightness`   | `[-1.0, 1.0]`    | YUV |  O | I | X | O |
-    | 对比度 `Contrast`   | `[0.0, 2.0]`     | YUV |  O | I | X | O |
-    | 饱和度 `Saturation` | `[0.0, 2.0]`     | YUV |  O | I | X | O |
-    | 色调 `Hue`          | `[-180, 180]deg` | YUV |  O | I | X | O |
-    | RGB增益 `RgbGain`   | `[0.0, 8.0]`     | RGB |  I | O | O | X |
-    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]`    | RGB |  I | O | O | X |
+    | 参数类型 | 映射范围 | 作用域 | R2Y | Y2R | R2R | Y2Y |
+    | ------- | ------- | ------ | :----: | :---: | :---: | :---: |
+    | 亮度 `Brightness` | `[-1.0, 1.0]` | YUV | O | I | X | O |
+    | 对比度 `Contrast` | `[0.0, 2.0]` | YUV | O | I | X | O |
+    | 饱和度 `Saturation` | `[0.0, 2.0]` | YUV | O | I | X | O |
+    | 色调 `Hue` | `[-180, 180]deg` | YUV | O | I | X | O |
+    | RGB增益 `RgbGain` | `[0.0, 8.0]` | RGB | I | O | O | X |
+    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]` | RGB | I | O | O | X |
 
 ### eVideo CSC Plan C
 
@@ -141,18 +141,16 @@
   - 调色全程在 HSV 域进行，为非线性路径（非矩阵合成），因此不参与固定点系数量化，精度为浮点
   - 四模式下所有参数均生效，无 `X` 项；`RgbGain/RgbOffset` 在转回 RGB 后应用
 
-    | 参数类型 | 映射范围 | 作用域 |  R2Y | Y2R | R2R | Y2Y |
-    | ------- | ------- | ------ | :----:|:---:|:---:|:---:|
-    | 亮度 `Brightness`   | `[-1.0, 1.0]`  | HSV-V |  I | O | O | MO |
-    | 对比度 `Contrast`   | `[0.0, 2.0]`   | HSV-V |  I | O | O | MO |
-    | 饱和度 `Saturation` | `[0.0, 2.0]`   | HSV-S |  I | O | O | MO |
-    | 色调 `Hue`          |`[-180, 180]deg`| HSV-H |  I | O | O | MO |
-    | RGB增益 `RgbGain`   | `[0.0, 8.0]`   | RGB |  I | O | O | MO |
-    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]`  | RGB |  I | O | O | MO |
+    | 参数类型 | 映射范围 | 作用域 | R2Y | Y2R | R2R | Y2Y |
+    | ------- | ------- | ------ | :----: | :---: | :---: | :---: |
+    | 亮度 `Brightness` | `[-1.0, 1.0]` | HSV-V | I | O | O | MO |
+    | 对比度 `Contrast` | `[0.0, 2.0]` | HSV-V | I | O | O | MO |
+    | 饱和度 `Saturation` | `[0.0, 2.0]` | HSV-S | I | O | O | MO |
+    | 色调 `Hue` | `[-180, 180]deg` | HSV-H | I | O | O | MO |
+    | RGB增益 `RgbGain` | `[0.0, 8.0]` | RGB | I | O | O | MO |
+    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]` | RGB | I | O | O | MO |
 
-## 其他
-
-**关键差异**
+### 各版本算法差异
 
 | 对比项 | `RK HW CSC` | `RK SW CSC` | `eVideo CSC` | `eVideo CSC Plan A` | `eVideo CSC Plan B` | `eVideo CSC Plan C` |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -174,3 +172,75 @@
 | `Hue` | `[0, 512]` | `[-30, 30]` 度 | `[-180, 180]`度 |
 | `RgbGain` | `[0, 512]` | `[0, 2]` | `[0, 8]` |
 | `RgbOffset` | `[0, 512]` | `[-1/8, 1/8]` | `[-1, 1]` |
+
+
+## RGB <=> HSV 转换算法
+
+### RGB 立方体到六边形平面的投影
+
+将 RGB 立方体绕中性轴（黑→白对角线）倾斜，使黑色位于底部、白色位于顶部（中性轴垂直），再沿中性轴方向正交投影到"色度平面"（垂直于中性轴的平面）。投影形状为正六边形：红 0°、黄 60°、绿 120°、青 180°、蓝 240°、品红 300° 位于六个顶点。
+
+设 RGB 值 $R, G, B \in [0,1]$（归一化），先定义：
+
+$$M = \max(R,G,B), \quad m = \min(R,G,B), \quad C = M - m$$
+
+- $C$（Chroma，色度）= RGB 三分量的极差，即投影点到中性轴的距离（相对该色相方向最大可能色度的比例）
+- $V = M$ 是颜色沿中性轴的高度，即 HSV 的 **V 值**
+
+**六边形平面直角坐标**（$\alpha$ 指向红色 0° 方向，$\beta$ 与之垂直、指向黄绿色）：
+
+$$\alpha = R - G\cos 60° - B\cos 60° = \frac{2R - G - B}{2}$$
+
+$$\beta = G\sin 60° - B\sin 60° = \frac{\sqrt{3}}{2}(G - B)$$
+
+**平面极坐标**（极径 = 圆形色度 $C_2$，极角 = 圆形色相 $H_2$）：
+
+$$C_2 = \sqrt{\alpha^2 + \beta^2}, \qquad H_2 = \operatorname{atan2}(\beta, \alpha)$$
+
+**六边形色相 $H$**（标准 HSV 使用，分段定义、以 60° 为步长）：
+
+$$H' = \begin{cases}
+   \dfrac{G - B}{C} \bmod 6, & M = R \\[2mm]
+   \dfrac{B - R}{C} + 2,     & M = G \\[2mm]
+   \dfrac{R - G}{C} + 4,     & M = B \\[2mm]
+   \text{未定义},            & C = 0
+\end{cases}, \qquad H = 60° \times H'$$
+
+> **极坐标是否就是 H 和 S？** 极角就是 **H（色相）**；但**极径是色度 C（Chroma），不是饱和度 S**。HSV 的饱和度定义为 $S = C / V$，即色度相对于 V 的比值。只有当 $V = 1$（顶部平面，所有纯色所在的平面）时才有 $C = S$。
+
+### 六边形投影与圆形 HSV 色轮的关系
+
+- 六边形是 RGB 立方体沿中性轴正交投影的**真实形状**；圆形色轮是把六边形**每条边线性映射到 60° 圆弧**（几何扭曲 warping）后得到的，扭曲后色相严格等于极角、色度严格等于极径。
+- 两者的 H/S/V 含义**基本一致但细节不同**：
+
+| 分量 | 六边形投影 | 圆形色轮 | 差异 |
+| --- | --- | --- | --- |
+| $V$ | $\max(R,G,B)$ | $\max(R,G,B)$ | 完全一致，与投影形状无关 |
+| $H$ | 分段函数 $H$ | 极角 $H_2 = \operatorname{atan2}(\beta,\alpha)$ | 几乎重合，最大偏差约 1.12°（出现在 13.38° 等 12 个色相处），30° 倍数处完全相等 |
+| $C$ | $C = M - m$ | $C_2 = \sqrt{\alpha^2+\beta^2}$ | 六边形顶点（30° 倍数）相等；30° 处 $C=1$ 而 $C_2 = \sqrt{3}/2 \approx 0.866$，相差约 13.4% |
+| $S$ | $S = C/V = (M-m)/M$ | 若沿用圆形色度则为 $C_2/V$ | 标准 HSV 用六边形 $C$；采用圆形 $C_2$ 时 $S$ 略有不同 |
+
+- 实际的颜色选择器（Photoshop/GIMP 等）虽显示为圆形，但**仍按六边形 HSV 公式**（$S = (M-m)/M$）计算；真正使用圆形极坐标（$H_2 / C_2$）的模型是 HSI / 极坐标变体。
+- 本项目 `get_csc_coef_hsv.py` 的 `_rgb_to_hsv()` / `_hsv_to_rgb()` 采用标准六边形 HSV 公式：$V = \max$，$S = (M-m)/M$，$H$ 为六边形分段函数（归一化到 $[0,1]$）。
+
+## 示例 demo 的使用
+
+以下命令在仓库根目录 `fpga_verify` 下执行。
+
+### HSV 投影教学 3D Demo（`web/color-space-lab`）
+
+可视化 RGB 立方体的 HSV 六边形投影模型，对应上文 "RGB <=> HSV 转换算法" 一节（倾斜立方体、V=v 小立方体切割、六边形投影、等 S 环轨迹、RGB↔HSV 公式联动等）：
+
+```shell
+cd web/color-space-lab
+npm install        # 首次运行需要安装依赖
+npm run dev        # 启动 Vite 开发服务器，浏览器打开 http://localhost:5173/
+```
+
+生产构建与本地预览：
+
+```shell
+cd web/color-space-lab
+npm run build      # 构建产物输出到 dist/
+npm run preview    # 本地预览构建产物
+```
