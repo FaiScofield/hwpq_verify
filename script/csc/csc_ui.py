@@ -819,7 +819,7 @@ def open_csc_ui(args=None):
          sg.Text('Channel Swap (VOP):', size=(16, 1)),
          sg.Combo(CHANNEL_SWAP_TYPES, default_value='None', key='-CHANNEL-SWAP-',
                   readonly=True, size=(12, 1), enable_events=True),
-         sg.Button('Reset BCSH', key='-RESET-BCSH-')],
+         sg.Button('Reset BCSH', key='-RESET-BCSH-', pad=(0, 0), border_width=0)],
         *bcsh_layout,
     ]
 
@@ -835,48 +835,49 @@ def open_csc_ui(args=None):
          sg.Text('RGB Map:', size=(8, 1)),
          sg.Combo(['Circle', 'Hex'], default_value='Circle', key='-SAT-RGB-MAP-',
                   readonly=True, size=(8, 1), enable_events=True),
-         sg.Text('Input Depth:', size=(10, 1)),
-         sg.Text('8bit', key='-SAT-DEPTH-', size=(5, 1)),
-         sg.Push(),
-         sg.Checkbox('Show Color Map', key='-SAT-SHOW-MAP-', default=False, enable_events=True)],
-        [sg.Checkbox('Set Color', key='-SAT-SET-COLOR-', default=False, enable_events=True),
-         sg.Input('', key='-SAT-COLOR-INPUT-', size=(22, 1), enable_events=False,
-                  disabled=True, disabled_readonly_background_color=sg.theme_background_color()),
-         sg.Text('Set Luma/Value:', size=(13, 1)),
+         sg.Text('Input Depth:', size=(8, 1)),
+         sg.Text('8bit', key='-SAT-DEPTH-', size=(5, 1))],
+        [sg.Checkbox('Show Color Map', key='-SAT-SHOW-MAP-', default=False, enable_events=True),
+         sg.Checkbox('Set Luma/Value', key='-SAT-LUMA-', default=True, enable_events=True),
          sg.Slider(range=(0, 255), default_value=204, orientation='h',
-                   size=(14, 15), key='-SAT-LUMA-', enable_events=True, disable_number_display=True),
-         sg.Spin([str(i) for i in range(256)], initial_value='204', key='-SAT-LUMA-SPIN-', size=(5, 1))],
+                   size=(14, 15), key='-SAT-LUMA-SLIDER-', enable_events=True, disable_number_display=True),
+         sg.Spin([str(i) for i in range(256)], initial_value='204', key='-SAT-LUMA-SPIN-', size=(5, 1)),
+         sg.Checkbox('or Set Color', key='-SAT-SET-COLOR-', default=False, enable_events=True),
+         sg.Input('', key='-SAT-COLOR-INPUT-', size=(22, 1), enable_events=False,
+                  disabled=True, disabled_readonly_background_color=sg.theme_background_color())],
+        [sg.Checkbox('Adjust Target Color Range', key='-SAT-TARGET-ENABLE-', default=False, enable_events=True)],
         [sg.Column([
-            [sg.Text('Delta Luma:', size=(14, 1)),
-             sg.Slider(range=(-255, 255), default_value=0, resolution=1, orientation='h',
-                       size=(20, 15), key='-SAT-DELTA-LUMA-', enable_events=True, disable_number_display=True),
-             sg.Spin([str(i) for i in range(-255, 256)], initial_value='0', key='-SAT-DELTA-LUMA-SPIN-', size=(5, 1)),
-             sg.Button('Reset', key='-SAT-DELTA-LUMA-RESET-', size=(5, 1))],
-            [sg.Text('Delta Hue:', size=(14, 1)),
-             sg.Slider(range=(-180, 180), default_value=0, resolution=1, orientation='h',
-                       size=(20, 15), key='-SAT-HUE-', enable_events=True, disable_number_display=True),
-             sg.Spin([str(i) for i in range(-180, 181)], initial_value='0', key='-SAT-HUE-SPIN-', size=(5, 1)),
-             sg.Button('Reset', key='-SAT-HUE-RESET-', size=(5, 1))],
-            [sg.Text('Gain Sat:', size=(14, 1)),
-             sg.Slider(range=(0, 360), default_value=180, resolution=1, orientation='h',
-                       size=(20, 15), key='-SAT-SAT-', enable_events=True, disable_number_display=True),
-             sg.Spin([f"{i/180:.2f}" for i in range(361)], initial_value='1.00', key='-SAT-SAT-SPIN-', size=(5, 1)),
-             sg.Button('Reset', key='-SAT-SAT-RESET-', size=(5, 1))],
+            [sg.Frame('H/S/V Adjust Parameters', [
+                [sg.Text('Delta Luma:', size=(14, 1)),
+                 sg.Slider(range=(-255, 255), default_value=0, resolution=1, orientation='h',
+                           size=(20, 15), key='-SAT-DELTA-LUMA-', enable_events=True, disable_number_display=True),
+                 sg.Spin([str(i) for i in range(-255, 256)], initial_value='0', key='-SAT-DELTA-LUMA-SPIN-', size=(5, 1)),
+                 sg.Button('Reset', key='-SAT-DELTA-LUMA-RESET-', size=(5, 1), pad=(0, 0), border_width=0)],
+                [sg.Text('Delta Hue:', size=(14, 1)),
+                 sg.Slider(range=(-180, 180), default_value=0, resolution=1, orientation='h',
+                           size=(20, 15), key='-SAT-HUE-', enable_events=True, disable_number_display=True),
+                 sg.Spin([str(i) for i in range(-180, 181)], initial_value='0', key='-SAT-HUE-SPIN-', size=(5, 1)),
+                 sg.Button('Reset', key='-SAT-HUE-RESET-', size=(5, 1), pad=(0, 0), border_width=0)],
+                [sg.Text('Gain Sat:', size=(14, 1)),
+                 sg.Slider(range=(0, 360), default_value=180, resolution=1, orientation='h',
+                           size=(20, 15), key='-SAT-SAT-', enable_events=True, disable_number_display=True),
+                 sg.Spin([f"{i/180:.2f}" for i in range(361)], initial_value='1.00', key='-SAT-SAT-SPIN-', size=(5, 1)),
+                 sg.Button('Reset', key='-SAT-SAT-RESET-', size=(5, 1), pad=(0, 0), border_width=0)],
+            ], expand_x=True)],
         ], vertical_alignment='top'),
          sg.Column([
-             [sg.Frame('Adjust Target Color Range', [
-                 [sg.Checkbox('Enable', key='-SAT-TARGET-ENABLE-', default=False, enable_events=True)],
+             [sg.Frame('Target Color Range Settings', [
                  [sg.Checkbox('Fix Target Hue', key='-SAT-FIX-HUE-ENABLE-', default=False, enable_events=True),
                   sg.Slider(range=(0, 360), default_value=0, resolution=1, orientation='h',
-                            size=(12, 15), key='-SAT-FIX-HUE-', enable_events=True, disable_number_display=True),
+                            size=(13, 15), key='-SAT-FIX-HUE-', enable_events=True, disable_number_display=True),
                   sg.Spin([str(i) for i in range(361)], initial_value='0', key='-SAT-FIX-HUE-SPIN-', size=(5, 1))],
                  [sg.Text('Start Hue:', size=(8, 1)),
                   sg.Spin([str(i) for i in range(361)], initial_value='0', key='-SAT-TARGET-HS-SPIN-', size=(5, 1)),
-                  sg.Text('Start Overlay:', size=(13, 1)),
+                  sg.Text('Start Overlay:', size=(11, 1)),
                   sg.Spin([str(i) for i in range(61)], initial_value='0', key='-SAT-TARGET-HSO-SPIN-', size=(5, 1))],
                  [sg.Text('End Hue:', size=(8, 1)),
                   sg.Spin([str(i) for i in range(361)], initial_value='360', key='-SAT-TARGET-HE-SPIN-', size=(5, 1)),
-                  sg.Text('End Overlay:', size=(13, 1)),
+                  sg.Text('End Overlay:', size=(11, 1)),
                   sg.Spin([str(i) for i in range(61)], initial_value='0', key='-SAT-TARGET-HEO-SPIN-', size=(5, 1))],
              ], expand_x=True)],
          ], vertical_alignment='top', pad=(10, 0))],
@@ -904,7 +905,11 @@ def open_csc_ui(args=None):
          sg.Combo(clrspc_rgb, default_value=clrspc_rgb[1], key='-OUT-CLR-',
                   readonly=True, size=(clrspc_combo_width, 1), enable_events=True)],
         [sg.Text('Auto Pixel Depth:', size=(14, 1)),
-         sg.Text('8', key='-DISP-DEPTH-', size=(4, 1), font=('_', 10, 'bold'))]
+         sg.Text('8', key='-DISP-DEPTH-', size=(4, 1), font=('_', 10, 'bold'))],
+        [sg.Text('Display Scale:', size=(14, 1)),
+         sg.Slider(range=(0.05, 2.0), default_value=0.4, resolution=0.05, orientation='h',
+                   size=(20, 15), key='-DISP-SCALE-', enable_events=True, disable_number_display=True),
+         sg.Spin([f"{i/20:.2f}" for i in range(2, 41)], initial_value='0.40', key='-DISP-SCALE-SPIN-', size=(5, 1))]
     ]
 
     layout = [
@@ -916,7 +921,7 @@ def open_csc_ui(args=None):
             ], key='-TABS-')]
         ]),
         sg.Column([
-             [sg.Button('Save Output', key='-SAVE-OUT-', size=(12, 2))],
+             [sg.Button('Save Output', key='-SAVE-OUT-', size=(12, 2), pad=(0, 0), border_width=0)],
              [sg.Radio('Show Input', 'RADIO1', key='-SHOW-IN-', enable_events=True, size=(12, 1))],
              [sg.Radio('Show Output', 'RADIO1', default=True, key='-SHOW-OUT-', enable_events=True, size=(12, 1))],
              [sg.Checkbox('dump', key='-DUMP-', default=False, enable_events=True, size=(12, 1))]
@@ -964,7 +969,7 @@ def open_csc_ui(args=None):
          ], key='-SAT-IMAGE-COL-', expand_y=True, element_justification='center', vertical_alignment='top', pad=((10, 0), 0), visible=False)]
     ]
 
-    window = sg.Window('CSC Test Tool v1.1', layout, resizable=True, finalize=True, return_keyboard_events=True)
+    window = sg.Window('CSC Test Tool v1.2', layout, resizable=True, finalize=True, return_keyboard_events=True)
     window.TKroot.attributes('-topmost', True)
     window.TKroot.lift()
     window.TKroot.focus_force()
@@ -1014,6 +1019,8 @@ def open_csc_ui(args=None):
     last_main_preview_size = (0, 0)
     last_sat_preview_size = (0, 0)
     current_main_display_size = (400, 400)
+    current_display_scale = 0.4   # Display Scale: preview size = input_size * this
+    display_scale_src = None      # input identity for which Display Scale was auto-initialized
 
     # Sat/Hue Test state
     sathue_colorspace = 'YUV'  # legacy single-mode colorspace; mirrored to *_colorspace in single mode
@@ -1311,7 +1318,7 @@ def open_csc_ui(args=None):
             cb = u_val - 128
             cr = v_val - 128
             sathue_luma_val = y_val
-            window['-SAT-LUMA-'].update(value=y_val)
+            window['-SAT-LUMA-SLIDER-'].update(value=y_val)
             window['-SAT-LUMA-SPIN-'].update(value=str(y_val))
             lock_x = _data_to_pix(cb)
             lock_y = SAT_COLORMAP_SIZE - 1 - _data_to_pix(cr)
@@ -1326,7 +1333,7 @@ def open_csc_ui(args=None):
             third = float(third_arr[0])
             third_byte = int(np.clip(round(third * 255.0), 0, 255))
             sathue_luma_val = third_byte
-            window['-SAT-LUMA-'].update(value=third_byte)
+            window['-SAT-LUMA-SLIDER-'].update(value=third_byte)
             window['-SAT-LUMA-SPIN-'].update(value=str(third_byte))
             sathue_locked_input = (hue, sat, third)
             lock_x, lock_y = _input_to_lock_pix(sathue_locked_input, cs='RGB')
@@ -1951,6 +1958,9 @@ def open_csc_ui(args=None):
         edges inside the range: there the fully-adjusted result is alpha-blended
         with the input pixel (alpha fades 0 -> 1 across each zone), so the
         adjustment eases in/out; the middle of the range keeps the full result.
+        The end zone is extended by the hue tolerance (eps) so alpha reaches 0
+        exactly at the in-range boundary, keeping the transition continuous even
+        with 8-bit hue quantization.
 
         When fix_hue_enabled, Delta Hue is treated as a percentage (clamped to
         [-100, 100]): all in-range pixels rotate toward +targ_hue (positive
@@ -1986,8 +1996,14 @@ def open_csc_ui(args=None):
             zs = d_start <= (hso + eps)
             alpha[zs] = np.minimum(alpha[zs], np.clip(d_start[zs] / (hso + eps), 0.0, 1.0))
         if heo > 0.0:
-            ze = d_end <= (heo + eps)
-            alpha[ze] = np.minimum(alpha[ze], np.clip(1.0 - d_end[ze] / (heo + eps), 0.0, 1.0))
+            # The end overlay spans [he-heo-eps, he+eps] so alpha reaches 0 exactly
+            # at the in_range edge (he+eps) instead of at he.  The band h in
+            # (he, he+eps] is still considered in-range (8-bit hue quantization can
+            # land there), so keeping alpha at 1 there left a residual full-adjustment
+            # strip that showed up as red specks breaking the overlay continuity.
+            end_span = heo + 2 * eps
+            ze = d_end <= end_span
+            alpha[ze] = np.minimum(alpha[ze], np.clip(1.0 - d_end[ze] / end_span, 0.0, 1.0))
         # Black/gray/white pixels (saturation below the threshold) must not change.
         if gray_thrd and gray_thrd > 0.0:
             in_range = in_range & (hsv[:, 1] >= gray_thrd)
@@ -2378,7 +2394,7 @@ def open_csc_ui(args=None):
         window[spin_key].Widget.configure(command=emit_bcsh_ui_event(f'{spin_key}+STEP'))
 
     # Sat/Hue slider left/right key bindings
-    for slider_key in ('-SAT-LUMA-', '-SAT-HUE-', '-SAT-SAT-',
+    for slider_key in ('-SAT-LUMA-SLIDER-', '-SAT-HUE-', '-SAT-SAT-',
                        '-SAT-DELTA-LUMA-',
                        '-SAT-FIX-HUE-'):
         sw = window[slider_key].Widget
@@ -2387,10 +2403,30 @@ def open_csc_ui(args=None):
         sw.bind('<Left>', emit_bcsh_ui_event(f'{slider_key}+LEFT', stop_default=True))
         sw.bind('<Right>', emit_bcsh_ui_event(f'{slider_key}+RIGHT', stop_default=True))
 
+    # Display Scale (I/O Config) spin/slider key bindings
+    window['-DISP-SCALE-SPIN-'].bind('<Return>', '+ENTER')
+    window['-DISP-SCALE-SPIN-'].bind('<KP_Enter>', '+ENTER')
+    window['-DISP-SCALE-SPIN-'].Widget.configure(command=emit_bcsh_ui_event('-DISP-SCALE-SPIN-+STEP'))
+    ds_widget = window['-DISP-SCALE-'].Widget
+    ds_widget.configure(takefocus=1)
+    ds_widget.bind('<Button-1>', lambda event, widget=ds_widget: widget.focus_set(), add='+')
+    ds_widget.bind('<Left>', emit_bcsh_ui_event('-DISP-SCALE-+LEFT', stop_default=True))
+    ds_widget.bind('<Right>', emit_bcsh_ui_event('-DISP-SCALE-+RIGHT', stop_default=True))
+
     def update_multiline_readonly(window, key, value):
         widget = window[key].Widget
         widget.configure(state='normal')
         window[key].update(value=value)
+
+    def _init_display_scale_for(window, values, w):
+        """Auto-set the Display Scale so the preview is ~400px wide (clamped to [0.1, 2.0])."""
+        nonlocal current_display_scale
+        init_scale = max(0.1, min(2.0, 400.0 / w))
+        init_scale = round(init_scale / 0.05) * 0.05
+        current_display_scale = init_scale
+        window['-DISP-SCALE-'].update(value=init_scale)
+        window['-DISP-SCALE-SPIN-'].update(value=f"{init_scale:.2f}")
+        values['-DISP-SCALE-'] = init_scale
 
     def trigger_convert(values, update_display=True, preserve_preview_size=False):
         nonlocal current_planar_in, current_planar_out
@@ -2402,20 +2438,17 @@ def open_csc_ui(args=None):
         nonlocal current_step2_coefs, current_step2_offset
         nonlocal planar_in_full, current_input_file_params
         nonlocal current_scale_factor
+        nonlocal current_display_scale, display_scale_src
 
         def get_preview_sampling_size(src_w, src_h, min_display_w, min_display_h):
-            """Return the preview sampling size while optionally preserving the current display size."""
+            """Return the preview sampling size for the current Display Scale."""
             if preserve_preview_size and current_planar_in is not None:
                 prev_h, prev_w = current_planar_in.shape[1], current_planar_in.shape[2]
                 if prev_w > 0 and prev_h > 0:
                     return min(prev_w, src_w), min(prev_h, src_h)
 
-            col_widget = window['-MAIN-IMAGE-COL-'].Widget
-            max_display_w = max(col_widget.winfo_width() - 20, min_display_w)
-            max_display_h = max(col_widget.winfo_height() - 20, min_display_h)
-            scale_factor = min(max_display_w / src_w, max_display_h / src_h, 1.0)
-            disp_w = max(int(src_w * scale_factor), 1)
-            disp_h = max(int(src_h * scale_factor), 1)
+            disp_w = max(int(round(src_w * current_display_scale)), 1)
+            disp_h = max(int(round(src_h * current_display_scale)), 1)
             return disp_w, disp_h
 
         set_color = values.get('-SET-COLOR-', False)
@@ -2450,6 +2483,12 @@ def open_csc_ui(args=None):
             if h <= 0 or w <= 0:
                 return
 
+            # Auto-init the Display Scale for a new input size (preview ~400px wide).
+            color_src = ('color', w, h)
+            if display_scale_src != color_src:
+                _init_display_scale_for(window, values, w)
+                display_scale_src = color_src
+
             # Build flat planar from color values
             max_val = (1 << depth) - 1
             planar_in_full = np.zeros((3, h, w), dtype=np.uint16 if depth > 8 else np.uint8)
@@ -2457,9 +2496,9 @@ def open_csc_ui(args=None):
                 planar_in_full[i, :, :] = int(np.clip(color_vals[i], 0, max_val))
             current_input_file_params = None
 
-            # Downsample for display while preserving aspect ratio
+            # Downsample to the Display Scale size
             disp_w, disp_h = get_preview_sampling_size(w, h, 400, 400)
-            scale_factor = min(disp_w / w, disp_h / h, 1.0)
+            scale_factor = disp_w / float(w)
             current_scale_factor = scale_factor
             if disp_w != w or disp_h != h:
                 y_indices = np.linspace(0, h - 1, disp_h).astype(int)
@@ -2565,6 +2604,10 @@ def open_csc_ui(args=None):
 
         try:
             file_params = (input_file, w, h, ifmt)
+            # Auto-init the Display Scale when a new input image is loaded.
+            if display_scale_src != file_params:
+                _init_display_scale_for(window, values, w)
+                display_scale_src = file_params
             if planar_in_full is None or current_input_file_params != file_params:
                 if is_image:
                     # 缓存失效时重新解码图片
@@ -2573,9 +2616,9 @@ def open_csc_ui(args=None):
                     planar_in_full, _ = read_raw_to_planar(input_file, w, h, ifmt)
                 current_input_file_params = file_params
 
-            # Calculate downsampling factors
+            # Downsample to the Display Scale size
             disp_w, disp_h = get_preview_sampling_size(w, h, 640, 360)
-            scale_factor = min(disp_w / w, disp_h / h, 1.0)
+            scale_factor = disp_w / float(w)
             current_scale_factor = scale_factor
 
             # Downsample the full resolution input
@@ -2904,8 +2947,38 @@ def open_csc_ui(args=None):
         elif event == '-OUT-FMT-':
             _update_clrspc_for_fmt(window, values, '-OUT-CLR-', values['-OUT-FMT-'])
             trigger_convert(values)
+        elif event == '-DISP-SCALE-':
+            current_display_scale = round(float(values['-DISP-SCALE-']) / 0.05) * 0.05
+            window['-DISP-SCALE-SPIN-'].update(value=f"{current_display_scale:.2f}")
+            trigger_convert(values)
+        elif event_key == '-DISP-SCALE-SPIN-' and event_suffix in {'STEP', 'ENTER'}:
+            try:
+                v = float(values.get('-DISP-SCALE-SPIN-', current_display_scale))
+            except (TypeError, ValueError):
+                v = current_display_scale
+            current_display_scale = round(max(0.1, min(2.0, v)) / 0.05) * 0.05
+            window['-DISP-SCALE-'].update(value=current_display_scale)
+            window['-DISP-SCALE-SPIN-'].update(value=f"{current_display_scale:.2f}")
+            trigger_convert(values)
+        elif event_key == '-DISP-SCALE-' and event_suffix in {'LEFT', 'RIGHT'}:
+            delta = -0.05 if event_suffix == 'LEFT' else 0.05
+            current_display_scale = round(max(0.1, min(2.0, current_display_scale + delta)) / 0.05) * 0.05
+            window['-DISP-SCALE-'].update(value=current_display_scale)
+            window['-DISP-SCALE-SPIN-'].update(value=f"{current_display_scale:.2f}")
+            trigger_convert(values)
         elif event == '-SAT-SHOW-MAP-':
-            _set_sat_preview_visible(values.get('-SAT-SHOW-MAP-', False))
+            show_map = values.get('-SAT-SHOW-MAP-', False)
+            # Mutual exclusion with Adjust Target Color Range: showing the color map
+            # conflicts with the target-color-range preview on the main image.
+            if show_map:
+                window['-SAT-TARGET-ENABLE-'].update(value=False)
+                values['-SAT-TARGET-ENABLE-'] = False
+                sathue_target_enabled = False
+                window['-SAT-TARGET-HS-SPIN-'].update(disabled=True)
+                window['-SAT-TARGET-HE-SPIN-'].update(disabled=True)
+                window['-SAT-TARGET-HSO-SPIN-'].update(disabled=True)
+                window['-SAT-TARGET-HEO-SPIN-'].update(disabled=True)
+            _set_sat_preview_visible(show_map)
             main_preview_size = _get_preview_widget_size('-MAIN-IMAGE-COL-')
             last_main_preview_size = main_preview_size
             # Do NOT trigger -REDRAW-IMAGE- here. trigger_convert -> display_result
@@ -2921,6 +2994,16 @@ def open_csc_ui(args=None):
                     window.TKroot.after(50, _render_sathue_display)
         elif event == '-SAT-SET-COLOR-':
             sathue_set_color_enabled = values.get('-SAT-SET-COLOR-', False)
+            # Mutual exclusion with Set Luma/Value (-SAT-LUMA-).
+            if sathue_set_color_enabled:
+                window['-SAT-LUMA-'].update(value=False)
+                values['-SAT-LUMA-'] = False
+                window['-SAT-LUMA-SLIDER-'].update(disabled=True)
+                window['-SAT-LUMA-SPIN-'].update(disabled=True)
+            else:
+                luma_checked = values.get('-SAT-LUMA-', True)
+                window['-SAT-LUMA-SLIDER-'].update(disabled=not luma_checked)
+                window['-SAT-LUMA-SPIN-'].update(disabled=not luma_checked)
             window['-SAT-COLOR-INPUT-'].update(disabled=not sathue_set_color_enabled)
             if sathue_set_color_enabled:
                 color_vals = parse_color_input(values.get('-SAT-COLOR-INPUT-', ''))
@@ -2995,7 +3078,22 @@ def open_csc_ui(args=None):
             if sat_preview_visible:
                 update_sathue_map(preserve_display_size=True)
         elif event == '-SAT-LUMA-':
-            sathue_luma_val = int(values['-SAT-LUMA-'])
+            # Set Luma/Value checkbox: mutually exclusive with -SAT-SET-COLOR-.
+            luma_enabled = values.get('-SAT-LUMA-', True)
+            if luma_enabled:
+                window['-SAT-SET-COLOR-'].update(value=False)
+                values['-SAT-SET-COLOR-'] = False
+                sathue_set_color_enabled = False
+                window['-SAT-COLOR-INPUT-'].update(disabled=True)
+                if sathue_mode == 'dual':
+                    _clear_sathue_dual_color_lock()
+                else:
+                    _clear_sathue_color_lock()
+            window['-SAT-LUMA-SLIDER-'].update(disabled=not luma_enabled)
+            window['-SAT-LUMA-SPIN-'].update(disabled=not luma_enabled)
+            update_sathue_map(preserve_display_size=True)
+        elif event == '-SAT-LUMA-SLIDER-':
+            sathue_luma_val = int(values['-SAT-LUMA-SLIDER-'])
             window['-SAT-LUMA-SPIN-'].update(value=str(sathue_luma_val))
             if sathue_mode == 'dual' and sathue_left_locked and not sathue_set_color_enabled:
                 # In dual + frozen mode the luma slider drives the left frozen pixel's
@@ -3018,6 +3116,12 @@ def open_csc_ui(args=None):
                 display_result(window, values)
         elif event == '-SAT-TARGET-ENABLE-':
             sathue_target_enabled = values.get('-SAT-TARGET-ENABLE-', False)
+            # Mutual exclusion with Show Color Map: the target-color-range preview
+            # renders on the main image, so hide the Sat/Hue colormap when active.
+            if sathue_target_enabled:
+                window['-SAT-SHOW-MAP-'].update(value=False)
+                values['-SAT-SHOW-MAP-'] = False
+                _set_sat_preview_visible(False)
             window['-SAT-TARGET-HS-SPIN-'].update(disabled=not sathue_target_enabled)
             window['-SAT-TARGET-HE-SPIN-'].update(disabled=not sathue_target_enabled)
             window['-SAT-TARGET-HSO-SPIN-'].update(disabled=not sathue_target_enabled)
@@ -3098,7 +3202,7 @@ def open_csc_ui(args=None):
                 v = int(values[event_key])
                 v = max(0, min(255, v))
                 sathue_luma_val = v
-                window[slider_key].update(value=v)
+                window['-SAT-LUMA-SLIDER-'].update(value=v)
                 if sathue_mode == 'dual' and sathue_left_locked and not sathue_set_color_enabled:
                     _update_dual_frozen_left_luma(sathue_luma_val)
                 elif sathue_locked and not sathue_set_color_enabled:
@@ -3136,7 +3240,7 @@ def open_csc_ui(args=None):
                 except ValueError:
                     v = sathue_luma_val
                 sathue_luma_val = v
-                window[slider_key].update(value=v)
+                window['-SAT-LUMA-SLIDER-'].update(value=v)
                 window[event_key].update(value=str(v))
                 if sathue_mode == 'dual' and sathue_left_locked and not sathue_set_color_enabled:
                     _update_dual_frozen_left_luma(sathue_luma_val)
@@ -3197,7 +3301,7 @@ def open_csc_ui(args=None):
         elif event_key.startswith('-SAT-') and event_key.endswith('-') and event_suffix in {'LEFT', 'RIGHT'}:
             delta = -1 if event_suffix == 'LEFT' else 1
             cur = int(values[event_key])
-            if event_key == '-SAT-LUMA-':
+            if event_key == '-SAT-LUMA-SLIDER-':
                 cur = max(0, min(255, cur + delta))
                 sathue_luma_val = cur
                 window['-SAT-LUMA-SPIN-'].update(value=str(cur))
