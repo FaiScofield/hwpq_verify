@@ -51,6 +51,7 @@ class IoUiController:
         on_input_loaded: Callable[[object, str], None] | None = None,
         on_load_config: Callable[[str], None] | None = None,
         status_callback: Callable[[str], None] | None = None,
+        auto_load_defaults: bool = True,
     ) -> None:
         """Bind to an IoUiWidget instance and explicit host callbacks.
 
@@ -60,6 +61,7 @@ class IoUiController:
             on_input_loaded: Optional callback receiving ``(input_yuv444, status_message)``.
             on_load_config: Optional callback receiving a config path.
             status_callback: Optional callback receiving a status-bar message.
+            auto_load_defaults: Whether to auto-load the default input/config during init.
         """
         self._win = parent_window
         self.widget = io_widget
@@ -67,9 +69,11 @@ class IoUiController:
         self._on_input_loaded = on_input_loaded
         self._load_config_callback = on_load_config
         self._status_callback = status_callback
+        self._input_loaded = False
         self._init_ui()
         self._connect_signals()
-        self._auto_load_defaults()
+        if auto_load_defaults:
+            self._auto_load_defaults()
 
     def _init_ui(self) -> None:
         """Populate format/colorspace combo boxes with default selections."""
@@ -109,6 +113,7 @@ class IoUiController:
         self.ui.pushButton_load_config.clicked.connect(self._on_load_config)
         self.ui.comboBox_input_format.currentIndexChanged.connect(self._on_input_format_changed)
         self.ui.checkBox_set_color.toggled.connect(self._on_set_color_toggled)
+        self.ui.lineEdit_set_color.returnPressed.connect(self._on_set_color_return_pressed)
 
     # ------------------------------------------------------------------ #
     # Public queries                                                     #
@@ -147,7 +152,9 @@ class IoUiController:
         self.ui.checkBox_set_color.setChecked(False)
         path = self.ui.lineEdit_input_file.text()
         if path:
-            self._guess_input_params(path)
+            # Only re-guess format if no input has been loaded yet.
+            if not self._input_loaded:
+                self._guess_input_params(path)
             self._recalc_frame_num()
             self._load_input_image()
 
@@ -219,9 +226,16 @@ class IoUiController:
             elif input_loaded:
                 self._status_callback("Auto-loaded input image.")
 
+    def auto_load_defaults(self) -> None:
+        """Public wrapper used by the host after all dependent controllers exist."""
+        self._auto_load_defaults()
+
     def _on_set_color_toggled(self, enabled: bool) -> None:
         """Toggle the explicit-color input edit and reload."""
         self.ui.lineEdit_set_color.setEnabled(enabled)
+        if enabled:
+            # Clear any previous success style so the user starts fresh
+            self.ui.lineEdit_set_color.setStyleSheet("")
         self._load_input_image()
 
     def _guess_input_params(self, filepath: str) -> None:
@@ -308,15 +322,13 @@ class IoUiController:
         values to the spec-defined ranges before scaling to 10-bit.
         """
         color_str = self.ui.lineEdit_set_color.text().strip()
-        try:
-            parts = list(map(int, color_str.split()))
-            if len(parts) != 3:
-                raise ValueError("expected three integers")
-            c1, c2, c3 = parts
-        except Exception:
-            QMessageBox.warning(None, "Warning", "Invalid color format. Use 'C1 C2 C3'")
+        parsed = self._parse_color_text(color_str)
+        if parsed is None:
+            QMessageBox.warning(None, "Warning", "Invalid color format. Use three numbers separated by spaces or commas (e.g. 128,128,128 or 128 128 128)")
+            self.ui.lineEdit_set_color.setStyleSheet("")
             return
-
+        c1, c2, c3 = parsed
+        self.ui.lineEdit_set_color.setStyleSheet("color: #22dd22;")
         fmt_str = self.ui.comboBox_input_format.currentText()
         if not fmt_str:
             return
@@ -355,6 +367,35 @@ class IoUiController:
             f"size: {width}x{height}",
         )
 
+    def _on_set_color_return_pressed(self) -> None:
+        """Parse the set-color text when Enter is pressed.
+
+        On success the text colour turns green; on failure a warning is shown
+        and the colour stays unchanged.
+        """
+        color_str = self.ui.lineEdit_set_color.text().strip()
+        parsed = self._parse_color_text(color_str)
+        if parsed is None:
+            QMessageBox.warning(
+                None, "Warning",
+                "Invalid color format. Use three numbers separated by spaces or commas (e.g. 128,128,128 or 128 128 128)",
+            )
+            return
+        self.ui.lineEdit_set_color.setStyleSheet("color: #22dd22;")
+        self._load_input_image()
+
+    @staticmethod
+    def _parse_color_text(text: str) -> tuple[int, int, int] | None:
+        """Parse 'C1 C2 C3' or 'C1,C2,C3' into three ints. Returns None on failure."""
+        parts = re.split(r'[,\s]+', text.strip())
+        parts = [p for p in parts if p]
+        if len(parts) != 3:
+            return None
+        try:
+            return tuple(map(int, parts))
+        except ValueError:
+            return None
+
     def _load_input_image(self) -> None:
         """Load input data as an ImageFrame and notify parent."""
         input_file = self.ui.lineEdit_input_file.text()
@@ -386,5 +427,6 @@ class IoUiController:
                 )
             self._emit_input_loaded(
                 frame, f"Input loaded: {frame.width}x{frame.height}, idx={frame_idx}")
+            self._input_loaded = True
         except Exception as exc:
             QMessageBox.critical(None, "Error", f"Failed to load image: {exc}")

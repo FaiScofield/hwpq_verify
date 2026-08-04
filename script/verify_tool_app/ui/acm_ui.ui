@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1132</width>
-    <height>756</height>
+    <width>1131</width>
+    <height>389</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -49,6 +49,9 @@
      </item>
      <item>
       <widget class="QRadioButton" name="radioButton_colorspace_hsv">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
        <property name="text">
         <string>HSV(RGB)</string>
        </property>
@@ -108,17 +111,12 @@
        </item>
        <item>
         <property name="text">
-         <string>soft_clip</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>const_hue</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
          <string>radial_clip</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>luma_clip</string>
         </property>
        </item>
       </widget>
@@ -144,12 +142,19 @@
       </widget>
      </item>
      <item>
-      <widget class="QCheckBox" name="checkBox_lut_visualization">
+      <widget class="QCheckBox" name="checkBox_lut_config">
        <property name="text">
-        <string>LUT Visualization</string>
+        <string>View Lut Config</string>
        </property>
       </widget>
      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBox_lut_result">
+        <property name="text">
+         <string>View Lut Result</string>
+        </property>
+       </widget>
+      </item>
      <item>
       <widget class="QPushButton" name="pushButton_read_config">
        <property name="text">
@@ -172,7 +177,7 @@
       <bool>true</bool>
      </property>
      <property name="title">
-      <string>LUT Lengths Setting</string>
+      <string>Force LUT Length Setting</string>
      </property>
      <property name="checkable">
       <bool>true</bool>
@@ -478,7 +483,7 @@
    <item>
     <widget class="QGroupBox" name="groupBox_delta_editor">
      <property name="title">
-      <string>Delta Editor</string>
+      <string>Delta Y/H/S Adjust</string>
      </property>
      <layout class="QVBoxLayout" name="verticalLayout_delta_editor">
       <item>
@@ -540,6 +545,13 @@
          </spacer>
         </item>
         <item>
+         <widget class="QCheckBox" name="checkBox_ignore_gain_luts">
+          <property name="text">
+           <string>Force Ignore Gain LUTs</string>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QPushButton" name="button_reset_curr">
           <property name="text">
            <string>Reset Curr Tab</string>
@@ -550,6 +562,13 @@
          <widget class="QPushButton" name="button_reset_all">
           <property name="text">
            <string>Reset All Tabs</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="Line" name="line_4">
+          <property name="orientation">
+           <enum>Qt::Orientation::Vertical</enum>
           </property>
          </widget>
         </item>
@@ -654,11 +673,136 @@
    <item>
     <widget class="QGroupBox" name="groupBox_global_gain">
      <property name="title">
-      <string>Global Gain</string>
+      <string>Global Gain Adjust</string>
      </property>
-     <layout class="QGridLayout" name="gridLayout_global_gain" columnstretch="0,0">
-      <item row="0" column="1">
-       <layout class="QHBoxLayout" name="horizontalLayout_offset_wr">
+     <layout class="QVBoxLayout" name="verticalLayout_2">
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_gains" stretch="0,1,0,0,1,0,0,1,0,0">
+        <item>
+         <widget class="QLabel" name="label_gain_y">
+          <property name="minimumSize">
+           <size>
+            <width>80</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Luma Gain</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="slider_gain_y">
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="spinBox_gain_y">
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_gain_s">
+          <property name="minimumSize">
+           <size>
+            <width>80</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Sat  Gain</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="slider_gain_s">
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="spinBox_gain_s">
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_gain_h">
+          <property name="minimumSize">
+           <size>
+            <width>80</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Hue  Gain</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="slider_gain_h">
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="spinBox_gain_h">
+          <property name="maximum">
+           <number>1023</number>
+          </property>
+          <property name="value">
+           <number>256</number>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="button_reset_gain">
+          <property name="minimumSize">
+           <size>
+            <width>110</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Reset Gain</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_offsets" stretch="0,1,0,0,1,0,0,1,0,0">
         <item>
          <widget class="QLabel" name="label_offset_wr">
           <property name="enabled">
@@ -704,139 +848,6 @@
           </property>
          </widget>
         </item>
-       </layout>
-      </item>
-      <item row="1" column="0">
-       <layout class="QHBoxLayout" name="horizontalLayout_gain_s">
-        <item>
-         <widget class="QLabel" name="label_gain_s">
-          <property name="minimumSize">
-           <size>
-            <width>80</width>
-            <height>0</height>
-           </size>
-          </property>
-          <property name="text">
-           <string>Sat  Gain</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QSlider" name="slider_gain_s">
-          <property name="maximum">
-           <number>1023</number>
-          </property>
-          <property name="value">
-           <number>256</number>
-          </property>
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QSpinBox" name="spinBox_gain_s">
-          <property name="maximum">
-           <number>1023</number>
-          </property>
-          <property name="value">
-           <number>256</number>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      <item row="2" column="0">
-       <layout class="QHBoxLayout" name="horizontalLayout_gain_h">
-        <item>
-         <widget class="QLabel" name="label_gain_h">
-          <property name="minimumSize">
-           <size>
-            <width>80</width>
-            <height>0</height>
-           </size>
-          </property>
-          <property name="text">
-           <string>Hue  Gain</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QSlider" name="slider_gain_h">
-          <property name="maximum">
-           <number>1023</number>
-          </property>
-          <property name="value">
-           <number>256</number>
-          </property>
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QSpinBox" name="spinBox_gain_h">
-          <property name="maximum">
-           <number>1023</number>
-          </property>
-          <property name="value">
-           <number>256</number>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      <item row="2" column="1">
-       <layout class="QHBoxLayout" name="horizontalLayout_offset_wb">
-        <item>
-         <widget class="QLabel" name="label_offset_wb">
-          <property name="enabled">
-           <bool>false</bool>
-          </property>
-          <property name="minimumSize">
-           <size>
-            <width>80</width>
-            <height>0</height>
-           </size>
-          </property>
-          <property name="text">
-           <string>WB Offset</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QSlider" name="slider_offset_wb">
-          <property name="enabled">
-           <bool>false</bool>
-          </property>
-          <property name="maximum">
-           <number>1023</number>
-          </property>
-          <property name="value">
-           <number>256</number>
-          </property>
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QSpinBox" name="spinBox_offset_wb">
-          <property name="enabled">
-           <bool>false</bool>
-          </property>
-          <property name="maximum">
-           <number>1023</number>
-          </property>
-          <property name="value">
-           <number>256</number>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      <item row="1" column="1">
-       <layout class="QHBoxLayout" name="horizontalLayout_offset_wg">
         <item>
          <widget class="QLabel" name="label_offset_wg">
           <property name="enabled">
@@ -882,12 +893,11 @@
           </property>
          </widget>
         </item>
-       </layout>
-      </item>
-      <item row="0" column="0">
-       <layout class="QHBoxLayout" name="horizontalLayout_gain_y">
         <item>
-         <widget class="QLabel" name="label_gain_y">
+         <widget class="QLabel" name="label_offset_wb">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
           <property name="minimumSize">
            <size>
             <width>80</width>
@@ -895,12 +905,15 @@
            </size>
           </property>
           <property name="text">
-           <string>Luma Gain</string>
+           <string>WB Offset</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QSlider" name="slider_gain_y">
+         <widget class="QSlider" name="slider_offset_wb">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
           <property name="maximum">
            <number>1023</number>
           </property>
@@ -913,7 +926,10 @@
          </widget>
         </item>
         <item>
-         <widget class="QSpinBox" name="spinBox_gain_y">
+         <widget class="QSpinBox" name="spinBox_offset_wb">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
           <property name="maximum">
            <number>1023</number>
           </property>
@@ -922,136 +938,23 @@
           </property>
          </widget>
         </item>
-       </layout>
-      </item>
-      <item row="5" column="1" rowspan="3">
-       <layout class="QHBoxLayout" name="horizontalLayout_2" stretch="0,0">
         <item>
          <widget class="QPushButton" name="button_reset_offset">
+          <property name="enabled">
+           <bool>false</bool>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>110</width>
+            <height>0</height>
+           </size>
+          </property>
           <property name="text">
            <string>Reset Offset</string>
           </property>
          </widget>
         </item>
-        <item>
-         <spacer name="horizontalSpacer_2">
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
-          </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>40</width>
-            <height>20</height>
-           </size>
-          </property>
-         </spacer>
-        </item>
        </layout>
-      </item>
-      <item row="5" column="0" rowspan="4">
-       <layout class="QHBoxLayout" name="horizontalLayout" stretch="0,0">
-        <item>
-         <widget class="QPushButton" name="button_reset_gain">
-          <property name="text">
-           <string>Reset Gain</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <spacer name="horizontalSpacer">
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
-          </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>40</width>
-            <height>20</height>
-           </size>
-          </property>
-         </spacer>
-        </item>
-       </layout>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QGroupBox" name="groupBox_lut_visualization">
-     <property name="title">
-      <string>LUT Visualization</string>
-     </property>
-     <layout class="QGridLayout" name="gridLayout_lut_visualization">
-      <item row="0" column="0">
-       <widget class="QGroupBox" name="groupBox_gain_ybyy">
-        <property name="title">
-         <string>Gain Y by Y</string>
-        </property>
-        <layout class="QVBoxLayout" name="verticalLayout_gain_ybyy">
-         <item>
-          <widget class="QWidget" name="widget_gain_ybyy_host" native="true"/>
-         </item>
-        </layout>
-       </widget>
-      </item>
-      <item row="0" column="1">
-       <widget class="QGroupBox" name="groupBox_gain_sbyy">
-        <property name="title">
-         <string>Gain S by Y</string>
-        </property>
-        <layout class="QVBoxLayout" name="verticalLayout_gain_sbyy">
-         <item>
-          <widget class="QWidget" name="widget_gain_sbyy_host" native="true"/>
-         </item>
-        </layout>
-       </widget>
-      </item>
-      <item row="0" column="2">
-       <widget class="QGroupBox" name="groupBox_gain_hbyy">
-        <property name="title">
-         <string>Gain H by Y</string>
-        </property>
-        <layout class="QVBoxLayout" name="verticalLayout_gain_hbyy">
-         <item>
-          <widget class="QWidget" name="widget_gain_hbyy_host" native="true"/>
-         </item>
-        </layout>
-       </widget>
-      </item>
-      <item row="1" column="0">
-       <widget class="QGroupBox" name="groupBox_gain_ybys">
-        <property name="title">
-         <string>Gain Y by S</string>
-        </property>
-        <layout class="QVBoxLayout" name="verticalLayout_gain_ybys">
-         <item>
-          <widget class="QWidget" name="widget_gain_ybys_host" native="true"/>
-         </item>
-        </layout>
-       </widget>
-      </item>
-      <item row="1" column="1">
-       <widget class="QGroupBox" name="groupBox_gain_sbys">
-        <property name="title">
-         <string>Gain S by S</string>
-        </property>
-        <layout class="QVBoxLayout" name="verticalLayout_gain_sbys">
-         <item>
-          <widget class="QWidget" name="widget_gain_sbys_host" native="true"/>
-         </item>
-        </layout>
-       </widget>
-      </item>
-      <item row="1" column="2">
-       <widget class="QGroupBox" name="groupBox_gain_hbys">
-        <property name="title">
-         <string>Gain H by S</string>
-        </property>
-        <layout class="QVBoxLayout" name="verticalLayout_gain_hbys">
-         <item>
-          <widget class="QWidget" name="widget_gain_hbys_host" native="true"/>
-         </item>
-        </layout>
-       </widget>
       </item>
      </layout>
     </widget>

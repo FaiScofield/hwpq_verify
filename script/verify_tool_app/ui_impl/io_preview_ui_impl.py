@@ -3,12 +3,20 @@ Preview controller — encapsulates the image preview dock and pixel inspection 
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass
 import os
 
 import numpy as np
 from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QDockWidget, QGraphicsScene, QMainWindow, QMessageBox, QWidget
+from PySide6.QtWidgets import (
+    QDockWidget,
+    QGraphicsScene,
+    QMainWindow,
+    QMessageBox,
+    QSizePolicy,
+    QWidget,
+)
 
 from script.img_io import ImageFrame, yuv_to_rgb
 
@@ -26,6 +34,26 @@ class PreviewUiWidget(QWidget):
         super().__init__(parent)
         self.ui = Ui_PreviewUiWidget()
         self.ui.setupUi(self)
+        self.ui.verticalLayout.setStretch(0, 0)
+        self.ui.verticalLayout.setStretch(1, 0)
+        self.ui.verticalLayout.setStretch(2, 0)
+        self.ui.verticalLayout.setStretch(3, 1)
+        self.ui.gridLayout_info.setColumnStretch(0, 0)
+        self.ui.gridLayout_info.setColumnStretch(1, 2)
+        self.ui.gridLayout_info.setColumnStretch(2, 0)
+        self.ui.gridLayout_info.setColumnStretch(3, 2)
+        self.ui.gridLayout_info.setColumnStretch(4, 0)
+        self.ui.gridLayout_info.setColumnStretch(5, 2)
+
+
+@dataclass
+class PixelSelection:
+    """Cache one valid preview pixel for freeze-state reuse and external sync."""
+
+    source_view: str
+    x_pos: int
+    y_pos: int
+    display_role: str
 
 
 class PreviewUiController(QObject):
@@ -37,6 +65,7 @@ class PreviewUiController(QObject):
         parent_window: QMainWindow | None = None,
         output_dir_getter: Callable[[], str] | None = None,
         status_callback: Callable[[str], None] | None = None,
+        pixel_selection_callback: Callable[[dict | None], None] | None = None,
     ) -> None:
         """Bind to a PreviewUiWidget instance and mount it into a dock when possible."""
         super().__init__(parent_window or preview_widget)
@@ -45,6 +74,7 @@ class PreviewUiController(QObject):
         self.ui = preview_widget.ui
         self._output_dir_getter = output_dir_getter or (lambda: os.getcwd())
         self._status_callback = status_callback or (lambda message: None)
+        self._pixel_selection_callback = pixel_selection_callback or (lambda selection: None)
         self._acm_enabled: bool = True
         self._preview_mode: str = "BothInLeft"  # or "SideBySide"
 
@@ -60,6 +90,7 @@ class PreviewUiController(QObject):
         self.output_qimage: QImage | None = None
         self.mouse_pos = (0, 0)
         self.is_pixel_info_frozen = False
+        self._last_pixel_selection: PixelSelection | None = None
         self._preview_scale = 1.0
         self._left_pixmap_item = None
         self._right_pixmap_item = None
@@ -68,6 +99,7 @@ class PreviewUiController(QObject):
         self.scene_right = QGraphicsScene(self)
         self.ui.graphicsView_left.setScene(self.scene_left)
         self.ui.graphicsView_right.setScene(self.scene_right)
+        self._relax_minimum_sizes()
 
         self.preview_dock = None
         if self._win is not None:
@@ -80,11 +112,41 @@ class PreviewUiController(QObject):
                 | QDockWidget.DockWidgetClosable
             )
             self.preview_dock.setWidget(self.widget)
+            self.preview_dock.setMinimumSize(360, 320)
             self._win.addDockWidget(Qt.BottomDockWidgetArea, self.preview_dock)
+            self._win.resizeDocks([self.preview_dock], [400], Qt.Vertical)
 
         self._connect_signals()
         self._on_preview_scale_changed(self.ui.slider_preview_scale.value())
         self._sync_preview_layout()
+
+    def _relax_minimum_sizes(self) -> None:
+        """Prefer resizing the preview canvases while keeping the info rows stable."""
+        self.widget.setMinimumSize(0, 0)
+        self.widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+
+        for widget in (
+            self.ui.graphicsView_left,
+            self.ui.graphicsView_right,
+            self.ui.groupBox_left_preview,
+            self.ui.groupBox_right_preview,
+        ):
+            widget.setMinimumSize(0, 0)
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        for widget in (
+            self.ui.lineEdit_display_size,
+            self.ui.lineEdit_position,
+            self.ui.lineEdit_time_cost,
+            self.ui.lineEdit_input_pixel,
+            self.ui.lineEdit_output_pixel,
+            self.ui.comboBox_preview_type,
+            self.ui.slider_preview_scale,
+            self.ui.pushButton_save_left,
+            self.ui.pushButton_save_right,
+            self.ui.checkBox_show_input,
+        ):
+            widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
     # ------------------------------------------------------------------ #
     # Public interface                                                   #
@@ -100,6 +162,13 @@ class PreviewUiController(QObject):
         """Update the output-directory provider used by save actions."""
         self._output_dir_getter = output_dir_getter or (lambda: os.getcwd())
 
+    def set_pixel_selection_callback(
+        self,
+        pixel_selection_callback: Callable[[dict | None], None] | None,
+    ) -> None:
+        """Update the host callback used to sync frozen pixel selections."""
+        self._pixel_selection_callback = pixel_selection_callback or (lambda selection: None)
+
     def set_input_image(self, frame: ImageFrame | None) -> None:
         """Replace the current input image and refresh."""
         self.input_frame = frame
@@ -109,6 +178,7 @@ class PreviewUiController(QObject):
         self.input_qimage = None
         self.ui.lineEdit_input_pixel.clear()
         self.ui.lineEdit_position.clear()
+        self._clear_pixel_selection(notify=True)
         if frame is not None:
             self.input_qimage = self._frame_to_qimage(frame, is_input=True)
         self._sync_preview_layout()
@@ -121,10 +191,10 @@ class PreviewUiController(QObject):
         self.output_cache_rgb444 = None
         self.output_rgb_from_yuv = None
         self.output_qimage = None
-        self.ui.lineEdit_output_pixel.clear()
         if frame is not None:
             self.output_qimage = self._frame_to_qimage(frame, is_input=False)
         self._sync_preview_layout()
+        self._restore_frozen_pixel_readout()
 
     def set_time_cost_ms(self, elapsed_ms: float | None) -> None:
         """Update the displayed processing time."""
@@ -138,6 +208,13 @@ class PreviewUiController(QObject):
         if event.key() != Qt.Key_Space:
             return False
         self.is_pixel_info_frozen = not self.is_pixel_info_frozen
+        if self.is_pixel_info_frozen:
+            if self._last_pixel_selection is not None:
+                self._set_position_text(self._last_pixel_selection.x_pos, self._last_pixel_selection.y_pos)
+            self._emit_pixel_selection()
+        else:
+            self._set_position_text(*self.mouse_pos)
+            self._clear_pixel_selection(notify=True)
         status = "Frozen" if self.is_pixel_info_frozen else "Live"
         self._status_callback(f"Pixel info: {status}")
         return True
@@ -285,6 +362,86 @@ class PreviewUiController(QObject):
     # Mouse tracking / pixel inspection                                  #
     # ------------------------------------------------------------------ #
 
+    def _clear_pixel_selection(self, notify: bool) -> None:
+        """Reset the cached pixel selection and optionally clear external state."""
+        self._last_pixel_selection = None
+        self.is_pixel_info_frozen = False
+        if notify:
+            self._pixel_selection_callback(None)
+
+    def _emit_pixel_selection(self) -> None:
+        """Forward the frozen pixel location to the host callback."""
+        if self._last_pixel_selection is None:
+            self._pixel_selection_callback(None)
+            return
+        self._pixel_selection_callback(
+            {
+                "source_view": self._last_pixel_selection.source_view,
+                "x": self._last_pixel_selection.x_pos,
+                "y": self._last_pixel_selection.y_pos,
+                "display_role": self._last_pixel_selection.display_role,
+                "frozen": self.is_pixel_info_frozen,
+            }
+        )
+
+    def _update_pixel_selection(
+        self,
+        source_view: str,
+        x_pos: int,
+        y_pos: int,
+        display_role: str,
+    ) -> None:
+        """Cache the latest valid preview pixel for freeze-state reuse."""
+        self._last_pixel_selection = PixelSelection(
+            source_view=source_view,
+            x_pos=x_pos,
+            y_pos=y_pos,
+            display_role=display_role,
+        )
+        self.mouse_pos = (x_pos, y_pos)
+        self._set_position_text(x_pos, y_pos)
+
+    def _set_position_text(self, x_pos: int, y_pos: int) -> None:
+        """Render the current pixel position together with the freeze state."""
+        state = "Frozen" if self.is_pixel_info_frozen else "Live"
+        self.ui.lineEdit_position.setText(f"({x_pos}, {y_pos}) [{state}]")
+
+    @staticmethod
+    def _fill_pixel_readout(line_edit, rgb_cache, yuv_cache, rgb_from_yuv, x_pos, y_pos):
+        """Fill a QLineEdit with the pixel value from available caches."""
+        if rgb_cache is not None:
+            r, g, b = rgb_cache[y_pos, x_pos]
+            line_edit.setText(f"R={r}, G={g}, B={b}")
+        elif yuv_cache is not None and rgb_from_yuv is not None:
+            yv, uv, vv = yuv_cache[y_pos, x_pos]
+            r, g, b = rgb_from_yuv[y_pos, x_pos]
+            line_edit.setText(f"YUV({yv}, {uv}, {vv}) => RGB({r}, {g}, {b})")
+        else:
+            line_edit.clear()
+
+    def _restore_frozen_pixel_readout(self) -> None:
+        """Re-fill pixel readout fields from current caches after a frame update."""
+        if not self.is_pixel_info_frozen or self._last_pixel_selection is None:
+            return
+        x, y = self._last_pixel_selection.x_pos, self._last_pixel_selection.y_pos
+        self._fill_pixel_readout(
+            self.ui.lineEdit_input_pixel,
+            self.input_cache_rgb444, self.input_cache_yuv444, self.input_rgb_from_yuv,
+            x, y)
+        self._fill_pixel_readout(
+            self.ui.lineEdit_output_pixel,
+            self.output_cache_rgb444, self.output_cache_yuv444, self.output_rgb_from_yuv,
+            x, y)
+
+    def _handle_view_leave(self) -> None:
+        """Clear live pixel text when the cursor leaves a preview viewport."""
+        if self.is_pixel_info_frozen:
+            return
+        self.ui.lineEdit_position.clear()
+        self.ui.lineEdit_input_pixel.clear()
+        self.ui.lineEdit_output_pixel.clear()
+        self._last_pixel_selection = None
+
     def _map_view_pos_to_image(self, view, pixmap_item, qimage, pos):
         if qimage is None or pixmap_item is None:
             return None
@@ -306,39 +463,34 @@ class PreviewUiController(QObject):
         qimage = self.scene_left.items()[0].pixmap().toImage() if self.scene_left.items() else None
         if qimage is None or qimage.isNull():
             qimage = self.input_qimage or self.output_qimage
+        mode = self._preview_mode
+        show_input = bool(getattr(self.ui, "checkBox_show_input", None)
+                         and self.ui.checkBox_show_input.isChecked())
+        is_showing_output = (mode == "BothInLeft"
+                             and self.output_frame is not None
+                             and self._acm_enabled
+                             and not show_input)
         mapped = self._map_view_pos_to_image(
             self.ui.graphicsView_left, self._left_pixmap_item, qimage, pos)
         if mapped is None:
             return
         x_pos, y_pos = mapped
-        self.mouse_pos = (x_pos, y_pos)
-        self.ui.lineEdit_position.setText(f"({x_pos}, {y_pos})")
+        self._update_pixel_selection(
+            source_view="left",
+            x_pos=x_pos,
+            y_pos=y_pos,
+            display_role="output" if is_showing_output else "input",
+        )
 
-        # Determine which cache to read based on what the left scene shows
-        mode = self._preview_mode
-        show_input = bool(getattr(self.ui, "checkBox_show_input", None)
-                          and self.ui.checkBox_show_input.isChecked())
-        is_showing_output = (mode == "BothInLeft"
-                             and self.output_frame is not None
-                             and self._acm_enabled
-                             and not show_input)
-
-        if is_showing_output:
-            if self.output_cache_rgb444 is not None:
-                r, g, b = self.output_cache_rgb444[y_pos, x_pos]
-                self.ui.lineEdit_input_pixel.setText(f"R={r}, G={g}, B={b}")
-            elif self.output_cache_yuv444 is not None and self.output_rgb_from_yuv is not None:
-                yv, uv, vv = self.output_cache_yuv444[y_pos, x_pos]
-                r, g, b = self.output_rgb_from_yuv[y_pos, x_pos]
-                self.ui.lineEdit_input_pixel.setText(f"YUV({yv}, {uv}, {vv}) => RGB({r}, {g}, {b})")
-        else:
-            if self.input_cache_rgb444 is not None:
-                r, g, b = self.input_cache_rgb444[y_pos, x_pos]
-                self.ui.lineEdit_input_pixel.setText(f"R={r}, G={g}, B={b}")
-            elif self.input_cache_yuv444 is not None and self.input_rgb_from_yuv is not None:
-                yv, uv, vv = self.input_cache_yuv444[y_pos, x_pos]
-                r, g, b = self.input_rgb_from_yuv[y_pos, x_pos]
-                self.ui.lineEdit_input_pixel.setText(f"YUV({yv}, {uv}, {vv}) => RGB({r}, {g}, {b})")
+        # Always fill both input and output pixel readouts.
+        self._fill_pixel_readout(
+            self.ui.lineEdit_input_pixel,
+            self.input_cache_rgb444, self.input_cache_yuv444, self.input_rgb_from_yuv,
+            x_pos, y_pos)
+        self._fill_pixel_readout(
+            self.ui.lineEdit_output_pixel,
+            self.output_cache_rgb444, self.output_cache_yuv444, self.output_rgb_from_yuv,
+            x_pos, y_pos)
 
     def _on_mouse_move_right(self, pos) -> None:
         """Right preview pixel readout."""
@@ -349,6 +501,12 @@ class PreviewUiController(QObject):
         if mapped is None:
             return
         x_pos, y_pos = mapped
+        self._update_pixel_selection(
+            source_view="right",
+            x_pos=x_pos,
+            y_pos=y_pos,
+            display_role="output",
+        )
         if self.output_cache_rgb444 is not None:
             r, g, b = self.output_cache_rgb444[y_pos, x_pos]
             self.ui.lineEdit_output_pixel.setText(f"R={r}, G={g}, B={b}")
@@ -356,6 +514,11 @@ class PreviewUiController(QObject):
             yv, uv, vv = self.output_cache_yuv444[y_pos, x_pos]
             r, g, b = self.output_rgb_from_yuv[y_pos, x_pos]
             self.ui.lineEdit_output_pixel.setText(f"YUV({yv}, {uv}, {vv}) => RGB({r}, {g}, {b})")
+        # Always fill both input and output pixel readouts.
+        self._fill_pixel_readout(
+            self.ui.lineEdit_input_pixel,
+            self.input_cache_rgb444, self.input_cache_yuv444, self.input_rgb_from_yuv,
+            x_pos, y_pos)
 
     def eventFilter(self, obj: object, event: QEvent) -> bool:
         if event.type() == QEvent.MouseMove:
@@ -363,6 +526,9 @@ class PreviewUiController(QObject):
                 self._on_mouse_move_left(event.pos())
             elif obj == self.ui.graphicsView_right.viewport():
                 self._on_mouse_move_right(event.pos())
+        elif event.type() == QEvent.Leave:
+            if obj in (self.ui.graphicsView_left.viewport(), self.ui.graphicsView_right.viewport()):
+                self._handle_view_leave()
         return super().eventFilter(obj, event)
 
     # ------------------------------------------------------------------ #

@@ -15,75 +15,71 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
-    <layout class="QHBoxLayout" name="horizontalLayout_info">
-     <item>
+    <layout class="QGridLayout" name="gridLayout_info">
+     <item row="0" column="0">
       <widget class="QLabel" name="label_display_size">
        <property name="text">
         <string>Display Size:</string>
        </property>
       </widget>
      </item>
-     <item>
+     <item row="0" column="1">
       <widget class="QLineEdit" name="lineEdit_display_size">
        <property name="readOnly">
         <bool>true</bool>
        </property>
       </widget>
      </item>
-     <item>
+     <item row="0" column="2">
       <widget class="QLabel" name="label_position">
        <property name="text">
         <string>Position:</string>
        </property>
       </widget>
      </item>
-     <item>
+     <item row="0" column="3">
       <widget class="QLineEdit" name="lineEdit_position">
        <property name="readOnly">
         <bool>true</bool>
        </property>
       </widget>
      </item>
-     <item>
+     <item row="0" column="4">
       <widget class="QLabel" name="label_time_cost">
        <property name="text">
         <string>Time Cost:</string>
        </property>
       </widget>
      </item>
-     <item>
+     <item row="0" column="5">
       <widget class="QLineEdit" name="lineEdit_time_cost">
        <property name="readOnly">
         <bool>true</bool>
        </property>
       </widget>
      </item>
-    </layout>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="horizontalLayout">
-     <item>
+     <item row="1" column="0">
       <widget class="QLabel" name="label_input_pixel">
        <property name="text">
         <string>Input Pixel:</string>
        </property>
       </widget>
      </item>
-     <item>
+     <item row="1" column="1">
       <widget class="QLineEdit" name="lineEdit_input_pixel">
        <property name="readOnly">
         <bool>true</bool>
        </property>
       </widget>
      </item>
-     <item>
+     <item row="1" column="2">
       <widget class="QLabel" name="label_output_pixel">
        <property name="text">
         <string>Output Pixel:</string>
        </property>
       </widget>
      </item>
-     <item>
+     <item row="1" column="3">
       <widget class="QLineEdit" name="lineEdit_output_pixel">
        <property name="readOnly">
         <bool>true</bool>
@@ -196,37 +192,56 @@
        </property>
       </widget>
      </item>
-     <item>
-      <widget class="Line" name="line_2">
-       <property name="orientation">
-        <enum>Qt::Orientation::Vertical</enum>
-       </property>
-      </widget>
-     </item>
     </layout>
    </item>
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout_preview">
      <item>
       <widget class="QGroupBox" name="groupBox_left_preview">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+         <horstretch>1</horstretch>
+         <verstretch>1</verstretch>
+        </sizepolicy>
+       </property>
        <property name="title">
         <string>Left Preview</string>
        </property>
        <layout class="QVBoxLayout" name="verticalLayout_input_preview">
         <item>
-         <widget class="QGraphicsView" name="graphicsView_left"/>
+         <widget class="QGraphicsView" name="graphicsView_left">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+            <horstretch>1</horstretch>
+            <verstretch>1</verstretch>
+           </sizepolicy>
+          </property>
+         </widget>
         </item>
        </layout>
       </widget>
      </item>
      <item>
       <widget class="QGroupBox" name="groupBox_right_preview">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+         <horstretch>1</horstretch>
+         <verstretch>1</verstretch>
+        </sizepolicy>
+       </property>
        <property name="title">
         <string>Right Preview</string>
        </property>
        <layout class="QVBoxLayout" name="verticalLayout_output_preview">
         <item>
-         <widget class="QGraphicsView" name="graphicsView_right"/>
+         <widget class="QGraphicsView" name="graphicsView_right">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+            <horstretch>1</horstretch>
+            <verstretch>1</verstretch>
+           </sizepolicy>
+          </property>
+         </widget>
         </item>
        </layout>
       </widget>

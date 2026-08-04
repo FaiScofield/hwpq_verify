@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>980</width>
-    <height>420</height>
+    <height>239</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -91,7 +91,7 @@
        <item>
         <widget class="QLineEdit" name="lineEdit_config_file">
          <property name="text">
-          <string>G:/Codes/gerrit_projects/hwpq_verify/data/vdpp_vop_config_3576.json</string>
+          <string>G:/Codes/gerrit_projects/hwpq_verify/data/tmp_acm_config.json</string>
          </property>
         </widget>
        </item>

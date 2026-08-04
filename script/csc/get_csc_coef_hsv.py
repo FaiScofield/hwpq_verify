@@ -13,6 +13,7 @@ ALGO_RK_SW_CSC = "RK SW CSC"
 ALGO_EVIDEO_CSC = "eVideo CSC"
 ALGO_EVIDEO_CSC_PLAN_A = "eVideo CSC Plan A"
 ALGO_EVIDEO_CSC_PLAN_B = "eVideo CSC Plan B"
+ALGO_EVIDEO_CSC_PLAN_C = "eVideo CSC Plan C"
 ALGO_RK_CSC = ALGO_RK_HW_CSC
 ALGO_EVIDEO_CSC_FIX = ALGO_EVIDEO_CSC_PLAN_A
 ALGO_RGB_ON_HSV_ON = ALGO_EVIDEO_CSC_PLAN_B
@@ -87,7 +88,7 @@ def get_evideo_bcsh_param_pack(algo_type, bcsh_cfg, pixel_depth):
     """
     Map raw BCSH register values to the eVideo family parameter domain.
     """
-    if algo_type not in {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_PLAN_A, ALGO_EVIDEO_CSC_PLAN_B}:
+    if algo_type not in {ALGO_EVIDEO_CSC, ALGO_EVIDEO_CSC_PLAN_A, ALGO_EVIDEO_CSC_PLAN_B, ALGO_EVIDEO_CSC_PLAN_C}:
         raise ValueError(f"Algorithm '{algo_type}' is not an eVideo family mode")
 
     max_pixel_val = float((1 << pixel_depth) - 1)
@@ -183,7 +184,8 @@ def _adjust_convert_quad_evideo(config, bcsh_cfg, quad_t):
     quad_rgb_legacy_contrast = _make_homogeneous_mat(
         np.diag([params["contrast"], params["contrast"], params["contrast"]]).astype(np.float32)
     )
-    quad_rgb_legacy_bright = _make_homogeneous_mat(np.eye(3), np.ones(3) * params["brightness_unit"]).astype(np.float32)
+    # RGB 输出路径的亮度同样用像素域偏移，与 YUV 路径保持一致
+    quad_rgb_legacy_bright = _make_homogeneous_mat(np.eye(3), np.ones(3) * params["brightness_pixel"]).astype(np.float32)
 
     if mode.is_input_yuv and mode.is_output_yuv:
         # Y2Y case, rgb_offsets not work here
@@ -357,9 +359,18 @@ def _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs):
 
 def get_evideo_plan_a_steps(config, bcsh_cfg, base_mat, base_ofs):
     """
-    Build the UI-visible YUV/RGB domain transforms for Plan A.
+    Build the UI-visible YUV/RGB domain transforms for Plan A（按模式分支显示 Step1/Step2）.
     """
     _, _, quad_rgb, quad_yuv_raw, _ = _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs)
+    mode = config.csc_mode
+    # Step1=输入侧域矩阵，Step2=输出侧域矩阵（中间域转换 M 不单独显示）
+    if mode.is_input_yuv and mode.is_output_yuv:  # Y2Y: Q_rgb(输入中间层) -> Q_yuv(输出)
+        return _split_quad_to_step(quad_rgb, config), _split_quad_to_step(quad_yuv_raw, config)
+    if mode.is_input_yuv and not mode.is_output_yuv:  # Y2R: Q_yuv(输入) -> Q_rgb(输出)
+        return _split_quad_to_step(quad_yuv_raw, config), _split_quad_to_step(quad_rgb, config)
+    if not mode.is_input_yuv and mode.is_output_yuv:  # R2Y: Q_rgb(输入) -> Q_yuv(输出)
+        return _split_quad_to_step(quad_rgb, config), _split_quad_to_step(quad_yuv_raw, config)
+    # R2R: Q_yuv(输入中间层) -> Q_rgb(输出)
     return _split_quad_to_step(quad_yuv_raw, config), _split_quad_to_step(quad_rgb, config)
 
 
@@ -371,13 +382,15 @@ def get_evideo_plan_a_runtime_steps(config, bcsh_cfg, base_mat, base_ofs):
     mode = config.csc_mode
 
     if mode.is_input_yuv and mode.is_output_yuv:
-        runtime_quads = [quads["quad_y2r"], quad_rgb, quads["quad_r2y"], quad_yuv_raw @ quad_base]
+        # Y2Y：Q_rgb 作用于输入中间层 RGB（MI），Q_yuv 作用于输出 YUV（O）
+        runtime_quads = [quads["quad_r2y"] @ quad_rgb @ quads["quad_y2r"], quad_yuv_raw @ quad_base]
     elif mode.is_input_yuv and not mode.is_output_yuv:
         runtime_quads = [quad_yuv_raw, quad_rgb @ quad_base]
     elif not mode.is_input_yuv and mode.is_output_yuv:
         runtime_quads = [quad_rgb, quad_yuv_raw @ quad_base]
     else:
-        runtime_quads = [quads["quad_r2y"], quad_yuv_signed, quads["quad_y2r"], quad_rgb @ quad_base]
+        # R2R：Q_yuv 作用于输入中间层 YUV（MI），Q_rgb 作用于输出 RGB（O）
+        runtime_quads = [quads["quad_y2r"] @ quad_yuv_signed @ quads["quad_r2y"], quad_rgb @ quad_base]
 
     return [_split_quad_to_step(quad, config) for quad in runtime_quads]
 
@@ -386,7 +399,9 @@ def get_evideo_plan_b_steps(config, bcsh_cfg, base_mat, base_ofs):
     """
     Build the confirmed two-step homogeneous transforms for Plan B.
     """
-    quads, quad_base, quad_rgb, quad_yuv_raw, _ = _get_plan_domain_quads(config, bcsh_cfg, base_mat, base_ofs)
+    quads, quad_base, quad_rgb, quad_yuv_raw, _ = _get_plan_domain_quads(
+        config, bcsh_cfg, base_mat, base_ofs
+    )
     mode = config.csc_mode
 
     if mode.is_input_yuv and mode.is_output_yuv:
@@ -399,6 +414,7 @@ def get_evideo_plan_b_steps(config, bcsh_cfg, base_mat, base_ofs):
         step1_quad = quad_rgb
         step2_quad = quad_yuv_raw @ quad_base
     else:
+        # R2R：仅 Q_rgb 作用于输出 RGB，Q_yuv 不生效（X）
         step1_quad = None
         step2_quad = quad_rgb @ quad_base
 
@@ -467,6 +483,12 @@ def _hsv_to_rgb(hsv):
     r[m5] = v[m5]; g[m5] = p[m5]; b[m5] = q[m5]
 
     return np.stack([r, g, b], axis=-1)
+
+
+# Public aliases for the normalized RGB<->HSV conversions (values in [0, 1]).
+# Depth-independent; used by the Sat/Hue target-color-range preview in csc_ui.
+rgb_to_hsv = _rgb_to_hsv
+hsv_to_rgb = _hsv_to_rgb
 
 
 def apply_rgb_gain_offset(planar_rgb, bcsh_cfg, pixel_depth, algo_type):

@@ -14,9 +14,10 @@ import utils as utl
 b_test_vdpp = True
 b_test_hwpq = True
 b_test_zme = True
+plat_name = "rk3576"
 
 dev_data_path = "/data/vdpp/"
-dev_output_folder = f"{dev_data_path}/rk3538_0123_v1.4.0"
+dev_output_folder = f"{dev_data_path}/{plat_name}_0803_v1.4.3"
 host_root_dir = "//172.16.4.246/vop/hwpq_verify_data/vdpp_robin_fpga_verify_pyr/output/"
 
 def main(args):
@@ -27,10 +28,10 @@ def main(args):
     utl.run_cmd(f"adb shell mkdir -p {dev_output_folder}/vdpp_test/")
     utl.run_cmd(f"adb shell mkdir -p {dev_output_folder}/hwpq_test/")
 
-    utl.run_cmd("adb shell setprop hwpq_debug 0x3F")
-    utl.run_cmd("adb shell setprop vdpp_debug 0x3F")
-    utl.run_cmd("adb shell setprop vdpp2_debug 0x3F")
-    utl.run_cmd("adb shell setprop vdpp3_debug 0x3F")
+    utl.run_cmd("adb shell setprop vendor.hwpq_debug 0x3F")
+    utl.run_cmd("adb shell setprop vendor.vdpp_debug 0x3F")
+    utl.run_cmd("adb shell setprop vendor.vdpp2_debug 0x3F")
+    utl.run_cmd("adb shell setprop vendor.vdpp3_debug 0x3F")
     utl.run_cmd("adb shell \"echo 0x104 > /sys/module/rk_vcodec/parameters/mpp_dev_debug\"")
 
     ## run command

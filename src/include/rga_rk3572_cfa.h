@@ -1,5 +1,5 @@
-#ifndef __RK3572_RGA_REGS_H__
-#define __RK3572_RGA_REGS_H__
+#ifndef RGA_RK3572_CFA_H
+#define RGA_RK3572_CFA_H
 
 #ifndef RM1
 #define RM1  0x00000001
@@ -23,18 +23,13 @@
 #define RM32 0xFFFFFFFF
 #endif
 
-typedef union rga2p5_rkcfa_u
-{
-    struct rga2p5_rkcfa_s
-    {
-        struct
-        {
+typedef union rga2p5_rkcfa_rk3572 {
+    struct {
+        struct {
             unsigned int reserve_data[72];
         } reserve_reg_0_288;
-        union rkcfa_ctrl0_u
-        {
-            struct rkcfa_ctrl0_s
-            {
+        union { // name: rkcfa_ctrl0, offset: 0x120
+            struct {
                 unsigned int reserve_0          : 1;
                 unsigned int sw_cfa_bcsh_lut_en : 1;
                 unsigned int sw_cfa_midflt_en   : 1;
@@ -47,20 +42,16 @@ typedef union rga2p5_rkcfa_u
                 unsigned int sw_cfa_sat_gain    : 8;
                 unsigned int reserve_2          : 12;
             } bits;
-            unsigned int u32;
-        } sw_rkcfa_ctrl0;
-        union apattern_u
-        {
-            struct apattern_s
-            {
+            unsigned int val;
+        } rkcfa_ctrl0;
+        union { // name: apattern, offset: 0x124
+            struct {
                 unsigned int sw_cfa_c2p_apattern : 32;
             } bits;
-            unsigned int u32;
-        } sw_apattern;
-        union edcoef05_u
-        {
-            struct edcoef05_s
-            {
+            unsigned int val;
+        } apattern;
+        union { // name: edcoef05, offset: 0x128
+            struct {
                 unsigned int sw_cfa_dither_coef0 : 5;
                 unsigned int sw_cfa_dither_coef1 : 5;
                 unsigned int sw_cfa_dither_coef2 : 5;
@@ -69,12 +60,10 @@ typedef union rga2p5_rkcfa_u
                 unsigned int sw_cfa_dither_coef5 : 5;
                 unsigned int reserve_0           : 2;
             } bits;
-            unsigned int u32;
-        } sw_edcoef05;
-        union edcoef6b_u
-        {
-            struct edcoef6b_s
-            {
+            unsigned int val;
+        } edcoef05;
+        union { // name: edcoef6b, offset: 0x12c
+            struct {
                 unsigned int sw_cfa_dither_coef6  : 5;
                 unsigned int sw_cfa_dither_coef7  : 5;
                 unsigned int sw_cfa_dither_coef8  : 5;
@@ -83,12 +72,10 @@ typedef union rga2p5_rkcfa_u
                 unsigned int sw_cfa_dither_coef11 : 5;
                 unsigned int reserve_0            : 2;
             } bits;
-            unsigned int u32;
-        } sw_edcoef6b;
-        union rkcfa_ctrl1_u
-        {
-            struct rkcfa_ctrl1_s
-            {
+            unsigned int val;
+        } edcoef6b;
+        union { // name: rkcfa_ctrl1, offset: 0x130
+            struct {
                 unsigned int sw_cfa_dither_en       : 1;
                 unsigned int sw_cfa_modulate_lps_en : 1;
                 unsigned int sw_cfa_modulate_hps_en : 1;
@@ -104,10 +91,10 @@ typedef union rga2p5_rkcfa_u
                 unsigned int sw_cfa_comps_level     : 6;
                 unsigned int reserve_2              : 2;
             } bits;
-            unsigned int u32;
-        } sw_rkcfa_ctrl1;
+            unsigned int val;
+        } rkcfa_ctrl1;
     } regs;
-    unsigned int p_reg_addr[77];
-} rga2p5_rkcfa_t;
+    unsigned int data[77];
+} rga2p5_rkcfa_rk3572_u;
 
-#endif //__RK3572_RGA_REGS_H__
+#endif /* RGA_RK3572_CFA_H */

@@ -1,0 +1,116 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  background: #f4f6fb;
+  color: #1f2937;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.page {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.two-up {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.panel {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
+}
+
+.scene-host {
+  min-height: 390px;
+}
+
+.stack {
+  display: grid;
+  gap: 12px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field span,
+.value-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.value-row {
+  display: grid;
+  grid-template-columns: 32px 80px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+input[type='number'],
+select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: #fff;
+}
+
+input[type='range'] {
+  width: 100%;
+}
+
+svg {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+}
+
+.scene-host canvas {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin: 0 auto;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #ffffff, #eef2ff);
+}
+
+h2 {
+  margin-top: 0;
+}
+
+.formula-swatch {
+  width: 100%;
+  height: 56px;
+  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  margin-bottom: 12px;
+}
+
+pre {
+  white-space: pre-wrap;
+  font-family: Consolas, "Courier New", monospace;
+}

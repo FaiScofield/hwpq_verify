@@ -8,14 +8,13 @@ import time
 
 import numpy as np
 from PySide6.QtCore import QRect, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QDockWidget,
     QFileDialog,
+    QLabel,
     QMainWindow,
     QMessageBox,
     QSizePolicy,
-    QSpacerItem,
     QVBoxLayout,
     QWidget,
 )
@@ -24,6 +23,11 @@ try:
     from ..ui_gen.acm_ui import Ui_AcmUiWidget
 except ImportError:
     from ui_gen.acm_ui import Ui_AcmUiWidget
+
+try:
+    from ...script.acm import cordic
+except ImportError:
+    from script.acm import cordic
 
 try:
     from ...script.acm.acm_impl_base import (
@@ -56,6 +60,32 @@ class AcmUiWidget(QWidget):
         self.ui.setupUi(self)
 
 
+class LutImageWindow(QWidget):
+    """Standalone non-modal window for displaying the LUT overview image."""
+
+    def __init__(self, on_close: Callable[[], None], parent: QWidget | None = None) -> None:
+        """Create a top-level window with a stretch-filled image label."""
+        super().__init__(parent, Qt.Window)
+        self._on_close = on_close
+        self.setWindowTitle("LUT Visualization")
+        self.resize(960, 540)
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setMinimumSize(100, 80)
+        self.image_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self.image_label.setScaledContents(True)
+        self.image_label.setText("No LUT")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.image_label)
+
+    def closeEvent(self, event: object) -> None:
+        """Notify the controller when the window is manually closed."""
+        if self._on_close is not None:
+            self._on_close()
+        super().closeEvent(event)
+
+
 class SingleCurveChartWidget(QWidget):
     """Interactive single-curve chart for one H-based delta LUT.
 
@@ -82,8 +112,8 @@ class SingleCurveChartWidget(QWidget):
             bg_image_path: optional background image (BMP) painted before data.
         """
         super().__init__(parent)
-        self.setMinimumSize(600, 200)
-        self.setMaximumSize(1200, 400)
+        self.setMinimumSize(600, 400)
+        self.setMaximumSize(1200, 800)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self.value_range = value_range
         self.curve_color = curve_color
@@ -94,6 +124,10 @@ class SingleCurveChartWidget(QWidget):
         self.dragging_sample: int | None = None
         self.selected_sample: int | None = None
         self.hover_sample: int | None = None
+        self.reference_h_index: float | None = None
+        self.reference_h_index_out: float | None = None
+        self.input_value: float | None = None
+        self.output_value: float | None = None
         self._bg_pixmap: QPixmap | None = None
         if bg_image_path and os.path.isfile(bg_image_path):
             self._bg_pixmap = QPixmap(bg_image_path)
@@ -134,6 +168,37 @@ class SingleCurveChartWidget(QWidget):
         self.selected_sample = index
         self.update()
 
+    def set_reference_h_index(self, h_index: float | None) -> None:
+        """Update the input H-axis reference marker (backward compat)."""
+        self.set_h_markers(h_index, None, None, None)
+
+    def set_h_markers(
+        self,
+        h_index_in: float | None,
+        h_index_out: float | None,
+        input_value: float | None,
+        output_value: float | None,
+        input_label: str | None = None,
+        output_label: str | None = None,
+    ) -> None:
+        """Set H-axis reference markers and input/output value markers.
+
+        Args:
+            h_index_in:   input H index  → black dashed line + black × marker.
+            h_index_out:  output H index → white dashed line + white × marker.
+            input_value:  chart-space Y value for the input marker (black ×).
+            output_value: chart-space Y value for the output marker (white ×).
+            input_label:  optional text label drawn next to the input marker.
+            output_label: optional text label drawn next to the output marker.
+        """
+        self.reference_h_index = h_index_in
+        self.reference_h_index_out = h_index_out
+        self.input_value = input_value
+        self.output_value = output_value
+        self.input_label = input_label
+        self.output_label = output_label
+        self.update()
+
     def _value_to_y(self, value: int | float) -> float:
         """Map a chart value to widget coordinates."""
         value_min, value_max = self.value_range
@@ -162,6 +227,24 @@ class SingleCurveChartWidget(QWidget):
         y_value = self.sample_values[index] if 0 <= index < len(self.sample_values) else 0.0
         return x_pos, self._value_to_y(y_value)
 
+    def _reference_x_position(self) -> float | None:
+        """Map the input H index to the widget x position."""
+        if self.reference_h_index is None or len(self.values) <= 1:
+            return None
+        chart_width = self.width() - 2 * self.padding
+        ratio = self.reference_h_index / max(1, len(self.values) - 1)
+        ratio = max(0.0, min(1.0, ratio))
+        return self.padding + chart_width * ratio
+
+    def _reference_x_position_out(self) -> float | None:
+        """Map the output H index to the widget x position."""
+        if self.reference_h_index_out is None or len(self.values) <= 1:
+            return None
+        chart_width = self.width() - 2 * self.padding
+        ratio = self.reference_h_index_out / max(1, len(self.values) - 1)
+        ratio = max(0.0, min(1.0, ratio))
+        return self.padding + chart_width * ratio
+
     def paintEvent(self, event: object) -> None:
         """Paint the chart background, integer-indexed points and sample points."""
         del event
@@ -172,17 +255,19 @@ class SingleCurveChartWidget(QWidget):
         chart_width = width - 2 * self.padding
         chart_height = height - 2 * self.padding
         n = len(self.values)
+        chart_rect = QRect(self.padding, self.padding, int(chart_width), int(chart_height))
 
-        painter.fillRect(self.rect(), QColor(30, 30, 30))
+        painter.fillRect(self.rect(), QColor(255, 255, 255))
+        # painter.fillRect(chart_rect, QColor(255, 255, 255))
 
         # Background image (scaled to chart area, placed behind grid)
         if self._bg_pixmap is not None:
             bg = self._bg_pixmap.scaled(
-                self.width(), self.height(),
+                chart_rect.width(), chart_rect.height(),
                 Qt.AspectRatioMode.IgnoreAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
-            painter.drawPixmap(0, 0, bg)
+            painter.drawPixmap(chart_rect.topLeft(), bg)
 
         # Horizontal grid lines (light gray dashed)
         painter.setPen(QPen(QColor(140, 140, 140), 0.5, Qt.DashLine))
@@ -194,6 +279,49 @@ class SingleCurveChartWidget(QWidget):
         painter.setPen(QPen(QColor(100, 100, 100), 2, Qt.DashLine))
         mid_y = self._value_to_y(0)
         painter.drawLine(self.padding, int(mid_y), width - self.padding, int(mid_y))
+
+        # H_in reference line (dark dashed)
+        ref_x = self._reference_x_position()
+        if ref_x is not None:
+            painter.setPen(QPen(QColor(60, 60, 60), 1, Qt.DashLine))
+            painter.drawLine(int(ref_x), self.padding, int(ref_x), height - self.padding)
+
+        # H_out reference line (white dashed)
+        ref_x_out = self._reference_x_position_out()
+        if ref_x_out is not None:
+            painter.setPen(QPen(QColor(200, 200, 200), 1, Qt.DashLine))
+            painter.drawLine(int(ref_x_out), self.padding, int(ref_x_out), height - self.padding)
+
+        # Input / output value markers (×)
+        marker_size = 4
+        if ref_x is not None and self.input_value is not None:
+            y_marker = self._value_to_y(self.input_value)
+            painter.setPen(QPen(QColor(0, 0, 0), 2))  # black
+            painter.drawLine(int(ref_x) - marker_size, int(y_marker) - marker_size,
+                             int(ref_x) + marker_size, int(y_marker) + marker_size)
+            painter.drawLine(int(ref_x) + marker_size, int(y_marker) - marker_size,
+                             int(ref_x) - marker_size, int(y_marker) + marker_size)
+            if self.input_label is not None:
+                painter.setPen(QPen(QColor(0, 0, 0), 1))
+                font_small = painter.font()
+                font_small.setPointSize(8)
+                painter.setFont(font_small)
+                painter.drawText(int(ref_x) + marker_size + 4, int(y_marker) + marker_size + 12,
+                                 self.input_label)
+        if ref_x_out is not None and self.output_value is not None:
+            y_marker = self._value_to_y(self.output_value)
+            painter.setPen(QPen(QColor(255, 255, 255), 2))  # white
+            painter.drawLine(int(ref_x_out) - marker_size, int(y_marker) - marker_size,
+                             int(ref_x_out) + marker_size, int(y_marker) + marker_size)
+            painter.drawLine(int(ref_x_out) + marker_size, int(y_marker) - marker_size,
+                             int(ref_x_out) - marker_size, int(y_marker) + marker_size)
+            if self.output_label is not None:
+                painter.setPen(QPen(QColor(255, 255, 255), 1))
+                font_small = painter.font()
+                font_small.setPointSize(8)
+                painter.setFont(font_small)
+                painter.drawText(int(ref_x_out) + marker_size + 4, int(y_marker) - marker_size - 4,
+                                 self.output_label)
 
         # Curve connecting integer-indexed points (black solid)
         if n >= 2:
@@ -207,13 +335,13 @@ class SingleCurveChartWidget(QWidget):
         font = painter.font()
         font.setPointSize(9)
         painter.setFont(font)
-        painter.setPen(QColor(200, 200, 200))
+        painter.setPen(QColor(40, 40, 40))
         if n >= 2:
             for idx in range(0, n, 2):
                 x_pos, _ = self._index_position(idx)
                 painter.drawLine(int(x_pos), int(height - self.padding),
                                  int(x_pos), int(height - self.padding + 4))
-                text_rect = QRect(int(x_pos) - 18, int(height - self.padding + 6), 36, 14)
+                text_rect = self._clamp_text_rect(QRect(int(x_pos) - 18, int(height - self.padding + 6), 36, 14))
                 painter.drawText(text_rect, Qt.AlignCenter, str(idx))
 
         # Y-axis range labels
@@ -231,6 +359,7 @@ class SingleCurveChartWidget(QWidget):
                 text_rect = QRect(int(x_pos) - 22, int(y_pos) - 22, 44, 14)
             else:
                 text_rect = QRect(int(x_pos) - 22, int(y_pos) + 8, 44, 14)
+            text_rect = self._clamp_text_rect(text_rect)
             painter.drawText(text_rect, Qt.AlignCenter, str(int(self.values[idx])))
 
         # Sample-point overlay: white dashed hollow circles (filled when selected).
@@ -257,6 +386,12 @@ class SingleCurveChartWidget(QWidget):
                 sample_diameter,
                 sample_diameter,
             )
+
+    def _clamp_text_rect(self, rect: QRect) -> QRect:
+        """Clamp annotation rectangles to the widget bounds so edge labels stay visible."""
+        x_pos = max(0, min(rect.x(), self.width() - rect.width()))
+        y_pos = max(0, min(rect.y(), self.height() - rect.height()))
+        return QRect(x_pos, y_pos, rect.width(), rect.height())
 
     def mousePressEvent(self, event: object) -> None:
         """Select or start dragging the nearest sample point."""
@@ -315,61 +450,18 @@ class SingleCurveChartWidget(QWidget):
         return best_index
 
 
-class HeatmapWidget(QWidget):
-    """Simple heatmap widget for ACM LUT visualization."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        """Create an empty heatmap widget."""
-        super().__init__(parent)
-        self.setMinimumSize(160, 120)
-        self.data = None
-        self.value_min = -128
-        self.value_max = 127
-
-    def set_data(self, data: np.ndarray | None, value_min: int = -128, value_max: int = 127) -> None:
-        """Update the heatmap data and repaint."""
-        self.data = None if data is None else np.array(data, copy=True)
-        self.value_min = value_min
-        self.value_max = value_max
-        self.update()
-
-    def paintEvent(self, event: object) -> None:
-        """Paint the heatmap or a placeholder background."""
-        del event
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(30, 30, 30))
-        if self.data is None or self.data.size == 0:
-            painter.setPen(QColor(180, 180, 180))
-            painter.drawText(self.rect(), Qt.AlignCenter, "No LUT")
-            return
-        rows, cols = self.data.shape
-        cell_w = self.width() / max(cols, 1)
-        cell_h = self.height() / max(rows, 1)
-        for row in range(rows):
-            for col in range(cols):
-                raw_value = int(self.data[row, col])
-                display_value = min(abs(raw_value) * 2, 255)
-                norm = max(0.0, min(1.0, display_value / 255.0))
-                if raw_value < 0:
-                    color = QColor(
-                        int(30 + 70 * norm),
-                        int(70 + 110 * norm),
-                        int(110 + 145 * norm),
-                    )
-                else:
-                    gray = int(40 + 190 * norm)
-                    color = QColor(gray, gray, gray)
-                painter.fillRect(
-                    int(col * cell_w),
-                    int(row * cell_h),
-                    max(1, int(cell_w + 1)),
-                    max(1, int(cell_h + 1)),
-                    color,
-                )
-
-
 class AcmUiController:
-    """Controls the ACM tab: algorithm selection, delta editing, heatmaps, and LUT viz."""
+    """Controls the ACM tab: algorithm selection, delta editing, and LUT visualization."""
+
+    _SUPPORTED_CLIP_TYPES: tuple[str, ...] = ("easy_clip", "radial_clip", "luma_clip")
+    _ALGO_KEYS: tuple[str, ...] = ("VOP_VP_ACM", "SW_ACM", "EVIDEO_ACM", "SW_ACM_VARIANT")
+    _ALGO_DISPLAY_TEXTS: tuple[str, ...] = (
+        "HW_ACM(VOP) (9,13,65,17)",
+        "SW_ACM (9,13,65,65)",
+        "EVIDEO_ACM (9,13,65,65)",
+        "SW_ACM_VARIANT (custom)",
+    )
+    _HW_ALGO_KEY = "VOP_VP_ACM"
 
     # ------------------------------------------------------------------ #
     # Initialization                                                     #
@@ -379,7 +471,7 @@ class AcmUiController:
         self,
         acm_widget: AcmUiWidget,
         parent_window: QMainWindow | None = None,
-        input_provider: Callable[[], np.ndarray | None] | None = None,
+        input_provider: Callable[[], ImageFrame | None] | None = None,
         output_callback: Callable[['ImageFrame'], None] | None = None,
         preview_time_callback: Callable[[float], None] | None = None,
         status_callback: Callable[[str], None] | None = None,
@@ -398,10 +490,10 @@ class AcmUiController:
             status_callback: Optional callback receiving status-bar text.
             config_path_getter: Optional callback returning the current config path string.
             config_path_setter: Optional callback receiving a config path string.
-            dock_host: Optional QMainWindow used to host the LUT visualization dock.
+            dock_host: Unused legacy parameter kept for compatibility.
         """
+        del dock_host
         self._win = parent_window
-        self._dock_host = dock_host or parent_window
         self.widget = acm_widget
         self.ui = acm_widget.ui
         self._input_provider = input_provider or (lambda: None)
@@ -411,6 +503,9 @@ class AcmUiController:
         self._config_path_getter = config_path_getter or (lambda: "")
         self._config_path_setter = config_path_setter or (lambda path: None)
         self._last_input_key: tuple | None = None
+        self._latest_output_frame: ImageFrame | None = None
+        self._frozen_pixel_x: int | None = None
+        self._frozen_pixel_y: int | None = None
         self._colorspace_user_override = False
         self._suppress_colorspace_signal = False
 
@@ -424,6 +519,7 @@ class AcmUiController:
             "SW_ACM_VARIANT": AcmImplSwVariant(),
         }
         self.current_algo = "VOP_VP_ACM"
+        self._apply_algo_display_names()
 
         # --- Delta chart state ---
         self.full_delta_ybyh = None
@@ -458,42 +554,30 @@ class AcmUiController:
             layout.setContentsMargins(0, 0, 0, 0)
             layout.addWidget(chart)
 
-        # --- Heatmap widgets ---
-        self.heatmap_widgets = {}
-        for key, host in (
-            ("gain_ybyy", self.ui.widget_gain_ybyy_host),
-            ("gain_sbyy", self.ui.widget_gain_sbyy_host),
-            ("gain_hbyy", self.ui.widget_gain_hbyy_host),
-            ("gain_ybys", self.ui.widget_gain_ybys_host),
-            ("gain_sbys", self.ui.widget_gain_sbys_host),
-            ("gain_hbys", self.ui.widget_gain_hbys_host),
-        ):
-            heatmap = HeatmapWidget()
-            layout = QVBoxLayout(host)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.addWidget(heatmap)
-            self.heatmap_widgets[key] = heatmap
+        # --- LUT overview window ---
+        self.lut_image_window: LutImageWindow | None = None
+        self.lut_result_window: LutImageWindow | None = None
 
         # --- Auto-run debounce timer ---
         self.auto_run_timer = QTimer(self.widget)
         self.auto_run_timer.setSingleShot(True)
         self.auto_run_timer.timeout.connect(self._do_auto_run)
 
-        # --- LUT dock (lazy) ---
-        self.lut_dock = None
-        self._lut_gb_original_layout = None
-
-        # Hide LUT Visualization groupBox by default
-        self.ui.groupBox_lut_visualization.setVisible(False)
-
         self._connect_signals()
         self._init_state()
 
     def _init_state(self) -> None:
         """Perform initial state sync after all widgets are ready."""
+        if hasattr(self.ui, "radioButton_colorspace_hsv"):
+            self.ui.radioButton_colorspace_hsv.setEnabled(False)
+            self.ui.radioButton_colorspace_hsv.setToolTip(
+                "HSV ACM path is not implemented yet. Please use YHS."
+            )
+        self._sync_clip_type_ui_state()
         self._on_acm_colorspace_changed()
         self._sync_ctrl_point_slider(self._get_current_acm().len_h)
         self._reload_delta_controls_from_acm()
+        self._on_lut_visualization_toggled(bool(self.ui.checkBox_lut_config.isChecked()))
 
     def _is_acm_enabled(self) -> bool:
         checkbox = getattr(self.ui, "checkBox_enable_acm", None)
@@ -502,14 +586,13 @@ class AcmUiController:
         return bool(checkbox.isChecked())
 
     def _auto_select_colorspace_for_input(self, frame: ImageFrame) -> None:
+        """Auto-select the currently supported ACM colorspace for the input frame."""
         if self._colorspace_user_override:
             return
-        want_hsv = bool(frame.is_rgb)
         self._suppress_colorspace_signal = True
         try:
-            if want_hsv and hasattr(self.ui, "radioButton_colorspace_hsv"):
-                self.ui.radioButton_colorspace_hsv.setChecked(True)
-            elif hasattr(self.ui, "radioButton_colorspace_yhs"):
+            del frame
+            if hasattr(self.ui, "radioButton_colorspace_yhs"):
                 self.ui.radioButton_colorspace_yhs.setChecked(True)
         finally:
             self._suppress_colorspace_signal = False
@@ -532,9 +615,13 @@ class AcmUiController:
         ui.slider_ctrl_points.valueChanged.connect(self._on_ctrl_points_changed)
         ui.comboBox_interp_method.currentTextChanged.connect(self._on_interp_method_changed)
         ui.comboBox_algo_type.currentIndexChanged.connect(self._on_algo_changed)
+        ui.groupBox_lut_lengths.toggled.connect(self._on_lut_lengths_group_toggled)
         if hasattr(ui, "checkBox_enable_acm"):
             ui.checkBox_enable_acm.toggled.connect(self._schedule_auto_run)
-        ui.checkBox_lut_visualization.toggled.connect(self._on_lut_visualization_toggled)
+        if hasattr(ui, "checkBox_ignore_gain_luts"):
+            ui.checkBox_ignore_gain_luts.toggled.connect(self._on_ignore_gain_luts_toggled)
+        ui.checkBox_lut_config.toggled.connect(self._on_lut_visualization_toggled)
+        ui.checkBox_lut_result.toggled.connect(self._on_lut_result_toggled)
         ui.spinBox_len_h.valueChanged.connect(self._on_len_h_changed)
         ui.spinBox_len_y.valueChanged.connect(self._on_lut_lengths_changed)
         ui.spinBox_len_s.valueChanged.connect(self._on_lut_lengths_changed)
@@ -565,6 +652,9 @@ class AcmUiController:
         ui.slider_gain_y.valueChanged.connect(self._schedule_auto_run)
         ui.slider_gain_s.valueChanged.connect(self._schedule_auto_run)
         ui.slider_gain_h.valueChanged.connect(self._schedule_auto_run)
+        ui.slider_offset_wr.valueChanged.connect(self._schedule_auto_run)
+        ui.slider_offset_wg.valueChanged.connect(self._schedule_auto_run)
+        ui.slider_offset_wb.valueChanged.connect(self._schedule_auto_run)
         # Max Delta controls
         ui.button_reset_max_delta.clicked.connect(self._on_reset_max_delta)
         ui.comboBox_clip_type.currentTextChanged.connect(self._on_clip_type_changed)
@@ -634,6 +724,176 @@ class AcmUiController:
     def _get_current_acm(self) -> object:
         """Return the current ACM implementation instance."""
         return self.acm_instances[self.current_algo]
+
+    def _apply_algo_display_names(self) -> None:
+        """Refresh the visible algorithm names shown by the combo box."""
+        combo = self.ui.comboBox_algo_type
+        for index, text in enumerate(self._ALGO_DISPLAY_TEXTS):
+            if index < combo.count():
+                combo.setItemText(index, text)
+
+    def _sync_clip_type_ui_state(self) -> None:
+        """Enable clip-type controls only for algorithms that actually consume them."""
+        is_supported = self.current_algo != self._HW_ALGO_KEY
+        tooltip = ""
+        if not is_supported:
+            tooltip = "clip_type is only supported by software ACM paths; HW_ACM(VOP) ignores this setting."
+        self.ui.comboBox_clip_type.setEnabled(is_supported)
+        self.ui.comboBox_clip_type.setToolTip(tooltip)
+        if hasattr(self.ui, "label_clip_type"):
+            self.ui.label_clip_type.setEnabled(is_supported)
+            self.ui.label_clip_type.setToolTip(tooltip)
+
+    def clear_preview_h_marker(self) -> None:
+        """Remove all preview-linked H markers and value markers from all delta charts."""
+        self._frozen_pixel_x = None
+        self._frozen_pixel_y = None
+        for chart in (self.delta_chart_y, self.delta_chart_s, self.delta_chart_h):
+            chart.set_h_markers(None, None, None, None)
+
+    def _get_pixel_yhs(
+        self, frame: ImageFrame, x_pos: int, y_pos: int
+    ) -> tuple[float, float, float] | None:
+        """Extract (Y_val, S_val, H_deg) from a single pixel in a frame.
+
+        Y_val  in [0, 255] or [0, 1023] depending on depth.
+        S_val  in [0, s_max_raw] (raw saturation, not normalised).
+        H_deg  in [-180, 180].
+        """
+        if x_pos < 0 or y_pos < 0 or y_pos >= frame.pyr.shape[0] or x_pos >= frame.pyr.shape[1]:
+            return None
+        if frame.is_rgb:
+            r = frame.pyr[y_pos:y_pos + 1, x_pos:x_pos + 1]
+            g = frame.pug[y_pos:y_pos + 1, x_pos:x_pos + 1]
+            b = frame.pvb[y_pos:y_pos + 1, x_pos:x_pos + 1]
+            y_arr, u_arr, v_arr = rgb_to_yuv(
+                r, g, b,
+                input_cs=frame.clrspc if frame.clrspc in (0, 1) else 1,
+                output_cs=5,
+            )
+            yuv_dtype = y_arr.dtype
+            y_val = float(y_arr[0, 0])
+            cb = int(u_arr[0, 0])
+            cr = int(v_arr[0, 0])
+        else:
+            yuv = frame.as_yuv444_stacked()[y_pos:y_pos + 1, x_pos:x_pos + 1, :]
+            yuv_dtype = yuv.dtype
+            y_val = float(yuv[0, 0, 0])
+            cb = int(yuv[0, 0, 1])
+            cr = int(yuv[0, 0, 2])
+
+        depth = 10 if yuv_dtype == np.uint16 else 8
+        cbcr_center = 512 if depth == 10 else 128
+        cb -= cbcr_center
+        cr -= cbcr_center
+
+        acm = self._get_current_acm()
+        if getattr(acm, "use_cordic", False):
+            h_deg_arr, s_arr, _, _ = cordic.cordic_cbcr2hs(
+                np.array([[cb]], dtype=np.int32), np.array([[cr]], dtype=np.int32),
+                depth, 13, 6, False)
+            h_deg = float(h_deg_arr[0, 0])
+            s_val = float(s_arr[0, 0])
+        else:
+            s_val = float(int(np.sqrt(cb * cb + cr * cr) + 0.5))  # match pipeline rounding
+            h_deg = float(np.rad2deg(np.arctan2(cr, cb)).astype(np.int32))  # match pipeline truncation
+        return y_val, s_val, h_deg
+
+    @staticmethod
+    def _norm_ys_to_chart(y_val: float, s_val: float, depth: int, s_max: int) -> tuple[float, float]:
+        """Normalise raw Y and S values to the chart display range [0, 255].
+
+        Y: 8-bit values pass through; 10-bit values are scaled down.
+        S: scaled from [0, s_max] to [0, 255] using ``s_max`` from the
+            active ACM pipeline.
+        """
+        if depth >= 10:
+            y_norm = y_val / 1023.0 * 255.0
+        else:
+            y_norm = float(y_val)
+        s_norm = min(s_val / max(float(s_max), 1.0), 1.0) * 255.0
+        return y_norm, s_norm
+
+    def _h_deg_to_index(self, h_deg: float) -> float:
+        """Convert hue in degrees [-180, 180] to the current ACM H index."""
+        acm = self._get_current_acm()
+        h_f = (h_deg + 180.0) / 360.0
+        return float(h_f * (acm.len_h - 1))
+
+    def update_preview_h_marker(self, x_pos: int, y_pos: int) -> None:
+        """Compute the ACM H-domain markers for one pixel and update all charts.
+
+        Reads the raw pixel from the input frame and the processed pixel from
+        the latest output frame, then places black × markers on the H_in line
+        and white × markers on the H_out line for the delta_y and delta_s charts.
+        """
+        # Cache frozen pixel coordinates so markers can be refreshed after processing.
+        self._frozen_pixel_x = x_pos
+        self._frozen_pixel_y = y_pos
+
+        in_frame = self._input_provider()
+        out_frame = self._latest_output_frame
+        if in_frame is None:
+            self.clear_preview_h_marker()
+            return
+
+        # Determine depth / s_max once from the input frame.
+        in_depth = 10 if in_frame.pyr.dtype == np.uint16 else 8
+        clip_type = getattr(self._get_current_acm(), 'clip_type', 'easy_clip')
+        if in_depth >= 10:
+            s_max = 511 if clip_type in ('radial_clip', 'luma_clip') else 724
+        else:
+            s_max = 127 if clip_type in ('radial_clip', 'luma_clip') else 181
+
+        # Input pixel
+        in_ysh = self._get_pixel_yhs(in_frame, x_pos, y_pos)
+        if in_ysh is None:
+            self.clear_preview_h_marker()
+            return
+        y_in, s_in, h_in = in_ysh
+        h_idx_in = self._h_deg_to_index(h_in)
+        y_in_norm, s_in_norm = self._norm_ys_to_chart(y_in, s_in, in_depth, s_max)
+
+        # Output pixel (if available)
+        if out_frame is not None:
+            out_ysh = self._get_pixel_yhs(out_frame, x_pos, y_pos)
+            if out_ysh is not None:
+                y_out, s_out, h_out = out_ysh
+                h_idx_out = self._h_deg_to_index(h_out)
+                y_out_norm, s_out_norm = self._norm_ys_to_chart(y_out, s_out, in_depth, s_max)
+            else:
+                h_idx_out, y_out_norm, s_out_norm = None, None, None
+        else:
+            h_idx_out, y_out_norm, s_out_norm = None, None, None
+
+        # Update charts
+        # --- fetch intermediate ACM delta/gain values for annotation ---
+        intermediates = self._get_current_acm().get_pixel_intermediates(x_pos, y_pos)
+        if intermediates is not None:
+            dy = intermediates['delta_y']
+            ds = intermediates['delta_s']
+            dh = intermediates['delta_h']
+            gyy = intermediates['gain_yy']
+            gys = intermediates['gain_ys']
+            gsy = intermediates['gain_sy']
+            gss = intermediates['gain_ss']
+            ghy = intermediates['gain_hy']
+            ghs = intermediates['gain_hs']
+            # Per-channel labels: each chart only shows its own delta/gain values.
+            y_in  = f'orig_dY={dy:.2f}, final_dY={dy*gyy*gys:.3f}'
+            y_out = f'gain_yy={gyy:.3f}, gain_ys={gys:.3f}'
+            s_in  = f'orig_dS={ds:.2f}, final_dS={ds*gsy*gss:.3f}'
+            s_out = f'gain_sy={gsy:.3f}, gain_ss={gss:.3f}'
+            h_in  = f'orig_dH={dh:.2f}, final_dH={dh*ghy*ghs:.3f}'
+            h_out = f'gain_hy={ghy:.3f}, gain_hs={ghs:.3f}'
+        else:
+            y_in = y_out = s_in = s_out = h_in = h_out = None
+        self.delta_chart_y.set_h_markers(h_idx_in, h_idx_out, y_in_norm, y_out_norm,
+                                         input_label=y_in, output_label=y_out)
+        self.delta_chart_s.set_h_markers(h_idx_in, h_idx_out, s_in_norm, s_out_norm,
+                                         input_label=s_in, output_label=s_out)
+        self.delta_chart_h.set_h_markers(h_idx_in, h_idx_out, None, None,
+                                         input_label=h_in, output_label=h_out)
 
     def _apply_lut_lengths(self) -> None:
         """Apply the current spinBox LUT lengths to the active ACM instance.
@@ -738,6 +998,7 @@ class AcmUiController:
         self.delta_chart_h.set_values(self.full_delta_hbyh)
         self._recompute_sample_points(len_h, self.ctrl_point_count, force=True)
         self._refresh_sample_overlays()
+        self._update_lut_visualization()
 
     def _recompute_sample_points(self, len_h: int, count: int, force: bool = False) -> None:
         """Recompute sample-point positions and refresh the overlay on each chart.
@@ -936,7 +1197,7 @@ class AcmUiController:
         setattr(self, f"sample_values_{curve_key}", [float(v) for v in sample_values])
         self._apply_sample_point_change(curve_key, changed_idx=idx)
         self._apply_full_delta_to_acm()
-        self._update_heatmaps()
+        self._update_lut_visualization()
         self._schedule_auto_run()
 
     def _apply_full_delta_to_acm(self) -> None:
@@ -962,7 +1223,7 @@ class AcmUiController:
                 values[i] = 0.0
             self._refresh_sample_overlays()
         self._apply_full_delta_to_acm()
-        self._update_heatmaps()
+        self._update_lut_visualization()
         self._schedule_auto_run()
 
     @staticmethod
@@ -1069,7 +1330,7 @@ class AcmUiController:
                 self._refresh_sample_overlays()
         getattr(self, f"delta_chart_{curve_key}").set_values(full_lut)
         self._apply_full_delta_to_acm()
-        self._update_heatmaps()
+        self._update_lut_visualization()
         self._schedule_auto_run()
 
     def _current_curve_key(self) -> str:
@@ -1112,6 +1373,7 @@ class AcmUiController:
             self.ui.spinBox_offset_wb,
         ):
             spinbox.setValue(256)
+        self._schedule_auto_run()
 
     # Default LUT lengths per algorithm: (len_y, len_s, len_h, len_h2)
     _DEFAULT_LUT_LENGTHS: dict[str, tuple[int, int, int, int]] = {
@@ -1121,20 +1383,74 @@ class AcmUiController:
         "SW_ACM_VARIANT": (9, 13, 65, 65),
     }
 
+    @classmethod
+    def _get_default_lut_lengths(cls, algo_name: str) -> tuple[int, int, int, int]:
+        """Return the default LUT lengths for a specific ACM algorithm."""
+        return cls._DEFAULT_LUT_LENGTHS.get(algo_name, (9, 13, 65, 65))
+
+    def _get_ui_lut_lengths(self) -> tuple[int, int, int, int]:
+        """Read the current LUT lengths from the UI controls."""
+        return (
+            self.ui.spinBox_len_y.value(),
+            self.ui.spinBox_len_s.value(),
+            self.ui.spinBox_len_h.value(),
+            self.ui.spinBox_len_h2.value(),
+        )
+
+    def _set_ui_lut_lengths(self, lengths: tuple[int, int, int, int]) -> None:
+        """Update all LUT length controls without emitting change notifications."""
+        len_y, len_s, len_h, len_h2 = lengths
+        self.ui.spinBox_len_h2.setMaximum(len_h)
+        self.ui.slider_len_h2.setMaximum(len_h)
+        self._set_slider_spin_value(self.ui.slider_len_y, self.ui.spinBox_len_y, len_y)
+        self._set_slider_spin_value(self.ui.slider_len_s, self.ui.spinBox_len_s, len_s)
+        self._set_slider_spin_value(self.ui.slider_len_h, self.ui.spinBox_len_h, len_h)
+        self._set_slider_spin_value(self.ui.slider_len_h2, self.ui.spinBox_len_h2, len_h2)
+
+    def _resolve_target_lut_lengths(self, algo_name: str) -> tuple[int, int, int, int]:
+        """Resolve the target LUT lengths based on the group-box checked state."""
+        if self.ui.groupBox_lut_lengths.isChecked():
+            return self._get_ui_lut_lengths()
+        return self._get_default_lut_lengths(algo_name)
+
+    def _resize_delta_arrays_for_len_h(
+        self, len_h: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+        """Resize cached delta arrays to a target ``len_h`` for algorithm switches."""
+        if self.full_delta_ybyh is None:
+            return None
+
+        if len(self.full_delta_ybyh) == len_h:
+            return (
+                np.array(self.full_delta_ybyh, dtype=np.int16),
+                np.array(self.full_delta_sbyh, dtype=np.int16),
+                np.array(self.full_delta_hbyh, dtype=np.int16),
+            )
+
+        from script.acm.acm_impl_base import bicubic_resize_array_1d
+
+        return (
+            np.clip(
+                bicubic_resize_array_1d(self.full_delta_ybyh, len_h),
+                ACM_DELTA_Y_MIN,
+                ACM_DELTA_Y_MAX,
+            ).astype(np.int16),
+            np.clip(
+                bicubic_resize_array_1d(self.full_delta_sbyh, len_h),
+                ACM_DELTA_S_MIN,
+                ACM_DELTA_S_MAX,
+            ).astype(np.int16),
+            np.clip(
+                bicubic_resize_array_1d(self.full_delta_hbyh, len_h),
+                ACM_DELTA_H_MIN,
+                ACM_DELTA_H_MAX,
+            ).astype(np.int16),
+        )
+
     def _on_reset_lut_length(self) -> None:
         """Reset all LUT length controls to defaults for the current algorithm."""
-        defaults = self._DEFAULT_LUT_LENGTHS.get(self.current_algo, (9, 13, 65, 65))
-        self._set_slider_spin_value(
-            self.ui.slider_len_y, self.ui.spinBox_len_y, defaults[0])
-        self._set_slider_spin_value(
-            self.ui.slider_len_s, self.ui.spinBox_len_s, defaults[1])
-        # Update len_h controls; constrain len_h2 max before applying.
-        self.ui.spinBox_len_h2.setMaximum(defaults[2])
-        self.ui.slider_len_h2.setMaximum(defaults[2])
-        self._set_slider_spin_value(
-            self.ui.slider_len_h, self.ui.spinBox_len_h, defaults[2])
-        self._set_slider_spin_value(
-            self.ui.slider_len_h2, self.ui.spinBox_len_h2, defaults[3])
+        defaults = self._get_default_lut_lengths(self.current_algo)
+        self._set_ui_lut_lengths(defaults)
         self._apply_lut_lengths()
         self._sync_ctrl_point_slider(defaults[2])
         self._reload_delta_controls_from_acm()
@@ -1159,29 +1475,142 @@ class AcmUiController:
 
     def _on_clip_type_changed(self, text: str) -> None:
         """Apply clip_type change to ACM instance."""
-        self._get_current_acm().clip_type = text
+        clip_type = text if text in self._SUPPORTED_CLIP_TYPES else "easy_clip"
+        self._get_current_acm().clip_type = clip_type
         self._schedule_auto_run()
 
     # ------------------------------------------------------------------ #
-    # Heatmap refresh                                                    #
+    # LUT visualization                                                  #
     # ------------------------------------------------------------------ #
 
-    def _update_heatmaps(self) -> None:
-        """Refresh the mounted LUT heatmap widgets."""
+    @staticmethod
+    def _lut_image_to_pixmap(image: np.ndarray | None) -> QPixmap | None:
+        """Convert an RGBA/RGB numpy image from ``dump_luts`` to a pixmap."""
+        if image is None or image.size == 0:
+            return None
+        if image.ndim != 3 or image.shape[2] not in (3, 4):
+            return None
+        h, w, channels = image.shape
+        image = np.ascontiguousarray(image)
+        fmt = QImage.Format_RGBA8888 if channels == 4 else QImage.Format_RGB888
+        qimage = QImage(image.data, w, h, image.strides[0], fmt).copy()
+        return QPixmap.fromImage(qimage)
+
+    # ------------------------------------------------------------------ #
+    # Lut Result window                                                 #
+    # ------------------------------------------------------------------ #
+
+    def _ensure_lut_result_window(self) -> LutImageWindow:
+        """Create the standalone LUT result visualization window on first use."""
+        if self.lut_result_window is None:
+            self.lut_result_window = LutImageWindow(self._on_lut_result_closed)
+            self.lut_result_window.setWindowTitle("LUT Result")
+            host_frame = self._win.frameGeometry()
+            screen = self._win.screen() or QGuiApplication.primaryScreen()
+            available = screen.availableGeometry() if screen is not None else host_frame
+            margin = 12
+            ww = self.lut_result_window.frameGeometry().width()
+            wh = self.lut_result_window.frameGeometry().height()
+            rx = host_frame.right() + margin
+            lx = host_frame.left() - margin - ww
+            tx = rx if rx + ww <= available.right() else max(available.left(), lx)
+            ty = min(max(host_frame.top(), available.top()), available.bottom() - wh)
+            self.lut_result_window.move(tx + 400, ty + 200)
+        return self.lut_result_window
+
+    def _on_lut_result_closed(self) -> None:
+        """Keep the View Lut Result checkbox in sync when the window is closed manually."""
+        if hasattr(self.ui, "checkBox_lut_result") and self.ui.checkBox_lut_result.isChecked():
+            self.ui.checkBox_lut_result.blockSignals(True)
+            self.ui.checkBox_lut_result.setChecked(False)
+            self.ui.checkBox_lut_result.blockSignals(False)
+
+    def _update_lut_result(self) -> None:
+        """Refresh the LUT result image when the result window is visible."""
+        if self.lut_result_window is None or not self.lut_result_window.isVisible():
+            return
+        acm = self._get_current_acm()
+        if not hasattr(acm, "_last_intermediate_shape"):
+            self.lut_result_window.image_label.clear()
+            self.lut_result_window.image_label.setText("No result data")
+            return
+        pixmap = self._lut_image_to_pixmap(acm.dump_lut_results(return_image=True))
+        if pixmap is None:
+            self.lut_result_window.image_label.clear()
+            self.lut_result_window.image_label.setText("No result data")
+            return
+        self.lut_result_window.image_label.setText("")
+        self.lut_result_window.image_label.setPixmap(pixmap)
+
+    def _on_lut_result_toggled(self, checked: bool) -> None:
+        """Show or close the standalone LUT result window."""
+        if checked:
+            window = self._ensure_lut_result_window()
+            window.show()
+            window.raise_()
+            window.activateWindow()
+            frame = self._input_provider()
+            if frame is None:
+                window.image_label.clear()
+                window.image_label.setText("No input loaded")
+            elif not self._is_acm_enabled():
+                window.image_label.clear()
+                window.image_label.setText("ACM is disabled")
+            else:
+                acm = self._get_current_acm()
+                if not hasattr(acm, "_last_intermediate_shape"):
+                    window.image_label.setText("Acquiring result...")
+                    self._schedule_auto_run()
+                else:
+                    self._update_lut_result()
+        elif self.lut_result_window is not None and self.lut_result_window.isVisible():
+            self.lut_result_window.close()
+
+    def _ensure_lut_image_window(self) -> LutImageWindow:
+        """Create the standalone LUT visualization window on first use."""
+        if self.lut_image_window is None:
+            self.lut_image_window = LutImageWindow(self._on_lut_window_closed)
+            host_frame = self._win.frameGeometry()
+            screen = self._win.screen() or QGuiApplication.primaryScreen()
+            available = screen.availableGeometry() if screen is not None else host_frame
+            margin = 12
+            window_width = self.lut_image_window.frameGeometry().width()
+            window_height = self.lut_image_window.frameGeometry().height()
+
+            right_x = host_frame.right() + margin
+            left_x = host_frame.left() - margin - window_width
+            if right_x + window_width <= available.right():
+                target_x = right_x
+            else:
+                target_x = max(available.left(), left_x)
+
+            target_y = min(max(host_frame.top(), available.top()), available.bottom() - window_height)
+            self.lut_image_window.move(target_x, target_y)
+        return self.lut_image_window
+
+    def _on_lut_window_closed(self) -> None:
+        """Keep the LUT visualization checkbox in sync when the window is closed manually."""
+        if self.ui.checkBox_lut_config.isChecked():
+            self.ui.checkBox_lut_config.blockSignals(True)
+            self.ui.checkBox_lut_config.setChecked(False)
+            self.ui.checkBox_lut_config.blockSignals(False)
+
+    def _update_lut_visualization(self) -> None:
+        """Refresh the LUT overview image when the standalone window is visible."""
+        if self.lut_image_window is None or not self.lut_image_window.isVisible():
+            return
         acm = self._get_current_acm()
         if not getattr(acm, "b_lut_ready", False):
+            self.lut_image_window.image_label.clear()
+            self.lut_image_window.image_label.setText("No LUT")
             return
-        lut_map = {
-            "gain_ybyy": acm.lut_gain_ybyy,
-            "gain_sbyy": acm.lut_gain_sbyy,
-            "gain_hbyy": acm.lut_gain_hbyy,
-            "gain_ybys": acm.lut_gain_ybys,
-            "gain_sbys": acm.lut_gain_sbys,
-            "gain_hbys": acm.lut_gain_hbys,
-        }
-        for key, data in lut_map.items():
-            if key in self.heatmap_widgets:
-                self.heatmap_widgets[key].set_data(data, ACM_GAIN_MIN, ACM_GAIN_MAX)
+        pixmap = self._lut_image_to_pixmap(acm.dump_luts(return_image=True))
+        if pixmap is None:
+            self.lut_image_window.image_label.clear()
+            self.lut_image_window.image_label.setText("No LUT")
+            return
+        self.lut_image_window.image_label.setText("")
+        self.lut_image_window.image_label.setPixmap(pixmap)
 
     # ------------------------------------------------------------------ #
     # ACM processing                                                     #
@@ -1192,6 +1621,17 @@ class AcmUiController:
         self._get_current_acm().gain_y = self.ui.spinBox_gain_y.value()
         self._get_current_acm().gain_s = self.ui.spinBox_gain_s.value()
         self._get_current_acm().gain_h = self.ui.spinBox_gain_h.value()
+
+    def _update_acm_offsets(self) -> None:
+        """Write the current WR/WG/WB offset controls back to the active ACM instance."""
+        self._get_current_acm().offset_wr = self.ui.spinBox_offset_wr.value()
+        self._get_current_acm().offset_wg = self.ui.spinBox_offset_wg.value()
+        self._get_current_acm().offset_wb = self.ui.spinBox_offset_wb.value()
+
+    def _update_ignore_gain_luts(self) -> None:
+        """Write the current ignore-gain-LUTs checkbox state to the active ACM instance."""
+        if hasattr(self.ui, "checkBox_ignore_gain_luts"):
+            self._get_current_acm().ignore_gain_luts = bool(self.ui.checkBox_ignore_gain_luts.isChecked())
 
     def _apply_delta_range_to_acm(self) -> None:
         """Write the current max delta controls back to the active ACM instance."""
@@ -1204,14 +1644,14 @@ class AcmUiController:
         """Debounce ACM processing after UI edits."""
         input_frame = self._input_provider()
         if input_frame is None:
-            return
+                return
         key = (input_frame.fmt, input_frame.clrspc, input_frame.width, input_frame.height, input_frame.frame_idx)
         if key != self._last_input_key:
             self._last_input_key = key
             self._colorspace_user_override = False
             self._auto_select_colorspace_for_input(input_frame)
         if not self._is_acm_enabled():
-            return
+                return
         self.auto_run_timer.start(300)
 
     def _do_auto_run(self) -> None:
@@ -1227,15 +1667,9 @@ class AcmUiController:
         input_is_rgb = bool(input_frame.is_rgb)
 
         if want_hsv:
-            if input_is_rgb:
-                raise NotImplementedError("TODO: HSV(RGB) ACM path is not implemented yet.")
-            input_planar = np.stack([input_frame.pyr, input_frame.pug, input_frame.pvb], axis=0)
-            if input_planar.dtype != np.uint8:
-                input_planar = ((input_planar + 2) >> 2).astype(np.uint8)
-            r, g, b = yuv_to_rgb(input_planar[0], input_planar[1], input_planar[2],
-                                 input_cs=input_frame.clrspc, output_cs=1)
-            del r, g, b
-            raise NotImplementedError("TODO: HSV(RGB) ACM path is not implemented yet.")
+            del input_is_rgb
+            self._status_callback("HSV ACM path is not implemented yet. Please use YHS.")
+            return
 
         if input_is_rgb:
             y, u, v = rgb_to_yuv(input_frame.pyr, input_frame.pug, input_frame.pvb,
@@ -1248,6 +1682,8 @@ class AcmUiController:
             input_cs = input_frame.clrspc
         input_depth = input_frame.depth
         self._update_acm_gains()
+        self._update_acm_offsets()
+        self._update_ignore_gain_luts()
         self._apply_delta_range_to_acm()
         self._apply_full_delta_to_acm()
         acm = self._get_current_acm()
@@ -1266,8 +1702,11 @@ class AcmUiController:
                 out_fmt, input_cs,
             )
             self._output_callback(out_frame)
+            self._latest_output_frame = out_frame
+            if self._frozen_pixel_x is not None and self._frozen_pixel_y is not None:
+                self.update_preview_h_marker(self._frozen_pixel_x, self._frozen_pixel_y)
+            self._update_lut_result()
             self._preview_time_callback(elapsed_ms)
-            self._update_heatmaps()
             self._status_callback(f"Processing completed in {elapsed_ms:.2f} ms")
         except Exception as exc:
             print("processing failed:", exc)
@@ -1333,29 +1772,30 @@ class AcmUiController:
         are written into the new instance before switching, so delta charts
         stay unchanged and the new instance picks up the current edits.
         """
-        algo_names = ["VOP_VP_ACM", "SW_ACM", "EVIDEO_ACM", "SW_ACM_VARIANT"]
-        new_algo = algo_names[index]
+        new_algo = self._ALGO_KEYS[index]
         if new_algo == self.current_algo:
             return
 
         # Snapshot current UI state before switching
         old_acm = self._get_current_acm()
-        saved_len = (self.ui.spinBox_len_y.value(), self.ui.spinBox_len_s.value(),
-                     self.ui.spinBox_len_h.value(), self.ui.spinBox_len_h2.value())
+        target_len = self._resolve_target_lut_lengths(new_algo)
+        resized_deltas = self._resize_delta_arrays_for_len_h(target_len[2])
 
         # Switch to new instance
         self.current_algo = new_algo
         new_acm = self._get_current_acm()
+        self._set_ui_lut_lengths(target_len)
 
-        # Apply saved lengths to new instance
-        if saved_len != (new_acm.len_y, new_acm.len_s, new_acm.len_h, new_acm.len_hd):
-            new_acm.set_len(*saved_len)
+        # Apply target lengths to the new instance.
+        if target_len != (new_acm.len_y, new_acm.len_s, new_acm.len_h, new_acm.len_hd):
+            new_acm.set_len(*target_len)
 
-        # Copy current delta chart data into new instance
-        if self.full_delta_ybyh is not None:
-            new_acm.lut_delta_ybyh[:] = self.full_delta_ybyh
-            new_acm.lut_delta_sbyh[:] = self.full_delta_sbyh
-            new_acm.lut_delta_hbyh[:] = self.full_delta_hbyh
+        # Copy current delta chart data into the new instance, resizing when
+        # the target algorithm uses a different len_h.
+        if resized_deltas is not None:
+            new_acm.lut_delta_ybyh[:] = resized_deltas[0]
+            new_acm.lut_delta_sbyh[:] = resized_deltas[1]
+            new_acm.lut_delta_hbyh[:] = resized_deltas[2]
 
         # Copy gain LUTs from old to new (resize if needed)
         for name_2d in ('ybyy', 'sbyy', 'hbyy', 'ybys', 'sbys', 'hbys'):
@@ -1363,17 +1803,48 @@ class AcmUiController:
             dst = getattr(new_acm, f'lut_gain_{name_2d}')
             if src.shape == dst.shape:
                 dst[:] = src
-            # If shapes differ, leave new instance's default; user can re-edit
+            else:
+                from script.acm.acm_impl_base import bicubic_resize_array_2d
+                resampled = bicubic_resize_array_2d(src, dst.shape[0], dst.shape[1])
+                dst[:] = resampled
+                print(f"[ACM] resampled gain_{name_2d}: {src.shape} => {dst.shape}")
+        # Sync active tables back to default tables, so the gain data survives
+        # future LUT length changes (set_len / set_step).
+        new_acm.sync_to_default()
 
         # Copy misc state
         new_acm.gain_y = old_acm.gain_y
         new_acm.gain_s = old_acm.gain_s
         new_acm.gain_h = old_acm.gain_h
-        new_acm.delta_range = old_acm.delta_range
-        new_acm.clip_type = old_acm.clip_type
+        new_acm.offset_wr = old_acm.offset_wr
+        new_acm.offset_wg = old_acm.offset_wg
+        new_acm.offset_wb = old_acm.offset_wb
+        new_acm.ignore_gain_luts = old_acm.ignore_gain_luts
+        # new_acm.delta_range = old_acm.delta_range
+        new_acm.clip_type = old_acm.clip_type if old_acm.clip_type in self._SUPPORTED_CLIP_TYPES else "easy_clip"
 
-        # Refresh UI controls (lengths already set, sync delta_range/clip_type)
+        # Refresh UI controls while keeping the in-memory delta editor state.
         self._refresh_acm_ui_controls()
+        if resized_deltas is not None:
+            self.full_delta_ybyh = np.array(resized_deltas[0], dtype=np.int16)
+            self.full_delta_sbyh = np.array(resized_deltas[1], dtype=np.int16)
+            self.full_delta_hbyh = np.array(resized_deltas[2], dtype=np.int16)
+            self.delta_chart_y.set_values(self.full_delta_ybyh)
+            self.delta_chart_s.set_values(self.full_delta_sbyh)
+            self.delta_chart_h.set_values(self.full_delta_hbyh)
+            self._recompute_sample_points(target_len[2], self.ctrl_point_count, force=False)
+            self._refresh_sample_overlays()
+        self._update_lut_visualization()
+        self._schedule_auto_run()
+
+    def _on_lut_lengths_group_toggled(self, checked: bool) -> None:
+        """Synchronize LUT lengths when the override group checked state changes."""
+        del checked
+        target_lengths = self._resolve_target_lut_lengths(self.current_algo)
+        self._set_ui_lut_lengths(target_lengths)
+        self._apply_lut_lengths()
+        self._sync_ctrl_point_slider(target_lengths[2])
+        self._reload_delta_controls_from_acm()
         self._schedule_auto_run()
 
     def _on_len_h_changed(self, value: int) -> None:
@@ -1394,7 +1865,12 @@ class AcmUiController:
         """
         del value
         self._apply_lut_lengths()
-        self._update_heatmaps()
+        self._update_lut_visualization()
+        self._schedule_auto_run()
+
+    def _on_ignore_gain_luts_toggled(self, checked: bool) -> None:
+        """Toggle whether the active ACM instance ignores the six 2D gain LUTs."""
+        self._get_current_acm().ignore_gain_luts = bool(checked)
         self._schedule_auto_run()
 
     # ------------------------------------------------------------------ #
@@ -1426,16 +1902,27 @@ class AcmUiController:
         self._set_slider_spin_value(self.ui.slider_gain_y, self.ui.spinBox_gain_y, acm.gain_y)
         self._set_slider_spin_value(self.ui.slider_gain_s, self.ui.spinBox_gain_s, acm.gain_s)
         self._set_slider_spin_value(self.ui.slider_gain_h, self.ui.spinBox_gain_h, acm.gain_h)
+        if hasattr(self.ui, "checkBox_ignore_gain_luts"):
+            self.ui.checkBox_ignore_gain_luts.blockSignals(True)
+            self.ui.checkBox_ignore_gain_luts.setChecked(bool(getattr(acm, "ignore_gain_luts", False)))
+            self.ui.checkBox_ignore_gain_luts.blockSignals(False)
+        self._set_slider_spin_value(self.ui.slider_offset_wr, self.ui.spinBox_offset_wr, acm.offset_wr)
+        self._set_slider_spin_value(self.ui.slider_offset_wg, self.ui.spinBox_offset_wg, acm.offset_wg)
+        self._set_slider_spin_value(self.ui.slider_offset_wb, self.ui.spinBox_offset_wb, acm.offset_wb)
         dr = getattr(acm, 'delta_range', (0.25, 0.25, 64))
         self.ui.spinBox_max_delta_y.setValue(dr[0])
         self.ui.spinBox_max_delta_s.setValue(dr[1])
         self.ui.spinBox_max_delta_h.setValue(dr[2])
         ct = getattr(acm, 'clip_type', 'easy_clip')
+        if ct not in self._SUPPORTED_CLIP_TYPES:
+            ct = "easy_clip"
+            acm.clip_type = ct
         idx = self.ui.comboBox_clip_type.findText(ct)
         if idx >= 0:
             self.ui.comboBox_clip_type.setCurrentIndex(idx)
+        self._sync_clip_type_ui_state()
         self._sync_ctrl_point_slider(acm.len_h)
-        self._update_heatmaps()
+        self._update_lut_visualization()
 
     def load_current_config(self, path: str) -> bool:
         """Load a JSON config into the active ACM instance and refresh the UI."""
@@ -1464,6 +1951,7 @@ class AcmUiController:
         if path:
             if not path.endswith(".json"):
                 path += ".json"
+            acm.sync_to_default()
             acm.dump_json(path)
             self._status_callback(f"Config saved: {path}")
 
@@ -1475,49 +1963,13 @@ class AcmUiController:
         if path:
             self.load_current_config(path)
 
-    # ------------------------------------------------------------------ #
-    # LUT Visualization dock                                             #
-    # ------------------------------------------------------------------ #
-
-    def _on_lut_visualization_toggled(self, checked: bool):
-        """Detach or re-attach groupBox_lut_visualization to a standalone dock."""
-        if self._dock_host is None:
-            return
-        gb = self.ui.groupBox_lut_visualization
-
+    def _on_lut_visualization_toggled(self, checked: bool) -> None:
+        """Show or close the standalone LUT overview window."""
         if checked:
-            gb.setVisible(False)
-            self._lut_gb_original_layout = gb.parent().layout()
-            self.lut_dock = QDockWidget("LUT Visualization", self._dock_host)
-            self.lut_dock.setObjectName("lut_visualization_dock")
-            self.lut_dock.setAllowedAreas(Qt.AllDockWidgetAreas)
-            self.lut_dock.setFeatures(
-                QDockWidget.DockWidgetMovable
-                | QDockWidget.DockWidgetFloatable
-                | QDockWidget.DockWidgetClosable
-            )
-            if self._lut_gb_original_layout:
-                self._lut_gb_original_layout.removeWidget(gb)
-            gb.setParent(self.lut_dock)
-            self.lut_dock.setWidget(gb)
-            gb.setVisible(True)
-            self._dock_host.addDockWidget(Qt.RightDockWidgetArea, self.lut_dock)
-            self.lut_dock.setVisible(True)
-            self.lut_dock.visibilityChanged.connect(self._on_lut_dock_visibility_changed)
-        else:
-            if self.lut_dock is not None:
-                gb.setVisible(False)
-                self.lut_dock.setWidget(None)
-                gb.setParent(self.widget)
-                if self._lut_gb_original_layout is not None:
-                    self._lut_gb_original_layout.addWidget(gb)
-                gb.setVisible(False)
-                self._dock_host.removeDockWidget(self.lut_dock)
-                self.lut_dock.deleteLater()
-                self.lut_dock = None
-
-    def _on_lut_dock_visibility_changed(self, visible: bool):
-        """Sync the LUT Visualization checkbox when the dock is closed by the user."""
-        if not visible:
-            if self.ui.checkBox_lut_visualization.isChecked():
-                self.ui.checkBox_lut_visualization.setChecked(False)
+            window = self._ensure_lut_image_window()
+            window.show()
+            window.raise_()
+            window.activateWindow()
+            self._update_lut_visualization()
+        elif self.lut_image_window is not None and self.lut_image_window.isVisible():
+            self.lut_image_window.close()
