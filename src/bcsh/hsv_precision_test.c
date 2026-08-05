@@ -5,8 +5,8 @@
  *   [1][2] 隔离量化：只用"精确(浮点)重建、只量化 H 或 S"，
  *           逐级提高位宽，找 u8 输入零误差所需的最少 bit。
  *   [3]    组合验证边界（u8 全遍历）。
- *   [4]    当前 hsv_fixed 定点版（H=Q11/S=Q10）误差来源：
- *           对比"重建截断 (V*S*t)>>21" 与 "重建四舍五入 (+2^20)>>21"。
+ *   [4]    当前 hsv_fixed 定点版（H=Q14/S=Q12）误差来源：
+ *           对比"重建截断 (V*S*t)>>26" 与 "重建四舍五入 (+2^25)>>26"。
  *   [5][6][7] 同 [1][2][3]，但输入为 u10(10bit)（1024^3 全遍历不可行，用抽样）。
  *   [8]    u10 定点版（rgb2hsv_fix10 / hsv2rgb_fix10）往返精度。
  *
@@ -78,10 +78,10 @@ static int eval_quant_bits(int bh, int bs, int stride, int bits)
 static int eval_quant(int bh, int bs, int stride) { return eval_quant_bits(bh, bs, stride, 8); }
 
 /* ---------- 定点版：重建"截断" vs "四舍五入" ---------- */
-/* 截断对照版：与 hsv_fixed.h 早期版本一致 (V*S*t)>>21 无舍入，演示 1 LSB 误差来源 */
+/* 截断对照版：与 hsv_fixed.h 早期版本一致 (V*S*t)>>26 无舍入，演示 1 LSB 误差来源 */
 static void hsv2rgb_fix_trunc_g(int32_t H, int32_t S, int32_t V, int32_t maxv, int32_t *R, int32_t *G, int32_t *B)
 {
-    int32_t h6 = H / 60;
+    int32_t h6 = H / 60; // H/S/V 均为定点化数据
     int32_t k5 = 5 * FIX_H_ONE + h6;
     int32_t k3 = 3 * FIX_H_ONE + h6;
     int32_t k1 = 1 * FIX_H_ONE + h6;
@@ -95,9 +95,12 @@ static void hsv2rgb_fix_trunc_g(int32_t H, int32_t S, int32_t V, int32_t maxv, i
     int32_t t3 = clamp01(k3);
     int32_t t1 = clamp01(k1);
 
-    int32_t r = V - (int32_t)(((int64_t)V * S * t5) >> (FIX_BITS_H + FIX_BITS_S));
-    int32_t g = V - (int32_t)(((int64_t)V * S * t3) >> (FIX_BITS_H + FIX_BITS_S));
-    int32_t b = V - (int32_t)(((int64_t)V * S * t1) >> (FIX_BITS_H + FIX_BITS_S));
+    int32_t vs = V * S;                                        /* Q12 像素域 */
+    int32_t vsq = (vs + (1 << (VS_SHIFT - 1))) >> VS_SHIFT;    /* 与 hsv_fixed.h 一致：先降位宽 */
+    int32_t rs = FIX_BITS_H + FIX_BITS_S - VS_SHIFT;            /* 20 */
+    int32_t r = V - (int32_t)((vsq * t5) >> rs);                /* 截断对照：最终无四舍五入 */
+    int32_t g = V - (int32_t)((vsq * t3) >> rs);
+    int32_t b = V - (int32_t)((vsq * t1) >> rs);
 
     r = CLIP(r, 0, maxv);
     g = CLIP(g, 0, maxv);
@@ -108,8 +111,8 @@ static void hsv2rgb_fix_trunc_g(int32_t H, int32_t S, int32_t V, int32_t maxv, i
     *B = b;
 }
 
-/* 定点版往返误差：bits 位输入（u8 全遍历 stride=1；u10 用抽样） */
-static void eval_fixed_bits(const char *name, int use_trunc, int bits, int stride)
+/* 定点版往返误差：bits 位输入（u8 全遍历 stride=1；u10 用抽样）；返回有偏差样本百分比 */
+static double eval_fixed_bits(const char *name, int use_trunc, int bits, int stride)
 {
     const int maxv = (1 << bits) - 1;
     uint64_t n = 0, n_err = 0;
@@ -148,7 +151,9 @@ static void eval_fixed_bits(const char *name, int use_trunc, int bits, int strid
                 }
                 n++;
             }
-    printf("%-40s 有偏差=%9llu (%.4f%%)  max|Δ|=%d LSB\n", name, (unsigned long long)n_err, 100.0 * n_err / (double)n, maxerr);
+    double pct = 100.0 * n_err / (double)n;
+    printf("%-40s 有偏差=%9llu (%.4f%%)  max|Δ|=%d LSB\n", name, (unsigned long long)n_err, pct, maxerr);
+    return pct;
 }
 
 int main(int argc, char **argv)
@@ -204,10 +209,11 @@ int main(int argc, char **argv)
                 }
     }
 
-    /* [4] 定点版误差来源：H=11/S=10 已满足量化需求，误差只来自重建是否四舍五入 */
-    printf("\n[4] 当前 hsv_fixed 定点版（H=Q11/S=Q10，重建已四舍五入）u8 全遍历：\n");
-    eval_fixed_bits("u8  重建用截断     (V*S*t)>>21（对照）", 1, 8, 1);
-    eval_fixed_bits("u8  重建用四舍五入 (+2^20)>>21（当前实现）", 0, 8, 1);
+    /* [4] 定点版误差来源：H/S 位宽已满足量化需求，误差只来自重建是否四舍五入 */
+    double p_trunc;
+    printf("\n[4] 当前 hsv_fixed 定点版（H=Q14/S=Q12，重建已四舍五入）u8 全遍历：\n");
+    p_trunc = eval_fixed_bits("u8  重建用截断     (V*S*t)>>26（对照）   ", 1, 8, 1);
+    eval_fixed_bits("u8  重建用四舍五入 (+2^25)>>26（当前实现）", 0, 8, 1);
 
     /* [5] u10(10bit) 只量化 S（H 视为精确） */
     printf("\n[5] u10(10bit) 只量化 S（H=20bit≈精确），%s：\n", fine ? "密抽样" : "粗扫");
@@ -249,9 +255,10 @@ int main(int argc, char **argv)
     }
 
     /* [8] u10 定点版往返精度（抽样） */
-    printf("\n[8] u10 定点版（H=Q11/S=Q10，重建已四舍五入）%s：\n", fine ? "密抽样" : "抽样");
-    eval_fixed_bits("u10 重建用截断     (V*S*t)>>21（对照）", 1, 10, s10);
-    eval_fixed_bits("u10 重建用四舍五入 (+2^20)>>21（当前实现）", 0, 10, s10);
+    double u10_rnd;
+    printf("\n[8] u10 定点版（H=Q14/S=Q12，重建已四舍五入）%s：\n", fine ? "密抽样" : "抽样");
+    eval_fixed_bits("u10 重建用截断     (V*S*t)>>26（对照）", 1, 10, s10);
+    u10_rnd = eval_fixed_bits("u10 重建用四舍五入 (+2^25)>>26（当前实现）", 0, 10, s10);
 
     printf("\n结论（u8 输入，%s）：\n", fine ? "精扫全遍历" : "粗扫，边界仅供参考");
     if (fine) {
@@ -264,13 +271,17 @@ int main(int argc, char **argv)
         printf("  - 粗扫只用于快速定位边界；单独零误差起点：S=%d bit、H=%d bit，\n", bs_alone, bh_alone);
         printf("    组合零误差起点 (H=%d, S=%d)；最坏样本可能被漏掉，边界需运行 full 精扫确认。\n", bh_need, bs_need);
     }
-    printf("  - 当前 hsv2rgb_fix（H=Q11/S=Q10）重建已用四舍五入 (+2^(bits-1))>>bits，u8 全遍历 0 误差；\n");
-    printf("    若改回截断 (V*S*t)>>bits 会产生 max 1 LSB 误差（约 60%% 样本有偏差，实测 59.69%%）。\n");
+    printf("  - 当前 hsv2rgb_fix（H=Q14/S=Q12）重建已用四舍五入 (+2^(bits-1))>>bits，u8 全遍历 0 误差；\n");
+    printf("    若改回截断 (V*S*t)>>bits 会产生 max 1 LSB 误差（实测 %.2f%% 样本有偏差）。\n", p_trunc);
 
     printf("\n结论（u10，10bit 输入，%s）：\n", fine ? "密抽样" : "抽样，仅供参考");
     printf("  - 单独量化 S 需 %d bit、H 需 %d bit（比 u8 的 8/11 高，u10 LSB=1/1023 更小）；\n", bs_alone10, bh_alone10);
     printf("  - 组合零误差起点 (H=%d, S=%d)（H+S=%d bit，u8 只需 21 bit）；\n", bh_need10, bs_need10, bh_need10 + bs_need10);
-    printf("  - 当前定点 H=Q11/S=Q10（为 u8 优化）在 u10 输入下重建四舍五入后抽样仍有\n");
-    printf("    部分样本 1 LSB 误差（非 0 误差）；若需 u10 零误差应提高位宽（如 H=Q14/S=Q11）。\n");
+    if (u10_rnd == 0.0)
+        printf("  - 当前定点（H=Q14/S=Q12）在 u10 输入下重建四舍五入后 0 误差（抽样验证）。\n");
+    else {
+        printf("  - 当前定点（H=Q14/S=Q12）在 u10 输入下重建四舍五入后抽样仍有\n");
+        printf("    %.2f%% 样本 1 LSB 误差（非 0 误差），需进一步提高位宽。\n", u10_rnd);
+    }
     return 0;
 }
