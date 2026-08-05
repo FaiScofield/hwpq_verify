@@ -1,10 +1,9 @@
 /**
  * hsv_fixed.c — RGB <-> HSV 定点(fixed-point)转换，全程无浮点数
  *
- * 定标约定 (Q16.16)：
- *   FIX_ONE = 1 << 16 = 65536
- *   H : 色相，单位"度"，1 度 = FIX_ONE，有效范围 [0, 360*FIX_ONE)
- *   S : 饱和度，[0, FIX_ONE]            （1.0 = FIX_ONE）
+ * 定标约定（H/S 独立位宽）：
+ *   FIX_BITS_H = 11 : H 小数位宽，1 度 = 2^11 = 2048，有效范围 [0, 360*FIX_H_ONE)
+ *   FIX_BITS_S = 10 : S 小数位宽，1.0 = 2^10 = 1024，有效范围 [0, FIX_S_ONE]
  *   V : 明度，[0, 255]                  （与 8bit RGB 同尺度，不缩放）
  *
  * 特点：
@@ -13,7 +12,7 @@
  *     （min/max/clamp）消除扇区分支；均可直接向量化
  *   - 仅剩 3 处整数除法：S=C/V、色相 /C、hsv2rgb 的 H/60
  *     （都可用"倒数表 + 乘法"进一步消除，见文末注释）
- *   - hsv2rgb 重建 (V*S*t)>>32 用四舍五入 (+2^31)，u8 全遍历往返 0 误差
+ *   - hsv2rgb 重建 (V*S*t)>>21 用四舍五入 (+2^20)，u8 全遍历往返 0 误差
  */
 #include "hsv_fixed.h"
 #include <stdio.h>
@@ -45,9 +44,9 @@ int main(void)
             maxerr = err;
 
         /* 全部整数打印：H 显示 "度.百分度"，S 显示千分数，V 直接显示 */
-        int h_deg  = (int)(hsv.H / FIX_ONE);
-        int h_cent = (int)((hsv.H % FIX_ONE) * 100 / FIX_ONE);
-        int s_pm   = (int)(((int64_t)hsv.S * 1000) / FIX_ONE);
+        int h_deg  = (int)(hsv.H / FIX_H_ONE);
+        int h_cent = (int)((hsv.H % FIX_H_ONE) * 100 / FIX_H_ONE);
+        int s_pm   = (int)(((int64_t)hsv.S * 1000) / FIX_S_ONE);
 
         printf("%-8s H=%3d.%02d  S=%3d.%1d%%  V=%3d  ->  RGB(%3d,%3d,%3d)  err=(%+d,%+d,%+d)\n",
                tab[i].name, h_deg, h_cent, s_pm / 10, s_pm % 10, (int)hsv.V,
@@ -60,7 +59,7 @@ int main(void)
 /*
  * 进一步优化（可选）：
  * 1) 除法 -> 倒数表：S = C * rcpTbl[V]>>16；色相 /C 同理（rcpTbl 256 项即可）
- * 2) H/60 -> H * (FIX_ONE/60)>>16，即乘 1092（误差 <1/60 度，可接受）
+ * 2) H/60 -> H * (FIX_H_ONE/60)>>FIX_BITS_H，即乘 34（误差 <1/60 度，可接受）
  * 3) 全部比较选择(?: / if)在 ARM/NEON、x86 上编译为 CSEL/CMOV 或 setcc，
  *    天然无分支；若要纯位运算版，把 clamp01 与 mod 改为掩码 select 即可
  */

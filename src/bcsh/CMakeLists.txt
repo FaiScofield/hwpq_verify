@@ -3,7 +3,7 @@ include_directories(${CMAKE_CURRENT_LIST_DIR})
 # message(STATUS "[BCSH] VERIFY_LIBS on BCSH: ${VERIFY_LIBS}")
 
 # hsv 定点 rgb<->hsv 自测（示例色往返，无浮点/无 math 库依赖）
-add_executable(hsv_fixed_test ${CMAKE_CURRENT_LIST_DIR}/hsv_fixed.c)
+add_executable(hsv_fixed_test ${CMAKE_CURRENT_LIST_DIR}/hsv_fixed_test.c)
 
 # hsv 浮点参考实现 + rgb->hsv->rgb 往返精度评估（可选参数 full 做 u10 全遍历）
 add_executable(hsv_float_test ${CMAKE_CURRENT_LIST_DIR}/hsv_float_test.c)
