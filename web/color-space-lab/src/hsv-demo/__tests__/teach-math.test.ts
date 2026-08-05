@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { hsvToRgb } from '../../core/color-convert/rgb-hsv';
 import {
   SQRT3,
+  applyHsvAdjust,
   circleChroma,
   circleRing3D,
   hexChroma,
@@ -71,6 +72,14 @@ describe('hexRing3D', () => {
 
     const p30 = projectToPlane(ring[10]); // H = 30 (edge midpoint direction)
     expect(Math.hypot(p30.x, p30.y)).toBeCloseTo((s * v * SQRT3) / 2, 5);
+  });
+});
+
+describe('applyHsvAdjust', () => {
+  it('wraps hue around [0, 360) and clamps saturation/value to [0, 1]', () => {
+    expect(applyHsvAdjust({ h: 350, s: 0.9, v: 0.8 }, 20, 0.2, 0.3)).toEqual({ h: 10, s: 1, v: 1 });
+    expect(applyHsvAdjust({ h: 10, s: 0.5, v: 0.5 }, -20, -0.7, -0.6)).toEqual({ h: 350, s: 0, v: 0 });
+    expect(applyHsvAdjust({ h: 30, s: 1, v: 0.8 }, 0, 0, 0)).toEqual({ h: 30, s: 1, v: 0.8 });
   });
 });
 

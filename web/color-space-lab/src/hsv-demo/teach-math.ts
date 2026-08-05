@@ -50,6 +50,18 @@ export function hexChroma(rgb: RgbColor): number {
   return Math.max(r, g, b) - Math.min(r, g, b);
 }
 
+/**
+ * Apply the ΔH/ΔS/ΔV adjustments (additive offsets) to an input HSV color.
+ * Hue wraps around [0, 360); saturation and value are clamped to [0, 1].
+ */
+export function applyHsvAdjust(input: HsvColor, dh: number, ds: number, dv: number): HsvColor {
+  return {
+    h: (((input.h + dh) % 360) + 360) % 360,
+    s: Math.min(1, Math.max(0, input.s + ds)),
+    v: Math.min(1, Math.max(0, input.v + dv)),
+  };
+}
+
 /** Circular chroma C2 = Euclidean distance from the neutral axis. */
 export function circleChroma(world: Point3D): number {
   return Math.hypot(world.x, world.y);

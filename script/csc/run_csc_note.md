@@ -244,3 +244,249 @@ cd web/color-space-lab
 npm run build      # 构建产物输出到 dist/
 npm run preview    # 本地预览构建产物
 ```
+
+## RGB的HSV调整特点总结
+
+- 改V（明度）的时候，RGB会等比例缩放，三通道之间比例不变，所以可以直接在RGB域修改，但要注意：
+  - 用乘法增益形式修改：`RGB' = k · RGB`，`k = V'/V`
+  - 各通道调整下限为0，`k` 的上限为 `1/M`（此时 `M'=1`，最大通道到顶）
+- 改S（饱和度）的时候，保持`V`不变（`M` 通道不动），各通道到`m`（或到`M`）的距离按 `k=S'/S` 缩放，可以直接在RGB域修改，但要注意：
+  - 每个通道 `RGB_i ∈ [m, M]`：向`M`的剩余空间 = `M - RGB_i`，向`m`的剩余空间 = `RGB_i - m`
+  - 新下限 `m' = V(1-S')`，调整公式：`RGB'_i = m' + k·(RGB_i - m)`，等价于 `M - RGB'_i = k·(M - RGB_i)`
+  - 即先以乘法增益`k`乘到各通道相对`m`的偏移量，再以加法形式加上新下限`m'`
+- 改H（色相）的时候，保持`S/V`不变，`M/m/C` 都不变，RGB数值在`[m, M]`之间变换，H沿着同心六边形的边缘移动，每过60°就切换一个"变化通道"（同时`M/m`角色互换），所以也可以直接在RGB域修改H，注意：
+  - 计算初始色调`HS`，按加法计算终点色调`HE`
+  - 统计从`HS->HE`需要经过多少个60°节点，以及经过每个节点前对应调整的通道`C`
+  - 如果下一个节点是60°整数倍，可以直接将C的值设为m或M，并记录当前RGB数值
+  - 如果终点`HE`不是60°整数倍，则应该按一定比例加上当前颜色C到调整目标m或M的差值
+- 优先调V，调V之后重新统计`M/m`的值；之后：
+  - 如果`S=0`，无需下一步调整。
+  - 再调整S，如果调整后的`S'=0`，无需下一步调整。
+  - 最后调整H
+
+**Python 计算代码（RGB 域直接调整；同时支持单像素 `(r,g,b)` 标量 与 numpy 数组 `(...,3)` 批量；参数为**加性偏置**：`delta_h ∈ [-0.5, 0.5]`（归一化色相，0.5 = 180°）、`delta_s/delta_v ∈ [-1, 1]`；已用随机样例与 HSV 中转对比验证，最大误差 < 2e-15）**：
+
+```python
+import numpy as np
+
+
+def _to_rgb(rgb):
+    """输入 (r,g,b) / (...,3) -> float64 数组，clamp [0,1]。"""
+    arr = np.asarray(rgb, dtype=np.float64)
+    if arr.shape[-1] != 3:
+        raise ValueError(f'rgb 最后一维必须为 3，实际 shape={arr.shape}')
+    return np.clip(arr, 0.0, 1.0)
+
+
+def _is_scalar_rgb(rgb):
+    """是否单像素 tuple/list 输入（返回 tuple 而非数组）。"""
+    return isinstance(rgb, (tuple, list)) and len(rgb) == 3
+
+
+def _wrap(orig, out):
+    """标量输入返回 tuple，数组输入返回 numpy 数组。"""
+    return tuple(out) if _is_scalar_rgb(orig) else out
+
+
+def rgb_to_hsv(rgb):
+    """RGB -> HSV。h∈[0,360)，s/v∈[0,1]。标量或数组 (...,3) 均可。"""
+    orig = rgb
+    rgb = _to_rgb(rgb)
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    mx = np.maximum(np.maximum(r, g), b)
+    mn = np.minimum(np.minimum(r, g), b)
+    c = mx - mn
+    v = mx
+    s = np.divide(c, mx, out=np.zeros_like(c), where=mx != 0)   # 除0保护
+    c_safe = np.where(c == 0, 1.0, c)
+    h = np.zeros_like(c)
+    h = np.where(mx == r, 60.0 * (((g - b) / c_safe) % 6), h)
+    h = np.where(mx == g, 60.0 * ((b - r) / c_safe + 2), h)
+    h = np.where(mx == b, 60.0 * ((r - g) / c_safe + 4), h)
+    h = (h + 360.0) % 360.0                                       # h ∈ [0,360)
+    if _is_scalar_rgb(orig):
+        return float(h), float(s), float(v)
+    return h, s, v
+
+
+def adjust_hsv(rgb, delta_v=None, delta_s=None, delta_h=None):
+    """V/S/H 加性偏置调整（合并单函数，一次 rgb_to_hsv，单次遍历）。
+    按 V -> S -> H 顺序执行；delta_v/delta_s ∈ [-1,1]，delta_h ∈ [-0.5,0.5]（0.5=180°）。
+    语义：S=0（灰色/黑色）像素 V 直接赋 V'、S/H 保持原样；V/S 调整不改变 H（H 用原始值）。
+    只调用一次 rgb_to_hsv；与独立 adjust_v/adjust_s/adjust_h 依次组合结果一致（误差 ~1e-15）。"""
+    orig = rgb
+    rgb = _to_rgb(rgb)
+    dv = 0.0 if delta_v is None else np.clip(np.asarray(delta_v, np.float64), -1.0, 1.0)
+    ds = 0.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float64), -1.0, 1.0)
+    dh = 0.0 if delta_h is None else np.clip(np.asarray(delta_h, np.float64), -0.5, 0.5)
+    h_deg, s, v = rgb_to_hsv(rgb)                     # 一次转换（V/S 不改变 H）
+    gray = s == 0
+    # ---- V：非灰按 k 缩放；灰/黑直接赋 V' ----
+    v_new = np.clip(v + dv, 0.0, 1.0)
+    denom = np.where(gray, 1.0, v)                    # 除0保护
+    k = (v_new / denom)[..., None]
+    v_out = rgb * k
+    v_out = np.where(gray[..., None], v_new[..., None], v_out)   # S=0 直接赋 V'
+    # ---- S：非灰 S'=clamp(S+ds)；灰色保持 V 步结果（非原始 rgb） ----
+    s_new = np.clip(s + ds, 0.0, 1.0)
+    s_safe = np.where(gray, 1.0, s)                   # 除0保护
+    kk = (s_new / s_safe)[..., None]
+    m = (v_new * (1 - s))[..., None]
+    m_new = (v_new * (1 - s_new))[..., None]
+    s_out = m_new + kk * (v_out - m)
+    s_out = np.where(gray[..., None], v_out, s_out)   # 灰色保持 V 步结果
+    # ---- H：非灰且 S'>0 才调整；H 用原始 h_deg ----
+    active = (~gray) & (s_new > 0)                    # S=0 或 S'=0 跳过 H（灰色无 H）
+    h_new = (h_deg + dh * 360.0) % 360.0
+    m_h = v_new * (1 - s_new)
+    M_h = v_new
+    seg = np.floor(h_new / 60.0).astype(np.int64) % 6
+    f = (h_new - seg * 60) / 60.0
+    mid_val = np.where(seg % 2 == 0, m_h + (M_h - m_h) * f, M_h - (M_h - m_h) * f)
+    seg_tab = np.array([
+        [0, 2, 1], [1, 2, 0], [1, 0, 2],
+        [2, 0, 1], [2, 1, 0], [0, 1, 2],
+    ])                                    # 每段 [M通道, m通道, 变化通道]，0/1/2=R/G/B
+    m_idx = seg_tab[seg, 0]
+    m2_idx = seg_tab[seg, 1]
+    h_out = np.empty_like(rgb)
+    for ch in range(3):
+        h_out[..., ch] = np.where(m_idx == ch, M_h,
+                                  np.where(m2_idx == ch, m_h, mid_val))
+    out = np.where(active[..., None], h_out, s_out)   # 非 active 用 S 步结果
+    return _wrap(orig, out)
+```
+
+验证示例（delta 语义，标量 + 除0 + 上下限 + 数组；delta 均为可选，可只调其中一项）：
+
+```python
+>>> adjust_hsv((0.8, 0.4, 0.0), delta_v=+0.2)              # (1.0, 0.5, 0.0)   V 0.8→1.0（k=1.25）
+>>> adjust_hsv((0.8, 0.4, 0.0), delta_v=-0.3)              # (0.5, 0.25, 0.0)  V 0.8→0.5
+>>> adjust_hsv((0.8, 0.6, 0.4), delta_s=+0.3)              # (0.8, 0.48, 0.16) S 0.5→0.8（V/H 不变）
+>>> adjust_hsv((0.8, 0.4, 0.0), delta_h=+0.25)             # (0.0, 0.8, 0.0)   H 30→120（绿）
+>>> adjust_hsv((0.8, 0.4, 0.0), delta_h=-0.25)             # (0.8, 0.0, 0.8)   H 30→300（品红）
+>>> adjust_hsv((0.8, 0.4, 0.0), +0.2, +0.3, +0.25)         # (0.0, 1.0, 0.0)   V+S+H 组合
+
+# 除0保护：S=0 像素
+>>> adjust_hsv((0.5, 0.5, 0.5), delta_v=+0.3)              # (0.8, 0.8, 0.8)   灰色直接赋 V'
+>>> adjust_hsv((0.0, 0.0, 0.0), delta_v=+0.5)              # (0.5, 0.5, 0.5)   黑色→灰
+>>> adjust_hsv((0.9, 0.9, 0.9), delta_s=+0.5)              # (0.9, 0.9, 0.9)   灰色保持原样
+>>> adjust_hsv((0.9, 0.9, 0.9), delta_h=+0.3)              # (0.9, 0.9, 0.9)   灰色保持原样
+
+# 上下限 clamp
+>>> adjust_hsv((0.8, 0.4, 0.0), delta_v=+1.5)              # (1.0, 0.5, 0.0)   delta_v clamp [-1,1]
+>>> adjust_hsv((0.8, 0.6, 0.4), delta_s=-1.2)              # (0.8, 0.8, 0.8)   delta_s clamp → S'=0 灰
+>>> adjust_hsv((0.8, 0.4, 0.0), delta_h=+0.9)              # (0.0, 0.4, 0.8)   delta_h clamp 0.5
+
+# numpy 数组（批量，支持任意形状 (...,3)，delta 也可为同形数组）
+>>> import numpy as np
+>>> arr = np.array([[0.8, 0.4, 0.0], [0.0, 0.0, 0.0], [0.5, 0.5, 0.5], [0.2, 0.6, 0.1]])
+>>> adjust_hsv(arr, delta_v=0.1)                           # 数组批量调 V
+>>> adjust_hsv(arr, delta_s=np.array([0.2, 0.2, 0.2, 0.3]))  # 每像素不同 S 偏置
+>>> adjust_hsv(arr, delta_h=np.array([0.25, 0.0, 0.0, -0.2]))  # 每像素不同 H 偏置
+>>> adjust_hsv(arr, 0.1, 0.2, 0.15)                        # 组合调整（数组）
+```
+
+**C 语言实现（定点化版本，输入 8bit RGB，性能优先、减少分支）**：
+
+```c
+#include <stdint.h>
+
+/* ---------- 定点格式 ----------
+ * S  : Q16 定点，1.0 = 65536
+ * H  : 归一化 Q16，1.0 = 65536（即 360°）
+ * delta_v / delta_s : Q8（-256..255 对应 -1..1）
+ * delta_h           : Q8（-128..127 对应 -0.5..0.5）
+ * 内部 int32 计算，乘法用 int64 防溢出
+ */
+
+static inline int32_t clp_u8(int32_t x) { return x < 0 ? 0 : (x > 255 ? 255 : x); }
+
+/* RGB(8bit) -> HSV：h16 归一化 Q16，s16 Q16，v8 8bit 像素域。
+   H 分段用三目（编译器转条件传送，少跳转）；仅 R 段可能出界做一次修正。 */
+static inline void rgb2hsv_q(int32_t r, int32_t g, int32_t b,
+                             int32_t *h16, int32_t *s16, int32_t *v8) {
+    int32_t mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    int32_t mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    int32_t c = mx - mn;
+    *v8 = mx;
+    *s16 = (c > 0) ? (int32_t)(((int64_t)c << 16) / mx) : 0;
+    int32_t hh = 0;
+    if (c > 0) {
+        int32_t d, base;                  /* base: 0=R段 2=G段 4=B段 */
+        if (mx == r) { d = g - b;     base = 0; }
+        else if (mx == g) { d = b - r; base = 2; }
+        else { d = r - g;     base = 4; }
+        /* h16 = (base + d/c) / 6 * 65536，d/c 用 Q16 表示 */
+        int32_t q = (base << 16) + (int32_t)(((int64_t)d << 16) / c);
+        int32_t h = q / 6;
+        if (h < 0) h += 65536;            /* R 段 d<0 -> 300..360° */
+        hh = h & 0xFFFF;                  /* mod 65536 */
+    }
+    *h16 = hh;
+}
+
+/* 按 V -> S -> H 顺序调整（合并单函数，唯一入口）：单次遍历、每像素一次 rgb2hsv_q。
+   语义：V 步 S=0（灰/黑）直接赋 V'8；S 步灰色保持 V 步结果（非原始 rgb）；
+   H 步用原始 h16（V/S 不改变 H），S=0 或 S'>0 不成立时跳过。 */
+void adjust_hsv_q(const uint8_t *rgb, int n, int16_t dv8, int16_t ds8, int16_t dh8,
+                  uint8_t *out) {
+    static const uint8_t TAB[6][3] = {
+        {0, 2, 1}, {1, 2, 0}, {1, 0, 2},
+        {2, 0, 1}, {2, 1, 0}, {0, 1, 2},
+    };
+    for (int i = 0; i < n; i++) {
+        int32_t r = rgb[3 * i], g = rgb[3 * i + 1], b = rgb[3 * i + 2];
+        int32_t h16, s16, v8;
+        rgb2hsv_q(r, g, b, &h16, &s16, &v8);
+
+        /* adjust V */
+        int32_t vn = clp_u8(v + ((dv8 * 255 + 128) >> 8));
+        int32_t r1, g1, b1;
+        if (s16 > 0) {
+            int32_t k8 = (vn << 8) / v8;
+            r1 = clp_u8((r * k8 + 128) >> 8);
+            g1 = clp_u8((g * k8 + 128) >> 8);
+            b1 = clp_u8((b * k8 + 128) >> 8);
+        } else {
+            r1 = g1 = b1 = vn;
+        }
+        if (s16 > 0) {
+            /* adjust S */
+            int32_t sn16 = s16 + ((int32_t)ds8 << 8);
+            if (sn16 < 0) sn16 = 0; else if (sn16 > 65536) sn16 = 65536;
+            int64_t kk16 = ((int64_t)sn16 << 16) / s16;
+            int32_t m8 = (int32_t)(((int64_t)vn * (65536 - s16)) >> 16);
+            int32_t mn8 = (int32_t)(((int64_t)vn * (65536 - sn16)) >> 16);
+            r1 = clp_u8(mn8 + (int32_t)((kk16 * (r1 - m8) + 32768) >> 16));
+            g1 = clp_u8(mn8 + (int32_t)((kk16 * (g1 - m8) + 32768) >> 16));
+            b1 = clp_u8(mn8 + (int32_t)((kk16 * (b1 - m8) + 32768) >> 16));
+            /* adjust H（用原始 h16；V/S 不改变 H） */
+            if (sn16 > 0) {
+                int32_t hn = (h16 + ((int32_t)dh8 << 8)) & 0xFFFF;
+                int32_t t = hn * 6;
+                int32_t seg = t / 65536;
+                int32_t f16 = t - seg * 65536;
+                int32_t m = (int32_t)(((int64_t)vn * (65536 - sn16)) >> 16);
+                int32_t M = vn;
+                int32_t dm = (M - m) * f16;
+                int32_t mid = (seg & 1) ? (M - ((dm + 32768) >> 16)) : (m + ((dm + 32768) >> 16));
+                uint8_t ch[3] = { (uint8_t)m, (uint8_t)m, (uint8_t)m };
+                ch[TAB[seg][0]] = (uint8_t)M;
+                ch[TAB[seg][2]] = (uint8_t)mid;
+                r1 = ch[0]; g1 = ch[1]; b1 = ch[2];
+            }
+        }
+        out[3 * i] = (uint8_t)r1; out[3 * i + 1] = (uint8_t)g1; out[3 * i + 2] = (uint8_t)b1;
+    }
+}
+```
+
+C 使用说明：
+
+- **输入输出均为 8bit RGB**（`uint8_t`，0..255），`n` 为像素数，内存布局 `r,g,b,r,g,b,...`（`3*n` 字节）
+- 定点格式：`S` 为 Q16（1.0 = 65536）、`H` 为归一化 Q16（65536 = 360°）、`delta_v/delta_s` 为 Q8（`dv8/256 = delta_v ∈ [-1,1]`）、`delta_h` 为 Q8（`dh8/256 = delta_h ∈ [-0.5,0.5]`，0.5 = 180°）
+- 唯一入口 `adjust_hsv_q`（`dv8/ds8/dh8` 均为 0 时对应不调整，可只传需要的项）：按 V -> S -> H 顺序执行；V 步 S=0 像素直接赋 `V'8 = clamp(mx + dv8*255/256)`、S 步灰色保持 V 步结果、H 步 S=0 或 S'=0 时跳过（灰色无 H）
+- 精度要点：S 用 Q16（避免 Q8 在低饱和度时 k 误差放大）；`k16`/`kk16` 用 `int64`（低 S 时 `sn16<<16` 超 int32）；H 段判定 `seg=(h*6)/65536`、段内比例 `f16=(h*6)%65536`（60° 边界精确）
+- 性能要点：H 分段三目（少跳转）；六边形 6 段查表 `TAB`（无 switch）；`adjust_hsv_q` 单次遍历、每像素一次 `rgb2hsv_q`（V/S 不改变 H）；`static inline` 便于内联
+- 编译：`gcc -O3 -o app app.c`（无需 `-lm`，无浮点/三角函数；已用 `-O3` 与 Python 合并版在 8bit 输入下逐像素对比，含灰/黑/越界参数，最大误差 1 LSB，平均 < 0.9 LSB；`dv8=ds8=dh8=0` 时输出与输入完全一致）

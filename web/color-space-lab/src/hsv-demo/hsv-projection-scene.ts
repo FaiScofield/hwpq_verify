@@ -2,10 +2,11 @@
  * HSV projection teaching — main 3D scene.
  *
  * Shows the tilted RGB cube, the V = v sub-cube (outer surface highlighted),
- * the three cutting planes, the horizontal chromaticity plane at z = 0 with a
- * hexagon/circle projection panel, the projection line, the 3D color marker
- * (labelled with RGB) and its 2D projected point (labelled with HSV), plus the
- * equal-S hexagon ring and the circle ring for trajectory comparison.
+ * the horizontal chromaticity plane at z = 0 with an always-visible
+ * hexagon/circle projection panel, the projection line, the input point marker
+ * (grey, labelled In RGB) and its 2D projected point (labelled In HSV), plus
+ * the adjusted output marker (carrying the output colour, labelled Out RGB /
+ * Out HSV), and the equal-S trajectory (3D ring + dashed plane hexagon).
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -16,6 +17,7 @@ import type { Point3D } from '../state/types';
 import type { TeachState, TeachStateStore } from './teach-state';
 import {
   SQRT3,
+  applyHsvAdjust,
   hexRing3D,
   hexVertices,
   hsvToPlane,
@@ -69,9 +71,12 @@ export class HsvProjectionScene {
   private readonly marker2D: THREE.Mesh;
   private readonly label3D: CSS2DObject;
   private readonly label2D: CSS2DObject;
+  private readonly inputMarker3D: THREE.Mesh;
+  private readonly inputMarker2D: THREE.Mesh;
+  private readonly inputLabel3D: CSS2DObject;
+  private readonly inputLabel2D: CSS2DObject;
   private readonly projectionLine: THREE.Line;
   private readonly subCubeGroup: THREE.Group;
-  private readonly cutPlanesGroup: THREE.Group;
   private readonly hexRing: THREE.LineLoop;
   private readonly hexFill: THREE.Mesh;
   private readonly circleFill: THREE.Mesh;
@@ -222,26 +227,6 @@ export class HsvProjectionScene {
     );
     this.subCubeGroup.visible = false;
 
-    // ---- Cutting planes (r=v / g=v / b=v), tinted per axis ---------------
-    this.cutPlanesGroup = new THREE.Group();
-    const planeColors = [0xf87171, 0x4ade80, 0x60a5fa]; // R / G / B
-    const planeAxes: Array<'r' | 'g' | 'b'> = ['r', 'g', 'b'];
-    planeAxes.forEach((axis, i) => {
-      this.cutPlanesGroup.add(
-        new THREE.Mesh(
-          cutPlaneGeometry(axis),
-          new THREE.MeshBasicMaterial({
-            color: planeColors[i],
-            transparent: true,
-            opacity: 0.16,
-            side: THREE.DoubleSide,
-            depthWrite: false,
-          }),
-        ),
-      );
-    });
-    this.cutPlanesGroup.visible = false;
-
     // ---- Projection line (dashed) ---------------------------------------
     this.projectionLine = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
@@ -270,6 +255,22 @@ export class HsvProjectionScene {
     this.marker2D.add(this.label2D);
     this.label3D.position.set(0.12, 0.12, 0.08);
     this.label2D.position.set(0.12, 0.12, 0);
+
+    // Input point markers (grey), distinguished from the coloured output markers.
+    this.inputMarker3D = new THREE.Mesh(
+      new THREE.SphereGeometry(0.05, 24, 24),
+      new THREE.MeshBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.9 }),
+    );
+    this.inputMarker2D = new THREE.Mesh(
+      new THREE.SphereGeometry(0.04, 24, 24),
+      new THREE.MeshBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.9 }),
+    );
+    this.inputLabel3D = createLabel('', 'teach-label teach-label-3d teach-label-in');
+    this.inputLabel2D = createLabel('', 'teach-label teach-label-2d teach-label-in');
+    this.inputMarker3D.add(this.inputLabel3D);
+    this.inputMarker2D.add(this.inputLabel2D);
+    this.inputLabel3D.position.set(0.1, 0.1, 0.06);
+    this.inputLabel2D.position.set(0.1, 0.1, 0);
 
     // ---- Equal-S hexagon ring -------------------------------------------
     this.hexRing = makeLineLoop(
@@ -300,8 +301,8 @@ export class HsvProjectionScene {
       this.rgbAxesGroup,
       this.axisVMarker,
       this.subCubeGroup,
-      this.cutPlanesGroup,
       this.marker3D,
+      this.inputMarker3D,
       this.hexRing,
     );
 
@@ -317,6 +318,7 @@ export class HsvProjectionScene {
       ...this.overflowMeshes,
       this.projectionLine,
       this.marker2D,
+      this.inputMarker2D,
     );
 
     // ---- Animation loop ---------------------------------------------------
@@ -353,57 +355,68 @@ export class HsvProjectionScene {
 
   /** Apply the latest teaching state to the scene. */
   private apply(state: TeachState): void {
-    const hsv = { h: state.h, s: state.s, v: state.v };
-    const rgb = hsvToRgb(hsv);
-    const world = hsvToWorld(hsv);
-    const plane = hsvToPlane(hsv);
+    // Input point (fixed, user-specified) and output point (input + ΔH/ΔS/ΔV).
+    const inHsv = state.inputHsv;
+    const inRgb = state.inputRgb;
+    const outHsv = applyHsvAdjust(inHsv, state.dh, state.ds, state.dv);
+    const outRgb = hsvToRgb(outHsv);
+    const inWorld = hsvToWorld(inHsv);
+    const inPlane = hsvToPlane(inHsv);
+    const outWorld = hsvToWorld(outHsv);
+    const outPlane = hsvToPlane(outHsv);
 
-    // Markers (both 3D and 2D points carry the current color).
-    this.marker3D.position.set(world.x, world.y, world.z);
-    (this.marker3D.material as THREE.MeshBasicMaterial).color.setRGB(rgb.r, rgb.g, rgb.b);
-    this.marker2D.position.set(plane.x, plane.y, 0);
-    (this.marker2D.material as THREE.MeshBasicMaterial).color.setRGB(rgb.r, rgb.g, rgb.b);
+    // Input markers (grey).
+    this.inputMarker3D.position.set(inWorld.x, inWorld.y, inWorld.z);
+    this.inputMarker2D.position.set(inPlane.x, inPlane.y, 0);
+    this.inputLabel3D.element.textContent =
+      `In RGB(${Math.round(inRgb.r * 255)},${Math.round(inRgb.g * 255)},${Math.round(inRgb.b * 255)})`;
+    this.inputLabel2D.element.textContent =
+      `In H:${Math.round(inHsv.h)}° S:${fmt(inHsv.s, 3)} V:${fmt(inHsv.v, 3)}`;
+
+    // Output markers (carry the output color).
+    this.marker3D.position.set(outWorld.x, outWorld.y, outWorld.z);
+    (this.marker3D.material as THREE.MeshBasicMaterial).color.setRGB(outRgb.r, outRgb.g, outRgb.b);
+    this.marker2D.position.set(outPlane.x, outPlane.y, 0);
+    (this.marker2D.material as THREE.MeshBasicMaterial).color.setRGB(outRgb.r, outRgb.g, outRgb.b);
 
     // Labels: 3D point shows RGB, 2D point shows HSV.
-    const r255 = Math.round(rgb.r * 255);
-    const g255 = Math.round(rgb.g * 255);
-    const b255 = Math.round(rgb.b * 255);
-    this.label3D.element.textContent = `RGB(${r255},${g255},${b255})`;
-    this.label2D.element.textContent = `H:${Math.round(hsv.h)}° S:${fmt(hsv.s, 3)} V:${fmt(hsv.v, 3)}`;
+    this.label3D.element.textContent =
+      `Out RGB(${Math.round(outRgb.r * 255)},${Math.round(outRgb.g * 255)},${Math.round(outRgb.b * 255)})`;
+    this.label2D.element.textContent =
+      `Out H:${Math.round(outHsv.h)}° S:${fmt(outHsv.s, 3)} V:${fmt(outHsv.v, 3)}`;
 
-    // Projection line (depends on the 3D marker position).
+    // Projection line (depends on the output 3D marker position).
     const linePos = this.projectionLine.geometry.getAttribute('position') as THREE.BufferAttribute;
-    linePos.setXYZ(0, world.x, world.y, world.z + CUBE_Z_OFFSET);
-    linePos.setXYZ(1, world.x, world.y, 0);
+    linePos.setXYZ(0, outWorld.x, outWorld.y, outWorld.z + CUBE_Z_OFFSET);
+    linePos.setXYZ(1, outWorld.x, outWorld.y, 0);
     linePos.needsUpdate = true;
     this.projectionLine.computeLineDistances();
 
     // ---- S/V dependent updates (skipped when only hue changes) ----------
-    if (state.s !== this.lastS || state.v !== this.lastV) {
+    if (outHsv.s !== this.lastS || outHsv.v !== this.lastV) {
       // V value marker on the neutral axis (gray point (v,v,v) -> z = √3·v).
-      this.axisVMarker.position.set(0, 0, SQRT3 * state.v);
-      this.axisVLabel.element.textContent = `V=${fmt(state.v, 2)}`;
+      this.axisVMarker.position.set(0, 0, SQRT3 * outHsv.v);
+      this.axisVLabel.element.textContent = `V=${fmt(outHsv.v, 2)}`;
 
-      // Sub-cube & cutting planes scale with v.
-      this.subCubeGroup.scale.setScalar(state.v);
-      this.cutPlanesGroup.scale.setScalar(state.v);
+      // Sub-cube scales with the output v.
+      this.subCubeGroup.scale.setScalar(outHsv.v);
 
-      // Equal-S ring + dashed cube-projection hexagon on the plane. The dashed
-      // hexagon follows the equal-S ring radius (s·v), so it shrinks/grows with S.
-      setLinePoints(this.hexRing, hexRing3D(state.s, state.v).map(toVec3));
-      setLinePoints(this.cubeHexRing, dashedHexagonPoints(state.s * state.v));
+      // Equal-S trajectory: the 3D ring plus the dashed cube-projection
+      // hexagon on the plane, both following the output point's (s·v).
+      setLinePoints(this.hexRing, hexRing3D(outHsv.s, outHsv.v).map(toVec3));
+      setLinePoints(this.cubeHexRing, dashedHexagonPoints(outHsv.s * outHsv.v));
 
-      this.lastS = state.s;
-      this.lastV = state.v;
+      this.lastS = outHsv.s;
+      this.lastV = outHsv.v;
     }
 
-    // Hexagon panel shows the full hue wheel; brightness follows the current v.
-    if (state.v !== this.lastPaintedV) {
-      paintHexTexture(this.hexTexture, state.v);
-      this.lastPaintedV = state.v;
+    // Hexagon panel shows the full hue wheel; brightness follows the output v.
+    if (outHsv.v !== this.lastPaintedV) {
+      paintHexTexture(this.hexTexture, outHsv.v);
+      this.lastPaintedV = outHsv.v;
     }
 
-    // Visibility.
+    // Visibility.  The projection panel (hexagon/circle) is always shown.
     this.cubeWire.visible = state.showCube;
     this.axisLine.visible = state.showAxes;
     this.rgbAxesGroup.visible = state.showAxes;
@@ -411,21 +424,24 @@ export class HsvProjectionScene {
     this.axisVMarker.visible = state.showAxes;
     this.axisVLabel.visible = state.showAxes && state.showLabels;
     this.subCubeGroup.visible = state.showSubCube;
-    this.cutPlanesGroup.visible = state.showCutPlanes;
     this.projectionLine.visible = state.showProjectionLine;
     this.hexRing.visible = state.showHexRing;
-    this.cubeHexRing.visible = state.showCubeHex;
-    this.hexOutline.visible = state.showProjectionPlane;
-    this.circleOutline.visible = state.showProjectionPlane;
-    this.hexFill.visible = state.showProjectionPlane && state.projection === 'hex';
-    this.circleFill.visible = state.showProjectionPlane && state.projection === 'circle';
+    this.cubeHexRing.visible = state.showHexRing;
+    this.hexOutline.visible = true;
+    this.circleOutline.visible = true;
+    this.hexFill.visible = state.projection === 'hex';
+    this.circleFill.visible = state.projection === 'circle';
     this.overflowMeshes.forEach((m) => {
-      m.visible = state.showOverflow && state.projection === 'circle';
+      m.visible = state.projection === 'circle'; /* 越界区域（圆超出六边形）在圆形模式默认显示 */
     });
     this.marker3D.visible = true;
-    this.marker2D.visible = state.showProjectionPlane || state.showProjectionLine;
+    this.marker2D.visible = true;
+    this.inputMarker3D.visible = true;
+    this.inputMarker2D.visible = true;
     this.label3D.visible = state.showLabels;
-    this.label2D.visible = state.showLabels && this.marker2D.visible;
+    this.label2D.visible = state.showLabels;
+    this.inputLabel3D.visible = state.showLabels;
+    this.inputLabel2D.visible = state.showLabels;
   }
 }
 
@@ -583,7 +599,7 @@ function createAxisVMarker(): { marker: THREE.Mesh; label: CSS2DObject } {
     new THREE.MeshBasicMaterial({ color: 0x0f172a }),
   );
   const label = createLabel('V=0.00', 'teach-label teach-label-v');
-  label.position.set(0.12, 0.12, 0);
+  label.position.set(0.04, 0.04, 0);
   marker.add(label);
   return { marker, label };
 }
@@ -709,35 +725,6 @@ function outerSurfaceGeometry(): THREE.BufferGeometry {
     0, 0, 1, 1, 0, 1, 0, 1, 1,
     1, 0, 1, 1, 1, 1, 0, 1, 1,
   ];
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-  geo.applyMatrix4(CUBE_MATRIX);
-  return geo;
-}
-
-/**
- * Cutting plane at r=1 / g=1 / b=1 (unit version, spans 0..1.5 on the other
- * two axes), transformed to world coordinates; the group is scaled by v.
- */
-function cutPlaneGeometry(axis: 'r' | 'g' | 'b'): THREE.BufferGeometry {
-  const h = 1.5;
-  let verts: number[];
-  if (axis === 'r') {
-    verts = [
-      1, 0, 0, 1, h, 0, 1, 0, h,
-      1, h, 0, 1, h, h, 1, 0, h,
-    ];
-  } else if (axis === 'g') {
-    verts = [
-      0, 1, 0, h, 1, 0, 0, 1, h,
-      h, 1, 0, h, 1, h, 0, 1, h,
-    ];
-  } else {
-    verts = [
-      0, 0, 1, h, 0, 1, 0, h, 1,
-      h, 0, 1, h, h, 1, 0, h, 1,
-    ];
-  }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
   geo.applyMatrix4(CUBE_MATRIX);

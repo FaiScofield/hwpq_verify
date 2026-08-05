@@ -1,12 +1,14 @@
 /**
- * Teaching control panel (Chinese UI): H/S/V sliders, projection shape
- * selection, display toggles, a live RGB<->HSV formula block and a short
- * teaching note that updates with the current state.
+ * Teaching control panel (Chinese UI): initial color point inputs (RGB or HSV),
+ * ΔH/ΔS/ΔV adjustment sliders that act on the input point, projection shape
+ * selection, display toggles, an input/output value block, a live RGB<->HSV
+ * formula block and a short teaching note that updates with the current state.
  */
-import { hsvToRgb } from '../core/color-convert/rgb-hsv';
+import { hsvToRgb, rgbToHsv } from '../core/color-convert/rgb-hsv';
+import type { HsvColor, RgbColor } from '../state/types';
 import type { HsvProjectionScene } from './hsv-projection-scene';
-import { circleChroma, hexChroma, rgbToWorld } from './teach-math';
-import type { ProjectionMode, TeachStateStore } from './teach-state';
+import { applyHsvAdjust, circleChroma, hexChroma, rgbToWorld } from './teach-math';
+import type { ProjectionMode, TeachState, TeachStateStore } from './teach-state';
 
 const fmt = (n: number, digits = 3): string => n.toFixed(digits);
 
@@ -15,6 +17,8 @@ interface SliderRow {
   number: HTMLInputElement;
 }
 
+const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+
 export function createTeachPanel(store: TeachStateStore, scene: HsvProjectionScene): HTMLElement {
   const section = document.createElement('section');
   section.className = 'panel teach-panel';
@@ -22,10 +26,20 @@ export function createTeachPanel(store: TeachStateStore, scene: HsvProjectionSce
     <h2>投影教学控制</h2>
 
     <div class="stack">
-      <h3>颜色参数</h3>
-      ${valueRow('色相 H', 'h', 0, 360, 1)}
-      ${valueRow('饱和度 S', 's', 0, 100, 1)}
-      ${valueRow('明度 V', 'v', 0, 100, 1)}
+      <h3>初始颜色点（输入）</h3>
+      ${valueRow('R', 'r', 0, 255, 1)}
+      ${valueRow('G', 'g', 0, 255, 1)}
+      ${valueRow('B', 'b', 0, 255, 1)}
+      ${valueRow('H', 'h', 0, 360, 1)}
+      ${valueRow('S', 's', 0, 100, 1)}
+      ${valueRow('V', 'v', 0, 100, 1)}
+    </div>
+
+    <div class="stack">
+      <h3>调整参数（Δ 作用于输入点）</h3>
+      ${valueRow('ΔH 色相', 'dh', -180, 180, 1)}
+      ${valueRow('ΔS 饱和度', 'ds', -100, 100, 1)}
+      ${valueRow('ΔV 明度', 'dv', -100, 100, 1)}
     </div>
 
     <div class="stack">
@@ -45,14 +59,15 @@ export function createTeachPanel(store: TeachStateStore, scene: HsvProjectionSce
       ${toggleRow('showCube', '倾斜 RGB 立方体')}
       ${toggleRow('showSubCube', '小立方体 [0,v]³ + 外表面')}
       ${toggleRow('showAxes', 'RGB 轴 + 中性轴')}
-      ${toggleRow('showProjectionPlane', '投影面板（六边形/圆）')}
-      ${toggleRow('showCutPlanes', '切割面 r/v、g/v、b/v')}
       ${toggleRow('showProjectionLine', '投影线（3D → 平面）')}
-      ${toggleRow('showHexRing', '等 S 六边形环轨迹')}
-      ${toggleRow('showCubeHex', '小立方体对应正六边形（虚线）')}
-      ${toggleRow('showOverflow', '圆超出六边形的越界区域')}
+      ${toggleRow('showHexRing', '等S轨迹线')}
       ${toggleRow('showLabels', '数值标签（RGB / HSV）')}
       <button data-role="top-view" type="button">沿中性轴俯视</button>
+    </div>
+
+    <div class="stack">
+      <h3>输入 / 输出</h3>
+      <pre class="formula-box" data-role="io"></pre>
     </div>
 
     <div class="stack">
@@ -65,49 +80,97 @@ export function createTeachPanel(store: TeachStateStore, scene: HsvProjectionSce
       <ol class="note-list" data-role="note">
         <li>V=v：r=v / g=v / b=v 三个截面包围边长为 v 的小立方体，其外表面即 V=v。</li>
         <li>小立方体沿中性轴投影到水平面 = 正六边形；六边形上每点都对应外表面上一点。</li>
-        <li>调 H：点沿 V=v 表面的等 S 环移动（六边形轨迹；圆形模式为圆环，圆会超出六边形）。</li>
-        <li>调 S：点沿 V=v 表面向中性轴点 (v,v,v) 径向移动，V 不变。</li>
+        <li>调 ΔH：输出点沿 V=v 表面的等 S 环移动（六边形轨迹；圆形模式为圆环，圆会超出六边形）。</li>
+        <li>调 ΔS：输出点沿 V=v 表面向中性轴点 (v,v,v) 径向移动，V 不变。</li>
       </ol>
       <p class="note-dynamic" data-role="note-dynamic"></p>
     </div>
   `;
 
-  // ---- Wire up sliders -----------------------------------------------------
+  // ---- Input rows ----------------------------------------------------------
   const rows: Record<string, SliderRow> = {};
-  ['h', 's', 'v'].forEach((key) => {
+  ['r', 'g', 'b', 'h', 's', 'v', 'dh', 'ds', 'dv'].forEach((key) => {
     const slider = section.querySelector<HTMLInputElement>(`input[data-key="${key}"][data-kind="slider"]`);
     const number = section.querySelector<HTMLInputElement>(`input[data-key="${key}"][data-kind="number"]`);
     if (!slider || !number) {
       throw new Error(`Missing slider for ${key}`);
     }
     rows[key] = { slider, number };
+  });
 
-    const onInput = (): void => {
-      const v = Number(slider.value);
-      syncPair(rows[key], v);
-      if (key === 'h') {
-        store.set({ h: v });
-      } else if (key === 's') {
-        store.set({ s: v / 100 });
-      } else {
-        store.set({ v: v / 100 });
-      }
-    };
-    slider.addEventListener('input', onInput);
-    number.addEventListener('input', () => {
-      const v = Number(number.value);
+  // ---- Initial color point (input) -----------------------------------------
+  const readInputRgb = (): RgbColor => ({
+    r: clamp(Number(rows.r.number.value) || 0, 0, 255) / 255,
+    g: clamp(Number(rows.g.number.value) || 0, 0, 255) / 255,
+    b: clamp(Number(rows.b.number.value) || 0, 0, 255) / 255,
+  });
+  const readInputHsv = (): HsvColor => ({
+    h: clamp(Number(rows.h.number.value) || 0, 0, 360),
+    s: clamp(Number(rows.s.number.value) || 0, 0, 100) / 100,
+    v: clamp(Number(rows.v.number.value) || 0, 0, 100) / 100,
+  });
+
+  const commitInputRgb = (): void => {
+    const inputRgb = readInputRgb();
+    store.set({ inputRgb, inputHsv: rgbToHsv(inputRgb) });
+  };
+  const commitInputHsv = (): void => {
+    const inputHsv = readInputHsv();
+    store.set({ inputHsv, inputRgb: hsvToRgb(inputHsv) });
+  };
+
+  ['r', 'g', 'b'].forEach((key) => {
+    const row = rows[key];
+    const onInput = (e: Event): void => {
+      const src = e.target as HTMLInputElement;
+      const v = Number(src.value);
       if (Number.isNaN(v)) {
         return;
       }
-      syncPair(rows[key], v);
-      if (key === 'h') {
-        store.set({ h: v });
-      } else if (key === 's') {
-        store.set({ s: v / 100 });
-      } else {
-        store.set({ v: v / 100 });
+      syncPair(row, clamp(v, 0, 255));
+      commitInputRgb();
+    };
+    row.slider.addEventListener('input', onInput);
+    row.number.addEventListener('input', onInput);
+  });
+  ['h', 's', 'v'].forEach((key) => {
+    const row = rows[key];
+    const onInput = (e: Event): void => {
+      const src = e.target as HTMLInputElement;
+      const v = Number(src.value);
+      if (Number.isNaN(v)) {
+        return;
       }
+      const max = key === 'h' ? 360 : 100;
+      syncPair(row, clamp(v, 0, max));
+      commitInputHsv();
+    };
+    row.slider.addEventListener('input', onInput);
+    row.number.addEventListener('input', onInput);
+  });
+
+  // ---- Adjustment deltas (ΔH/ΔS/ΔV) ----------------------------------------
+  const commitDelta = (): void => {
+    store.set({
+      dh: clamp(Number(rows.dh.number.value) || 0, -180, 180),
+      ds: clamp(Number(rows.ds.number.value) || 0, -100, 100) / 100,
+      dv: clamp(Number(rows.dv.number.value) || 0, -100, 100) / 100,
     });
+  };
+  ['dh', 'ds', 'dv'].forEach((key) => {
+    const row = rows[key];
+    const onInput = (e: Event): void => {
+      const src = e.target as HTMLInputElement;
+      const v = Number(src.value);
+      if (Number.isNaN(v)) {
+        return;
+      }
+      const max = key === 'dh' ? 180 : 100;
+      syncPair(row, clamp(v, -max, max));
+      commitDelta();
+    };
+    row.slider.addEventListener('input', onInput);
+    row.number.addEventListener('input', onInput);
   });
 
   // ---- Projection shape -----------------------------------------------------
@@ -125,11 +188,11 @@ export function createTeachPanel(store: TeachStateStore, scene: HsvProjectionSce
   circleRadio.addEventListener('change', () => setProjection('circle'));
 
   // ---- Display toggles ------------------------------------------------------
-  const toggleKeys: Array<{ key: 'showCube' | 'showSubCube' | 'showAxes' | 'showProjectionPlane' | 'showCutPlanes' | 'showProjectionLine' | 'showHexRing' | 'showCubeHex' | 'showOverflow' | 'showLabels'; input: HTMLInputElement }> = [];
+  const toggleKeys: Array<{ key: 'showCube' | 'showSubCube' | 'showAxes' | 'showProjectionLine' | 'showHexRing' | 'showLabels'; input: HTMLInputElement }> = [];
   const toggleDefs = [
-    'showCube', 'showSubCube', 'showAxes', 'showProjectionPlane', 'showCutPlanes',
-    'showProjectionLine', 'showHexRing', 'showCubeHex',
-    'showOverflow', 'showLabels',
+    'showCube', 'showSubCube', 'showAxes',
+    'showProjectionLine', 'showHexRing',
+    'showLabels',
   ] as const;
   toggleDefs.forEach((key) => {
     const input = section.querySelector<HTMLInputElement>(`input[data-role="${key}"]`);
@@ -138,7 +201,7 @@ export function createTeachPanel(store: TeachStateStore, scene: HsvProjectionSce
     }
     toggleKeys.push({ key, input });
     input.addEventListener('change', () => {
-      store.set({ [key]: input.checked } as Partial<ReturnType<TeachStateStore['getState']>>);
+      store.set({ [key]: input.checked } as Partial<TeachState>);
     });
   });
 
@@ -149,26 +212,48 @@ export function createTeachPanel(store: TeachStateStore, scene: HsvProjectionSce
   }
   topView.addEventListener('click', () => scene.lookAlongAxis());
 
-  // ---- Formula + dynamic note --------------------------------------------------
+  // ---- Formula + IO + dynamic note --------------------------------------------
   const formulaEl = section.querySelector<HTMLPreElement>('[data-role="formula"]');
+  const ioEl = section.querySelector<HTMLPreElement>('[data-role="io"]');
   const noteDynamicEl = section.querySelector<HTMLElement>('[data-role="note-dynamic"]');
-  if (!formulaEl || !noteDynamicEl) {
-    throw new Error('Formula / note elements missing');
+  if (!formulaEl || !ioEl || !noteDynamicEl) {
+    throw new Error('Formula / IO / note elements missing');
   }
 
   store.subscribe((state) => {
-    // Sync sliders.
-    syncPair(rows.h, Math.round(state.h));
-    syncPair(rows.s, Math.round(state.s * 100));
-    syncPair(rows.v, Math.round(state.v * 100));
+    // Sync input point controls.
+    syncPair(rows.r, Math.round(state.inputRgb.r * 255));
+    syncPair(rows.g, Math.round(state.inputRgb.g * 255));
+    syncPair(rows.b, Math.round(state.inputRgb.b * 255));
+    syncPair(rows.h, Math.round(state.inputHsv.h));
+    syncPair(rows.s, Math.round(state.inputHsv.s * 100));
+    syncPair(rows.v, Math.round(state.inputHsv.v * 100));
+    // Sync adjustment deltas.
+    syncPair(rows.dh, Math.round(state.dh));
+    syncPair(rows.ds, Math.round(state.ds * 100));
+    syncPair(rows.dv, Math.round(state.dv * 100));
     hexRadio.checked = state.projection === 'hex';
     circleRadio.checked = state.projection === 'circle';
     toggleKeys.forEach(({ key, input }) => {
       input.checked = state[key];
     });
 
-    // Formula block.
-    const rgb = hsvToRgb({ h: state.h, s: state.s, v: state.v });
+    // Input / output values.
+    const inRgb = state.inputRgb;
+    const inHsv = state.inputHsv;
+    const outHsv = applyHsvAdjust(inHsv, state.dh, state.ds, state.dv);
+    const outRgb = hsvToRgb(outHsv);
+    const in255 = (c: RgbColor): string =>
+      `${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}`;
+    ioEl.textContent =
+      `输入 RGB = (${fmt(inRgb.r)}, ${fmt(inRgb.g)}, ${fmt(inRgb.b)})  [${in255(inRgb)}]\n` +
+      `输入 HSV = (${fmt(inHsv.h, 1)}°, ${fmt(inHsv.s)}, ${fmt(inHsv.v)})\n` +
+      `ΔH = ${fmt(state.dh, 1)}°  ΔS = ${fmt(state.ds, 3)}  ΔV = ${fmt(state.dv, 3)}\n\n` +
+      `输出 HSV = (${fmt(outHsv.h, 1)}°, ${fmt(outHsv.s)}, ${fmt(outHsv.v)})\n` +
+      `输出 RGB = (${fmt(outRgb.r)}, ${fmt(outRgb.g)}, ${fmt(outRgb.b)})  [${in255(outRgb)}]`;
+
+    // Formula block (based on the output point).
+    const rgb = outRgb;
     const world = rgbToWorld(rgb);
     const alpha = (2 * rgb.r - rgb.g - rgb.b) / 2;
     const beta = (Math.sqrt(3) / 2) * (rgb.g - rgb.b);
@@ -179,14 +264,14 @@ export function createTeachPanel(store: TeachStateStore, scene: HsvProjectionSce
     const b255 = Math.round(rgb.b * 255);
 
     formulaEl.textContent =
-      `RGB = (${fmt(rgb.r)}, ${fmt(rgb.g)}, ${fmt(rgb.b)})  [${r255}, ${g255}, ${b255}]\n` +
-      `HSV = (${fmt(state.h, 1)}°, ${fmt(state.s)}, ${fmt(state.v)})\n\n` +
+      `输出 RGB = (${fmt(rgb.r)}, ${fmt(rgb.g)}, ${fmt(rgb.b)})  [${r255}, ${g255}, ${b255}]\n` +
+      `输出 HSV = (${fmt(outHsv.h, 1)}°, ${fmt(outHsv.s)}, ${fmt(outHsv.v)})\n\n` +
       `RGB → HSV\n` +
-      `  M = max(R,G,B) = ${fmt(state.v)}\n` +
+      `  M = max(R,G,B) = ${fmt(outHsv.v)}\n` +
       `  m = min(R,G,B) = ${fmt(m)}\n` +
       `  C = M − m = ${fmt(c)}   （六边形色度）\n` +
-      `  S = C / M = ${fmt(c / state.v)}\n` +
-      `  H = 分段函数（60° 一步） = ${fmt(state.h, 1)}°\n\n` +
+      `  S = C / M = ${fmt(c / outHsv.v)}\n` +
+      `  H = 分段函数（60° 一步） = ${fmt(outHsv.h, 1)}°\n\n` +
       `RGB → 色度平面投影（α/β 坐标）\n` +
       `  α = (2R−G−B)/2 = ${fmt(alpha)}\n` +
       `  β = (√3/2)(G−B) = ${fmt(beta)}\n` +
@@ -196,10 +281,12 @@ export function createTeachPanel(store: TeachStateStore, scene: HsvProjectionSce
     // Dynamic note.
     const shapeText = state.projection === 'hex' ? '六边形环' : '圆环';
     noteDynamicEl.textContent =
-      `当前：V=${fmt(state.v)}（小立方体边长 ${fmt(state.v)}）；` +
-      `S=${fmt(state.s)}（等S${shapeText}，色度 C=${fmt(state.s * state.v)}）；` +
-      `H=${fmt(state.h, 1)}°。` +
-      `点位于 V=v 外表面，投影到六边形${state.projection === 'hex' ? '' : '/圆'}平面坐标为 ` +
+      `输入点：RGB(${in255(inRgb)}) → HSV(${fmt(inHsv.h, 1)}°, ${fmt(inHsv.s)}, ${fmt(inHsv.v)})。` +
+      `应用 ΔH=${fmt(state.dh, 1)}° ΔS=${fmt(state.ds, 3)} ΔV=${fmt(state.dv, 3)} 后：` +
+      `输出 V=${fmt(outHsv.v)}（小立方体边长 ${fmt(outHsv.v)}）；` +
+      `S=${fmt(outHsv.s)}（等S${shapeText}，色度 C=${fmt(outHsv.s * outHsv.v)}）；` +
+      `H=${fmt(outHsv.h, 1)}°。` +
+      `输出点位于 V=v 外表面，投影到六边形${state.projection === 'hex' ? '' : '/圆'}平面坐标为 ` +
       `(α,β)=(${fmt(alpha)}, ${fmt(beta)})。`;
   });
 

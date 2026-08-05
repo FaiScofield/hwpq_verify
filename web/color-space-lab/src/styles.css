@@ -190,6 +190,11 @@ pre {
   font-size: 10px;
 }
 
+.teach-label-in {
+  background: rgba(71, 85, 105, 0.92);
+  color: #fff;
+}
+
 /* ---- Teaching panel ---- */
 .teach-panel h3 {
   margin: 14px 0 6px;
