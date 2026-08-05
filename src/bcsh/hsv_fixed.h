@@ -4,7 +4,7 @@
  * 定标约定（H/S 独立位宽，见 hsv_precision_test：零误差最小组合 H+S>=21bit）：
  *   FIX_BITS_H = 11 : H 小数位宽，1 度 = 2^11 = 2048，有效范围 [0, 360*FIX_H_ONE)
  *   FIX_BITS_S = 10 : S 小数位宽，1.0 = 2^10 = 1024，有效范围 [0, FIX_S_ONE]
- *   V : 明度，[0, 255]                  （与 8bit RGB 同尺度，不缩放）
+ *   V : 明度，像素域 [0, maxv]        （u8 时 maxv=255，u10 时 maxv=1023，不缩放）
  *
  * 特点：
  *   - 无 float/double、无三角函数
@@ -12,6 +12,7 @@
  *   - 仅剩 3 处整数除法（可用倒数表消除）
  *   - hsv2rgb 重建 (V*S*t)>>(FIX_BITS_H+FIX_BITS_S) 用四舍五入 (+2^(bits-1))，
  *     u8 全遍历往返 0 误差
+ *   - rgb2hsv_fix / hsv2rgb_fix 为 u8(0..255) 接口；rgb2hsv_fix10 / hsv2rgb_fix10 为 u10(0..1023)
  */
 #ifndef HSV_FIXED_H
 #define HSV_FIXED_H
@@ -19,17 +20,17 @@
 #include "verify_com.h"
 #include <stdint.h>
 
-#define FIX_BITS_H 11                         /* H 小数位宽：1 度 = 2^11 = 2048 */
-#define FIX_BITS_S 10                         /* S 小数位宽：1.0 = 2^10 = 1024 */
-#define FIX_H_ONE  ((int32_t)1 << FIX_BITS_H) /* 2048 => 1 度 */
-#define FIX_S_ONE  ((int32_t)1 << FIX_BITS_S) /* 1024 => 1.0 */
-#define FIX_H_6    (6 * FIX_H_ONE)            /* U11 => U14 */
-#define FIX_H_360  (360 * FIX_H_ONE)          /* U11 => U20 */
+#define FIX_BITS_H 14                         /* H 小数位宽 */
+#define FIX_BITS_S 12                         /* S 小数位宽 */
+#define FIX_H_ONE  ((int32_t)1 << FIX_BITS_H) /* 1 度 */
+#define FIX_S_ONE  ((int32_t)1 << FIX_BITS_S) /* 1.0 */
+#define FIX_H_6    (6 * FIX_H_ONE)            /* +U3 */
+#define FIX_H_360  (360 * FIX_H_ONE)          /* +U9 */
 
 typedef struct {
     int32_t H; /* [0, 360*FIX_H_ONE)，灰度时为 0 */
     int32_t S; /* [0, FIX_S_ONE] */
-    int32_t V; /* [0, 255] */
+    int32_t V; /* [0, maxv]（u8=255 / u10=1023） */
 } hsv_fix_t;
 
 /* 有符号四舍五入除法：x / d，d > 0 */
@@ -54,11 +55,10 @@ static inline int32_t clamp01(int32_t k)
     return t;
 }
 
-/* ---------------- RGB(8bit) -> HSV ---------------- */
-static inline hsv_fix_t rgb2hsv_fix(uint8_t R, uint8_t G, uint8_t B)
+/* ---------------- RGB(maxv) -> HSV（通用核心） ---------------- */
+/* 通用：R/G/B ∈ [0, maxv]（8bit/10bit 均可），S/H 为比值/角度，与位深无关 */
+static inline hsv_fix_t rgb2hsv_fix_g(int32_t r, int32_t g, int32_t b)
 {
-    const int32_t r = R, g = G, b = B;
-
     int32_t M = MAX3(r, g, b);
     int32_t m = MIN3(r, g, b);
     int32_t C = M - m; /* chroma */
@@ -96,8 +96,15 @@ static inline hsv_fix_t rgb2hsv_fix(uint8_t R, uint8_t G, uint8_t B)
     return ret;
 }
 
-/* ---------------- HSV -> RGB(8bit) ---------------- */
-static inline void hsv2rgb_fix(int32_t H, int32_t S, int32_t V, uint8_t *R, uint8_t *G, uint8_t *B)
+/* RGB(8bit) -> HSV */
+static inline hsv_fix_t rgb2hsv_fix(uint8_t R, uint8_t G, uint8_t B) { return rgb2hsv_fix_g(R, G, B); }
+
+/* RGB(10bit) -> HSV */
+static inline hsv_fix_t rgb2hsv_fix10(int32_t R, int32_t G, int32_t B) { return rgb2hsv_fix_g(R, G, B); }
+
+/* ---------------- HSV -> RGB(maxv)（通用核心） ---------------- */
+/* 通用：输出 clamp [0, maxv]，V ∈ [0, maxv]（u8 maxv=255，u10 maxv=1023） */
+static inline void hsv2rgb_fix_g(int32_t H, int32_t S, int32_t V, int32_t maxv, int32_t *R, int32_t *G, int32_t *B)
 {
     /* f(n) = V - V*S*max(0, min(k, 4-k, 1))，k = (n + H/60°) mod 6，n = 5,3,1 */
     int32_t h6 = H / 60; /* H 为"度"的 Q(FIX_BITS_H)，H/60 单位不变 */
@@ -118,20 +125,36 @@ static inline void hsv2rgb_fix(int32_t H, int32_t S, int32_t V, uint8_t *R, uint
     int32_t t3 = clamp01(k3);
     int32_t t1 = clamp01(k1);
 
-    /* f = V - V*S*t / 2^bits（V∈[0,255] 原始尺度，S 为 Q(FIX_BITS_S)、t 为 Q(FIX_BITS_H)），
+    /* f = V - V*S*t / 2^bits（V∈[0,maxv] 原始尺度，S 为 Q(FIX_BITS_S)、t 为 Q(FIX_BITS_H)），
        重建四舍五入 (+2^(bits-1))，bits = FIX_BITS_H + FIX_BITS_S = 21 */
     int32_t r = V - (int32_t)(((int64_t)V * S * t5 + (1LL << (FIX_BITS_H + FIX_BITS_S - 1))) >> (FIX_BITS_H + FIX_BITS_S));
     int32_t g = V - (int32_t)(((int64_t)V * S * t3 + (1LL << (FIX_BITS_H + FIX_BITS_S - 1))) >> (FIX_BITS_H + FIX_BITS_S));
     int32_t b = V - (int32_t)(((int64_t)V * S * t1 + (1LL << (FIX_BITS_H + FIX_BITS_S - 1))) >> (FIX_BITS_H + FIX_BITS_S));
 
     /* 钳位（输入 H/S 越界或舍入误差时防溢出） */
-    r = CLIP(r, 0, 255);
-    g = CLIP(g, 0, 255);
-    b = CLIP(b, 0, 255);
+    r = CLIP(r, 0, maxv);
+    g = CLIP(g, 0, maxv);
+    b = CLIP(b, 0, maxv);
 
+    *R = r;
+    *G = g;
+    *B = b;
+}
+
+/* HSV -> RGB(8bit) */
+static inline void hsv2rgb_fix(int32_t H, int32_t S, int32_t V, uint8_t *R, uint8_t *G, uint8_t *B)
+{
+    int32_t r, g, b;
+    hsv2rgb_fix_g(H, S, V, 255, &r, &g, &b);
     *R = (uint8_t)r;
     *G = (uint8_t)g;
     *B = (uint8_t)b;
+}
+
+/* HSV -> RGB(10bit) */
+static inline void hsv2rgb_fix10(int32_t H, int32_t S, int32_t V, int32_t *R, int32_t *G, int32_t *B)
+{
+    hsv2rgb_fix_g(H, S, V, 1023, R, G, B);
 }
 
 #endif /* HSV_FIXED_H */
