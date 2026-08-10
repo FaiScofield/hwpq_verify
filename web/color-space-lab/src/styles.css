@@ -246,6 +246,37 @@ pre {
   background: #f1f5f9;
 }
 
+/* ---- Interactive circle color wheel ---- */
+.wheel-wrap {
+  position: relative;
+  width: 220px;
+  margin-top: 4px;
+}
+.wheel-wrap canvas {
+  display: block;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  cursor: crosshair;
+}
+.wheel-marker {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1.5px #111827, 0 1px 3px rgba(0, 0, 0, 0.5);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.wheel-hint {
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
 /* ---- Responsive ---- */
 @media (max-width: 900px) {
   .teach-view {

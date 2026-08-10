@@ -33,6 +33,11 @@ export function createTeachPanel(store: TeachStateStore, scene: HsvProjectionSce
       ${valueRow('H', 'h', 0, 360, 1)}
       ${valueRow('S', 's', 0, 100, 1)}
       ${valueRow('V', 'v', 0, 100, 1)}
+      <div class="wheel-wrap">
+        <canvas data-role="wheel" width="220" height="220"></canvas>
+        <div data-role="wheel-marker" class="wheel-marker"></div>
+        <div class="wheel-hint">点击 / 拖拽圆形色轮选 H/S（方案 A：圆盘化六边形 HSV，V 由上方滑条控制）</div>
+      </div>
     </div>
 
     <div class="stack">
@@ -50,7 +55,7 @@ export function createTeachPanel(store: TeachStateStore, scene: HsvProjectionSce
       </label>
       <label class="check-field">
         <input data-role="proj-circle" type="radio" name="proj" value="circle" />
-        <span>圆形 — 极坐标投影</span>
+        <span>圆形 — 极坐标投影（FIXME）</span>
       </label>
     </div>
 
@@ -212,6 +217,100 @@ export function createTeachPanel(store: TeachStateStore, scene: HsvProjectionSce
   }
   topView.addEventListener('click', () => scene.lookAlongAxis());
 
+  // ---- Interactive circle color wheel (Scheme A) ------------------------------
+  // Disk filled with the hexagonal HSV painted as a circle (x=S·cosH, y=S·sinH),
+  // so the click position and the shown color always agree (what-you-see-is-
+  // what-you-get).  Click / drag picks the H/S of the INPUT point; V comes from
+  // the V slider above.  This is the standard UI color-picker scheme (PS/GIMP).
+  const wheel = section.querySelector<HTMLCanvasElement>('canvas[data-role="wheel"]');
+  const wheelMarker = section.querySelector<HTMLElement>('[data-role="wheel-marker"]');
+  if (!wheel || !wheelMarker) {
+    throw new Error('Wheel elements missing');
+  }
+  const WHEEL_R = wheel.width / 2 - 8; /* 圆盘半径（px） */
+  let wheelDragging = false;
+  let lastWheelV = -1;
+
+  const paintWheel = (v: number): void => {
+    const ctx = wheel.getContext('2d');
+    if (!ctx) {
+      return;
+    }
+    const cx = wheel.width / 2;
+    const cy = wheel.height / 2;
+    const img = ctx.createImageData(wheel.width, wheel.height);
+    const d = img.data;
+    for (let y = 0; y < wheel.height; y++) {
+      for (let x = 0; x < wheel.width; x++) {
+        const dx = x - cx;
+        const dy = y - cy;
+        const r = Math.hypot(dx, dy);
+        const i = (y * wheel.width + x) * 4;
+        if (r > WHEEL_R) {
+          d[i + 3] = 0;
+          continue;
+        }
+        // Mirror canvas y (-dy) so the wheel matches the hexagon orientation
+        // (red right, yellow top-right), same as the 3D scene.
+        const h = (Math.atan2(-dy, dx) * 180) / Math.PI;
+        const c = hsvToRgb({ h: (h + 360) % 360, s: Math.min(1, r / WHEEL_R), v });
+        d[i] = Math.round(c.r * 255);
+        d[i + 1] = Math.round(c.g * 255);
+        d[i + 2] = Math.round(c.b * 255);
+        d[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    lastWheelV = v;
+  };
+
+  const setWheelMarker = (h: number, s: number): void => {
+    const cx = wheel.width / 2;
+    const cy = wheel.height / 2;
+    const rad = (h * Math.PI) / 180;
+    wheelMarker.style.left = `${cx + s * WHEEL_R * Math.cos(rad)}px`;
+    wheelMarker.style.top = `${cy - s * WHEEL_R * Math.sin(rad)}px`; /* mirror y */
+  };
+
+  const pickFromWheel = (e: PointerEvent): void => {
+    const rect = wheel.getBoundingClientRect();
+    const scale = wheel.width / rect.width;
+    const cx = wheel.width / 2;
+    const cy = wheel.height / 2;
+    const dx = (e.clientX - rect.left) * scale - cx;
+    const dy = (e.clientY - rect.top) * scale - cy;
+    const r = Math.hypot(dx, dy);
+    if (r > WHEEL_R) {
+      return; /* 点击圆盘外不响应 */
+    }
+    const h = (Math.atan2(-dy, dx) * 180) / Math.PI;
+    const s = r / WHEEL_R;
+    const v = store.getState().inputHsv.v;
+    const inputHsv = { h: (h + 360) % 360, s, v };
+    store.set({ inputHsv, inputRgb: hsvToRgb(inputHsv) });
+  };
+
+  wheel.addEventListener('pointerdown', (e) => {
+    wheelDragging = true;
+    try {
+      wheel.setPointerCapture(e.pointerId);
+    } catch {
+      /* 合成事件 / 无 active pointer 时忽略，选色仍继续 */
+    }
+    pickFromWheel(e);
+  });
+  wheel.addEventListener('pointermove', (e) => {
+    if (wheelDragging) {
+      pickFromWheel(e);
+    }
+  });
+  wheel.addEventListener('pointerup', () => {
+    wheelDragging = false;
+  });
+  wheel.addEventListener('pointercancel', () => {
+    wheelDragging = false;
+  });
+
   // ---- Formula + IO + dynamic note --------------------------------------------
   const formulaEl = section.querySelector<HTMLPreElement>('[data-role="formula"]');
   const ioEl = section.querySelector<HTMLPreElement>('[data-role="io"]');
@@ -262,6 +361,10 @@ export function createTeachPanel(store: TeachStateStore, scene: HsvProjectionSce
     const r255 = Math.round(rgb.r * 255);
     const g255 = Math.round(rgb.g * 255);
     const b255 = Math.round(rgb.b * 255);
+    // Circle (polar) projection coordinates: (x, y) = (S·cosH, S·sinH), V-independent.
+    const isCircle = state.projection === 'circle';
+    const px = outHsv.s * Math.cos((outHsv.h * Math.PI) / 180);
+    const py = outHsv.s * Math.sin((outHsv.h * Math.PI) / 180);
 
     formulaEl.textContent =
       `输出 RGB = (${fmt(rgb.r)}, ${fmt(rgb.g)}, ${fmt(rgb.b)})  [${r255}, ${g255}, ${b255}]\n` +
@@ -272,11 +375,16 @@ export function createTeachPanel(store: TeachStateStore, scene: HsvProjectionSce
       `  C = M − m = ${fmt(c)}   （六边形色度）\n` +
       `  S = C / M = ${fmt(c / outHsv.v)}\n` +
       `  H = 分段函数（60° 一步） = ${fmt(outHsv.h, 1)}°\n\n` +
-      `RGB → 色度平面投影（α/β 坐标）\n` +
-      `  α = (2R−G−B)/2 = ${fmt(alpha)}\n` +
-      `  β = (√3/2)(G−B) = ${fmt(beta)}\n` +
-      `  C₂ = √(α²+β²) = ${fmt(circleChroma(world))}   （圆形色度）\n` +
-      `  六边形 vs 圆：顶点方向 C=C₂；边中点方向圆比六边形大 ${fmt(Math.sqrt(3) / 2, 4)}×`;
+      (isCircle
+        ? `RGB → 圆形极坐标投影（方案 A）\n` +
+          `  x = S·cosH = ${fmt(px)}\n` +
+          `  y = S·sinH = ${fmt(py)}\n` +
+          `  r = S = ${fmt(outHsv.s)}   （与 V 无关）`
+        : `RGB → 色度平面投影（α/β 坐标）\n` +
+          `  α = (2R−G−B)/2 = ${fmt(alpha)}\n` +
+          `  β = (√3/2)(G−B) = ${fmt(beta)}\n` +
+          `  C₂ = √(α²+β²) = ${fmt(circleChroma(world))}   （圆形色度）\n` +
+          `  六边形 vs 圆：顶点方向 C=C₂；边中点方向圆比六边形大 ${fmt(Math.sqrt(3) / 2, 4)}×`);
 
     // Dynamic note.
     const shapeText = state.projection === 'hex' ? '六边形环' : '圆环';
@@ -286,8 +394,16 @@ export function createTeachPanel(store: TeachStateStore, scene: HsvProjectionSce
       `输出 V=${fmt(outHsv.v)}（小立方体边长 ${fmt(outHsv.v)}）；` +
       `S=${fmt(outHsv.s)}（等S${shapeText}，色度 C=${fmt(outHsv.s * outHsv.v)}）；` +
       `H=${fmt(outHsv.h, 1)}°。` +
-      `输出点位于 V=v 外表面，投影到六边形${state.projection === 'hex' ? '' : '/圆'}平面坐标为 ` +
-      `(α,β)=(${fmt(alpha)}, ${fmt(beta)})。`;
+      `输出点位于 V=v 外表面，` +
+      (isCircle
+        ? `圆形极坐标投影坐标为 (x,y)=(${fmt(px)}, ${fmt(py)})。`
+        : `投影到六边形平面坐标为 (α,β)=(${fmt(alpha)}, ${fmt(beta)})。`);
+
+    // Interactive wheel: repaint only when V changed, marker on every update.
+    if (state.inputHsv.v !== lastWheelV) {
+      paintWheel(state.inputHsv.v);
+    }
+    setWheelMarker(state.inputHsv.h, state.inputHsv.s);
   });
 
   return section;

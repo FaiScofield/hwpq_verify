@@ -13,8 +13,9 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 
 import { hsvToRgb } from '../core/color-convert/rgb-hsv';
+import { projectHsvToCircle } from '../core/projections/hsv-circle';
 import type { Point3D } from '../state/types';
-import type { TeachState, TeachStateStore } from './teach-state';
+import type { ProjectionMode, TeachState, TeachStateStore } from './teach-state';
 import {
   SQRT3,
   applyHsvAdjust,
@@ -97,6 +98,7 @@ export class HsvProjectionScene {
   private lastS = -1;
   private lastV = -1;
   private lastPaintedV = -1;
+  private lastProjection: ProjectionMode = 'hex';
 
   constructor(store: TeachStateStore) {
     this.element = document.createElement('div');
@@ -175,12 +177,16 @@ export class HsvProjectionScene {
       }),
     );
 
+    // Circle projection panel: shares the same hue-wheel texture as the hexagon
+    // panel (CircleGeometry UVs map the wheel square onto the disk exactly like
+    // hexGeometryWithUV, so both panels stay aligned), i.e. in circle mode the
+    // disk replaces the hexagon panel as the projection target.
     this.circleFill = new THREE.Mesh(
       new THREE.CircleGeometry(1, 96),
       new THREE.MeshBasicMaterial({
-        color: 0xf59e0b,
+        map: this.hexTexture,
         transparent: true,
-        opacity: 0.1,
+        opacity: 0.75,
         side: THREE.DoubleSide,
         depthWrite: false,
       }),
@@ -361,9 +367,11 @@ export class HsvProjectionScene {
     const outHsv = applyHsvAdjust(inHsv, state.dh, state.ds, state.dv);
     const outRgb = hsvToRgb(outHsv);
     const inWorld = hsvToWorld(inHsv);
-    const inPlane = hsvToPlane(inHsv);
+    // Circle mode projects each pixel's (H, S) onto the disk (x=S·cosH, y=S·sinH);
+    // hex mode keeps the cube's true orthogonal projection.
+    const inPlane = state.projection === 'circle' ? projectHsvToCircle(inHsv) : hsvToPlane(inHsv);
     const outWorld = hsvToWorld(outHsv);
-    const outPlane = hsvToPlane(outHsv);
+    const outPlane = state.projection === 'circle' ? projectHsvToCircle(outHsv) : hsvToPlane(outHsv);
 
     // Input markers (grey).
     this.inputMarker3D.position.set(inWorld.x, inWorld.y, inWorld.z);
@@ -385,15 +393,16 @@ export class HsvProjectionScene {
     this.label2D.element.textContent =
       `Out H:${Math.round(outHsv.h)}° S:${fmt(outHsv.s, 3)} V:${fmt(outHsv.v, 3)}`;
 
-    // Projection line (depends on the output 3D marker position).
+    // Projection line: from the 3D marker on the cube surface down to its
+    // projected point on the plane (hex: straight down; circle: onto the disk).
     const linePos = this.projectionLine.geometry.getAttribute('position') as THREE.BufferAttribute;
     linePos.setXYZ(0, outWorld.x, outWorld.y, outWorld.z + CUBE_Z_OFFSET);
-    linePos.setXYZ(1, outWorld.x, outWorld.y, 0);
+    linePos.setXYZ(1, outPlane.x, outPlane.y, 0);
     linePos.needsUpdate = true;
     this.projectionLine.computeLineDistances();
 
     // ---- S/V dependent updates (skipped when only hue changes) ----------
-    if (outHsv.s !== this.lastS || outHsv.v !== this.lastV) {
+    if (outHsv.s !== this.lastS || outHsv.v !== this.lastV || state.projection !== this.lastProjection) {
       // V value marker on the neutral axis (gray point (v,v,v) -> z = √3·v).
       this.axisVMarker.position.set(0, 0, SQRT3 * outHsv.v);
       this.axisVLabel.element.textContent = `V=${fmt(outHsv.v, 2)}`;
@@ -401,13 +410,21 @@ export class HsvProjectionScene {
       // Sub-cube scales with the output v.
       this.subCubeGroup.scale.setScalar(outHsv.v);
 
-      // Equal-S trajectory: the 3D ring plus the dashed cube-projection
-      // hexagon on the plane, both following the output point's (s·v).
-      setLinePoints(this.hexRing, hexRing3D(outHsv.s, outHsv.v).map(toVec3));
-      setLinePoints(this.cubeHexRing, dashedHexagonPoints(outHsv.s * outHsv.v));
+      // Equal-S trajectory: 3D ring + dashed locus on the plane.  Hex mode
+      // follows the cube-surface hexagon (radius s·v); circle mode follows the
+      // cylindrical-surface circle (radius S) whose orthogonal projection is
+      // the dashed circle that passes through the disk marker.
+      if (state.projection === 'circle') {
+        setLinePoints(this.hexRing, circleRingAt(outHsv.s, outWorld.z).map(toVec3));
+        setLinePoints(this.cubeHexRing, dashedCirclePoints(outHsv.s));
+      } else {
+        setLinePoints(this.hexRing, hexRing3D(outHsv.s, outHsv.v).map(toVec3));
+        setLinePoints(this.cubeHexRing, dashedHexagonPoints(outHsv.s * outHsv.v));
+      }
 
       this.lastS = outHsv.s;
       this.lastV = outHsv.v;
+      this.lastProjection = state.projection;
     }
 
     // Hexagon panel shows the full hue wheel; brightness follows the output v.
@@ -427,12 +444,16 @@ export class HsvProjectionScene {
     this.projectionLine.visible = state.showProjectionLine;
     this.hexRing.visible = state.showHexRing;
     this.cubeHexRing.visible = state.showHexRing;
-    this.hexOutline.visible = true;
+    // Projection panel: in circle mode the disk replaces the hexagon panel, so
+    // hide the hexagon outline/fill; the red overflow regions (circle outside
+    // the cube's real hexagon gamut) stay on the disk to mark out-of-gamut.
+    const isCircle = state.projection === 'circle';
+    this.hexOutline.visible = !isCircle;
     this.circleOutline.visible = true;
-    this.hexFill.visible = state.projection === 'hex';
-    this.circleFill.visible = state.projection === 'circle';
+    this.hexFill.visible = !isCircle;
+    this.circleFill.visible = isCircle;
     this.overflowMeshes.forEach((m) => {
-      m.visible = state.projection === 'circle'; /* 越界区域（圆超出六边形）在圆形模式默认显示 */
+      m.visible = isCircle;
     });
     this.marker3D.visible = true;
     this.marker2D.visible = true;
@@ -489,6 +510,35 @@ function dashedHexagonPoints(radius: number, dashesPerEdge = 6): THREE.Vector3[]
       pts.push(new THREE.Vector3(a.x + (b.x - a.x) * t0, a.y + (b.y - a.y) * t0, 0));
       pts.push(new THREE.Vector3(a.x + (b.x - a.x) * t1, a.y + (b.y - a.y) * t1, 0));
     }
+  }
+  return pts;
+}
+
+/**
+ * Manual dash segments for a circle outline: the circumference is split into
+ * short opaque arcs separated by gaps (used in circle-projection mode).
+ */
+function dashedCirclePoints(radius: number, segments = 96): THREE.Vector3[] {
+  const pts: THREE.Vector3[] = [];
+  for (let j = 0; j < segments; j++) {
+    const a0 = (j / segments) * Math.PI * 2;
+    const a1 = ((j + 0.55) / segments) * Math.PI * 2;
+    pts.push(new THREE.Vector3(radius * Math.cos(a0), radius * Math.sin(a0), 0));
+    pts.push(new THREE.Vector3(radius * Math.cos(a1), radius * Math.sin(a1), 0));
+  }
+  return pts;
+}
+
+/**
+ * Equal-S circle in 3D (circle-projection mode): a horizontal ring at a fixed
+ * radius S and height z, i.e. the cylindrical-surface locus whose orthogonal
+ * projection is exactly the dashed circle on the plane.
+ */
+function circleRingAt(radius: number, z: number, segments = 120): Point3D[] {
+  const pts: Point3D[] = [];
+  for (let i = 0; i < segments; i++) {
+    const t = (i / segments) * Math.PI * 2;
+    pts.push({ x: radius * Math.cos(t), y: radius * Math.sin(t), z });
   }
   return pts;
 }
