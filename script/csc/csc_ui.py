@@ -713,9 +713,30 @@ def _build_colormap_with_axis(img_eff, title, xlabel, ylabel):
     return padded, margin
 
 
+def _is_pysimplegui_63():
+    """Return True when the running PySimpleGUI is version 6.3.x.
+
+    Version 6.3 has a bug where the SystemDefault theme uses the magic sentinel
+    COLOR_SYSTEM_DEFAULT('1234567890') directly as a color name, which crashes
+    with TclError: unknown color name "1234567890" on the first Input.update().
+    """
+    try:
+        parts = [int(p) for p in str(sg.version).split('.')]
+    except (ValueError, AttributeError):
+        return False
+    return len(parts) >= 2 and parts[0] == 6 and parts[1] == 3
+
+
 def open_csc_ui(args=None):
     """Open PySimpleGUI UI for interactive CSC conversion"""
-    sg.theme('SystemDefault')
+    # PySimpleGUI 6.3 的 SystemDefault 主题有 bug: 把魔法哨兵
+    # COLOR_SYSTEM_DEFAULT('1234567890') 直接用作颜色名, 在 Input.update 时会触发
+    # TclError: unknown color name "1234567890" 崩溃。因此仅在 6.3 版本改用
+    # LightGrey1 (白底/浅灰输入框/黑字, 观感接近 SystemDefault), 其他版本保持默认。
+    if _is_pysimplegui_63():
+        sg.theme('LightGrey1')
+    else:
+        sg.theme('SystemDefault')
 
     fmt_options = FMT_OPTIONS_8BIT + FMT_OPTIONS_10BIT
     fmt_display = [f"0x{f:x} - {FORMAT_NAMES.get(f, 'Unknown')}" for f in fmt_options]
