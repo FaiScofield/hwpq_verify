@@ -235,6 +235,8 @@ $$H' = \begin{cases}
 cd web/color-space-lab
 npm install        # 首次运行需要安装依赖
 npm run dev        # 启动 Vite 开发服务器，浏览器打开 http://localhost:5173/
+
+npm --prefix web/color-space-lab run dev -- --host 127.0.0.1 --port 8000
 ```
 
 生产构建与本地预览：
