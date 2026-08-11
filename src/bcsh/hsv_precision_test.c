@@ -169,8 +169,8 @@ int main(int argc, char **argv)
     /* [3] 组合边界确认（精扫为 u8 全遍历，粗扫可能漏最坏样本） */
     printf("\n[3] %s确认边界：\n", lab8);
     {
-        int bh0 = (bh_alone > 11) ? bh_alone - 1 : 11;
-        int bs0 = (bs_alone > 8) ? bs_alone - 1 : 8;
+        const int bh0 = bh_alone - 1;
+        const int bs0 = bs_alone - 1;
         for (int bh = bh0; bh <= bh0 + 2; bh++)
             for (int bs = bs0; bs <= bs0 + 2; bs++) {
                 int e = eval_quant_u8(bh, bs, step_u8, &err_ratio);
@@ -196,7 +196,7 @@ int main(int argc, char **argv)
 
     /* [5] u10(10bit) 只量化 S（H 视为精确） */
     printf("\n[5] u10(10bit) 只量化 S（H=20bit≈精确），%s：\n", lab10);
-    for (int bs = 6; bs <= 16; bs++) {
+    for (int bs = 8; bs <= 16; bs++) {
         int e = eval_quant_u10(20, bs, step_u10, &err_ratio);
         if (0 == e)
             printf("    S=%2d bit -> max|Δ|=%d LSB  <== 零误差\n", bs, e);
@@ -208,7 +208,7 @@ int main(int argc, char **argv)
 
     /* [6] u10(10bit) 只量化 H（S 视为精确） */
     printf("\n[6] u10(10bit) 只量化 H（S=20bit≈精确），%s：\n", lab10);
-    for (int bh = 8; bh <= 16; bh++) {
+    for (int bh = 10; bh <= 16; bh++) {
         int e = eval_quant_u10(bh, 20, step_u10, &err_ratio);
         if (0 == e)
             printf("    H=%2d bit -> max|Δ|=%d LSB  <== 零误差\n", bh, e);
@@ -221,8 +221,8 @@ int main(int argc, char **argv)
     /* [7] u10 组合边界（抽样，可能漏最坏样本） */
     printf("\n[7] u10 组合边界（%s）：\n", lab10);
     {
-        int bh0 = (bh_alone10 > 11) ? bh_alone10 - 1 : 11;
-        int bs0 = (bs_alone10 > 8) ? bs_alone10 - 1 : 8;
+        const int bh0 = bh_alone10 - 1;
+        const int bs0 = bs_alone10 - 1;
         for (int bh = bh0; bh <= bh0 + 2; bh++)
             for (int bs = bs0; bs <= bs0 + 2; bs++) {
                 int e = eval_quant_u10(bh, bs, step_u10, &err_ratio);
