@@ -115,16 +115,16 @@ static inline hsv_fix_t rgb2hsv_fix_impl(int32_t r, int32_t g, int32_t b)
         ret.S = rcp_mul_rsh(C, rcp_u24[M], RCP_BITS - FIX_BITS_S); /* round(C<<S / M)，[0, FIX_S_ONE] */
 
     /* H：三个候选 + 优先级掩码选择（互斥、无分支），定标 Q(FIX_BITS_H)
-       先求 A = Q14 的 diff/C（倒数表，四舍五入），再 H = round((A + base*FIX_H_ONE)/6)，
-       base∈{6,2,4}；÷6 用常量 RCP6=round(2^28/6)，避免 FIX_H_6=2731(≠2^14/6) 的系统偏差 */
+       先求 A = Q14 的 diff/C（倒数表），再 H = round((A + base*FIX_H_ONE)/6)，
+       base∈{6,2,4}；÷6 用常量 RCP6=round(2^RCP6_BITS/6)，避免 FIX_H_6=2731(≠2^14/6) 的系统偏差 */
     ret.H = 0;
     if (C != 0) {
-        int32_t aR = rcp_mul_rsh(g - b, rcp_u24[C], RCP_BITS - FIX_BITS_H);              /* Q14: (g-b)/C ∈ [-1,1] */
-        int32_t aG = rcp_mul_rsh(b - r, rcp_u24[C], RCP_BITS - FIX_BITS_H);              /* Q14: (b-r)/C ∈ [-1,1] */
-        int32_t aB = rcp_mul_rsh(r - g, rcp_u24[C], RCP_BITS - FIX_BITS_H);              /* Q14: (r-g)/C ∈ [-1,1] */
-        int32_t hR = rcp_mul_rsh(aR + 6 * FIX_H_ONE, RCP6, RCP6_BITS) & (FIX_H_ONE - 1); /* ([0,2]+6)/6 => 360°=>0 回绕 */
-        int32_t hG = rcp_mul_rsh(aG + 2 * FIX_H_ONE, RCP6, RCP6_BITS);                   /* ([-1,1]+2)/6 => [1,3]/6 */
-        int32_t hB = rcp_mul_rsh(aB + 4 * FIX_H_ONE, RCP6, RCP6_BITS);                   /* ([-1,1]+4)/6 => [3,5]/6 */
+        int32_t aR = rcp_mul_rsh(g - b, rcp_u24[C], RCP_BITS - FIX_BITS_H);              /* diff/C（Q14 小数），diff≤11bit×rcp≤24bit=35bit */
+        int32_t aG = rcp_mul_rsh(b - r, rcp_u24[C], RCP_BITS - FIX_BITS_H);              /* diff/C */
+        int32_t aB = rcp_mul_rsh(r - g, rcp_u24[C], RCP_BITS - FIX_BITS_H);              /* diff/C */
+        int32_t hR = rcp_mul_rsh(aR + 6 * FIX_H_ONE, RCP6, RCP6_BITS) & (FIX_H_ONE - 1); /* (aR+6F)/6, 乘 17×18=35bit; 360°=>0 回绕 */
+        int32_t hG = rcp_mul_rsh(aG + 2 * FIX_H_ONE, RCP6, RCP6_BITS);                   /* (aG+2F)/6, [1,3]/6 */
+        int32_t hB = rcp_mul_rsh(aB + 4 * FIX_H_ONE, RCP6, RCP6_BITS);                   /* (aB+4F)/6, [3,5]/6 */
 
         /* 优先级：R > G > B，平局(如黄 R=G)时取前者，结果等价 */
         uint32_t mR = (uint32_t)(M == r);
@@ -211,6 +211,234 @@ static inline void hsv2rgb_fix_u8(int32_t H, int32_t S, int32_t V, uint8_t *R, u
 static inline void hsv2rgb_fix_u10(int32_t H, int32_t S, int32_t V, int32_t *R, int32_t *G, int32_t *B)
 {
     hsv2rgb_fix_impl(H, S, V, 1023, R, G, B);
+}
+
+/* ==================================================================
+ * Q13/Q11 参考族（hsv_note.md：trad/v1/v2/v3 递进优化对照）
+ *   H Q13：360° = F_H13 = 8192；S Q11：1.0 = F_S13 = 2048；V：像素域 [0, maxv]
+ *   与上方主实现（H=Q14/S=Q11）独立，仅供精度/性能对照实验
+ *   v2/v3 复用主实现的倒数表 rcp_tbl_u24_fixed() 与 RCP6（RCP_BITS=24/RCP6_BITS=18）
+ * ================================================================== */
+#define FIX_H13 13
+#define FIX_S13 11
+#define F_H13   ((int32_t)1 << FIX_H13)          /* 360° 满量程 = 2^FIX_H13 */
+#define F_S13   ((int32_t)1 << FIX_S13)          /* 2048 */
+#define VS_SHIFT13 4                             /* (V*S>>4)*t ≤ 2^30 < 2^31 */
+#define RS13    (FIX_H13 + FIX_S13 - VS_SHIFT13) /* 重建右移 = 20 */
+
+/* Q13 版 clamp01（同主实现 clamp01，仅 FIX_H_ONE→F_H13） */
+static inline int32_t clamp01_q13(int32_t k)
+{
+    int32_t t = k < 4 * F_H13 - k ? k : 4 * F_H13 - k; /* min(k, 4F-k) */
+    t = t < 0 ? 0 : t;                                 /* max(t, 0)    */
+    t = t > F_H13 ? F_H13 : t;                         /* min(t, 1)    */
+    return t;
+}
+
+/* ---------------- RGB(maxv) -> HSV（Q13/Q11 参考族） ---------------- */
+/* trad：经典，分支 + 除法 */
+static inline void rgb2hsv_v0_claasic(int32_t r, int32_t g, int32_t b,
+                                int32_t *h13, int32_t *s11, int32_t *v10)
+{
+    int32_t M = MAX3(r, g, b);
+    int32_t m = MIN3(r, g, b);
+    int32_t c = M - m;
+    *v10 = M;
+    *s11 = (c > 0) ? ((c << FIX_S13) + (M >> 1)) / M : 0;
+    int32_t h = 0;
+    if (c > 0) {
+        int32_t d, base; /* base: 0=R 段 2=G 段 4=B 段 */
+        if (M == r)      { d = g - b; base = 0; }
+        else if (M == g) { d = b - r; base = 2; }
+        else             { d = r - g; base = 4; }
+        d = ((d << FIX_H13) + (c >> 1)) / c;
+        h = ((base << FIX_H13) + d + 3) / 6 + F_H13;
+        h = h & (F_H13 - 1); /* mod 2^13，负值由 +F_H13 回绕 */
+    }
+    *h13 = h;
+}
+
+/* v1：取消分支（优先级掩码选 H 候选；S 仍用除法） */
+static inline void rgb2hsv_v1_no_branch(int32_t r, int32_t g, int32_t b,
+                              int32_t *h13, int32_t *s11, int32_t *v10)
+{
+    int32_t M = MAX3(r, g, b);
+    int32_t m = MIN3(r, g, b);
+    int32_t c = M - m;
+    *v10 = M;
+    *s11 = (c > 0) ? ((c << FIX_S13) + (M >> 1)) / M : 0;
+    int32_t h = 0;
+    if (c > 0) {
+        int32_t dR = g - b, dG = b - r, dB = r - g;
+        int32_t aR = ((dR << FIX_H13) + (c >> 1)) / c;
+        int32_t aG = ((dG << FIX_H13) + (c >> 1)) / c;
+        int32_t aB = ((dB << FIX_H13) + (c >> 1)) / c;
+        /* H = round((a + base*F)/6)，base∈{6,2,4}（6 使 hR 恒正、& mask 回绕） */
+        int32_t hR = (((6 << FIX_H13) + aR + 3) / 6) & (F_H13 - 1);
+        int32_t hG = ((2 << FIX_H13) + aG + 3) / 6;
+        int32_t hB = ((4 << FIX_H13) + aB + 3) / 6;
+        uint32_t mR = (uint32_t)(M == r);
+        uint32_t mG = (uint32_t)(M == g) & ~mR;
+        uint32_t mB = (uint32_t)(M == b) & ~(mR | mG);
+        int32_t selR = (int32_t)(0u - mR); /* 0 或 -1 */
+        int32_t selG = (int32_t)(0u - mG);
+        int32_t selB = (int32_t)(0u - mB);
+        h = (hR & selR) | (hG & selG) | (hB & selB);
+    }
+    *h13 = h;
+}
+
+/* v2：取消除法（倒数表替代 /C、/6；分支保留） */
+static inline void rgb2hsv_v2_no_division(int32_t r, int32_t g, int32_t b,
+                              int32_t *h13, int32_t *s11, int32_t *v10)
+{
+    const int32_t *rcp = rcp_tbl_u24_fixed();
+    int32_t M = MAX3(r, g, b);
+    int32_t m = MIN3(r, g, b);
+    int32_t c = M - m;
+    *v10 = M;
+    *s11 = (c > 0) ? rcp_mul_rsh(c, rcp[M], RCP_BITS - FIX_S13) : 0;
+    int32_t h = 0;
+    if (c > 0) {
+        int32_t d, base; /* 分支保留 */
+        if (M == r)      { d = g - b; base = 0; }
+        else if (M == g) { d = b - r; base = 2; }
+        else             { d = r - g; base = 4; }
+        int32_t a = rcp_mul_rsh(d, rcp[c], RCP_BITS - FIX_H13); /* round(diff<<13/C) */
+        int32_t h_ = rcp_mul_rsh(a + base * F_H13, RCP6, RCP6_BITS); /* /6 */
+        if (h_ < 0)
+            h_ += F_H13;
+        h = h_ & (F_H13 - 1);
+    }
+    *h13 = h;
+}
+
+/* v3：取消分支 + 取消除法（优先级掩码 + 倒数表，硬件友好） */
+static inline void rgb2hsv_v3_optimal(int32_t r, int32_t g, int32_t b,
+                              int32_t *h13, int32_t *s11, int32_t *v10)
+{
+    const int32_t *rcp = rcp_tbl_u24_fixed();
+    int32_t M = MAX3(r, g, b);
+    int32_t m = MIN3(r, g, b);
+    int32_t c = M - m;
+    *v10 = M;
+    *s11 = (c > 0) ? rcp_mul_rsh(c, rcp[M], RCP_BITS - FIX_S13) : 0;
+    int32_t h = 0;
+    if (c > 0) {
+        int32_t aR = rcp_mul_rsh(g - b, rcp[c], RCP_BITS - FIX_H13);
+        int32_t aG = rcp_mul_rsh(b - r, rcp[c], RCP_BITS - FIX_H13);
+        int32_t aB = rcp_mul_rsh(r - g, rcp[c], RCP_BITS - FIX_H13);
+        /* H = round((A + base*F)/6)，base∈{6,2,4}（6 使 hR 恒正，& mask 回绕） */
+        int32_t hR = rcp_mul_rsh(aR + (6 << FIX_H13), RCP6, RCP6_BITS) & (F_H13 - 1);
+        int32_t hG = rcp_mul_rsh(aG + (2 << FIX_H13), RCP6, RCP6_BITS);
+        int32_t hB = rcp_mul_rsh(aB + (4 << FIX_H13), RCP6, RCP6_BITS);
+        uint32_t mR = (uint32_t)(M == r);
+        uint32_t mG = (uint32_t)(M == g) & ~mR;
+        uint32_t mB = (uint32_t)(M == b) & ~(mR | mG);
+        int32_t selR = (int32_t)(0u - mR);
+        int32_t selG = (int32_t)(0u - mG);
+        int32_t selB = (int32_t)(0u - mB);
+        h = (hR & selR) | (hG & selG) | (hB & selB);
+    }
+    *h13 = h;
+}
+
+/* ---------------- HSV -> RGB(maxv)（Q13/Q11 参考族） ---------------- */
+/* trad：经典 C/X/m 模型，switch 分支 + 除法 + abs */
+static inline void hsv2rgb_v0_classic(int32_t H, int32_t S, int32_t V, int32_t maxv,
+                                int32_t *R, int32_t *G, int32_t *B)
+{
+    if (S == 0) { *R = *G = *B = V; return; }
+    int32_t C = (V * S + (F_S13 >> 1)) / F_S13;
+    int32_t m = V - C;
+    int32_t h6 = H * 6;
+    int32_t seg = h6 / F_H13;
+    int32_t hp2 = h6 % (2 * F_H13); /* hp mod 2（120° 帐篷周期） */
+    int32_t t = hp2 - F_H13;
+    if (t < 0) t = -t;             /* |hp mod 2 - 1| */
+    int32_t X = C - (int32_t)((int64_t)C * t / F_H13); /* C*(1-|..|) */
+    switch (seg) {
+    case 0: *R = C + m; *G = X + m; *B = m; break;
+    case 1: *R = X + m; *G = C + m; *B = m; break;
+    case 2: *R = m; *G = C + m; *B = X + m; break;
+    case 3: *R = m; *G = X + m; *B = C + m; break;
+    case 4: *R = X + m; *G = m; *B = C + m; break;
+    default: *R = C + m; *G = m; *B = X + m; break;
+    }
+    *R = CLIP(*R, 0, maxv);
+    *G = CLIP(*G, 0, maxv);
+    *B = CLIP(*B, 0, maxv);
+}
+
+/* v1：取消分支（f(n) 公式 + 三目 clamp01 替代 switch；保留 % 除法） */
+static inline void hsv2rgb_v1_no_branch(int32_t H, int32_t S, int32_t V, int32_t maxv,
+                              int32_t *R, int32_t *G, int32_t *B)
+{
+    if (S == 0) { *R = *G = *B = V; return; }
+    int32_t h6 = H * 6;
+    int32_t k5 = (5 * F_H13 + h6) % (6 * F_H13);
+    int32_t k3 = (3 * F_H13 + h6) % (6 * F_H13);
+    int32_t k1 = (1 * F_H13 + h6) % (6 * F_H13);
+    int32_t t5 = clamp01_q13(k5);
+    int32_t t3 = clamp01_q13(k3);
+    int32_t t1 = clamp01_q13(k1);
+    int32_t vsq = (V * S + (1 << (VS_SHIFT13 - 1))) >> VS_SHIFT13;
+    int32_t r = V - (int32_t)((vsq * t5 + (1 << (RS13 - 1))) >> RS13);
+    int32_t g = V - (int32_t)((vsq * t3 + (1 << (RS13 - 1))) >> RS13);
+    int32_t b = V - (int32_t)((vsq * t1 + (1 << (RS13 - 1))) >> RS13);
+    *R = CLIP(r, 0, maxv);
+    *G = CLIP(g, 0, maxv);
+    *B = CLIP(b, 0, maxv);
+}
+
+/* v2：取消除法（除法全改移位；switch 保留） */
+static inline void hsv2rgb_v2_no_division(int32_t H, int32_t S, int32_t V, int32_t maxv,
+                              int32_t *R, int32_t *G, int32_t *B)
+{
+    if (S == 0) { *R = *G = *B = V; return; }
+    int32_t C = (V * S + (F_S13 >> 1)) >> FIX_S13;
+    int32_t m = V - C;
+    int32_t h6 = H * 6;
+    int32_t seg = h6 >> FIX_H13;
+    int32_t hp2 = h6 & (2 * F_H13 - 1); /* hp mod 2（120° 帐篷周期） */
+    int32_t t = hp2 - F_H13;
+    if (t < 0) t = -t;             /* |hp mod 2 - 1| */
+    int32_t X = C - (int32_t)(((int64_t)C * t) >> FIX_H13);
+    switch (seg) {
+    case 0: *R = C + m; *G = X + m; *B = m; break;
+    case 1: *R = X + m; *G = C + m; *B = m; break;
+    case 2: *R = m; *G = C + m; *B = X + m; break;
+    case 3: *R = m; *G = X + m; *B = C + m; break;
+    case 4: *R = X + m; *G = m; *B = C + m; break;
+    default: *R = C + m; *G = m; *B = X + m; break;
+    }
+    *R = CLIP(*R, 0, maxv);
+    *G = CLIP(*G, 0, maxv);
+    *B = CLIP(*B, 0, maxv);
+}
+
+/* v3：取消分支 + 取消除法（f(n) + 单次减 mod + 三目 + 全移位，硬件友好） */
+static inline void hsv2rgb_v3_optimal(int32_t H, int32_t S, int32_t V, int32_t maxv,
+                              int32_t *R, int32_t *G, int32_t *B)
+{
+    if (S == 0) { *R = *G = *B = V; return; }
+    int32_t h6 = H * 6;
+    int32_t k5 = 5 * F_H13 + h6;
+    int32_t k3 = 3 * F_H13 + h6;
+    int32_t k1 = 1 * F_H13 + h6;
+    k5 = (k5 >= 6 * F_H13) ? k5 - 6 * F_H13 : k5;
+    k3 = (k3 >= 6 * F_H13) ? k3 - 6 * F_H13 : k3;
+    k1 = (k1 >= 6 * F_H13) ? k1 - 6 * F_H13 : k1;
+    int32_t t5 = clamp01_q13(k5);
+    int32_t t3 = clamp01_q13(k3);
+    int32_t t1 = clamp01_q13(k1);
+    int32_t vsq = (V * S + (1 << (VS_SHIFT13 - 1))) >> VS_SHIFT13;
+    int32_t r = V - (int32_t)((vsq * t5 + (1 << (RS13 - 1))) >> RS13);
+    int32_t g = V - (int32_t)((vsq * t3 + (1 << (RS13 - 1))) >> RS13);
+    int32_t b = V - (int32_t)((vsq * t1 + (1 << (RS13 - 1))) >> RS13);
+    *R = CLIP(r, 0, maxv);
+    *G = CLIP(g, 0, maxv);
+    *B = CLIP(b, 0, maxv);
 }
 
 #endif /* HSV_FIXED_H */

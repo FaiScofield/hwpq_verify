@@ -11,8 +11,10 @@
 #include <math.h>
 
 typedef struct {
-    float H, S, V;
-} hsv_f; /* H∈[0,360), S,V∈[0,1] */
+    float H; // [0.0, 360.0)
+    float S; // [0.0, 1.0]
+    float V; // [0.0, 1.0]
+} hsv_f;
 
 /* RGB(0..1) -> HSV */
 static inline hsv_f rgb2hsv_float(float r, float g, float b)

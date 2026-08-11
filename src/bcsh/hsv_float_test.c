@@ -111,9 +111,9 @@ static void eval_fixed_roundtrip(const char *name)
     for (int r = 0; r <= 255; r++)
         for (int g = 0; g <= 255; g++)
             for (int b = 0; b <= 255; b++) {
-                hsv_fix_t h = rgb2hsv_fix((uint8_t)r, (uint8_t)g, (uint8_t)b);
+                hsv_fix_t h = rgb2hsv_fix_u8((uint8_t)r, (uint8_t)g, (uint8_t)b);
                 uint8_t R, G, B;
-                hsv2rgb_fix(h.H, h.S, h.V, &R, &G, &B);
+                hsv2rgb_fix_u8(h.H, h.S, h.V, &R, &G, &B);
                 stats_add(&st, r, g, b, (int)R - r, (int)G - g, (int)B - b);
             }
     double dt = (double)clock() / CLOCKS_PER_SEC - t0;
@@ -161,7 +161,7 @@ int main(int argc, char **argv)
     if (full10)
         eval_float_roundtrip("float", 10, 1); /* u10 全遍历 1024^3 */
 
-    printf("\n-- 定点版（H=Q11/S=Q10，对照，u8）--\n");
+    printf("\n-- 定点版（H=Q14/S=Q11 归一化，对照，u8）--\n");
     eval_fixed_roundtrip("fixed");
 
     return 0;
