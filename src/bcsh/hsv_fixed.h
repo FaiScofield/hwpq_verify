@@ -26,8 +26,8 @@
 #define FIX_BITS_S 11                         /* S 归一化位宽：1.0 = 2^11 */
 #define FIX_H_ONE  ((int32_t)1 << FIX_BITS_H) /* 360°（H 归一化满量程） */
 #define FIX_S_ONE  ((int32_t)1 << FIX_BITS_S) /* 1.0 */
-#define VS_SHIFT   5 /* 重建第一级 V*S 提前右移位数：目的是降低乘法总位宽，使(V*S>>VS_SHIFT)*t 不超过32bit */
-#define RS_SHIFT   (FIX_BITS_H + FIX_BITS_S - VS_SHIFT) /* 重建右移 = 20 */
+#define VS_SHIFT   11 /* 重建第一级 V*S 提前右移位数：目的是降低乘法总位宽，最大允许到11不掉往返精度 */
+#define RS_SHIFT   (FIX_BITS_H + FIX_BITS_S - VS_SHIFT) /* 重建第二级右移 */
 
 void rgb2hsv_v0_classic(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10);
 void rgb2hsv_v1_no_branch(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10);
