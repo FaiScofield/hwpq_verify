@@ -4,7 +4,7 @@
  * 定标约定（H/S 独立位宽归一化定点）：
  *   FIX_BITS_H = 14 : H 归一化，360° = 2^14 = 16384，有效范围 [0, FIX_H_ONE)
  *   FIX_BITS_S = 11 : S 归一化，1.0 = 2^11 = 2048，有效范围 [0, FIX_S_ONE]
- *   V : 明度，[0, 255]                  （与 8bit RGB 同尺度，不缩放）
+ *   V : 明度，[0, 255/1023]，与 8/10bit RGB 同尺度，不缩放
  *
  * 特点：
  *   - 无任何 float/double、无三角函数（六边形模型天生不需要）
@@ -40,8 +40,8 @@ static double now_s(void)
 }
 
 /* Q14/Q11 参考族函数指针（防内联，测真实调用开销） */
-typedef void (*rgb2hsv_fn)(int32_t, int32_t, int32_t, int32_t *, int32_t *, int32_t *);
-typedef void (*hsv2rgb_fn)(int32_t, int32_t, int32_t, int32_t, int32_t *, int32_t *, int32_t *);
+typedef void (*rgb2hsv_fn)(uint16_t, uint16_t, uint16_t, uint16_t *, uint16_t *, uint16_t *);
+typedef void (*hsv2rgb_fn)(uint16_t, uint16_t, uint16_t, uint16_t, uint16_t *, uint16_t *, uint16_t *);
 
 /* ---------------- 自测：文章示例色往返 ---------------- */
 int main(int argc, char **argv)
@@ -100,15 +100,15 @@ int main(int argc, char **argv)
                 for (int g = 0; g <= 255; g++) {
                     for (int b = 0; b <= 255; b++) {
                         hsv_f hf = rgb2hsv_float(r / 255.0f, g / 255.0f, b / 255.0f);
-                        int Hr = ((int)lrintf(hf.H / 360.0f * (float)F_H13)) & (F_H13 - 1);
-                        int Sr = (int)lrintf(hf.S * (float)F_S13);
-                        if (Sr > F_S13)
-                            Sr = F_S13;
-                        int h13, s11, v10;
+                        int Hr = ((int)lrintf(hf.H / 360.0f * (float)FIX_H_ONE)) & (FIX_H_ONE - 1);
+                        int Sr = (int)lrintf(hf.S * (float)FIX_S_ONE);
+                        if (Sr > FIX_S_ONE)
+                            Sr = FIX_S_ONE;
+                        uint16_t h13, s11, v10;
                         rfn[fi](r, g, b, &h13, &s11, &v10);
                         int dH = abs(h13 - Hr);
-                        if (dH > F_H13 / 2)
-                            dH = F_H13 - dH; /* 圆环距离 */
+                        if (dH > FIX_H_ONE / 2)
+                            dH = FIX_H_ONE - dH; /* 圆环距离 */
                         int dS = abs(s11 - Sr);
                         if (dH > mH8)
                             mH8 = dH;
@@ -121,15 +121,15 @@ int main(int argc, char **argv)
                 for (int g = 0; g <= 1023; g += step1) {
                     for (int b = 0; b <= 1023; b += step1) {
                         hsv_f hf = rgb2hsv_float(r / 1023.0f, g / 1023.0f, b / 1023.0f);
-                        int Hr = ((int)lrintf(hf.H / 360.0f * (float)F_H13)) & (F_H13 - 1);
-                        int Sr = (int)lrintf(hf.S * (float)F_S13);
-                        if (Sr > F_S13)
-                            Sr = F_S13;
-                        int h13, s11, v10;
+                        int Hr = ((int)lrintf(hf.H / 360.0f * (float)FIX_H_ONE)) & (FIX_H_ONE - 1);
+                        int Sr = (int)lrintf(hf.S * (float)FIX_S_ONE);
+                        if (Sr > FIX_S_ONE)
+                            Sr = FIX_S_ONE;
+                        uint16_t h13, s11, v10;
                         rfn[fi](r, g, b, &h13, &s11, &v10);
                         int dH = abs(h13 - Hr);
-                        if (dH > F_H13 / 2)
-                            dH = F_H13 - dH; /* 圆环距离 */
+                        if (dH > FIX_H_ONE / 2)
+                            dH = FIX_H_ONE - dH; /* 圆环距离 */
                         int dS = abs(s11 - Sr);
                         if (dH > mH10)
                             mH10 = dH;
@@ -145,15 +145,15 @@ int main(int argc, char **argv)
         printf("\n[b] hsv2rgb 精度（max|Δ| vs float 参考，u8/u10 LSB）：\n");
         for (int fi = 0; fi < 4; fi++) {
             int mE8 = 0, mE10 = 0;
-            for (int H = 0; H < F_H13; H += F_H13 / 128) {
-                for (int S = 0; S <= F_S13; S += F_S13 / 64) {
+            for (int H = 0; H < FIX_H_ONE; H += FIX_H_ONE / 128) {
+                for (int S = 0; S <= FIX_S_ONE; S += FIX_S_ONE / 64) {
                     for (int V = 0; V <= 255; V += 17) {
                         float Rf, Gf, Bf;
-                        hsv2rgb_float(H / (float)F_H13 * 360.0f, S / (float)F_S13, V / 255.0f, &Rf, &Gf, &Bf);
+                        hsv2rgb_float(H / (float)FIX_H_ONE * 360.0f, S / (float)FIX_S_ONE, V / 255.0f, &Rf, &Gf, &Bf);
                         int Rr = (int)lrintf(Rf * 255.0f);
                         int Gr = (int)lrintf(Gf * 255.0f);
                         int Br = (int)lrintf(Bf * 255.0f);
-                        int R, G, B;
+                        uint16_t R, G, B;
                         hfn[fi](H, S, V, 255, &R, &G, &B);
                         int e = abs(R - Rr);
                         if (abs(G - Gr) > e)
@@ -165,14 +165,14 @@ int main(int argc, char **argv)
                     }
                 }
                 /* u10：H/S 抽样同 u8，V 步长 step_u10（=1 时 V 全遍历） */
-                for (int S = 0; S <= F_S13; S += F_S13 / 64) {
+                for (int S = 0; S <= FIX_S_ONE; S += FIX_S_ONE / 64) {
                     for (int V = 0; V <= 1023; V += step1) {
                         float Rf, Gf, Bf;
-                        hsv2rgb_float(H / (float)F_H13 * 360.0f, S / (float)F_S13, V / 1023.0f, &Rf, &Gf, &Bf);
+                        hsv2rgb_float(H / (float)FIX_H_ONE * 360.0f, S / (float)FIX_S_ONE, V / 1023.0f, &Rf, &Gf, &Bf);
                         int Rr = (int)lrintf(Rf * 1023.0f);
                         int Gr = (int)lrintf(Gf * 1023.0f);
                         int Br = (int)lrintf(Bf * 1023.0f);
-                        int R, G, B;
+                        uint16_t R, G, B;
                         hfn[fi](H, S, V, 1023, &R, &G, &B);
                         int e = abs(R - Rr);
                         if (abs(G - Gr) > e)
@@ -195,7 +195,7 @@ int main(int argc, char **argv)
             for (int r = 0; r <= 255; r++) {
                 for (int g = 0; g <= 255; g++) {
                     for (int b = 0; b <= 255; b++) {
-                        int h13, s11, v10, R, G, B;
+                        uint16_t h13, s11, v10, R, G, B;
                         rfn[fi](r, g, b, &h13, &s11, &v10);
                         hfn[fi](h13, s11, v10, 255, &R, &G, &B);
                         int e = abs(R - r);
@@ -211,7 +211,7 @@ int main(int argc, char **argv)
             for (int r = 0; r <= 1023; r += step2) {
                 for (int g = 0; g <= 1023; g += step2) {
                     for (int b = 0; b <= 1023; b += step2) {
-                        int h13, s11, v10, R, G, B;
+                        uint16_t h13, s11, v10, R, G, B;
                         rfn[fi](r, g, b, &h13, &s11, &v10);
                         hfn[fi](h13, s11, v10, 1023, &R, &G, &B);
                         int e = abs(R - r);
@@ -240,12 +240,13 @@ int main(int argc, char **argv)
                 px[i] = (int32_t)(sd >> 24);
                 py[i] = (int32_t)((sd >> 16) & 255u);
                 pz[i] = (int32_t)((sd >> 8) & 255u);
-                qx[i] = (int32_t)((sd >> 16) & (uint32_t)(F_H13 - 1)); /* H Q(FIX_BITS_H) */
-                qy[i] = (int32_t)((sd >> 8) & (uint32_t)(F_S13 - 1));  /* S Q(FIX_BITS_S) */
+                qx[i] = (int32_t)((sd >> 16) & (uint32_t)(FIX_H_ONE - 1)); /* H Q(FIX_BITS_H) */
+                qy[i] = (int32_t)((sd >> 8) & (uint32_t)(FIX_S_ONE - 1));  /* S Q(FIX_BITS_S) */
                 qz[i] = (int32_t)(sd & 255u);                          /* V */
             }
             for (int fi = 0; fi < 4; fi++) {
-                int32_t h, s, v, acc = 0;
+                uint16_t h, s, v;
+                int32_t acc = 0;
                 double t0 = now_s();
                 for (int i = 0; i < NPERF; i++) {
                     rfn[fi](px[i], py[i], pz[i], &h, &s, &v);
@@ -255,7 +256,8 @@ int main(int argc, char **argv)
                 printf("  rgb2hsv_%-20s %9.2f ns/px\n", nm[fi], (t1 - t0) * 1e9 / NPERF);
             }
             for (int fi = 0; fi < 4; fi++) {
-                int32_t R, G, B, acc = 0;
+                uint16_t R, G, B;
+                int32_t acc = 0;
                 double t0 = now_s();
                 for (int i = 0; i < NPERF; i++) {
                     hfn[fi](qx[i], qy[i], qz[i], 255, &R, &G, &B);
