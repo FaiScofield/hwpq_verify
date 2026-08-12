@@ -93,19 +93,19 @@ static double eval_fixed_bits(const char *name, int bits, int stride)
     for (int r = 0; r <= maxv; r += stride)
         for (int g = 0; g <= maxv; g += stride)
             for (int b = 0; b <= maxv; b += stride) {
-                hsv_fix_t hsv;
-                int32_t R = 0, G = 0, B = 0;
+                uint16_t H, S, V;
+                uint16_t R = 0, G = 0, B = 0;
                 if (bits == 8) {
-                    hsv = rgb2hsv_fix_u8((uint8_t)r, (uint8_t)g, (uint8_t)b);
+                    rgb2hsv_fix_u8((uint8_t)r, (uint8_t)g, (uint8_t)b, &H, &S, &V);
                     uint8_t r8, g8, b8;
-                    hsv2rgb_fix_u8(hsv.H, hsv.S, hsv.V, &r8, &g8, &b8);
+                    hsv2rgb_fix_u8(H, S, V, &r8, &g8, &b8);
                     R = r8;
                     G = g8;
                     B = b8;
                 }
                 else {
-                    hsv = rgb2hsv_fix_u10(r, g, b);
-                    hsv2rgb_fix_u10(hsv.H, hsv.S, hsv.V, &R, &G, &B);
+                    rgb2hsv_fix_u10((uint16_t)r, (uint16_t)g, (uint16_t)b, &H, &S, &V);
+                    hsv2rgb_fix_u10(H, S, V, &R, &G, &B);
                 }
                 int dr = (int)R - r, dg = (int)G - g, db = (int)B - b;
                 int m = MAX3(abs(dr), abs(dg), abs(db));
