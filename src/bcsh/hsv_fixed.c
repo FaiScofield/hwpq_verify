@@ -36,7 +36,7 @@ static inline int32_t rcp_mul_rsh(int32_t a, int32_t rcp, int rsh)
 
 /* clamp4h(k) = max(0, min(min(k, 4*FIX_H_ONE - k), FIX_H_ONE))，k ∈ [0, 6*FIX_H_ONE)，Q(FIX_BITS_H)
    全三目（编译为 CMOV），无分支预测失败 */
-static inline int32_t clamp4h(int32_t k)
+static inline int32_t hsv2rgb_clamp_k(int32_t k)
 {
     int32_t t = k < 4 * FIX_H_ONE - k ? k : 4 * FIX_H_ONE - k; /* min(k, 4F-k) */
     t = t < 0 ? 0 : t;                                         /* max(t, 0)    */
@@ -237,9 +237,9 @@ void hsv2rgb_v1_no_branch(uint16_t H, uint16_t S, uint16_t V, uint16_t maxv, uin
     int32_t k5 = (5 * FIX_H_ONE + h6) % (6 * FIX_H_ONE);
     int32_t k3 = (3 * FIX_H_ONE + h6) % (6 * FIX_H_ONE);
     int32_t k1 = (1 * FIX_H_ONE + h6) % (6 * FIX_H_ONE);
-    int32_t t5 = clamp4h(k5);
-    int32_t t3 = clamp4h(k3);
-    int32_t t1 = clamp4h(k1);
+    int32_t t5 = hsv2rgb_clamp_k(k5);
+    int32_t t3 = hsv2rgb_clamp_k(k3);
+    int32_t t1 = hsv2rgb_clamp_k(k1);
     int32_t vsq = (V * S + (1 << (VS_SHIFT - 1))) >> VS_SHIFT;                 // U10*U12>>5 => U17
     int32_t r = V - (int32_t)((vsq * t5 + (1 << (RS_SHIFT - 1))) >> RS_SHIFT); // U17*U13>>20 => U10
     int32_t g = V - (int32_t)((vsq * t3 + (1 << (RS_SHIFT - 1))) >> RS_SHIFT);
@@ -325,9 +325,9 @@ void hsv2rgb_v3_optimal(uint16_t H, uint16_t S, uint16_t V, uint16_t maxv, uint1
     k5 = (k5 >= 6 * FIX_H_ONE) ? k5 - 6 * FIX_H_ONE : k5;
     k3 = (k3 >= 6 * FIX_H_ONE) ? k3 - 6 * FIX_H_ONE : k3;
     k1 = (k1 >= 6 * FIX_H_ONE) ? k1 - 6 * FIX_H_ONE : k1;
-    int32_t t5 = clamp4h(k5);
-    int32_t t3 = clamp4h(k3);
-    int32_t t1 = clamp4h(k1);
+    int32_t t5 = hsv2rgb_clamp_k(k5);
+    int32_t t3 = hsv2rgb_clamp_k(k3);
+    int32_t t1 = hsv2rgb_clamp_k(k1);
     /* f = V - V*S*t / 2^bits（V∈[0,maxv] 像素域，S 为 Q(FIX_BITS_S)、t 为 Q(FIX_BITS_H)），
        重建四舍五入 (+2^(rs-1))>>rs。第一级 V*S（Q11 像素域 ≤ 2^21）先右移 VS_SHIFT
        提前降位宽，使第二级 (V*S>>VS_SHIFT)*t ≤ 2^30 < 2^31，全程 32 位。

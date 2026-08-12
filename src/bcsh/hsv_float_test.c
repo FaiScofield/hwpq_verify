@@ -3,13 +3,15 @@
  *
  * 目标：
  *   1) 提供浮点参考实现 rgb2hsv_float / hsv2rgb_float（六边形模型标准公式）
- *   2) 评估 rgb -> hsv -> rgb 往返精度损失（浮点 vs 定点对照）
- *   3) 输入精度遍历 u8(0..255) 与 u10(0..1023)
+ *      + rgb2h2sv_float（圆柱/极坐标 atan2 色相版）及两者输出对比
+ *   2) 评估 rgb -> hsv -> rgb 往返精度损失（浮点六边形 / 浮点圆柱 / 定点 三路对照）
+ *   3) 输入精度遍历 u8(0..255) 全遍历 + u10(0..1023) 抽样/全遍历
  *
  * 误差单位 = 输入 LSB：输出先四舍五入回整数，再与输入逐通道求差。
  * 运行：
- *   hsv_float_test          u8 全遍历 + u10 等间隔抽样（快）
- *   hsv_float_test full     + u10 全遍历 1024^3（较慢，数秒~十几秒）
+ *   hsv_float_test           u8 全遍历 + u10 抽样（步长=3）
+ *   hsv_float_test 1         u10 全遍历 1024^3（较慢，数秒~十几秒）
+ *   hsv_float_test 7         u10 抽样步长 7
  */
 #include <math.h>
 #include <stdio.h>
@@ -101,23 +103,113 @@ static void eval_float_roundtrip(const char *name, int bits, int stride)
     stats_report(&st, bits, dt);
 }
 
-/* 定点版往返评估（仅 u8：V 为 0..255 原始尺度） */
-static void eval_fixed_roundtrip(const char *name)
+/* 圆柱色相版往返评估：rgb2h2sv_float -> hsv2rgb_float（u8/u10，stride=1 全遍历） */
+static void eval_h2_roundtrip(const char *name, int bits, int stride)
 {
+    const int maxv = (1 << bits) - 1;
+    static float nrm[1024];
+    for (int i = 0; i <= maxv; i++)
+        nrm[i] = (float)i / (float)maxv;
+
+    stats_t st;
+    stats_init(&st, name);
+    double t0 = (double)clock() / CLOCKS_PER_SEC;
+    for (int r = 0; r <= maxv; r += stride)
+        for (int g = 0; g <= maxv; g += stride)
+            for (int b = 0; b <= maxv; b += stride) {
+                hsv_f h = rgb2h2sv_float(nrm[r], nrm[g], nrm[b]);
+                float R, G, B;
+                hsv2rgb_float(h.H, h.S, h.V, &R, &G, &B);
+                stats_add(&st, r, g, b, (int)lrintf(R * (float)maxv) - r, (int)lrintf(G * (float)maxv) - g,
+                    (int)lrintf(B * (float)maxv) - b);
+            }
+    double dt = (double)clock() / CLOCKS_PER_SEC - t0;
+    stats_report(&st, bits, dt);
+}
+
+/* 圆柱自洽往返：rgb2h2sv_float -> h2sv2rgb_float（u8/u10，stride=1 全遍历） */
+static void eval_h2r_roundtrip(const char *name, int bits, int stride)
+{
+    const int maxv = (1 << bits) - 1;
+    static float nrm[1024];
+    for (int i = 0; i <= maxv; i++)
+        nrm[i] = (float)i / (float)maxv;
+
+    stats_t st;
+    stats_init(&st, name);
+    double t0 = (double)clock() / CLOCKS_PER_SEC;
+    for (int r = 0; r <= maxv; r += stride)
+        for (int g = 0; g <= maxv; g += stride)
+            for (int b = 0; b <= maxv; b += stride) {
+                hsv_f h = rgb2h2sv_float(nrm[r], nrm[g], nrm[b]);
+                float R, G, B;
+                h2sv2rgb_float(h.H, h.S, h.V, &R, &G, &B);
+                stats_add(&st, r, g, b, (int)lrintf(R * (float)maxv) - r, (int)lrintf(G * (float)maxv) - g,
+                    (int)lrintf(B * (float)maxv) - b);
+            }
+    double dt = (double)clock() / CLOCKS_PER_SEC - t0;
+    stats_report(&st, bits, dt);
+}
+
+/* rgb2h2sv_float vs rgb2hsv_float 输出对比（H 圆环角度差 / ΔS / ΔV） */
+static void compare_hsv_models(int bits, int stride)
+{
+    const int maxv = (1 << bits) - 1;
+    static float nrm[1024];
+    for (int i = 0; i <= maxv; i++)
+        nrm[i] = (float)i / (float)maxv;
+    uint64_t n = 0;
+    double max_dH = 0.0, sum_dH = 0.0, max_dS = 0.0, max_dV = 0.0;
+    for (int r = 0; r <= maxv; r += stride)
+        for (int g = 0; g <= maxv; g += stride)
+            for (int b = 0; b <= maxv; b += stride) {
+                hsv_f a = rgb2hsv_float(nrm[r], nrm[g], nrm[b]);
+                hsv_f b2 = rgb2h2sv_float(nrm[r], nrm[g], nrm[b]);
+                double dH = fabs((double)a.H - b2.H);
+                if (dH > 180.0)
+                    dH = 360.0 - dH; /* 圆环距离 */
+                double dS = fabs((double)a.S - b2.S);
+                double dV = fabs((double)a.V - b2.V);
+                if (dH > max_dH)
+                    max_dH = dH;
+                if (dS > max_dS)
+                    max_dS = dS;
+                if (dV > max_dV)
+                    max_dV = dV;
+                sum_dH += dH;
+                n++;
+            }
+    printf("  u%-2d n=%9llu  H: max|Δ|=%.3f° mean=%.4f°  |  S: max|Δ|=%.6f  |  V: max|Δ|=%.6f\n", bits,
+        (unsigned long long)n, max_dH, sum_dH / (double)n, max_dS, max_dV);
+}
+
+/* 定点版往返评估（u8/u10，stride=1 时全遍历） */
+static void eval_fixed_roundtrip(const char *name, int bits, int stride)
+{
+    const int maxv = (1 << bits) - 1;
     stats_t st;
     stats_init(&st, name);
     double t0 = (double)clock() / CLOCKS_PER_SEC;
 
-    for (int r = 0; r <= 255; r++)
-        for (int g = 0; g <= 255; g++)
-            for (int b = 0; b <= 255; b++) {
-                hsv_fix_t h = rgb2hsv_fix_u8((uint8_t)r, (uint8_t)g, (uint8_t)b);
-                uint8_t R, G, B;
-                hsv2rgb_fix_u8(h.H, h.S, h.V, &R, &G, &B);
-                stats_add(&st, r, g, b, (int)R - r, (int)G - g, (int)B - b);
+    for (int r = 0; r <= maxv; r += stride)
+        for (int g = 0; g <= maxv; g += stride)
+            for (int b = 0; b <= maxv; b += stride) {
+                uint16_t H, S, V;
+                if (bits == 8) {
+                    uint8_t R, G, B;
+                    rgb2hsv_fix_u8((uint8_t)r, (uint8_t)g, (uint8_t)b, &H, &S, &V);
+                    hsv2rgb_fix_u8(H, S, V, &R, &G, &B);
+                    stats_add(&st, r, g, b, (int)R - r, (int)G - g, (int)B - b);
+                }
+                else {
+                    uint16_t R, G, B;
+                    rgb2hsv_fix_u10((uint16_t)r, (uint16_t)g, (uint16_t)b, &H, &S, &V);
+                    hsv2rgb_fix_u10(H, S, V, &R, &G, &B);
+                    stats_add(&st, r, g, b, (int)R - r, (int)G - g, (int)B - b);
+                }
             }
     double dt = (double)clock() / CLOCKS_PER_SEC - t0;
-    stats_report(&st, 8, dt);
+    stats_report(&st, bits, dt);
 }
 
 /* 浮点实现本身的正确性抽查（对照文章示例表） */
@@ -149,20 +241,34 @@ static void spot_check(void)
 
 int main(int argc, char **argv)
 {
-    int full10 = (argc > 1 && argv[1][0] == 'f'); /* 参数 full：u10 全遍历 */
+    int step_u10 = (argc > 1) ? atoi(argv[1]) : 3; /* u10 抽样步长，=1 全遍历 */
+    if (step_u10 < 1)
+        step_u10 = 3;
+    const char *lab10 = (step_u10 == 1) ? "全遍历" : "抽样";
 
-    printf("== rgb -> hsv -> rgb 往返偏差（误差单位 = 输入 LSB，输出四舍五入回整数）==\n\n");
+    printf("== rgb -> hsv -> rgb 往返偏差（误差单位 = 输入 LSB，输出四舍五入回整数）==\n");
+    printf("（u8 恒全遍历；u10 步长=%d -> %s）\n\n", step_u10, lab10);
     spot_check();
 
-    printf("-- 浮点版 --\n");
-    eval_float_roundtrip("float", 8, 1);  /* u8 全遍历 256^3 */
-    eval_float_roundtrip("float", 10, 8); /* u10 抽样 128^3（快） */
-    eval_float_roundtrip("float", 10, 4); /* u10 抽样 256^3（密，优化方法） */
-    if (full10)
-        eval_float_roundtrip("float", 10, 1); /* u10 全遍历 1024^3 */
+    printf("-- 浮点六边形版（rgb2hsv_float）--\n");
+    eval_float_roundtrip("float", 8, 1);
+    eval_float_roundtrip("float", 10, step_u10);
 
-    printf("\n-- 定点版（H=Q14/S=Q11 归一化，对照，u8）--\n");
-    eval_fixed_roundtrip("fixed");
+    printf("\n-- 浮点圆柱色相版（rgb2h2sv_float -> hsv2rgb_float，六边形逆，模型不互逆）--\n");
+    eval_h2_roundtrip("h2", 8, 1);
+    eval_h2_roundtrip("h2", 10, 5);
+
+    printf("\n-- 浮点圆柱自洽（rgb2h2sv_float -> h2sv2rgb_float，圆柱逆）--\n");
+    eval_h2r_roundtrip("h2r", 8, 1);
+    eval_h2r_roundtrip("h2r", 10, step_u10);
+
+    printf("\n-- 定点版（H=Q14/S=Q11 归一化，对照）--\n");
+    eval_fixed_roundtrip("fixed", 8, 1);
+    eval_fixed_roundtrip("fixed", 10, step_u10);
+
+    printf("\n-- rgb2h2sv_float vs rgb2hsv_float 输出对比（圆柱 vs 六边形色相）--\n");
+    compare_hsv_models(8, 1);
+    compare_hsv_models(10, step_u10);
 
     return 0;
 }
