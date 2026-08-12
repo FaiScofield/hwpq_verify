@@ -256,7 +256,7 @@ static int mult_width(int rcp_bits, int vs_shift)
 {
     int w_s = 0 + rcp_bits; /* 导数表是按U10做分母的，乘回U10最大值不会超过 2^rcp_bits */
     int w_a = 1 + rcp_bits; /* 多一个符号位 */
-    int w_h = (FIX_BITS_H + 3) + RCP6_BITS;              /* /6的定点化 */
+    int w_h = FIX_BITS_H + (RCP6_BITS - 2);              /* /6的定点化 */
     int w_v = (10 + FIX_BITS_S - vs_shift) + FIX_BITS_H; /* hsv2rgb 内使用 */
     int m = MAX3(w_a, w_h, w_v);
     if (w_s > m)

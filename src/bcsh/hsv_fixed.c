@@ -70,7 +70,6 @@ void rgb2hsv_v0_classic(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint1
         }
         d = ((d << FIX_BITS_H) + (d < 0 ? -(c >> 1) : (c >> 1))) / c; /* [-1.0, 1.0]*FIX_BITS_H */
         h = ((base << FIX_BITS_H) + d + 3) / 6;                       /* 先算+d之后的h，这里h已经确保>0 */
-        // h = (h + (h < 0 ? -3 : 3)) / 6;                   /* 再按h的符号做除法的舍入 */
         h = h & (FIX_H_ONE - 1);                                      /* mod 2^13，负值由 +FIX_H_ONE 回绕 */
     }
     *h14 = h;
@@ -150,13 +149,16 @@ void rgb2hsv_v3_optimal(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint1
        base∈{6,2,4}；÷6 用常量 RCP6=round(2^RCP6_BITS/6)，避免 FIX_H_6=2731(≠2^14/6) 的系统偏差 */
     int32_t h = 0;
     if (C > 0) {
-        int32_t aR = rcp_mul_rsh(g - b, rcp[C], RCP_BITS - FIX_BITS_H); // S25=>S15
+        int32_t aR = rcp_mul_rsh(g - b, rcp[C], RCP_BITS - FIX_BITS_H); // S25=>S15, 倒数的定点化，乘法位宽不超过 2^RCP_BITS
         int32_t aG = rcp_mul_rsh(b - r, rcp[C], RCP_BITS - FIX_BITS_H);
         int32_t aB = rcp_mul_rsh(r - g, rcp[C], RCP_BITS - FIX_BITS_H);
-        /* H = round((A + base*F)/6)，base∈{6,2,4}（6 使 hR 恒正，& mask 回绕） */
-        int32_t hR = rcp_mul_rsh(aR + (6 << FIX_BITS_H), RCP6, RCP6_BITS) & (FIX_H_ONE - 1);
-        int32_t hG = rcp_mul_rsh(aG + (2 << FIX_BITS_H), RCP6, RCP6_BITS); // U14 max
-        int32_t hB = rcp_mul_rsh(aB + (4 << FIX_BITS_H), RCP6, RCP6_BITS);
+        /* H = round((A + base*F)/6)，base∈{6,2,4}。
+           位宽优化：base*F 部分拆出为编译期常量 CF=round(base*F*RCP6/2^18)，
+           乘法器只需 A(15bit) × RCP6(18bit)=>30bit（原 (A+baseF)17bit×RCP6=33bit）。
+           CF: base=6→16384(F)、base=2→5461、base=4→10923 */
+        int32_t hR = (rcp_mul_rsh(aR, RCP6, RCP6_BITS) + FIX_H_ONE) & (FIX_H_ONE - 1);
+        int32_t hG = rcp_mul_rsh(aG, RCP6, RCP6_BITS) + 5461;
+        int32_t hB = rcp_mul_rsh(aB, RCP6, RCP6_BITS) + 10923;
         uint32_t mR = (uint32_t)(M == r);
         uint32_t mG = (uint32_t)(M == g) & ~mR;
         uint32_t mB = (uint32_t)(M == b) & ~(mR | mG);
