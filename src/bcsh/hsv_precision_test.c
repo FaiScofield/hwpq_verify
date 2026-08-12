@@ -230,6 +230,45 @@ static void hsv2rgb_v3_p(int32_t H, int32_t S, int32_t V, int maxv, int vs_shift
     *B = CLIP(b, 0, maxv);
 }
 
+/* 建合并倒数表：rcp6[k] = round(2^rcp6_bits/(6k))，k∈[1,RCP_MAX]。
+   利用 (diff×2^14/C)/6 = diff×2^14/(6C) 恒等，把原两级乘法
+   (diff×rcp[C])×RCP6 合并为一级乘法 diff×rcp6[C]，省掉 3 个 /6 乘法器。
+   rcp6_bits 与 S 表的 rcp_bits 相互独立，可分别取最小位宽 */
+static void build_rcp6_tbl(int rcp6_bits, uint32_t *tbl)
+{
+    assert(rcp6_bits >= FIX_BITS_H && rcp6_bits <= 31); /* rsh=rcp6_bits-FIX_BITS_H >= 0 */
+    tbl[0] = 0;
+    for (int k = 1; k <= RCP_MAX; k++)
+        tbl[k] = (uint32_t)(((int64_t)1 << rcp6_bits) + 3 * k) / (6 * k); /* round(2^rb6/(6k)) */
+}
+
+/* 参数化 rgb2hsv 合并版：H 一级乘法 diff×rcp6[C]（rcp6 表位宽 rcp6_bits 独立）；
+   S 仍用原 rcp 表（rcp6 是 /6 定标，与 S 不兼容，故两张表，位宽各自独立）。
+   常量折叠：round((a+baseF)/6) = round(a/6)+CF，CF: base=6→16384、2→5461、4→10923 */
+static void rgb2hsv_merged_p(int32_t r, int32_t g, int32_t b, const uint32_t *rcp, int rcp_bits,
+    const uint32_t *rcp6, int rcp6_bits, int32_t *h14, int32_t *s11, int32_t *v10)
+{
+    int32_t M = MAX3(r, g, b);
+    int32_t m = MIN3(r, g, b);
+    int32_t C = M - m;
+    *v10 = M;
+    *s11 = (C > 0) ? rcp_mul_rsh_p(C, rcp[M], rcp_bits - FIX_BITS_S) : 0;
+    int32_t h = 0;
+    if (C > 0) {
+        int32_t hR = (rcp_mul_rsh_p(g - b, rcp6[C], rcp6_bits - FIX_BITS_H) + FIX_H_ONE) & (FIX_H_ONE - 1);
+        int32_t hG = rcp_mul_rsh_p(b - r, rcp6[C], rcp6_bits - FIX_BITS_H) + 5461;
+        int32_t hB = rcp_mul_rsh_p(r - g, rcp6[C], rcp6_bits - FIX_BITS_H) + 10923;
+        uint32_t mR = (uint32_t)(M == r);
+        uint32_t mG = (uint32_t)(M == g) & ~mR;
+        uint32_t mB = (uint32_t)(M == b) & ~(mR | mG);
+        int32_t selR = (int32_t)(0u - mR);
+        int32_t selG = (int32_t)(0u - mG);
+        int32_t selB = (int32_t)(0u - mB);
+        h = (hR & selR) | (hG & selG) | (hB & selB);
+    }
+    *h14 = h;
+}
+
 /* 参数化往返最大误差（LSB）：给定 rcp_bits / vs_shift / bits 位深 / 步长 */
 static int roundtrip_maxerr_p(int rcp_bits, int vs_shift, int bits, int stride)
 {
@@ -248,6 +287,74 @@ static int roundtrip_maxerr_p(int rcp_bits, int vs_shift, int bits, int stride)
                     maxerr = e;
             }
     return maxerr;
+}
+
+/* 参数化往返最大误差（LSB）：合并倒数表方案（H 一级乘法，rcp/rcp6 位宽独立） */
+static int roundtrip_maxerr_merged(int rcp_bits, int rcp6_bits, int vs_shift, int bits, int stride)
+{
+    const int maxv = (1 << bits) - 1;
+    uint32_t tbl[RCP_MAX + 1], tbl6[RCP_MAX + 1];
+    build_rcp_tbl(rcp_bits, tbl);
+    build_rcp6_tbl(rcp6_bits, tbl6);
+    int maxerr = 0;
+    for (int r = 0; r <= maxv; r += stride)
+        for (int g = 0; g <= maxv; g += stride)
+            for (int b = 0; b <= maxv; b += stride) {
+                int32_t H, S, V, R, G, B;
+                rgb2hsv_merged_p(r, g, b, tbl, rcp_bits, tbl6, rcp6_bits, &H, &S, &V);
+                hsv2rgb_v3_p(H, S, V, maxv, vs_shift, &R, &G, &B);
+                int e = MAX3(abs((int)R - r), abs((int)G - g), abs((int)B - b));
+                if (e > maxerr)
+                    maxerr = e;
+            }
+    return maxerr;
+}
+
+/* [11] 合并倒数表方案验证：rcp6[k]=round(2^rb6/(6k))，H 一级乘法。
+   对比原两级乘法（rcp[C]×RCP6）往返精度；S 表 rcp 与 H 表 rcp6 的
+   定点化位宽独立，分别扫描各自往返 0 损失的最小值 */
+static void test_merged(int step_u8, int step_u10)
+{
+    printf("\n[11] 合并倒数表方案验证（rcp6[k]=round(2^rb6/(6k))，H 一级乘法，双表位宽独立）：\n");
+    printf("    u8 步长=%d / u10 步长=%d（=1 为全遍历）\n", step_u8, step_u10);
+    {
+        const int rb = RCP_BITS, rb6 = RCP_BITS; /* 同精度对比 */
+        int e8 = roundtrip_maxerr_p(rb, VS_SHIFT, 8, step_u8);
+        int e10 = roundtrip_maxerr_p(rb, VS_SHIFT, 10, step_u10);
+        int e8m = roundtrip_maxerr_merged(rb, rb6, VS_SHIFT, 8, step_u8);
+        int e10m = roundtrip_maxerr_merged(rb, rb6, VS_SHIFT, 10, step_u10);
+        printf("    RCP_BITS=%d / RCP6_BITS=%d（VS_SHIFT=%d）:\n", rb, rb6, VS_SHIFT);
+        printf("      原两级 (rcp[C]×RCP6): u8 max|Δ|=%2d  u10 max|Δ|=%2d\n", e8, e10);
+        printf("      合并   (rcp6[C] 一级): u8 max|Δ|=%2d  u10 max|Δ|=%2d\n", e8m, e10m);
+    }
+    {
+        /* 分离精度：固定 S 表，扫 H 表最小位宽 */
+        int best6 = -1;
+        printf("    固定 S 表 RCP_BITS=%d，扫描 H 表 RCP6_BITS：\n", RCP_BITS);
+        for (int rb6 = FIX_BITS_H; rb6 <= 28; rb6++) {
+            int e8 = roundtrip_maxerr_merged(RCP_BITS, rb6, VS_SHIFT, 8, step_u8);
+            int e10 = roundtrip_maxerr_merged(RCP_BITS, rb6, VS_SHIFT, 10, step_u10);
+            int ok = (e8 == 0 && e10 == 0);
+            if (ok && best6 < 0)
+                best6 = rb6;
+            printf("      RCP6_BITS=%2d -> u8 max|Δ|=%2d  u10 max|Δ|=%2d%s\n", rb6, e8, e10, ok ? "  <== 0误差" : "");
+        }
+        printf("    => H 表最小 RCP6_BITS = %d%s\n", best6, best6 < 0 ? "（未找到）" : "");
+    }
+    {
+        /* 分离精度：固定 H 表，扫 S 表最小位宽 */
+        int best = -1;
+        printf("    固定 H 表 RCP6_BITS=%d，扫描 S 表 RCP_BITS：\n", RCP_BITS);
+        for (int rb = FIX_BITS_S; rb <= 28; rb++) {
+            int e8 = roundtrip_maxerr_merged(rb, RCP_BITS, VS_SHIFT, 8, step_u8);
+            int e10 = roundtrip_maxerr_merged(rb, RCP_BITS, VS_SHIFT, 10, step_u10);
+            int ok = (e8 == 0 && e10 == 0);
+            if (ok && best < 0)
+                best = rb;
+            printf("      RCP_BITS=%2d -> u8 max|Δ|=%2d  u10 max|Δ|=%2d%s\n", rb, e8, e10, ok ? "  <== 0误差" : "");
+        }
+        printf("    => S 表最小 RCP_BITS = %d%s\n", best, best < 0 ? "（未找到）" : "");
+    }
 }
 
 /* 估算整套函数最大乘法器输入位宽（bit）：
@@ -426,7 +533,7 @@ static void usage(const char *prog)
     printf("  -h      帮助\n");
     printf("用例: [1]u8只量化S [2]u8只量化H [3]u8组合边界 [4]u10只量化S [5]u10只量化H\n");
     printf("      [6]u10组合边界 [7]定点往返(u8+u10) [8]RCP_BITS最小 [9]VS_SHIFT最大\n");
-    printf("      [10](RCP_BITS,VS_SHIFT)最优组合(最大乘法位宽最低)\n");
+    printf("      [10](RCP_BITS,VS_SHIFT)最优组合(最大乘法位宽最低) [11]合并倒数表(H一级乘法)\n");
 }
 
 int main(int argc, char **argv)
@@ -499,6 +606,8 @@ int main(int argc, char **argv)
         test_vs_scan(step_u8, step_u10);
     if (want(10))
         test_combo_scan(step_u8, step_u10);
+    if (want(11))
+        test_merged(step_u8, step_u10);
 
     return 0;
 }

@@ -2,16 +2,22 @@
 #include "hsv_fixed.h"
 
 
-/* ---------- 除法消除：倒数表 ---------- */
-/* 用倒数表替换 rgb2hsv 的运行时除法（S=C/V、色相 /C）：
-   rcp[k] = round(2^RCP_BITS / k)，k ∈ [1, RCP_MAX]（RCP_MAX 覆盖 u10 最大除数 1023）。
-   乘法带符号四舍五入，与精确除法误差 < 0.1 LSB，u8/u10 往返 0 误差保持。 */
-#define RCP_BITS  24 /* 倒数表定标位宽；可用 -DRCP_BITS=N 覆盖（最小值 24 由 hsv_fixed_test 全遍历确定） */
-#define RCP_MAX   1023
-#define RCP6_BITS 18 /* /6 固定除数倒数位宽，可 -DRCP6_BITS=N 独立覆盖（最小值 18 由 hsv_fixed_test 确定） */
-#define RCP6      (((1 << RCP6_BITS) + 3) / 6) /* round(2^RCP6_BITS/6)=43691：rgb2hsv 求 H 的固定 /6 倒数 */
+/* ---------- 除法消除：双倒数表（S 表 / H 表，位宽独立） ---------- */
+/* 用两张倒数表替换 rgb2hsv 的运行时除法（S=C/V、色相 diff/(6C)）：
+   rcp[k]  = round(2^RCP_BITS/k)    —— S=C/V 用，以 V(M) 为索引
+   rcp6[k] = round(2^RCP6_BITS/(6k)) —— H=diff/(6C) 用，以 C(Chroma) 为索引
+   rcp6 把原两级乘法 (diff×rcp[C])×RCP6 合并为一级乘法 diff×rcp6[C]，省 3 个 /6 乘法器；
+   两表索引（M vs C）与定标（/k vs /6k）均不同，无法共用，故独立。
+   最小位宽由 hsv_precision_test [11] 全遍历确定：S 表 21bit、H 表 24bit。 */
+#define RCP_BITS      21 /* S 表定标位宽；可用 -DRCP_BITS=N 覆盖（最小值 21 由 [11] 全遍历确定） */
+#define RCP6_BITS     24 /* H 表 rcp6 定标位宽；可用 -DRCP6_BITS=N 覆盖（最小值 24 由 [11] 全遍历确定） */
+#define RCP_MAX       1023
+/* v2 参考族保留的固定 /6 常量（独立于双表，勿改） */
+#define RCP6_DIV_BITS 18
+#define RCP6_DIV      (((1 << RCP6_DIV_BITS) + 3) / 6) /* round(2^18/6)=43691 */
 
-static inline const uint32_t *rcp_tbl_u24_fixed(void)
+/* S 表：rcp[k] = round(2^RCP_BITS/k)，k∈[1,RCP_MAX]，V(M) 索引 */
+static inline const uint32_t *rcp_tbl_u21_fixed(void)
 {
     static uint32_t t[RCP_MAX + 1];
     static int ready = 0;
@@ -24,8 +30,23 @@ static inline const uint32_t *rcp_tbl_u24_fixed(void)
     return t;
 }
 
-/* 除法消除（窄乘法形式）：round(a * rcp / 2^rsh)，a ≤ 17bit 有符号、rcp ≤ RCP_BITS bit。
-   调用方把 a 自带的 2 的幂缩放(×2^SH)拆成右移 rsh = RCP_BITS - SH，乘法器只需 a×rcp 位宽
+/* H 表：rcp6[k] = round(2^RCP6_BITS/(6k))，k∈[1,RCP_MAX]，C(Chroma) 索引。
+   利用 (diff×2^14/C)/6 = diff×2^14/(6C) 恒等，H 用 rcp6 一级乘法直接得 Q14 候选 */
+static inline const uint32_t *rcp6_tbl_u24_fixed(void)
+{
+    static uint32_t t[RCP_MAX + 1];
+    static int ready = 0;
+    if (!ready) {
+        t[0] = 0;
+        for (int k = 1; k <= RCP_MAX; k++)
+            t[k] = ((1u << RCP6_BITS) + 3 * k) / (6 * k); /* round(2^RCP6_BITS/(6k)) */
+        ready = 1;
+    }
+    return t;
+}
+
+/* 除法消除（窄乘法形式）：round(a * rcp / 2^rsh)，a ≤ 17bit 有符号、rcp ≤ 24bit。
+   调用方把 a 自带的 2 的幂缩放(×2^SH)拆成右移 rsh = 定标位 - SH，乘法器只需 a×rcp 位宽
    （相比 a<<SH × rcp 少 SH 位），适合硬件实现 */
 static inline int32_t rcp_mul_rsh(int32_t a, uint32_t rcp, int rsh)
 {
@@ -107,7 +128,8 @@ void rgb2hsv_v1_no_branch(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uin
 /* v2：取消除法（倒数表替代 /C、/6；分支保留） */
 void rgb2hsv_v2_no_division(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10)
 {
-    const uint32_t *rcp = rcp_tbl_u24_fixed();
+    const uint32_t *rcp = rcp_tbl_u21_fixed();
+    const uint32_t *rcp6 = rcp6_tbl_u24_fixed();
     int32_t M = MAX3(r, g, b);
     int32_t m = MIN3(r, g, b);
     int32_t c = M - m;
@@ -115,50 +137,39 @@ void rgb2hsv_v2_no_division(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, u
     *s11 = (c > 0) ? rcp_mul_rsh(c, rcp[M], RCP_BITS - FIX_BITS_S) : 0; // U24=>U11
     int32_t h = 0;
     if (c > 0) {
-        int32_t d, base; /* 分支保留 */
         if (M == r) {
-            d = g - b;
-            base = 6;
+            h = (rcp_mul_rsh(g - b, rcp6[c], RCP6_BITS - FIX_BITS_H) + FIX_H_ONE) & (FIX_H_ONE - 1);
         }
         else if (M == g) {
-            d = b - r;
-            base = 2;
+            h = rcp_mul_rsh(b - r, rcp6[c], RCP6_BITS - FIX_BITS_H) + 5461; // U24 max
         }
         else {
-            d = r - g;
-            base = 4;
+            h = rcp_mul_rsh(r - g, rcp6[c], RCP6_BITS - FIX_BITS_H) + 10923;
         }
-        int32_t a = rcp_mul_rsh(d, rcp[c], RCP_BITS - FIX_BITS_H);       /* round(diff<<13/C), S12 */
-        int32_t h_ = rcp_mul_rsh(a + base * FIX_H_ONE, RCP6, RCP6_BITS); /* /6 */
-        h = h_ & (FIX_H_ONE - 1);
     }
     *h14 = h;
 }
 
-/* v3：取消分支 + 取消除法（优先级掩码 + 倒数表，硬件友好） */
+/* v3：取消分支 + 取消除法（优先级掩码 + 双倒数表，硬件友好） */
 void rgb2hsv_v3_optimal(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10)
 {
-    const uint32_t *rcp = rcp_tbl_u24_fixed();
-    int32_t M = MAX3(r, g, b); /* U10: [0, 1023] */
-    int32_t m = MIN3(r, g, b); /* U10: [0, 1023] */
-    int32_t C = M - m;         /* U10: [0, 1023], chroma */
+    const uint32_t *rcp = rcp_tbl_u21_fixed();   /* S 表：S=C/V，V(M) 索引，RCP_BITS bit */
+    const uint32_t *rcp6 = rcp6_tbl_u24_fixed(); /* H 表：H=diff/(6C)，C(Chroma) 索引，RCP6_BITS bit */
+    int32_t M = MAX3(r, g, b);                   /* U10: [0, 1023] */
+    int32_t m = MIN3(r, g, b);                   /* U10: [0, 1023] */
+    int32_t C = M - m;                           /* U10: [0, 1023], chroma */
     *v10 = M;
-    *s11 = (C > 0) ? rcp_mul_rsh(C, rcp[M], RCP_BITS - FIX_BITS_S) : 0; // U24=>U11
-    /* H：三个候选 + 优先级掩码选择（互斥、无分支），定标 Q(FIX_BITS_H)
-       先求 A = Q14 的 diff/C（倒数表），再 H = round((A + base*FIX_H_ONE)/6)，
-       base∈{6,2,4}；÷6 用常量 RCP6=round(2^RCP6_BITS/6)，避免 FIX_H_6=2731(≠2^14/6) 的系统偏差 */
+    *s11 = (C > 0) ? rcp_mul_rsh(C, rcp[M], RCP_BITS - FIX_BITS_S) : 0; // S 表 RCP_BITS(U21)=>U11
+    /* H：三个候选 + 优先级掩码选择（互斥、无分支），定标 Q(FIX_BITS_H)。
+       双表合并：H = round((A + base*F)/6) = round(diff*2^14/(6C)) + CF_base，
+       用 rcp6[C]=round(2^RCP6_BITS/(6C)) 一级乘法直接得 Q14，省掉原 (diff/C) 后再 /6
+       的 3 个第二级乘法器；base*F/6 拆为编译期常量 CF（base=6→16384、2→5461、4→10923）。
+       diff(≤11bit)×rcp6(≤24bit) 单级乘法，延迟比原两级低一级 */
     int32_t h = 0;
     if (C > 0) {
-        int32_t aR = rcp_mul_rsh(g - b, rcp[C], RCP_BITS - FIX_BITS_H); // S25=>S15, 倒数的定点化，乘法位宽不超过 2^RCP_BITS
-        int32_t aG = rcp_mul_rsh(b - r, rcp[C], RCP_BITS - FIX_BITS_H);
-        int32_t aB = rcp_mul_rsh(r - g, rcp[C], RCP_BITS - FIX_BITS_H);
-        /* H = round((A + base*F)/6)，base∈{6,2,4}。
-           位宽优化：base*F 部分拆出为编译期常量 CF=round(base*F*RCP6/2^18)，
-           乘法器只需 A(15bit) × RCP6(18bit)=>30bit（原 (A+baseF)17bit×RCP6=33bit）。
-           CF: base=6→16384(F)、base=2→5461、base=4→10923 */
-        int32_t hR = (rcp_mul_rsh(aR, RCP6, RCP6_BITS) + FIX_H_ONE) & (FIX_H_ONE - 1);
-        int32_t hG = rcp_mul_rsh(aG, RCP6, RCP6_BITS) + 5461;
-        int32_t hB = rcp_mul_rsh(aB, RCP6, RCP6_BITS) + 10923;
+        int32_t hR = (rcp_mul_rsh(g - b, rcp6[C], RCP6_BITS - FIX_BITS_H) + FIX_H_ONE) & (FIX_H_ONE - 1);
+        int32_t hG = rcp_mul_rsh(b - r, rcp6[C], RCP6_BITS - FIX_BITS_H) + 5461; // U24 max
+        int32_t hB = rcp_mul_rsh(r - g, rcp6[C], RCP6_BITS - FIX_BITS_H) + 10923;
         uint32_t mR = (uint32_t)(M == r);
         uint32_t mG = (uint32_t)(M == g) & ~mR;
         uint32_t mB = (uint32_t)(M == b) & ~(mR | mG);
@@ -172,14 +183,15 @@ void rgb2hsv_v3_optimal(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint1
 
 /* ---------------- HSV -> RGB(maxv)（Q14/Q11 参考族） ---------------- */
 /* v0：经典 C/X/m 模型，switch 分支 + 除法；
-   改进：全程 Q11（像素域×F_S13）保精度，舍入推迟到最后一步，消除提前舍入 C 的 1 LSB */
+   改进：C11=V*S 提前量化到 2^FIX_BITS_S 对齐（低 11bit 清零），末步舍入因此
+   对 H 的 1 Q14 LSB 量化误差不敏感（u8/u10 全遍历 0 误差，对近似 H 同样鲁棒） */
 void hsv2rgb_v0_classic(uint16_t H, uint16_t S, uint16_t V, uint16_t maxv, uint16_t *R, uint16_t *G, uint16_t *B)
 {
     if (S == 0) {
         *R = *G = *B = V;
         return;
     }
-    int32_t C11 = V * S;                   /* Q11 色度（不提前舍入） */
+    int32_t C11 = ((V * S + (FIX_S_ONE >> 1)) >> FIX_BITS_S) << FIX_BITS_S; /* Q11 色度，提前量化到 2^11 对齐 */
     int32_t m11 = (V << FIX_BITS_S) - C11; /* Q11 = V*(1-S') */
     int32_t h6 = H * 6;
     int32_t seg = h6 / FIX_H_ONE;       /* 扇区 0..5 */
@@ -251,14 +263,14 @@ void hsv2rgb_v1_no_branch(uint16_t H, uint16_t S, uint16_t V, uint16_t maxv, uin
 }
 
 /* v2：取消除法（除法全改移位；switch 保留）；
-   改进：全程 Q11 保精度，舍入推迟到最后一步（同 v0） */
+   改进：C11 提前量化到 2^11 对齐（同 v0），末步舍入对 H 量化误差不敏感 */
 void hsv2rgb_v2_no_division(uint16_t H, uint16_t S, uint16_t V, uint16_t maxv, uint16_t *R, uint16_t *G, uint16_t *B)
 {
     if (S == 0) {
         *R = *G = *B = V;
         return;
     }
-    int32_t C11 = V * S;                   /* Q11 色度（不提前舍入） */
+    int32_t C11 = ((V * S + (FIX_S_ONE >> 1)) >> FIX_BITS_S) << FIX_BITS_S; /* Q11 色度，提前量化到 2^11 对齐 */
     int32_t m11 = (V << FIX_BITS_S) - C11; /* Q11 = V*(1-S') */
     int32_t h6 = H * 6;
     int32_t seg = h6 >> FIX_BITS_H;         /* /F_H → >>14 */
@@ -333,7 +345,7 @@ void hsv2rgb_v3_optimal(uint16_t H, uint16_t S, uint16_t V, uint16_t maxv, uint1
        重建四舍五入 (+2^(rs-1))>>rs。第一级 V*S（Q11 像素域 ≤ 2^21）先右移 VS_SHIFT
        提前降位宽，使第二级 (V*S>>VS_SHIFT)*t ≤ 2^30 < 2^31，全程 32 位。
        额外误差 ≈ 2^(VS_SHIFT-1-FIX_BITS_S) LSB，VS_SHIFT=5 时 0.008 LSB。 */
-    int32_t vsq = (V * S + (1 << (VS_SHIFT - 1))) >> VS_SHIFT; // U14*U11>>11 => U10
+    int32_t vsq = (V * S + (1 << (VS_SHIFT - 1))) >> VS_SHIFT;                 // U14*U11>>11 => U10
     int32_t r = V - (int32_t)((vsq * t5 + (1 << (RS_SHIFT - 1))) >> RS_SHIFT); // U10*U14>>14 => U10
     int32_t g = V - (int32_t)((vsq * t3 + (1 << (RS_SHIFT - 1))) >> RS_SHIFT);
     int32_t b = V - (int32_t)((vsq * t1 + (1 << (RS_SHIFT - 1))) >> RS_SHIFT);
