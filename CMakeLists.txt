@@ -28,6 +28,10 @@ else()
         add_compile_options(-g -fno-inline -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer)
     endif()
     # add_link_options(-static-libstdc++) # get rid of link of libstdc++.so
+
+    if(ANDROID)
+        add_link_options(-llog)
+    endif()
 endif()
 
 ## get ABI

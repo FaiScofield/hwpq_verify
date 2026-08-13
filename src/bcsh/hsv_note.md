@@ -213,113 +213,7 @@ def adjust_hsv(rgb, delta_v=None, delta_s=None, delta_h=None):
 >>> adjust_hsv(arr, 0.1, 0.2, 0.15)                        # 组合调整（数组）
 ```
 
-### C 计算代码
-
-**C 语言实现（定点化版本，输入 8bit RGB，性能优先、减少分支）**：
-
-```c
-# include <stdint.h>
-
-/* ---------- 定点格式 ----------
- * S  : Q16 定点，1.0 = 65536
- * H  : 归一化 Q16，1.0 = 65536（即 360°）
- * delta_v / delta_s : Q8（-256..255 对应 -1..1）
- * delta_h           : Q8（-128..127 对应 -0.5..0.5）
- * 内部 int32 计算，乘法用 int64 防溢出
- */
-
-static inline int32_t clp_u8(int32_t x) { return x < 0 ? 0 : (x > 255 ? 255 : x); }
-
-/* RGB(8bit) -> HSV：h16 归一化 Q16，s16 Q16，v8 8bit 像素域。
-   H 分段用三目（编译器转条件传送，少跳转）；仅 R 段可能出界做一次修正。 */
-static inline void rgb2hsv_q(int32_t r, int32_t g, int32_t b,
-                             int32_t *h16, int32_t *s16, int32_t *v8) {
-    int32_t mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
-    int32_t mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
-    int32_t c = mx - mn;
-    *v8 = mx;
-    *s16 = (c > 0) ? (int32_t)(((int64_t)c << 16) / mx) : 0;
-    int32_t hh = 0;
-    if (c > 0) {
-        int32_t d, base;                  /* base: 0=R段 2=G段 4=B段 */
-        if (mx == r) { d = g - b;     base = 0; }
-        else if (mx == g) { d = b - r; base = 2; }
-        else { d = r - g;     base = 4; }
-        /* h16 = (base + d/c) / 6 * 65536，d/c 用 Q16 表示 */
-        int32_t q = (base << 16) + (int32_t)(((int64_t)d << 16) / c);
-        int32_t h = q / 6;
-        if (h < 0) h += 65536;            /* R 段 d<0 -> 300..360° */
-        hh = h & 0xFFFF;                  /* mod 65536 */
-    }
-    *h16 = hh;
-}
-
-/* 按 V -> S -> H 顺序调整（合并单函数，唯一入口）：单次遍历、每像素一次 rgb2hsv_q。
-   语义：V 步 S=0（灰/黑）直接赋 V'8；S 步灰色保持 V 步结果（非原始 rgb）；
-   H 步用原始 h16（V/S 不改变 H），S=0 或 S'>0 不成立时跳过。 */
-void adjust_hsv_q(const uint8_t *rgb, int n, int16_t dv8, int16_t ds8, int16_t dh8,
-                  uint8_t *out) {
-    static const uint8_t TAB[6][3] = {
-        {0, 2, 1}, {1, 2, 0}, {1, 0, 2},
-        {2, 0, 1}, {2, 1, 0}, {0, 1, 2},
-    };
-    for (int i = 0; i < n; i++) {
-        int32_t r = rgb[3 * i], g = rgb[3 * i + 1], b = rgb[3 * i + 2];
-        int32_t h16, s16, v8;
-        rgb2hsv_q(r, g, b, &h16, &s16, &v8);
-
-        /* adjust V */
-        int32_t vn = clp_u8(v + ((dv8 * 255 + 128) >> 8));
-        int32_t r1, g1, b1;
-        if (s16 > 0) {
-            int32_t k8 = (vn << 8) / v8;
-            r1 = clp_u8((r * k8 + 128) >> 8);
-            g1 = clp_u8((g * k8 + 128) >> 8);
-            b1 = clp_u8((b * k8 + 128) >> 8);
-        } else {
-            r1 = g1 = b1 = vn;
-        }
-        if (s16 > 0) {
-            /* adjust S */
-            int32_t sn16 = s16 + ((int32_t)ds8 << 8);
-            if (sn16 < 0) sn16 = 0; else if (sn16 > 65536) sn16 = 65536;
-            int64_t kk16 = ((int64_t)sn16 << 16) / s16;
-            int32_t m8 = (int32_t)(((int64_t)vn * (65536 - s16)) >> 16);
-            int32_t mn8 = (int32_t)(((int64_t)vn * (65536 - sn16)) >> 16);
-            r1 = clp_u8(mn8 + (int32_t)((kk16 * (r1 - m8) + 32768) >> 16));
-            g1 = clp_u8(mn8 + (int32_t)((kk16 * (g1 - m8) + 32768) >> 16));
-            b1 = clp_u8(mn8 + (int32_t)((kk16 * (b1 - m8) + 32768) >> 16));
-            /* adjust H（用原始 h16；V/S 不改变 H） */
-            if (sn16 > 0) {
-                int32_t hn = (h16 + ((int32_t)dh8 << 8)) & 0xFFFF;
-                int32_t t = hn * 6;
-                int32_t seg = t / 65536;
-                int32_t f16 = t - seg * 65536;
-                int32_t m = (int32_t)(((int64_t)vn * (65536 - sn16)) >> 16);
-                int32_t M = vn;
-                int32_t dm = (M - m) * f16;
-                int32_t mid = (seg & 1) ? (M - ((dm + 32768) >> 16)) : (m + ((dm + 32768) >> 16));
-                uint8_t ch[3] = { (uint8_t)m, (uint8_t)m, (uint8_t)m };
-                ch[TAB[seg][0]] = (uint8_t)M;
-                ch[TAB[seg][2]] = (uint8_t)mid;
-                r1 = ch[0]; g1 = ch[1]; b1 = ch[2];
-            }
-        }
-        out[3 * i] = (uint8_t)r1; out[3 * i + 1] = (uint8_t)g1; out[3 * i + 2] = (uint8_t)b1;
-    }
-}
-```
-
-C 使用说明：
-
-- **输入输出均为 8bit RGB**（`uint8_t`，0..255），`n` 为像素数，内存布局 `r,g,b,r,g,b,...`（`3*n` 字节）
-- 定点格式：`S` 为 Q16（1.0 = 65536）、`H` 为归一化 Q16（65536 = 360°）、`delta_v/delta_s` 为 Q8（`dv8/256 = delta_v ∈ [-1,1]`）、`delta_h` 为 Q8（`dh8/256 = delta_h ∈ [-0.5,0.5]`，0.5 = 180°）
-- 唯一入口 `adjust_hsv_q`（`dv8/ds8/dh8` 均为 0 时对应不调整，可只传需要的项）：按 V -> S -> H 顺序执行；V 步 S=0 像素直接赋 `V'8 = clamp(mx + dv8*255/256)`、S 步灰色保持 V 步结果、H 步 S=0 或 S'=0 时跳过（灰色无 H）
-- 精度要点：S 用 Q16（避免 Q8 在低饱和度时 k 误差放大）；`k16`/`kk16` 用 `int64`（低 S 时 `sn16<<16` 超 int32）；H 段判定 `seg=(h*6)/65536`、段内比例 `f16=(h*6)%65536`（60° 边界精确）
-- 性能要点：H 分段三目（少跳转）；六边形 6 段查表 `TAB`（无 switch）；`adjust_hsv_q` 单次遍历、每像素一次 `rgb2hsv_q`（V/S 不改变 H）；`static inline` 便于内联
-- 编译：`gcc -O3 -o app app.c`（无需 `-lm`，无浮点/三角函数；已用 `-O3` 与 Python 合并版在 8bit 输入下逐像素对比，含灰/黑/越界参数，最大误差 1 LSB，平均 < 0.9 LSB；`dv8=ds8=dh8=0` 时输出与输入完全一致）
-
-### 定点化实验情况
+### C 语言代码与量化实验情况
 
 #### 量化定点化精度
 
@@ -335,296 +229,104 @@ C 使用说明：
 - H的量化精度对 hsv2rgb 计算影响更大
 - 结合 U8/U10 全遍历量化结论，建议采用 **(H=14, S=11)** 的量化策略
 
-#### rgb2hsv 定点化计算优化
+#### rgb<->hsv 定点化计算优化
 
 ```c
-const int FIX_H_TRAD = 14;  /* H Q14: 360° = 16384 */
-const int FIX_S_TRAD = 11;  /* S Q11: 1.0 = 2048 */
-const int F_H = 1 << FIX_H_TRAD;
-const int max_h = F_H - 1;
+#define FIX_BITS_H 14 /* H 归一化位宽：360° = 2^14 */
+#define FIX_BITS_S 11 /* S 归一化位宽：1.0 = 2^11 */
+#define RCP_BITS   21 /* S 表定标位宽；可用 -DRCP_BITS=N 覆盖（最小值 21 由 [11] 全遍历确定） */
+#define RCP6_BITS  24 /* H 表 rcp6 定标位宽；可用 -DRCP6_BITS=N 覆盖（最小值 24 由 [11] 全遍历确定） */
 
 // 经典计算公式，未优化，存在分支和除法
-static inline void rgb2hsv_trad(int32_t r, int32_t g, int32_t b, int32_t *h13, int32_t *s12, int32_t *v10)
-{
-    int32_t M = MAX3(r, g, b);  // U10
-    int32_t m = MIN3(r, g, b);  // U10
-    int32_t c = M - m;          // U10, chroma
-    *v10 = M;
-    *s12 = (c > 0) ? ((c << FIX_S_TRAD) + (M >> 1)) / M : 0;
-    int32_t h = 0;
-    if (c > 0) {
-        int32_t d, base; /* base: 0=R 段  2=G 段  4=B 段 */
-        if (M == r)      { d = g - b; base = 0; }
-        else if (M == g) { d = b - r; base = 2; }
-        else             { d = r - g; base = 4; }
-        /* h13 = (base + d/c) / 6 * 2^13 */
-        d = ((d << FIX_H_TRAD) + (c >> 1)) / c;
-        h = ((base << FIX_H_TRAD) + d + 3) / 6 + F_H;
-        h = h & max_h; /* mod 2^13, R 段 d<0 → 300..360°，加整圈回绕 */
-    }
-    *h13 = h;
-}
-```
-
-```c
-// 优化版 v1：取消分支（优先级掩码选 H 候选；S 仍用除法）
-static inline void rgb2hsv_v1(int32_t r, int32_t g, int32_t b, int32_t *h13, int32_t *s12, int32_t *v10)
-{
-    const int FIX_H_TRAD = 13;
-    const int FIX_S_TRAD = 11;
-    const int F_H = 1 << FIX_H_TRAD;
-    const int max_h = F_H - 1;
-
-    int32_t M = MAX3(r, g, b);
-    int32_t m = MIN3(r, g, b);
-    int32_t c = M - m;
-    *v10 = M;
-    *s12 = (c > 0) ? ((c << FIX_S_TRAD) + (M >> 1)) / M : 0;
-
-    int32_t h = 0;
-    if (c > 0) {
-        /* 三通道 diff，含除 C（仍用整数除法 /c，仅消除 if-else 分支） */
-        int32_t dR = g - b, dG = b - r, dB = r - g;
-        int32_t aR = ((dR << FIX_H_TRAD) + (c >> 1)) / c;
-        int32_t aG = ((dG << FIX_H_TRAD) + (c >> 1)) / c;
-        int32_t aB = ((dB << FIX_H_TRAD) + (c >> 1)) / c;
-        /* H = round((a + base*F)/6)，base∈{6,2,4}（6 使 hR 恒正、& mask 正确回绕） */
-        int32_t hR = (((6 << FIX_H_TRAD) + aR + 3) / 6) & max_h;    /* base=6: [5F/6, 7F/6) → wrap */
-        int32_t hG = ((2 << FIX_H_TRAD) + aG + 3) / 6;              /* base=2: [1F/6, 3F/6) */
-        int32_t hB = ((4 << FIX_H_TRAD) + aB + 3) / 6;              /* base=4: [3F/6, 5F/6) */
-
-        /* 优先级掩码：R > G > B，平局取前者 */
-        uint32_t mR = (uint32_t)(M == r);
-        uint32_t mG = (uint32_t)(M == g) & ~mR;
-        uint32_t mB = (uint32_t)(M == b) & ~(mR | mG);
-        int32_t selR = (int32_t)(0u - mR);  /* 0 或 -1 */
-        int32_t selG = (int32_t)(0u - mG);
-        int32_t selB = (int32_t)(0u - mB);
-        h = (hR & selR) | (hG & selG) | (hB & selB);
-    }
-    *h13 = h;
-}
-```
-
-```c
+void rgb2hsv_v0_classic(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10);
+// 优化版 v1：取消分支（优先级掩码选 H 候选；仍存在除法）
+void rgb2hsv_v1_no_branch(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10);
 // 优化版 v2：取消除法（倒数表 + rcp_mul_rsh；分支保留）
-static inline int32_t rcp_mul_rsh(int32_t a, int32_t rcp, int rsh)
-{
-    int64_t p = (int64_t)a * rcp;
-    p += (1LL << (rsh - 1)) + (p >> 63);
-    return (int32_t)(p >> rsh);
-}
+void rgb2hsv_v2_no_division(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10);
+// 优化版 v3：取消分支 + 取消除法（优先级掩码 + 双倒数表，硬件友好）【当前实现】
+//   定标：FIX_BITS_H=14（360°=F_H=16384）、FIX_BITS_S=11（1.0=2048）
+//   双表（索引与定标均不同，无法共用）：
+//     S 表 rcp[k]  = round(2^RCP_BITS/k)，RCP_BITS=21，以 V(M) 为索引，供 S=C/V
+//     H 表 rcp6[k] = round(2^RCP6_BITS/(6k))，RCP6_BITS=24，以 C(Chroma) 为索引，供 H=diff/(6C)
+//   rcp6 利用 (diff×2^14/C)/6 = diff×2^14/(6C) 恒等，把原两级乘法 (diff×rcp[C])×RCP6
+//   合并为一级乘法 diff×rcp6[C]，省 3 个 /6 乘法器；最小位宽由 hsv_precision_test [11] 全遍历确定
+void rgb2hsv_v3_optimal(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10);
 
-static inline void rgb2hsv_v2(int32_t r, int32_t g, int32_t b, int32_t *h13, int32_t *s12, int32_t *v10)
-{
-    const int FIX_H_TRAD = 13;
-    const int FIX_S_TRAD = 11;
-    const int F_H = 1 << FIX_H_TRAD;
-    const int max_h = F_H - 1;
-    const int RCP_BITS = 24;   /* 倒数表定标（最小值由精度测试确定，24 安全） */
-    const int RCP6_BITS = 18;  /* /6 固定除数定标 */
 
-    /* 倒数表（static lazy init，硬件可替换为 ROM） */
-    static int32_t rcp_tbl[1024];
-    static int ready = 0;
-    if (!ready) {
-        rcp_tbl[0] = 0;
-        for (int k = 1; k <= 1023; k++)
-            rcp_tbl[k] = (int32_t)((((int64_t)1 << RCP_BITS) + (k >> 1)) / k);
-        ready = 1;
-    }
-    int32_t rcp6 = (int32_t)((((int64_t)1 << RCP6_BITS) + 3) / 6);
-
-    int32_t M = MAX3(r, g, b);
-    int32_t m = MIN3(r, g, b);
-    int32_t c = M - m;
-    *v10 = M;
-
-    /* S = round(C<<11 / M)，倒数表替代除法（无 branch） */
-    *s12 = (c > 0) ? rcp_mul_rsh(c, rcp_tbl[M], RCP_BITS - FIX_S_TRAD) : 0;
-
-    int32_t h = 0;
-    if (c > 0) {
-        int32_t d, base; /* 分支保留 */
-        if (M == r)      { d = g - b; base = 0; }
-        else if (M == g) { d = b - r; base = 2; }
-        else             { d = r - g; base = 4; }
-        /* a = round(diff<<13 / C)，倒数表替代除法 */
-        int32_t a = rcp_mul_rsh(d, rcp_tbl[c], RCP_BITS - FIX_H_TRAD);
-        /* h = round((a + base*F) / 6)，rcp6 替代 /6 */
-        int32_t h_ = rcp_mul_rsh(a + base * F_H, rcp6, RCP6_BITS);
-        if (h_ < 0)
-            h_ += F_H;
-        h = h_ & max_h;
-    }
-    *h13 = h;
-}
+/* v0：经典 C/X/m 模型，switch 分支 + 除法；*/
+void hsv2rgb_v0_classic(uint16_t h14, uint16_t s11, uint16_t v10, uint16_t maxv, uint16_t *R, uint16_t *G, uint16_t *B);
+/* v1：取消分支（f(n) 公式 + 三目 clamp01 替代 switch；保留 % 除法） */
+void hsv2rgb_v1_no_branch(uint16_t h14, uint16_t s11, uint16_t v10, uint16_t maxv, uint16_t *R, uint16_t *G, uint16_t *B);
+/* v2：取消除法（除法全改移位；switch 保留）； */
+void hsv2rgb_v2_no_division(uint16_t h14, uint16_t s11, uint16_t v10, uint16_t maxv, uint16_t *R, uint16_t *G, uint16_t *B);
+/* v3：取消分支 + 取消除法（f(n) + 单次减 mod + 三目 + 全移位，硬件友好） */
+void hsv2rgb_v3_optimal(uint16_t h14, uint16_t s11, uint16_t v10, uint16_t maxv, uint16_t *R, uint16_t *G, uint16_t *B);
 ```
 
-```c
-// 优化版 v3：取消分支 + 取消除法（优先级掩码 + 倒数表，硬件友好）
-static inline void rgb2hsv_v3(int32_t r, int32_t g, int32_t b, int32_t *h13, int32_t *s12, int32_t *v10)
-{
-    const int FIX_H_TRAD = 13;
-    const int FIX_S_TRAD = 11;
-    const int F_H = 1 << FIX_H_TRAD;
-    const int max_h = F_H - 1;
-    const int RCP_BITS = 24;
-    const int RCP6_BITS = 18;
+具体代码实现请见 [hsv_fixed.c](hsv_fixed.c)
 
-    static int32_t rcp_tbl[1024];
-    static int ready = 0;
-    if (!ready) {
-        rcp_tbl[0] = 0;
-        for (int k = 1; k <= 1023; k++)
-            rcp_tbl[k] = (int32_t)((((int64_t)1 << RCP_BITS) + (k >> 1)) / k);
-        ready = 1;
-    }
-    int32_t rcp6 = (int32_t)((((int64_t)1 << RCP6_BITS) + 3) / 6);
+#### v3_optimal 计算量 / 乘法位宽 / 定点化精度分析
 
-    int32_t M = MAX3(r, g, b);
-    int32_t m = MIN3(r, g, b);
-    int32_t c = M - m;
-    *v10 = M;
+> 基于 2026-08 双表方案（S 表 21bit + H 表 24bit，H 一级乘法）；性能/精度为 hsv_fixed_test、hsv_precision_test 实测（MinGW -O2）。
 
-    /* S：倒数表，无分支 */
-    *s12 = (c > 0) ? rcp_mul_rsh(c, rcp_tbl[M], RCP_BITS - FIX_S_TRAD) : 0;
+##### 定点化精度（实测全遍历）
 
-    int32_t h = 0;
-    if (c > 0) {
-        /* 三通道 diff → A = round(diff<<13 / C)（倒数表，无除法） */
-        int32_t aR = rcp_mul_rsh(g - b, rcp_tbl[c], RCP_BITS - FIX_H_TRAD);
-        int32_t aG = rcp_mul_rsh(b - r, rcp_tbl[c], RCP_BITS - FIX_H_TRAD);
-        int32_t aB = rcp_mul_rsh(r - g, rcp_tbl[c], RCP_BITS - FIX_H_TRAD);
-        /* H = round((A + base*F) / 6)，base∈{6,2,4}（6 使 hR 恒正，& mask 正确回绕） */
-        int32_t hR = rcp_mul_rsh(aR + (6 << FIX_H_TRAD), rcp6, RCP6_BITS) & max_h;
-        int32_t hG = rcp_mul_rsh(aG + (2 << FIX_H_TRAD), rcp6, RCP6_BITS);
-        int32_t hB = rcp_mul_rsh(aB + (4 << FIX_H_TRAD), rcp6, RCP6_BITS);
+| 对象 | 定点化精度 | 取值范围 |
+| --- | --- | --- |
+| H | 14bit | 归一化定点， [0, 2^14-1] |
+| S | 11bit | 归一化定点， [0, 2^11] <br>**todo: 验证 [0, 2^11-1] 的精度是否Ok?**  |
+| 导数表1 | 21bit | [0, 2^21] <br>**todo: 验证 [0, 2^21-1] 的精度是否Ok?** |
+| 导数表2 | 24bit | [0, 2^24] <br>**todo: 验证 [0, 2^24-1] 的精度是否Ok?** |
 
-        /* 优先级掩码选 H 候选（无分支） */
-        uint32_t mR = (uint32_t)(M == r);
-        uint32_t mG = (uint32_t)(M == g) & ~mR;
-        uint32_t mB = (uint32_t)(M == b) & ~(mR | mG);
-        int32_t selR = (int32_t)(0u - mR);
-        int32_t selG = (int32_t)(0u - mG);
-        int32_t selB = (int32_t)(0u - mB);
-        h = (hR & selR) | (hG & selG) | (hB & selB);
-    }
-    *h13 = h;
-}
-```
+##### rgb2hsv_v3_optimal（每像素，C>0）
 
-#### hsv2rgb 定点化计算优化
+| 项目 | 明细 |
+| --- | --- |
+| 查找表 | S 表 1024×21bit（索引 M）+ H 表 1024×24bit（索引 C）；查表总共 2 次 |
+| 乘法器 | 4 个：S 1 个 + H 3 个 |
+| S 乘法 | C(≤11bit) × rcp\[M](≤21bit)：原始 32bit，实际乘积 ≤ 2^21（C 与 rcp[M] 反比） |
+| H 乘法 | diff(≤11bit) × rcp6\[C](≤22bit)：原始 33bit，实际乘积 ≤ 2^24/6 ≈ 2^21.4（C 与 rcp6[C] 反比） |
+| 算术 | MAX3/MIN3 各 2 比较；3 次常量加（+16384/5461/10923）；3 比较（M==r/g/b）+ 3 取反 + 3 AND + 2 OR |
+| 分支 | 仅 1 次 `if (C>0)` |
+| H 表误差 | rcp6 舍入 ≤0.5，被 diff(≤1023) 放大：最坏 ≈ diff·0.5 / 2^(RCP6_BITS-14)；RCP6_BITS=24 时 < 0.5 LSB ✓ |
 
-```c
-const int FIX_H_TRAD = 13;  /* H Q13: 360° = 8192 */
-const int FIX_S_TRAD = 11;  /* S Q11: 1.0 = 2048 */
-const int F_H = 1 << FIX_H_TRAD;
-const int F_S = 1 << FIX_S_TRAD;
-const int VS_SHIFT = 4;              /* (V*S>>4)*t ≤ 2^30，防 int32 溢出 */
-const int RS = FIX_H_TRAD + FIX_S_TRAD - VS_SHIFT;  /* 重建右移 = 20 */
+##### hsv2rgb_v3_optimal（每像素，S>0）
 
-/* clamp01(k) = max(0, min(min(k, 4F-k), F))，k∈[0,6F)，全三目（CMOV）无分支 */
-static inline int32_t clamp01(int32_t k)
-{
-    int32_t t = k < 4 * F_H - k ? k : 4 * F_H - k;  /* min(k, 4F-k) */
-    t = t < 0 ? 0 : t;                              /* max(t, 0) */
-    t = t > F_H ? F_H : t;                          /* min(t, 1) */
-    return t;
-}
+| 项目 | 明细 |
+| --- | --- |
+| 乘法器 | 3 个 + 1 常量乘 |
+| h6 = H×6 | 常量乘法（14bit×3），移位+加 |
+| vsq = V×S | V(≤11bit) × S(≤11bit)：原始 22bit，实际 ≤ 2^21 |
+| 重建 vsq×t | vsq(≤11bit) × t(≤14bit)：原始 25bit，实际 ≤ 2^24 |
+| 算术 | 3 组 k（加+比较+条件减）；3 次 clamp01（各 2 比较 2 三目）；3 次（乘+加+移位+减+CLIP） |
+| 分支 | 仅 1 次 `if (S==0)` |
 
-// 经典计算公式（C/X/m 模型）：switch 分支 + 除法 + abs
-static inline void hsv2rgb_trad(int32_t H, int32_t S, int32_t V, int32_t maxv, int32_t *R, int32_t *G, int32_t *B)
-{
-    if (S == 0) { *R = *G = *B = V; return; }          /* 灰度：V 直接输出 */
-    int32_t C = (V * S + (F_S >> 1)) / F_S;            /* 色度（Q11→像素域） */
-    int32_t m = V - C;
-    int32_t h6 = H * 6;                                /* 六边形位置 [0,6F) */
-    int32_t seg = h6 / F_H;                            /* 扇区 0..5（除法） */
-    int32_t f = h6 % F_H;                              /* 段内比例 Q13（除法） */
-    int32_t t = 2 * f - F_H;
-    if (t < 0) t = -t;                                 /* |2f-1|（分支） */
-    int32_t X = C - (int32_t)((int64_t)C * t / F_H);   /* C*(1-|2f-1|) */
-    switch (seg) {                                     /* 6 路分支 */
-    case 0: *R = C; *G = X; *B = m; break;
-    case 1: *R = X; *G = C; *B = m; break;
-    case 2: *R = m; *G = C; *B = X; break;
-    case 3: *R = m; *G = X; *B = C; break;
-    case 4: *R = X; *G = m; *B = C; break;
-    default: *R = C; *G = m; *B = X; break;
-    }
-    *R = CLIP(*R, 0, maxv); *G = CLIP(*G, 0, maxv); *B = CLIP(*B, 0, maxv);
-}
-```
+##### 最大乘法位宽汇总
 
-```c
-// 优化版 v1：取消分支（f(n) 公式 + 三目 clamp01，替代 switch；保留 % 除法）
-static inline void hsv2rgb_v1(int32_t H, int32_t S, int32_t V, int32_t maxv, int32_t *R, int32_t *G, int32_t *B)
-{
-    if (S == 0) { *R = *G = *B = V; return; }
-    /* k = (n + 6H') mod 6，n = 5,3,1（% 仍是真除法） */
-    int32_t h6 = H * 6;
-    int32_t k5 = (5 * F_H + h6) % (6 * F_H);
-    int32_t k3 = (3 * F_H + h6) % (6 * F_H);
-    int32_t k1 = (1 * F_H + h6) % (6 * F_H);
-    int32_t t5 = clamp01(k5);
-    int32_t t3 = clamp01(k3);
-    int32_t t1 = clamp01(k1);
-    /* f = V - round(V*S*t / 2^bits)，三通道同一 vsq 提前降位宽 */
-    int32_t vsq = (V * S + (1 << (VS_SHIFT - 1))) >> VS_SHIFT;
-    int32_t r = V - (int32_t)((vsq * t5 + (1 << (RS - 1))) >> RS);
-    int32_t g = V - (int32_t)((vsq * t3 + (1 << (RS - 1))) >> RS);
-    int32_t b = V - (int32_t)((vsq * t1 + (1 << (RS - 1))) >> RS);
-    *R = CLIP(r, 0, maxv); *G = CLIP(g, 0, maxv); *B = CLIP(b, 0, maxv);
-}
-```
+| 通路 | 乘法器 | 实际需要的乘法位宽 |
+| --- | --- | --- |
+| rgb2hsv S | C×rcp\[M] | 21bit |
+| rgb2hsv H | diff×rcp6\[C] | 22bit |
+| hsv2rgb vsq | V×S | 21bit |
+| hsv2rgb 重建 | vsq×t | 24bit |
 
-```c
-// 优化版 v2：取消除法（hsv2rgb 的除法全是 2 的幂，改显式移位；switch 保留）
-static inline void hsv2rgb_v2(int32_t H, int32_t S, int32_t V, int32_t maxv, int32_t *R, int32_t *G, int32_t *B)
-{
-    if (S == 0) { *R = *G = *B = V; return; }
-    int32_t C = (V * S + (F_S >> 1)) >> FIX_S_TRAD;    /* /F_S → >>11 */
-    int32_t m = V - C;
-    int32_t h6 = H * 6;
-    int32_t seg = h6 >> FIX_H_TRAD;                    /* /F_H → >>13 */
-    int32_t f = h6 & (F_H - 1);                        /* %F_H → &(F_H-1) */
-    int32_t t = 2 * f - F_H;
-    if (t < 0) t = -t;                                 /* abs（分支保留） */
-    int32_t X = C - (int32_t)(((int64_t)C * t) >> FIX_H_TRAD);  /* /F_H → >>13 */
-    switch (seg) {                                     /* 6 路分支保留 */
-    case 0: *R = C; *G = X; *B = m; break;
-    case 1: *R = X; *G = C; *B = m; break;
-    case 2: *R = m; *G = C; *B = X; break;
-    case 3: *R = m; *G = X; *B = C; break;
-    case 4: *R = X; *G = m; *B = C; break;
-    default: *R = C; *G = m; *B = X; break;
-    }
-    *R = CLIP(*R, 0, maxv); *G = CLIP(*G, 0, maxv); *B = CLIP(*B, 0, maxv);
-}
-```
+综上，对于 10bit 输入数据，乘法器位宽最大需要 24bit 。
 
-```c
-// 优化版 v3：取消分支 + 取消除法（f(n) + 单次减 mod + 三目 + 全移位，硬件友好）
-static inline void hsv2rgb_v3(int32_t H, int32_t S, int32_t V, int32_t maxv, int32_t *R, int32_t *G, int32_t *B)
-{
-    if (S == 0) { *R = *G = *B = V; return; }
-    /* k = n + h6 ∈ [F, 11F)，mod 6F（整圈）最多减一次：三目 CMOV 无分支 */
-    int32_t h6 = H * 6;
-    int32_t k5 = 5 * F_H + h6;
-    int32_t k3 = 3 * F_H + h6;
-    int32_t k1 = 1 * F_H + h6;
-    k5 = (k5 >= 6 * F_H) ? k5 - 6 * F_H : k5;
-    k3 = (k3 >= 6 * F_H) ? k3 - 6 * F_H : k3;
-    k1 = (k1 >= 6 * F_H) ? k1 - 6 * F_H : k1;
-    int32_t t5 = clamp01(k5);
-    int32_t t3 = clamp01(k3);
-    int32_t t1 = clamp01(k1);
-    /* f = V - round(V*S*t / 2^20)：vsq 提前右移降位宽，全程 32 位 */
-    int32_t vsq = (V * S + (1 << (VS_SHIFT - 1))) >> VS_SHIFT;
-    int32_t r = V - (int32_t)((vsq * t5 + (1 << (RS - 1))) >> RS);
-    int32_t g = V - (int32_t)((vsq * t3 + (1 << (RS - 1))) >> RS);
-    int32_t b = V - (int32_t)((vsq * t1 + (1 << (RS - 1))) >> RS);
-    *R = CLIP(r, 0, maxv); *G = CLIP(g, 0, maxv); *B = CLIP(b, 0, maxv);
-}
-```
+##### 性能测试
+
+测试平台: RK3588
+测试分辨率：4K rgb
+
+平均性能数据如下：
+
+| 函数 | 平均耗时[ms/帧] | 备注 |
+|-----|----------| -----|
+| `rgb2hsv_v0_classic` | 107 | CPU 单线程 |
+| `rgb2hsv_v1_no_branch` | 128 | CPU 单线程 |
+| `rgb2hsv_v2_no_division` | 107 | CPU 单线程 |
+| `rgb2hsv_v3_optimal` | 99 | CPU 单线程 |
+| `hsv2rgb_v0_classic` | 130 | CPU 单线程 |
+| `hsv2rgb_v1_no_branch` | 107 | CPU 单线程 |
+| `hsv2rgb_v2_no_division` | 125 | CPU 单线程 |
+| `hsv2rgb_v3_optimal` | 98 | CPU 单线程 |
+| `hsv2rgb + acm + rgb2hsv` | 9.5 | OpenCL + float版 |

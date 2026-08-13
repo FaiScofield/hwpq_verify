@@ -168,7 +168,7 @@ void rgb2hsv_v3_optimal(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint1
     int32_t h = 0;
     if (C > 0) {
         int32_t hR = (rcp_mul_rsh(g - b, rcp6[C], RCP6_BITS - FIX_BITS_H) + FIX_H_ONE) & (FIX_H_ONE - 1);
-        int32_t hG = rcp_mul_rsh(b - r, rcp6[C], RCP6_BITS - FIX_BITS_H) + 5461; // U24 max
+        int32_t hG = rcp_mul_rsh(b - r, rcp6[C], RCP6_BITS - FIX_BITS_H) + 5461; // U22 max
         int32_t hB = rcp_mul_rsh(r - g, rcp6[C], RCP6_BITS - FIX_BITS_H) + 10923;
         uint32_t mR = (uint32_t)(M == r);
         uint32_t mG = (uint32_t)(M == g) & ~mR;

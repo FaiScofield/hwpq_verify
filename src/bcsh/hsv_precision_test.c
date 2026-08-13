@@ -22,7 +22,11 @@
 
 #include "hsv_fixed.h"
 #include "hsv_float.h"
+#ifdef _WIN32
 #include "getopt_win32.h"
+#else
+#include <getopt.h>
+#endif
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
