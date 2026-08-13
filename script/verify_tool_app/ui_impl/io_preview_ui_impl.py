@@ -8,9 +8,10 @@ import os
 
 import numpy as np
 from PySide6.QtCore import QEvent, QObject, Qt
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QColor, QImage, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDockWidget,
+    QGraphicsPathItem,
     QGraphicsScene,
     QMainWindow,
     QMessageBox,
@@ -94,6 +95,7 @@ class PreviewUiController(QObject):
         self._preview_scale = 1.0
         self._left_pixmap_item = None
         self._right_pixmap_item = None
+        self._frozen_marker_item: QGraphicsPathItem | None = None
 
         self.scene_left = QGraphicsScene(self)
         self.scene_right = QGraphicsScene(self)
@@ -274,6 +276,7 @@ class PreviewUiController(QObject):
             self._set_scene_image(self.scene_right, None, "_right_pixmap_item")
 
         self._apply_preview_scale()
+        self._update_frozen_marker()
 
     def _set_scene_image(self, scene, qimage, item_attr):
         """Replace a scene's pixmap and store the item reference."""
@@ -368,6 +371,7 @@ class PreviewUiController(QObject):
         self.is_pixel_info_frozen = False
         if notify:
             self._pixel_selection_callback(None)
+        self._update_frozen_marker()
 
     def _emit_pixel_selection(self) -> None:
         """Forward the frozen pixel location to the host callback."""
@@ -383,6 +387,71 @@ class PreviewUiController(QObject):
                 "frozen": self.is_pixel_info_frozen,
             }
         )
+        self._update_frozen_marker()
+
+    def _update_frozen_marker(self) -> None:
+        """Draw a crosshair on the preview scene at the frozen pixel.
+
+        The marker is black or white so it stays visible on any background:
+        white when the pixel luma is dark (Y < 128), black when bright
+        (Y >= 128).  It lives in scene coordinates (image pixel units); the
+        view transform handles display scaling.  It is re-added whenever a
+        scene is refreshed (``_set_scene_image`` clears the scene).
+        """
+        if self._frozen_marker_item is not None:
+            scene = self._frozen_marker_item.scene()
+            if scene is not None:
+                scene.removeItem(self._frozen_marker_item)
+            self._frozen_marker_item = None
+        if not self.is_pixel_info_frozen or self._last_pixel_selection is None:
+            return
+        sel = self._last_pixel_selection
+        if sel.source_view == "right" and self._right_pixmap_item is not None:
+            item = self._right_pixmap_item
+        else:
+            item = self._left_pixmap_item
+        if item is None or item.scene() is None:
+            return
+        luma = self._pixel_luma(sel)
+        if luma is None:
+            color = QColor(255, 0, 0)   # fallback when the pixel is unavailable
+        else:
+            color = QColor(255, 255, 255) if luma < 128 else QColor(0, 0, 0)
+        half = 8
+        path = QPainterPath()
+        path.moveTo(sel.x_pos - half, sel.y_pos)
+        path.lineTo(sel.x_pos + half, sel.y_pos)
+        path.moveTo(sel.x_pos, sel.y_pos - half)
+        path.lineTo(sel.x_pos, sel.y_pos + half)
+        marker = QGraphicsPathItem(path)
+        marker.setPen(QPen(color, 2))
+        item.scene().addItem(marker)
+        self._frozen_marker_item = marker
+
+    def _pixel_luma(self, sel) -> int | None:
+        """Return the luma (Y) of the frozen pixel as 8-bit 0..255.
+
+        Uses the source Y plane when available (YUV frames, 10-bit converted
+        to 8-bit), otherwise the BT.601 luma computed from the displayed RGB.
+        """
+        if sel.display_role == "output":
+            yuv_cache = self.output_cache_yuv444
+            rgb_cache = self.output_cache_rgb444
+        else:
+            yuv_cache = self.input_cache_yuv444
+            rgb_cache = self.input_cache_rgb444
+        try:
+            if yuv_cache is not None:
+                y = int(yuv_cache[sel.y_pos, sel.x_pos, 0])
+                if yuv_cache.dtype != np.uint8:
+                    y = min((y + 2) >> 2, 255)
+                return y
+            if rgb_cache is not None:
+                r, g, b = rgb_cache[sel.y_pos, sel.x_pos]
+                return int(0.299 * int(r) + 0.587 * int(g) + 0.114 * int(b) + 0.5)
+        except (IndexError, TypeError):
+            pass
+        return None
 
     def _update_pixel_selection(
         self,

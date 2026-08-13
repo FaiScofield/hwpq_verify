@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 
+ACM_APP_VERSION = "v1.1"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
 
@@ -77,7 +78,10 @@ class AcmTestAppWindow(QMainWindow):
         super().__init__()
         self.ui = Ui_AcmTestAppWindow()
         self.ui.setupUi(self)
-        self.setWindowTitle("ACM Test App v1.0")
+        self.setWindowTitle(f"ACM Test App {ACM_APP_VERSION}")
+        # The host window .ui is shared across apps; set the ACM tab label here.
+        self.ui.tabWidget_main.setTabText(
+            self.ui.tabWidget_main.indexOf(self.ui.tab_module_host), "ACM Config")
         self._syncing_preview_action = False
 
         self.io_widget = IoUiWidget(self)
@@ -85,7 +89,7 @@ class AcmTestAppWindow(QMainWindow):
         self.preview_widget = PreviewUiWidget(self)
 
         self._mount_host_page(self.ui.tab_io_host, self.io_widget, use_scroll_area=True)
-        self._mount_host_page(self.ui.tab_acm_host, self.acm_widget, use_scroll_area=True)
+        self._mount_host_page(self.ui.tab_module_host, self.acm_widget, use_scroll_area=True)
 
         self.preview_ctrl = PreviewUiController(
             self.preview_widget,

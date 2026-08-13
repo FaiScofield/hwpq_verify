@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>980</width>
-    <height>239</height>
+    <width>757</width>
+    <height>263</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -15,130 +15,259 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
-    <layout class="QFormLayout" name="formLayout">
-     <property name="fieldGrowthPolicy">
-      <enum>QFormLayout::FieldGrowthPolicy::AllNonFixedFieldsGrow</enum>
-     </property>
-     <item row="0" column="0">
-      <widget class="QLabel" name="label_input_file">
+    <layout class="QGridLayout" name="gridLayout_IO">
+     <item row="2" column="1">
+      <widget class="QLineEdit" name="lineEdit_setColor">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+       <property name="toolTip">
+        <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;指定纯色作为输入（注意和输入的格式及色彩空间都有关系）&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+       </property>
        <property name="text">
-        <string>Input File</string>
+        <string>200 128 128</string>
        </property>
       </widget>
      </item>
-     <item row="0" column="1">
-      <layout class="QHBoxLayout" name="horizontalLayout_input_file">
-       <item>
-        <widget class="QLineEdit" name="lineEdit_input_file">
-         <property name="text">
-          <string>G:/Project/pq/inputs/512x428_test_image_many_pattern_nv24.yuv</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="pushButton_browse_input">
-         <property name="text">
-          <string>Browse</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="pushButton_reload">
-         <property name="text">
-          <string>Reload</string>
-         </property>
-        </widget>
-       </item>
-      </layout>
+     <item row="4" column="3">
+      <widget class="QPushButton" name="pushButton_open_output">
+       <property name="text">
+        <string>Open Dir</string>
+       </property>
+      </widget>
+     </item>
+     <item row="5" column="1">
+      <widget class="QLineEdit" name="lineEdit_config_file">
+       <property name="text">
+        <string>G:/Codes/gerrit_projects/hwpq_verify/data/tmp_acm_config.json</string>
+       </property>
+      </widget>
+     </item>
+     <item row="4" column="2">
+      <widget class="QPushButton" name="pushButton_browse_output">
+       <property name="text">
+        <string>Browse</string>
+       </property>
+      </widget>
+     </item>
+     <item row="3" column="2">
+      <widget class="QPushButton" name="pushButton_browse_input">
+       <property name="text">
+        <string>Browse</string>
+       </property>
+      </widget>
      </item>
      <item row="1" column="0">
+      <widget class="QRadioButton" name="radioButton_useTestPattern">
+       <property name="text">
+        <string>Use Test Pattern</string>
+       </property>
+       <attribute name="buttonGroup">
+        <string notr="true">buttonGroup</string>
+       </attribute>
+      </widget>
+     </item>
+     <item row="4" column="1">
+      <widget class="QLineEdit" name="lineEdit_output_dir">
+       <property name="text">
+        <string>D:/RkDefaultDumpData/</string>
+       </property>
+      </widget>
+     </item>
+     <item row="4" column="0">
       <widget class="QLabel" name="label_output_dir">
        <property name="text">
         <string>Output Dir</string>
        </property>
       </widget>
      </item>
-     <item row="1" column="1">
-      <layout class="QHBoxLayout" name="horizontalLayout_output_dir">
-       <item>
-        <widget class="QLineEdit" name="lineEdit_output_dir"/>
-       </item>
-       <item>
-        <widget class="QPushButton" name="pushButton_browse_output">
-         <property name="text">
-          <string>Browse</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="pushButton_open_output">
-         <property name="text">
-          <string>Open Dir</string>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </item>
-     <item row="2" column="0">
+     <item row="5" column="0">
       <widget class="QLabel" name="label_config_file">
        <property name="text">
         <string>Config File</string>
        </property>
       </widget>
      </item>
-     <item row="2" column="1">
-      <layout class="QHBoxLayout" name="horizontalLayout_config_file">
+     <item row="3" column="1">
+      <widget class="QLineEdit" name="lineEdit_input_file">
+       <property name="text">
+        <string>G:/Project/pq/inputs/512x428_test_image_many_pattern_nv24.yuv</string>
+       </property>
+      </widget>
+     </item>
+     <item row="5" column="3">
+      <widget class="QPushButton" name="pushButton_load_config">
+       <property name="text">
+        <string>Reload</string>
+       </property>
+      </widget>
+     </item>
+     <item row="3" column="0">
+      <widget class="QRadioButton" name="radioButton_useInputFile">
+       <property name="text">
+        <string>Use File as Input</string>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+       <attribute name="buttonGroup">
+        <string notr="true">buttonGroup</string>
+       </attribute>
+      </widget>
+     </item>
+     <item row="3" column="3">
+      <widget class="QPushButton" name="pushButton_reload">
+       <property name="text">
+        <string>Reload</string>
+       </property>
+      </widget>
+     </item>
+     <item row="2" column="0">
+      <widget class="QRadioButton" name="radioButton_useSecColor">
+       <property name="toolTip">
+        <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;指定纯色作为输入（注意和输入的格式及色彩空间都有关系）&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+       </property>
+       <property name="text">
+        <string>Use Specified Color</string>
+       </property>
+       <attribute name="buttonGroup">
+        <string notr="true">buttonGroup</string>
+       </attribute>
+      </widget>
+     </item>
+     <item row="5" column="2">
+      <widget class="QPushButton" name="pushButton_browse_config">
+       <property name="text">
+        <string>Browse</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="1">
+      <layout class="QHBoxLayout" name="horizontalLayout">
+       <property name="topMargin">
+        <number>0</number>
+       </property>
        <item>
-        <widget class="QLineEdit" name="lineEdit_config_file">
-         <property name="text">
-          <string>G:/Codes/gerrit_projects/hwpq_verify/data/tmp_acm_config.json</string>
+        <widget class="QComboBox" name="comboBox_useTestPattern">
+         <property name="enabled">
+          <bool>false</bool>
          </property>
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+           <horstretch>1</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <item>
+          <property name="text">
+           <string>Rainbow Hue Circle</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>Rainbow Hue Ramp</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>HSV Patches</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>Saturation Ramp</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>Value Ramp</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>Gray Ramp</string>
+          </property>
+         </item>
         </widget>
        </item>
        <item>
-        <widget class="QPushButton" name="pushButton_browse_config">
-         <property name="text">
-          <string>Browse</string>
+        <spacer name="horizontalSpacer">
+         <property name="orientation">
+          <enum>Qt::Orientation::Horizontal</enum>
          </property>
-        </widget>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>40</width>
+           <height>20</height>
+          </size>
+         </property>
+        </spacer>
        </item>
        <item>
-        <widget class="QPushButton" name="pushButton_load_config">
+        <widget class="QLabel" name="label_valueV">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
          <property name="text">
-          <string>Reload</string>
+          <string>with Specified Value/Hue</string>
          </property>
         </widget>
        </item>
       </layout>
      </item>
-    </layout>
-   </item>
-   <item>
-    <layout class="QGridLayout" name="gridLayout">
-     <item row="0" column="0">
-      <widget class="QLabel" name="label_width">
-       <property name="text">
-        <string>Width</string>
+     <item row="1" column="2">
+      <widget class="QSpinBox" name="spinBox_valueV">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+       <property name="maximum">
+        <number>255</number>
+       </property>
+       <property name="value">
+        <number>255</number>
        </property>
       </widget>
      </item>
-     <item row="0" column="1">
-      <widget class="QSpinBox" name="spinBox_width">
+     <item row="1" column="3">
+      <widget class="QSpinBox" name="spinBox_valueH">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+       <property name="maximum">
+        <number>360</number>
+       </property>
+       <property name="value">
+        <number>0</number>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QGridLayout" name="gridLayout_fmt">
+     <item row="0" column="5">
+      <widget class="QSpinBox" name="spinBox_frame_num">
+       <property name="readOnly">
+        <bool>true</bool>
+       </property>
        <property name="minimum">
         <number>1</number>
        </property>
        <property name="maximum">
-        <number>8192</number>
-       </property>
-       <property name="value">
-        <number>1920</number>
+        <number>10000</number>
        </property>
       </widget>
      </item>
-     <item row="0" column="2">
-      <widget class="QLabel" name="label_height">
+     <item row="1" column="1">
+      <widget class="QComboBox" name="comboBox_input_format"/>
+     </item>
+     <item row="1" column="5">
+      <widget class="QComboBox" name="comboBox_output_format"/>
+     </item>
+     <item row="0" column="0">
+      <widget class="QLabel" name="label_width">
        <property name="text">
-        <string>Height</string>
+        <string>Width</string>
        </property>
       </widget>
      </item>
@@ -162,23 +291,23 @@
        </property>
       </widget>
      </item>
-     <item row="0" column="5">
-      <widget class="QSpinBox" name="spinBox_frame_num">
-       <property name="readOnly">
-        <bool>true</bool>
-       </property>
+     <item row="0" column="1">
+      <widget class="QSpinBox" name="spinBox_width">
        <property name="minimum">
         <number>1</number>
        </property>
        <property name="maximum">
-        <number>10000</number>
+        <number>8192</number>
+       </property>
+       <property name="value">
+        <number>1920</number>
        </property>
       </widget>
      </item>
-     <item row="0" column="6">
-      <widget class="QLabel" name="label_frame_idx">
+     <item row="1" column="2">
+      <widget class="QLabel" name="label_input_colorspace">
        <property name="text">
-        <string>Frame Idx</string>
+        <string>Input Colorspace</string>
        </property>
       </widget>
      </item>
@@ -189,35 +318,25 @@
        </property>
       </widget>
      </item>
+     <item row="1" column="3">
+      <widget class="QComboBox" name="comboBox_input_colorspace"/>
+     </item>
+     <item row="1" column="7">
+      <widget class="QComboBox" name="comboBox_output_colorspace"/>
+     </item>
+     <item row="0" column="6">
+      <widget class="QLabel" name="label_frame_idx">
+       <property name="text">
+        <string>Frame Idx</string>
+       </property>
+      </widget>
+     </item>
      <item row="1" column="0">
       <widget class="QLabel" name="label_input_format">
        <property name="text">
         <string>Input Format</string>
        </property>
       </widget>
-     </item>
-     <item row="1" column="1">
-      <widget class="QComboBox" name="comboBox_input_format"/>
-     </item>
-     <item row="1" column="2">
-      <widget class="QLabel" name="label_input_colorspace">
-       <property name="text">
-        <string>Input Colorspace</string>
-       </property>
-      </widget>
-     </item>
-     <item row="1" column="3">
-      <widget class="QComboBox" name="comboBox_input_colorspace"/>
-     </item>
-     <item row="1" column="4">
-      <widget class="QLabel" name="label_output_format">
-       <property name="text">
-        <string>Output Format</string>
-       </property>
-      </widget>
-     </item>
-     <item row="1" column="5">
-      <widget class="QComboBox" name="comboBox_output_format"/>
      </item>
      <item row="1" column="6">
       <widget class="QLabel" name="label_output_colorspace">
@@ -226,42 +345,39 @@
        </property>
       </widget>
      </item>
-     <item row="1" column="7">
-      <widget class="QComboBox" name="comboBox_output_colorspace"/>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="horizontalLayout_set_color">
-     <item>
-      <widget class="QCheckBox" name="checkBox_set_color">
+     <item row="0" column="2">
+      <widget class="QLabel" name="label_height">
        <property name="text">
-        <string>Use Specified Color as Input</string>
+        <string>Height</string>
        </property>
       </widget>
      </item>
-     <item>
-      <widget class="QLineEdit" name="lineEdit_set_color">
+     <item row="1" column="4">
+      <widget class="QLabel" name="label_output_format">
+       <property name="text">
+        <string>Output Format</string>
+       </property>
+      </widget>
+     </item>
+     <item row="2" column="1">
+      <widget class="QCheckBox" name="checkBox">
        <property name="enabled">
         <bool>false</bool>
        </property>
        <property name="text">
-        <string>128 128 128</string>
+        <string>Swap U/V</string>
        </property>
       </widget>
      </item>
-     <item>
-      <spacer name="horizontalSpacer">
-       <property name="orientation">
-        <enum>Qt::Orientation::Horizontal</enum>
+     <item row="2" column="0">
+      <widget class="QCheckBox" name="checkBox_2">
+       <property name="enabled">
+        <bool>false</bool>
        </property>
-       <property name="sizeHint" stdset="0">
-        <size>
-         <width>40</width>
-         <height>20</height>
-        </size>
+       <property name="text">
+        <string>Swap R/B</string>
        </property>
-      </spacer>
+      </widget>
      </item>
     </layout>
    </item>
@@ -282,4 +398,7 @@
  </widget>
  <resources/>
  <connections/>
+ <buttongroups>
+  <buttongroup name="buttonGroup"/>
+ </buttongroups>
 </ui>
