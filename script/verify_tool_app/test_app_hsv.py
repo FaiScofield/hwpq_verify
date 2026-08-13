@@ -10,7 +10,7 @@ import os
 import subprocess
 import sys
 
-HSV_APP_VERSION = "v0.1"
+HSV_APP_VERSION = "v0.2"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
 
@@ -110,6 +110,7 @@ class HsvTestAppWindow(QMainWindow):
             input_provider=lambda: self.preview_ctrl.input_frame,
             output_callback=self.preview_ctrl.set_output_image,
             status_callback=self.ui.statusbar.showMessage,
+            time_cost_callback=self.preview_ctrl.set_time_cost_ms,
             input_pixel_edit=self.preview_widget.ui.lineEdit_input_pixel,
             output_pixel_edit=self.preview_widget.ui.lineEdit_output_pixel,
         )

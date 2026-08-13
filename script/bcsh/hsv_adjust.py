@@ -81,7 +81,7 @@ def hsv_to_rgb(hsv):
     return _wrap(orig, out)
 
 
-def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='add'):
+def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='add', tolerance_s: float = 0.0):
     """HSV 域 V/S/H 调整（hsv 输入、hsv 输出，不涉及 RGB 重建）。
     按 V -> S -> H 顺序执行：
       V：Contrast 乘性 + delta_v 加性   v'=clip(v*gain_c + dv)     （gain_c ∈ [0,4]，dv ∈ [-1,1]）
@@ -103,11 +103,11 @@ def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='
     if mode == 'add':
         ds = 0.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), -1.0, 1.0)
         # ---- S：灰/黑保持 S'=0，其余 clamp(S+ds) ----
-        s_new = np.where(s > 0, np.clip(s + ds, 0.0, 1.0), 0.0)
+        s_new = np.where(s >= tolerance_s, np.clip(s + ds, 0.0, 1.0), s)
     elif mode == 'mul':
         gs = 1.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), 0.0, 4.0)
         # ---- S：灰/黑保持 S'=0，其余 clamp(S*gs) ----
-        s_new = np.where(s > 0, np.clip(s * gs, 0.0, 1.0), 0.0)
+        s_new = np.where(s >= tolerance_s, np.clip(s * gs, 0.0, 1.0), s)
     else:
         raise ValueError(f"Unsupported adjust_hsv mode: {mode!r}, expect 'add' or 'mul'")
     # ---- V：Contrast 乘性 + delta_v 加性 + clamp ----

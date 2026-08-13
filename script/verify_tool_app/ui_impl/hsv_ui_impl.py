@@ -18,7 +18,8 @@ from PySide6.QtWidgets import QLineEdit, QMainWindow, QWidget
 
 from script.bcsh.hsv_adjust import adjust_hsv, rgb_to_hsv, hsv_to_rgb
 from script.img_io import (
-    ImageFrame, yuv_to_rgb, _PLANAR_RGB_8, _PLANAR_RGB_10,
+    ImageFrame, _csc_range_params, is_limited_range, yuv_to_rgb,
+    _PLANAR_RGB_8, _PLANAR_RGB_10,
 )
 
 try:
@@ -51,6 +52,7 @@ class HsvUiController:
         input_provider: Callable[[], ImageFrame | None] | None = None,
         output_callback: Callable[[ImageFrame], None] | None = None,
         status_callback: Callable[[str], None] | None = None,
+        time_cost_callback: Callable[[float], None] | None = None,
         input_pixel_edit: QLineEdit | None = None,
         output_pixel_edit: QLineEdit | None = None,
     ) -> None:
@@ -62,6 +64,7 @@ class HsvUiController:
             input_provider: Optional callback returning the current input frame.
             output_callback: Optional callback receiving the processed output frame.
             status_callback: Optional callback receiving status-bar text.
+            time_cost_callback: Optional callback receiving the processing time in ms.
             input_pixel_edit / output_pixel_edit: preview readout QLineEdits that
                 show the frozen pixel's RGB+HSV values (input / output).
         """
@@ -71,6 +74,7 @@ class HsvUiController:
         self._input_provider = input_provider or (lambda: None)
         self._output_callback = output_callback or (lambda output: None)
         self._status_callback = status_callback or (lambda message: None)
+        self._time_cost_callback = time_cost_callback
         self._input_pixel_edit = input_pixel_edit
         self._output_pixel_edit = output_pixel_edit
 
@@ -79,6 +83,7 @@ class HsvUiController:
         self._last_input_rgb = None
         self._last_output_rgb = None
         self._s_mode = False          # False=add, True=mul（S 通道模式）
+        self._last_input_depth: int | None = None   # 用于 S Tolerance 范围/默认值随位深切换
 
         # --- Auto-run debounce timer ---
         self.auto_run_timer = QTimer(self.widget)
@@ -133,6 +138,7 @@ class HsvUiController:
         for spin in (ui.spinBox_hueStartTail, ui.spinBox_hueEndTail,
                      ui.spinBox_hueStartPad, ui.spinBox_hueEndPad):
             spin.valueChanged.connect(self._schedule_auto_run)
+        ui.spinBox_toleranceS.valueChanged.connect(self._schedule_auto_run)
         ui.checkBox_sameHueGoal.toggled.connect(self._on_same_hue_goal_toggled)
         # Mapped slider-spin pairs (scale maps slider int to spin value).
         self._connect_mapped_slider_spin(ui.slider_gainC, ui.spinBox_gainC, 100.0)
@@ -275,8 +281,10 @@ class HsvUiController:
         if not self.ui.checkBox_enableHsvAdj.isChecked():
             self._status_callback("HSV adjust disabled")
             return
+        start_time = time.time()
         try:
             r, g, b, depth = self._frame_to_rgb_planar(input_frame)
+            self._sync_tolerance_s_range(depth)
             max_val = (1 << depth) - 1
             rgb_planar = np.stack([r, g, b], axis=0).astype(np.float32)   # (3, H, W)
             rgb_norm = rgb_planar.transpose(1, 2, 0) / max_val            # (H, W, 3)
@@ -284,7 +292,7 @@ class HsvUiController:
             h_deg = hsv[..., 0]
 
             # Fully-adjusted HSV -> RGB.
-            adj_hsv = self._compute_adjusted_hsv(hsv, h_deg)
+            adj_hsv = self._compute_adjusted_hsv(hsv, h_deg, max_val)
             rgb_adj = hsv_to_rgb(adj_hsv)                                 # (H, W, 3)
 
             # Specified-hue blend weight (1.0 = full image).
@@ -307,21 +315,42 @@ class HsvUiController:
             out = (rgb_out * max_val + 0.5).astype(r.dtype)
             out_planar = out.transpose(2, 0, 1)                           # (3, H, W)
             out_fmt = _PLANAR_RGB_10 if depth >= 10 else _PLANAR_RGB_8
-            out_frame = ImageFrame(out_planar[0], out_planar[1], out_planar[2], out_fmt, 1)
+            # HSV 输出始终为 full-range RGB；目标色彩空间跟随输入
+            # (limited -> RGB_Limited(0)，full -> RGB_Full(1))，保存时按需 f2l。
+            out_clrspc = 0 if is_limited_range(input_frame.clrspc) else 1
+            out_frame = ImageFrame(out_planar[0], out_planar[1], out_planar[2], out_fmt, out_clrspc)
 
             # Cache RGB planes for the frozen-pixel readout.
             self._last_input_rgb = (r, g, b, depth)
             self._last_output_rgb = (out_planar[0], out_planar[1], out_planar[2], depth)
 
-            start_time = time.time()
             self._output_callback(out_frame)
             self._latest_output_frame = out_frame
             elapsed_ms = (time.time() - start_time) * 1000.0
             self._refresh_frozen_readout()
             self._status_callback(f"Processing completed in {elapsed_ms:.2f} ms")
+            if self._time_cost_callback is not None:
+                self._time_cost_callback(elapsed_ms)
         except Exception as exc:
             print("HSV processing failed:", exc)
             self._status_callback(f"Processing failed: {exc}")
+
+    def _sync_tolerance_s_range(self, depth: int) -> None:
+        """Set the S-tolerance spin range from the input bit depth.
+
+        8bit: 默认 2 / 最大 8；10bit: 默认 8 / 最大 32。仅在输入位深
+        发生变化时重置默认值，避免覆盖用户手动调整的值。
+        """
+        spin = self.ui.spinBox_toleranceS
+        if depth >= 10:
+            new_max, default = 32, 8
+        else:
+            new_max, default = 8, 2
+        if spin.maximum() != new_max:
+            spin.setMaximum(new_max)
+        if self._last_input_depth != depth:
+            self._last_input_depth = depth
+            spin.setValue(default)
 
     def _frame_to_rgb_planar(self, frame: ImageFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
         """Return (r, g, b, depth) full-range RGB planar (H, W) arrays."""
@@ -329,31 +358,39 @@ class HsvUiController:
         max_val = (1 << depth) - 1
         if frame.is_rgb:
             r, g, b = frame.pyr, frame.pug, frame.pvb
-            if frame.clrspc == 0:  # limited RGB [16, 235] -> expand to full
-                scale = max_val / 219.0
-                r = np.clip((r.astype(np.float32) - 16.0) * scale, 0, max_val).astype(r.dtype)
-                g = np.clip((g.astype(np.float32) - 16.0) * scale, 0, max_val).astype(g.dtype)
-                b = np.clip((b.astype(np.float32) - 16.0) * scale, 0, max_val).astype(b.dtype)
+            if frame.clrspc == 0:  # limited RGB -> expand to full (depth-aware)
+                # 8bit [16,235] / 10bit [64,940]
+                rp = _csc_range_params(depth)
+                lo = rp["yr_lo_l"]
+                scale = max_val / (rp["yr_hi_l"] - lo)
+                r = np.clip(np.rint((r.astype(np.float32) - lo) * scale), 0, max_val).astype(r.dtype)
+                g = np.clip(np.rint((g.astype(np.float32) - lo) * scale), 0, max_val).astype(g.dtype)
+                b = np.clip(np.rint((b.astype(np.float32) - lo) * scale), 0, max_val).astype(b.dtype)
         else:
             input_cs = frame.clrspc if frame.clrspc in (2, 3, 4, 5, 6, 7) else 5
             r, g, b = yuv_to_rgb(frame.pyr, frame.pug, frame.pvb, input_cs=input_cs, output_cs=1)
         return r, g, b, depth
 
-    def _compute_adjusted_hsv(self, hsv: np.ndarray, h_deg: np.ndarray) -> np.ndarray:
+    def _compute_adjusted_hsv(
+        self, hsv: np.ndarray, h_deg: np.ndarray, max_val: int,
+    ) -> np.ndarray:
         """Compute the fully-adjusted HSV array from the current controls."""
         dv = float(self.ui.spinBox_deltaV.value())
         gc = float(self.ui.spinBox_gainC.value())
         ds = float(self.ui.spinBox_deltaS.value())
         dh_deg = float(self.ui.spinBox_deltaH.value())
         mode = 'mul' if self.ui.radioButton_modeMul.isChecked() else 'add'
-        adj = adjust_hsv(hsv, delta_v=dv, delta_s=ds, delta_h=dh_deg / 360.0, gain_c=gc, mode=mode)
+        # S Tolerance：控件值为位深编码值，归一化到 [0,1] 后传给 adjust_hsv。
+        tolerance_s = float(self.ui.spinBox_toleranceS.value()) / max_val
+        adj_hsv = adjust_hsv(hsv, delta_v=dv, delta_s=ds, delta_h=dh_deg / 360.0,
+                             gain_c=gc, mode=mode, tolerance_s=tolerance_s)
         if self.ui.checkBox_sameHueGoal.isChecked():
             target = float(self.ui.spinBox_sameHueGoal.value())
             progress = float(np.clip(dh_deg / 180.0, -1.0, 1.0))
             arc = ((target - h_deg + 180.0) % 360.0) - 180.0   # shortest signed arc
             h_adj = (h_deg + np.abs(progress) * arc) % 360.0
-            adj = np.stack([h_adj, adj[..., 1], adj[..., 2]], axis=-1)
-        return adj
+            adj_hsv = np.stack([h_adj, adj_hsv[..., 1], adj_hsv[..., 2]], axis=-1)
+        return adj_hsv
 
     @staticmethod
     def _hue_blend_weights(hue_deg, hs, he, st, et, sp, ep):
