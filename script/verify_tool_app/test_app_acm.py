@@ -21,7 +21,7 @@ if PROJECT_ROOT not in sys.path:
 def _ensure_generated_ui_modules():
     """Regenerate ui_gen modules when they are missing or older than the source .ui files."""
     ui_pairs = (
-        ("ui\\acm_test_app_mainwindow.ui", "ui_gen\\acm_test_app_mainwindow.py"),
+        ("ui\\module_app_mainwindow.ui", "ui_gen\\module_app_mainwindow.py"),
         ("ui\\acm_ui.ui", "ui_gen\\acm_ui.py"),
         ("ui\\io_preview_ui.ui", "ui_gen\\io_preview_ui.py"),
         ("ui\\io_ui.ui", "ui_gen\\io_ui.py"),
@@ -63,12 +63,12 @@ if __package__:
     from .ui_impl.io_ui_impl import IoUiController, IoUiWidget
     from .ui_impl.acm_ui_impl import AcmUiController, AcmUiWidget
     from .ui_impl.io_preview_ui_impl import PreviewUiController, PreviewUiWidget
-    from .ui_gen.acm_test_app_mainwindow import Ui_AcmTestAppWindow
+    from .ui_gen.module_app_mainwindow import Ui_AcmTestAppWindow
 else:
     from ui_impl.io_ui_impl import IoUiController, IoUiWidget
     from ui_impl.acm_ui_impl import AcmUiController, AcmUiWidget
     from ui_impl.io_preview_ui_impl import PreviewUiController, PreviewUiWidget
-    from ui_gen.acm_test_app_mainwindow import Ui_AcmTestAppWindow
+    from ui_gen.module_app_mainwindow import Ui_AcmTestAppWindow
 
 
 class AcmTestAppWindow(QMainWindow):
@@ -131,7 +131,7 @@ class AcmTestAppWindow(QMainWindow):
     def _install_view_menu(self) -> None:
         """Wire the Preview action to toggle the preview dock visibility.
 
-        The action is defined in acm_test_app_mainwindow.ui as checkable /
+        The action is defined in module_app_mainwindow.ui as checkable /
         checked-by-default.  Toggling it shows or hides the preview dock.
         """
         action = self.ui.actionPreview
