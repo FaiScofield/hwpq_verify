@@ -192,7 +192,7 @@ void hsv2rgb_v0_classic(uint16_t H, uint16_t S, uint16_t V, uint16_t maxv, uint1
         return;
     }
     int32_t C11 = ((V * S + (FIX_S_ONE >> 1)) >> FIX_BITS_S) << FIX_BITS_S; /* Q11 色度，提前量化到 2^11 对齐 */
-    int32_t m11 = (V << FIX_BITS_S) - C11; /* Q11 = V*(1-S') */
+    int32_t m11 = (V << FIX_BITS_S) - C11;                                  /* Q11 = V*(1-S') */
     int32_t h6 = H * 6;
     int32_t seg = h6 / FIX_H_ONE;       /* 扇区 0..5 */
     int32_t hp2 = h6 % (2 * FIX_H_ONE); /* hp mod 2（120° 帐篷周期） */
@@ -271,7 +271,7 @@ void hsv2rgb_v2_no_division(uint16_t H, uint16_t S, uint16_t V, uint16_t maxv, u
         return;
     }
     int32_t C11 = ((V * S + (FIX_S_ONE >> 1)) >> FIX_BITS_S) << FIX_BITS_S; /* Q11 色度，提前量化到 2^11 对齐 */
-    int32_t m11 = (V << FIX_BITS_S) - C11; /* Q11 = V*(1-S') */
+    int32_t m11 = (V << FIX_BITS_S) - C11;                                  /* Q11 = V*(1-S') */
     int32_t h6 = H * 6;
     int32_t seg = h6 >> FIX_BITS_H;         /* /F_H → >>14 */
     int32_t hp2 = h6 & (2 * FIX_H_ONE - 1); /* %2F → &(2F-1)（120° 帐篷周期） */
@@ -345,11 +345,54 @@ void hsv2rgb_v3_optimal(uint16_t H, uint16_t S, uint16_t V, uint16_t maxv, uint1
        重建四舍五入 (+2^(rs-1))>>rs。第一级 V*S（Q11 像素域 ≤ 2^21）先右移 VS_SHIFT
        提前降位宽，使第二级 (V*S>>VS_SHIFT)*t ≤ 2^30 < 2^31，全程 32 位。
        额外误差 ≈ 2^(VS_SHIFT-1-FIX_BITS_S) LSB，VS_SHIFT=5 时 0.008 LSB。 */
-    int32_t vsq = (V * S + (1 << (VS_SHIFT - 1))) >> VS_SHIFT;                 // U14*U11>>11 => U10
+    int32_t vsq = (V * S + (1 << (VS_SHIFT - 1))) >> VS_SHIFT;                 // U10*U11>>11 => U10
     int32_t r = V - (int32_t)((vsq * t5 + (1 << (RS_SHIFT - 1))) >> RS_SHIFT); // U10*U14>>14 => U10
     int32_t g = V - (int32_t)((vsq * t3 + (1 << (RS_SHIFT - 1))) >> RS_SHIFT);
     int32_t b = V - (int32_t)((vsq * t1 + (1 << (RS_SHIFT - 1))) >> RS_SHIFT);
     *R = CLIP(r, 0, maxv);
     *G = CLIP(g, 0, maxv);
     *B = CLIP(b, 0, maxv);
+}
+
+/* v4：六边形走表模型（M/m/mid + 6 段 TAB，同 hsv_adjust.h 的 H 步）。
+   C = round(V*S/2^FIX_BITS_S) 像素域、m = V - C，mid = m + round(C*f14/F)（奇段为 M - dm）；
+   无分支（仅灰度判）、无除法、2 个乘法（S*M、C*f14）；末步 CLIP。 */
+void hsv2rgb_v4_hexwalk(uint16_t H, uint16_t S, uint16_t V, uint16_t maxv, uint16_t *R, uint16_t *G, uint16_t *B)
+{
+    /* per segment: [M channel, m channel, changing channel], 0/1/2 = R/G/B */
+    static const uint8_t TAB[6][3] = {
+        {0, 2, 1},
+        {1, 2, 0},
+        {1, 0, 2},
+        {2, 0, 1},
+        {2, 1, 0},
+        {0, 1, 2},
+    };
+
+    /* 灰度：H 无效，V 直接输出 */
+    if (S == 0) {
+        *R = *G = *B = V;
+        return;
+    }
+
+    int32_t M = V;
+    int32_t C = (S * M + (FIX_S_ONE >> 1)) >> FIX_BITS_S; // U10*U11=>U10
+    int32_t m = M - C;
+    int32_t t = H * 6; // U14=>U17
+    int32_t seg = t >> FIX_BITS_H;     /* 60° node 0..5, /FIX_H_ONE */
+    int32_t f14 = t & (FIX_H_ONE - 1); /* fraction inside the 60° segment */
+#if 0 /* 和v3输出一致，性能稍低一些 */
+    int32_t dm = (seg & 1) ? ((C * f14 + (FIX_H_ONE >> 1)) >> FIX_BITS_H)
+                           : ((C * (FIX_H_ONE - f14) + (FIX_H_ONE >> 1)) >> FIX_BITS_H);
+    int32_t mid = (M - dm);
+#else /* 可以保证和 rgb2hsv_v3 往返误差为0 */
+    int32_t dm = ((C * f14 + (FIX_H_ONE >> 1)) >> FIX_BITS_H);
+    int32_t mid = (seg & 1) ? (M - dm) : (m + dm);
+#endif
+    int32_t ch[3] = {m, m, m};
+    ch[TAB[seg][0]] = M;
+    ch[TAB[seg][2]] = mid;
+    *R = CLIP(ch[0], 0, maxv);
+    *G = CLIP(ch[1], 0, maxv);
+    *B = CLIP(ch[2], 0, maxv);
 }

@@ -85,7 +85,7 @@ int main(int argc, char **argv)
     int maxerr = 0;
 
     /* ---------------- Q14/Q11 文档参考族：精度 + 性能 ---------------- */
-    {
+    if (1) {
         static const rgb2hsv_fn rfn[4] = {rgb2hsv_v0_classic, rgb2hsv_v1_no_branch, rgb2hsv_v2_no_division, rgb2hsv_v3_optimal};
         static const hsv2rgb_fn hfn[4] = {hsv2rgb_v0_classic, hsv2rgb_v1_no_branch, hsv2rgb_v2_no_division, hsv2rgb_v3_optimal};
         static const char *nm[4] = {"v0_classic", "v1_no_branch", "v2_no_division", "v3_optimal"};
@@ -267,6 +267,147 @@ int main(int argc, char **argv)
                 printf("  hsv2rgb_%-20s %9.2f ns/px\n", nm[fi], (t1 - t0) * 1e9 / NPERF);
             }
 #undef NPERF
+        }
+    }
+
+    /* ---------------- v4_hexwalk：正确性专项 ---------------- */
+    if (1) {
+        printf("\n== hsv2rgb_v4_hexwalk 正确性专项 ==\n");
+
+        /* [e1] hsv2rgb 精度 vs float 参考（抽样同 [b]） */
+        {
+            int mE8 = 0, mE10 = 0;
+            for (int H = 0; H < FIX_H_ONE; H += FIX_H_ONE / 128) {
+                for (int S = 0; S <= FIX_S_ONE; S += FIX_S_ONE / 64) {
+                    for (int V = 0; V <= 255; V += 17) {
+                        float Rf, Gf, Bf;
+                        hsv2rgb_float(H / (float)FIX_H_ONE * 360.0f, S / (float)FIX_S_ONE, V / 255.0f, &Rf, &Gf, &Bf);
+                        int Rr = (int)lrintf(Rf * 255.0f);
+                        int Gr = (int)lrintf(Gf * 255.0f);
+                        int Br = (int)lrintf(Bf * 255.0f);
+                        uint16_t R, G, B;
+                        hsv2rgb_v4_hexwalk(H, S, V, 255, &R, &G, &B);
+                        int e = abs(R - Rr);
+                        if (abs(G - Gr) > e)
+                            e = abs(G - Gr);
+                        if (abs(B - Br) > e)
+                            e = abs(B - Br);
+                        if (e > mE8)
+                            mE8 = e;
+                    }
+                }
+                for (int S = 0; S <= FIX_S_ONE; S += FIX_S_ONE / 64) {
+                    for (int V = 0; V <= 1023; V += step1) {
+                        float Rf, Gf, Bf;
+                        hsv2rgb_float(H / (float)FIX_H_ONE * 360.0f, S / (float)FIX_S_ONE, V / 1023.0f, &Rf, &Gf, &Bf);
+                        int Rr = (int)lrintf(Rf * 1023.0f);
+                        int Gr = (int)lrintf(Gf * 1023.0f);
+                        int Br = (int)lrintf(Bf * 1023.0f);
+                        uint16_t R, G, B;
+                        hsv2rgb_v4_hexwalk(H, S, V, 1023, &R, &G, &B);
+                        int e = abs(R - Rr);
+                        if (abs(G - Gr) > e)
+                            e = abs(G - Gr);
+                        if (abs(B - Br) > e)
+                            e = abs(B - Br);
+                        if (e > mE10)
+                            mE10 = e;
+                    }
+                }
+            }
+            printf("  [e1] hsv2rgb_v4_hexwalk vs float: u8 max|Δ|=%2d LSB | u10抽样 max|Δ|=%2d LSB\n", mE8, mE10);
+        }
+
+        /* [e2] 往返 rgb2hsv_v3 -> hsv2rgb_v4（v3 即 fix_u8/u10 包装用的正向），u8 全遍历 + u10 全遍历/抽样 */
+        {
+            int mE8 = 0, mE10 = 0;
+            for (int r = 0; r <= 255; r++)
+                for (int g = 0; g <= 255; g++)
+                    for (int b = 0; b <= 255; b++) {
+                        uint16_t h13, s11, v10, R, G, B;
+                        rgb2hsv_v3_optimal(r, g, b, &h13, &s11, &v10);
+                        hsv2rgb_v4_hexwalk(h13, s11, v10, 255, &R, &G, &B);
+                        int e = abs(R - r);
+                        if (abs(G - g) > e)
+                            e = abs(G - g);
+                        if (abs(B - b) > e)
+                            e = abs(B - b);
+                        if (e > mE8)
+                            mE8 = e;
+                    }
+            for (int r = 0; r <= 1023; r += step2)
+                for (int g = 0; g <= 1023; g += step2)
+                    for (int b = 0; b <= 1023; b += step2) {
+                        uint16_t h13, s11, v10, R, G, B;
+                        rgb2hsv_v3_optimal(r, g, b, &h13, &s11, &v10);
+                        hsv2rgb_v4_hexwalk(h13, s11, v10, 1023, &R, &G, &B);
+                        int e = abs(R - r);
+                        if (abs(G - g) > e)
+                            e = abs(G - g);
+                        if (abs(B - b) > e)
+                            e = abs(B - b);
+                        if (e > mE10)
+                            mE10 = e;
+                    }
+            printf("  [e2] v3->v4 往返: \t\tu8 max|Δ|=%2d LSB | u10%s max|Δ|=%2d LSB\n", mE8,
+                   step2 > 1 ? "抽样" : "全遍历", mE10);
+        }
+
+        /* [e3] 与 hsv2rgb_v3 输出一致性（同输入 max diff） */
+        {
+            int mE8 = 0, mE10 = 0;
+            for (int H = 0; H < FIX_H_ONE; H += FIX_H_ONE / 256) {
+                for (int S = 0; S <= FIX_S_ONE; S += FIX_S_ONE / 128) {
+                    for (int V = 0; V <= 255; V += 7) {
+                        uint16_t R3, G3, B3, R4, G4, B4;
+                        hsv2rgb_v3_optimal(H, S, V, 255, &R3, &G3, &B3);
+                        hsv2rgb_v4_hexwalk(H, S, V, 255, &R4, &G4, &B4);
+                        int e = abs(R3 - R4);
+                        if (abs(G3 - G4) > e)
+                            e = abs(G3 - G4);
+                        if (abs(B3 - B4) > e)
+                            e = abs(B3 - B4);
+                        if (e > mE8)
+                            mE8 = e;
+                    }
+                    for (int V = 0; V <= 1023; V += step1) {
+                        uint16_t R3, G3, B3, R4, G4, B4;
+                        hsv2rgb_v3_optimal(H, S, V, 1023, &R3, &G3, &B3);
+                        hsv2rgb_v4_hexwalk(H, S, V, 1023, &R4, &G4, &B4);
+                        int e = abs(R3 - R4);
+                        if (abs(G3 - G4) > e)
+                            e = abs(G3 - G4);
+                        if (abs(B3 - B4) > e)
+                            e = abs(B3 - B4);
+                        if (e > mE10)
+                            mE10 = e;
+                    }
+                }
+            }
+            printf("  [e3] v4 vs v3 一致性:\t\tu8 max|Δ|=%2d LSB | u10抽样 max|Δ|=%2d LSB\n", mE8, mE10);
+        }
+
+        /* [e4] 性能（100 万像素，同 [d] 输入分布） */
+        {
+#define NPERF4 1000000
+            static int32_t qx[NPERF4], qy[NPERF4], qz[NPERF4];
+            uint32_t sd = 0x12345678u;
+            for (int i = 0; i < NPERF4; i++) {
+                sd = sd * 1664525u + 1013904223u;
+                qx[i] = (int32_t)((sd >> 16) & (uint32_t)(FIX_H_ONE - 1)); /* H Q(FIX_BITS_H) */
+                qy[i] = (int32_t)((sd >> 8) & (uint32_t)(FIX_S_ONE - 1));  /* S Q(FIX_BITS_S) */
+                qz[i] = (int32_t)(sd & 255u);                          /* V */
+            }
+            uint16_t R, G, B;
+            int32_t acc = 0;
+            double t0 = now_s();
+            for (int i = 0; i < NPERF4; i++) {
+                hsv2rgb_v4_hexwalk(qx[i], qy[i], qz[i], 255, &R, &G, &B);
+                acc += R + G + B;
+            }
+            double t1 = now_s();
+            printf("  [e4] hsv2rgb_v4_hexwalk\t %9.2f ns/px\n", (t1 - t0) * 1e9 / NPERF4);
+#undef NPERF4
         }
     }
     return 0;
