@@ -53,6 +53,7 @@ class HsvUiController:
         output_callback: Callable[[ImageFrame], None] | None = None,
         status_callback: Callable[[str], None] | None = None,
         time_cost_callback: Callable[[float], None] | None = None,
+        work_size_provider: Callable[[int, int], tuple[int, int]] | None = None,
         input_pixel_edit: QLineEdit | None = None,
         output_pixel_edit: QLineEdit | None = None,
     ) -> None:
@@ -65,6 +66,9 @@ class HsvUiController:
             output_callback: Optional callback receiving the processed output frame.
             status_callback: Optional callback receiving status-bar text.
             time_cost_callback: Optional callback receiving the processing time in ms.
+            work_size_provider: Optional callback returning the processing size
+                (w, h) for a source size (w, h) — used to downsample the preview
+                pass for responsiveness.
             input_pixel_edit / output_pixel_edit: preview readout QLineEdits that
                 show the frozen pixel's RGB+HSV values (input / output).
         """
@@ -75,6 +79,7 @@ class HsvUiController:
         self._output_callback = output_callback or (lambda output: None)
         self._status_callback = status_callback or (lambda message: None)
         self._time_cost_callback = time_cost_callback
+        self._work_size_provider = work_size_provider
         self._input_pixel_edit = input_pixel_edit
         self._output_pixel_edit = output_pixel_edit
 
@@ -83,7 +88,7 @@ class HsvUiController:
         self._last_input_rgb = None
         self._last_output_rgb = None
         self._s_mode = False          # False=add, True=mul（S 通道模式）
-        self._last_input_depth: int | None = None   # 用于 S Tolerance 范围/默认值随位深切换
+        self._work_size: tuple[int, int] | None = None   # 最近一次预览处理的分辨率
 
         # --- Auto-run debounce timer ---
         self.auto_run_timer = QTimer(self.widget)
@@ -274,7 +279,7 @@ class HsvUiController:
         self.auto_run_timer.start(300)
 
     def _do_auto_run(self) -> None:
-        """Run HSV processing and notify the host to refresh the output preview."""
+        """Run HSV processing at the preview work resolution and refresh."""
         input_frame = self._input_provider()
         if input_frame is None:
             return
@@ -283,47 +288,10 @@ class HsvUiController:
             return
         start_time = time.time()
         try:
-            r, g, b, depth = self._frame_to_rgb_planar(input_frame)
-            self._sync_tolerance_s_range(depth)
-            max_val = (1 << depth) - 1
-            rgb_planar = np.stack([r, g, b], axis=0).astype(np.float32)   # (3, H, W)
-            rgb_norm = rgb_planar.transpose(1, 2, 0) / max_val            # (H, W, 3)
-            hsv = np.stack(rgb_to_hsv(rgb_norm), axis=-1)                 # (H, W, 3)
-            h_deg = hsv[..., 0]
-
-            # Fully-adjusted HSV -> RGB.
-            adj_hsv = self._compute_adjusted_hsv(hsv, h_deg, max_val)
-            rgb_adj = hsv_to_rgb(adj_hsv)                                 # (H, W, 3)
-
-            # Specified-hue blend weight (1.0 = full image).
-            if self.ui.groupBox_setHueRange.isChecked():
-                w = self._hue_blend_weights(
-                    h_deg,
-                    self.ui.spinBox_hueStart.value(),
-                    self.ui.spinBox_hueEnd.value(),
-                    self.ui.spinBox_hueStartTail.value(),
-                    self.ui.spinBox_hueEndTail.value(),
-                    self.ui.spinBox_hueStartPad.value(),
-                    self.ui.spinBox_hueEndPad.value(),
-                )
-            else:
-                w = np.ones_like(h_deg, dtype=np.float32)
-
-            # Blend in RGB space (avoids angular H interpolation artifacts).
-            rgb_out = rgb_norm * (1.0 - w[..., None]) + rgb_adj * w[..., None]
-            rgb_out = np.clip(rgb_out, 0.0, 1.0)
-            out = (rgb_out * max_val + 0.5).astype(r.dtype)
-            out_planar = out.transpose(2, 0, 1)                           # (3, H, W)
-            out_fmt = _PLANAR_RGB_10 if depth >= 10 else _PLANAR_RGB_8
-            # HSV 输出始终为 full-range RGB；目标色彩空间跟随输入
-            # (limited -> RGB_Limited(0)，full -> RGB_Full(1))，保存时按需 f2l。
-            out_clrspc = 0 if is_limited_range(input_frame.clrspc) else 1
-            out_frame = ImageFrame(out_planar[0], out_planar[1], out_planar[2], out_fmt, out_clrspc)
-
-            # Cache RGB planes for the frozen-pixel readout.
-            self._last_input_rgb = (r, g, b, depth)
-            self._last_output_rgb = (out_planar[0], out_planar[1], out_planar[2], depth)
-
+            src_w, src_h = input_frame.width, input_frame.height
+            work_w, work_h = self._resolve_work_size(src_w, src_h)
+            self._work_size = (work_w, work_h)
+            out_frame = self._process_frame(input_frame, (work_w, work_h))
             self._output_callback(out_frame)
             self._latest_output_frame = out_frame
             elapsed_ms = (time.time() - start_time) * 1000.0
@@ -335,22 +303,125 @@ class HsvUiController:
             print("HSV processing failed:", exc)
             self._status_callback(f"Processing failed: {exc}")
 
-    def _sync_tolerance_s_range(self, depth: int) -> None:
-        """Set the S-tolerance spin range from the input bit depth.
+    def get_full_res_output(self) -> ImageFrame | None:
+        """Return a full-resolution output frame for saving.
 
-        8bit: 默认 2 / 最大 8；10bit: 默认 8 / 最大 32。仅在输入位深
-        发生变化时重置默认值，避免覆盖用户手动调整的值。
+        若最近一次预览处理已在源分辨率进行（源 <= 预览目标），直接复用
+        缓存帧；否则按源分辨率重算一次，保证保存的文件为精确结果。
         """
-        spin = self.ui.spinBox_toleranceS
-        if depth >= 10:
-            new_max, default = 32, 8
+        input_frame = self._input_provider()
+        if input_frame is None:
+            return None
+        src_w, src_h = input_frame.width, input_frame.height
+        if self._work_size == (src_w, src_h) and self._latest_output_frame is not None:
+            return self._latest_output_frame
+        out_frame = self._process_frame(input_frame)
+        self._latest_output_frame = out_frame
+        self._work_size = (src_w, src_h)
+        return out_frame
+
+    def _resolve_work_size(self, src_w: int, src_h: int) -> tuple[int, int]:
+        """Return the processing resolution: min(source, preview target)."""
+        if self._work_size_provider is not None:
+            return self._work_size_provider(src_w, src_h)
+        return src_w, src_h
+
+    def _process_frame(
+        self, frame: ImageFrame, work_wh: tuple[int, int] | None = None,
+    ) -> ImageFrame:
+        """Process one frame (optionally downsampled) and return an RGB frame.
+
+        处理分辨率取 min(源分辨率, work_wh)；降采样处理完成后升采样回源
+        分辨率，保证预览显示与输入对齐（预览显示逻辑无需感知降采样）。
+        """
+        src_w, src_h = frame.width, frame.height
+        work_frame = frame
+        if work_wh is not None and (work_wh[0] < src_w or work_wh[1] < src_h):
+            work_frame = self._downsample_frame(frame, work_wh[0], work_wh[1])
+
+        r, g, b, depth = self._frame_to_rgb_planar(work_frame)
+        max_val = (1 << depth) - 1
+        rgb_planar = np.stack([r, g, b], axis=0).astype(np.float32)   # (3, H, W)
+        rgb_norm = rgb_planar.transpose(1, 2, 0) / max_val            # (H, W, 3)
+        hsv = np.stack(rgb_to_hsv(rgb_norm), axis=-1)                 # (H, W, 3)
+        h_deg = hsv[..., 0]
+
+        # Fully-adjusted HSV -> RGB.
+        adj_hsv = self._compute_adjusted_hsv(hsv, h_deg)
+        rgb_adj = hsv_to_rgb(adj_hsv)                                 # (H, W, 3)
+
+        # Specified-hue blend weight (1.0 = full image).
+        if self.ui.groupBox_setHueRange.isChecked():
+            w = self._hue_blend_weights(
+                h_deg,
+                self.ui.spinBox_hueStart.value(),
+                self.ui.spinBox_hueEnd.value(),
+                self.ui.spinBox_hueStartTail.value(),
+                self.ui.spinBox_hueEndTail.value(),
+                self.ui.spinBox_hueStartPad.value(),
+                self.ui.spinBox_hueEndPad.value(),
+            )
         else:
-            new_max, default = 8, 2
-        if spin.maximum() != new_max:
-            spin.setMaximum(new_max)
-        if self._last_input_depth != depth:
-            self._last_input_depth = depth
-            spin.setValue(default)
+            w = np.ones_like(h_deg, dtype=np.float32)
+
+        # Blend in RGB space (avoids angular H interpolation artifacts).
+        rgb_out = rgb_norm * (1.0 - w[..., None]) + rgb_adj * w[..., None]
+        rgb_out = np.clip(rgb_out, 0.0, 1.0)
+        out = (rgb_out * max_val + 0.5).astype(r.dtype)
+        out_planar = out.transpose(2, 0, 1)                           # (3, H, W)
+        out_fmt = _PLANAR_RGB_10 if depth >= 10 else _PLANAR_RGB_8
+        # HSV 输出始终为 full-range RGB；目标色彩空间跟随输入
+        # (limited -> RGB_Limited(0)，full -> RGB_Full(1))，保存时按需 f2l。
+        out_clrspc = 0 if is_limited_range(frame.clrspc) else 1
+
+        # 降采样处理时升采样回源分辨率，保证预览/像素读数与输入对齐。
+        if work_frame is not frame:
+            out_planar = self._upsample_planar(out_planar, src_h, src_w)
+        out_frame = ImageFrame(out_planar[0], out_planar[1], out_planar[2], out_fmt, out_clrspc)
+
+        # Cache source-resolution RGB planes for the frozen-pixel readout.
+        if work_frame is not frame:
+            in_planar = self._upsample_planar(
+                np.stack([r, g, b], axis=0), src_h, src_w)
+            self._last_input_rgb = (in_planar[0], in_planar[1], in_planar[2], depth)
+        else:
+            self._last_input_rgb = (r, g, b, depth)
+        self._last_output_rgb = (out_planar[0], out_planar[1], out_planar[2], depth)
+        return out_frame
+
+    @staticmethod
+    def _downsample_frame(frame: ImageFrame, work_w: int, work_h: int) -> ImageFrame:
+        """最近邻降采样到目标尺寸，保持 YUV 子采样比例。"""
+        if frame.width <= work_w and frame.height <= work_h:
+            return frame
+        work_w, work_h = max(1, work_w), max(1, work_h)
+
+        def _sample(plane, tw, th):
+            h, w = plane.shape
+            if h <= th and w <= tw:
+                return plane
+            yi = np.minimum((np.arange(th) * h / max(1, th)).astype(int), h - 1)
+            xi = np.minimum((np.arange(tw) * w / max(1, tw)).astype(int), w - 1)
+            return plane[yi][:, xi]
+
+        uv_scale_h = frame.pug.shape[0] / max(1, frame.height)
+        uv_scale_w = frame.pug.shape[1] / max(1, frame.width)
+        pyr = _sample(frame.pyr, work_w, work_h)
+        pug = _sample(frame.pug, max(1, int(round(work_w * uv_scale_w))),
+                      max(1, int(round(work_h * uv_scale_h))))
+        pvb = _sample(frame.pvb, max(1, int(round(work_w * uv_scale_w))),
+                      max(1, int(round(work_h * uv_scale_h))))
+        return ImageFrame(pyr, pug, pvb, frame.fmt, frame.clrspc)
+
+    @staticmethod
+    def _upsample_planar(planar: np.ndarray, out_h: int, out_w: int) -> np.ndarray:
+        """最近邻把 (3, H, W) 平面放大到 (3, out_h, out_w)。"""
+        h, w = planar.shape[1], planar.shape[2]
+        if h == out_h and w == out_w:
+            return planar
+        yi = np.minimum((np.arange(out_h) * h / max(1, out_h)).astype(int), h - 1)
+        xi = np.minimum((np.arange(out_w) * w / max(1, out_w)).astype(int), w - 1)
+        return planar[:, yi][:, :, xi]
 
     def _frame_to_rgb_planar(self, frame: ImageFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
         """Return (r, g, b, depth) full-range RGB planar (H, W) arrays."""
@@ -372,7 +443,7 @@ class HsvUiController:
         return r, g, b, depth
 
     def _compute_adjusted_hsv(
-        self, hsv: np.ndarray, h_deg: np.ndarray, max_val: int,
+        self, hsv: np.ndarray, h_deg: np.ndarray,
     ) -> np.ndarray:
         """Compute the fully-adjusted HSV array from the current controls."""
         dv = float(self.ui.spinBox_deltaV.value())
@@ -380,8 +451,8 @@ class HsvUiController:
         ds = float(self.ui.spinBox_deltaS.value())
         dh_deg = float(self.ui.spinBox_deltaH.value())
         mode = 'mul' if self.ui.radioButton_modeMul.isChecked() else 'add'
-        # S Tolerance：控件值为位深编码值，归一化到 [0,1] 后传给 adjust_hsv。
-        tolerance_s = float(self.ui.spinBox_toleranceS.value()) / max_val
+        # S Tolerance：控件已是归一化浮点 [0, 0.1]，直接传给 adjust_hsv。
+        tolerance_s = float(self.ui.spinBox_toleranceS.value())
         adj_hsv = adjust_hsv(hsv, delta_v=dv, delta_s=ds, delta_h=dh_deg / 360.0,
                              gain_c=gc, mode=mode, tolerance_s=tolerance_s)
         if self.ui.checkBox_sameHueGoal.isChecked():
@@ -463,16 +534,20 @@ class HsvUiController:
     # ------------------------------------------------------------------ #
 
     def _refresh_frozen_readout(self) -> None:
-        """Write RGB+HSV values of the frozen pixel into the preview readouts."""
+        """Write RGB+HSV values of the frozen pixel into the preview readouts.
+
+        仅当本地 RGB 缓存存在时覆盖对应输入/输出框；缓存缺失（例如
+        enableHsvAdj 关闭、尚未处理过）时保留 preview 已填充的值。
+        """
         if self._frozen_pixel is None:
             return
         x_pos, y_pos = self._frozen_pixel
-        in_text = self._pixel_hsv_text(self._last_input_rgb, x_pos, y_pos)
-        out_text = self._pixel_hsv_text(self._last_output_rgb, x_pos, y_pos)
-        if self._input_pixel_edit is not None:
-            self._input_pixel_edit.setText(in_text)
-        if self._output_pixel_edit is not None:
-            self._output_pixel_edit.setText(out_text)
+        if self._last_input_rgb is not None and self._input_pixel_edit is not None:
+            self._input_pixel_edit.setText(
+                self._pixel_hsv_text(self._last_input_rgb, x_pos, y_pos))
+        if self._last_output_rgb is not None and self._output_pixel_edit is not None:
+            self._output_pixel_edit.setText(
+                self._pixel_hsv_text(self._last_output_rgb, x_pos, y_pos))
 
     @staticmethod
     def _pixel_hsv_text(rgb_cache, x_pos: int, y_pos: int) -> str:

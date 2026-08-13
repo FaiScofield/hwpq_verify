@@ -111,9 +111,11 @@ class HsvTestAppWindow(QMainWindow):
             output_callback=self.preview_ctrl.set_output_image,
             status_callback=self.ui.statusbar.showMessage,
             time_cost_callback=self.preview_ctrl.set_time_cost_ms,
+            work_size_provider=self.preview_ctrl.get_work_size,
             input_pixel_edit=self.preview_widget.ui.lineEdit_input_pixel,
             output_pixel_edit=self.preview_widget.ui.lineEdit_output_pixel,
         )
+        self.preview_ctrl.set_full_res_output_provider(self.hsv_ctrl.get_full_res_output)
         self.preview_ctrl.set_pixel_selection_callback(self.hsv_ctrl.on_preview_pixel_selection)
         self._install_view_menu()
         # Propagate HSV enabled state to preview for BothInLeft mode.
