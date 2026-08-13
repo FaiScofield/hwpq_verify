@@ -713,9 +713,30 @@ def _build_colormap_with_axis(img_eff, title, xlabel, ylabel):
     return padded, margin
 
 
+def _is_pysimplegui_63():
+    """Return True when the running PySimpleGUI is version 6.3.x.
+
+    Version 6.3 has a bug where the SystemDefault theme uses the magic sentinel
+    COLOR_SYSTEM_DEFAULT('1234567890') directly as a color name, which crashes
+    with TclError: unknown color name "1234567890" on the first Input.update().
+    """
+    try:
+        parts = [int(p) for p in str(sg.version).split('.')]
+    except (ValueError, AttributeError):
+        return False
+    return len(parts) >= 2 and parts[0] == 6 and parts[1] == 3
+
+
 def open_csc_ui(args=None):
     """Open PySimpleGUI UI for interactive CSC conversion"""
-    sg.theme('SystemDefault')
+    # PySimpleGUI 6.3 的 SystemDefault 主题有 bug: 把魔法哨兵
+    # COLOR_SYSTEM_DEFAULT('1234567890') 直接用作颜色名, 在 Input.update 时会触发
+    # TclError: unknown color name "1234567890" 崩溃。因此仅在 6.3 版本改用
+    # LightGrey1 (白底/浅灰输入框/黑字, 观感接近 SystemDefault), 其他版本保持默认。
+    if _is_pysimplegui_63():
+        sg.theme('LightGrey1')
+    else:
+        sg.theme('SystemDefault')
 
     fmt_options = FMT_OPTIONS_8BIT + FMT_OPTIONS_10BIT
     fmt_display = [f"0x{f:x} - {FORMAT_NAMES.get(f, 'Unknown')}" for f in fmt_options]
@@ -873,12 +894,16 @@ def open_csc_ui(args=None):
                   sg.Spin([str(i) for i in range(361)], initial_value='0', key='-SAT-FIX-HUE-SPIN-', size=(5, 1))],
                  [sg.Text('Start Hue:', size=(8, 1)),
                   sg.Spin([str(i) for i in range(361)], initial_value='0', key='-SAT-TARGET-HS-SPIN-', size=(5, 1)),
-                  sg.Text('Start Overlay:', size=(11, 1)),
-                  sg.Spin([str(i) for i in range(61)], initial_value='0', key='-SAT-TARGET-HSO-SPIN-', size=(5, 1))],
+                  sg.Text('Start Tail:', size=(10, 1)),
+                  sg.Spin([str(i) for i in range(61)], initial_value='0', key='-SAT-TARGET-HST-SPIN-', size=(5, 1)),
+                  sg.Text('Start Padding:', size=(12, 1)),
+                  sg.Spin([str(i) for i in range(61)], initial_value='0', key='-SAT-TARGET-HSP-SPIN-', size=(5, 1))],
                  [sg.Text('End Hue:', size=(8, 1)),
                   sg.Spin([str(i) for i in range(361)], initial_value='360', key='-SAT-TARGET-HE-SPIN-', size=(5, 1)),
-                  sg.Text('End Overlay:', size=(11, 1)),
-                  sg.Spin([str(i) for i in range(61)], initial_value='0', key='-SAT-TARGET-HEO-SPIN-', size=(5, 1))],
+                  sg.Text('End Tail:', size=(10, 1)),
+                  sg.Spin([str(i) for i in range(61)], initial_value='0', key='-SAT-TARGET-HET-SPIN-', size=(5, 1)),
+                  sg.Text('End Padding:', size=(12, 1)),
+                  sg.Spin([str(i) for i in range(61)], initial_value='0', key='-SAT-TARGET-HEP-SPIN-', size=(5, 1))],
              ], expand_x=True)],
          ], vertical_alignment='top', pad=(10, 0))],
     ]
@@ -907,7 +932,7 @@ def open_csc_ui(args=None):
         [sg.Text('Auto Pixel Depth:', size=(14, 1)),
          sg.Text('8', key='-DISP-DEPTH-', size=(4, 1), font=('_', 10, 'bold'))],
         [sg.Text('Display Scale:', size=(14, 1)),
-         sg.Slider(range=(0.05, 2.0), default_value=0.4, resolution=0.05, orientation='h',
+         sg.Slider(range=(0.01, 2.0), default_value=0.4, resolution=0.05, orientation='h',
                    size=(20, 15), key='-DISP-SCALE-', enable_events=True, disable_number_display=True),
          sg.Spin([f"{i/20:.2f}" for i in range(2, 41)], initial_value='0.40', key='-DISP-SCALE-SPIN-', size=(5, 1))]
     ]
@@ -1037,8 +1062,10 @@ def open_csc_ui(args=None):
     sathue_target_enabled = False  # Adjust Target Color Range checkbox
     sathue_target_hs = 0           # Start Hue [0, 360]
     sathue_target_he = 360         # End Hue [0, 360]
-    sathue_target_hso = 0          # Start Overlay [0, 60]
-    sathue_target_heo = 0          # End Overlay [0, 60]
+    sathue_target_hst = 0          # Start Tail [0, 60]
+    sathue_target_het = 0          # End Tail [0, 60]
+    sathue_target_hsp = 0          # Start Padding [0, 60]
+    sathue_target_hep = 0          # End Padding [0, 60]
     sathue_gray_thrd = 0.01        # Fixed gray threshold: pixels with S below this are treated as gray and untouched
     sathue_fix_hue_enabled = False # Fix Target Hue checkbox
     sathue_fix_hue_val = 0         # TargHue [0, 360]
@@ -1943,7 +1970,7 @@ def open_csc_ui(args=None):
         third2 = float(third)
         return h2, s2, third2
 
-    def _apply_target_color_range(planar_rgb, pixel_depth, delta_hue, delta_sat, delta_luma, hs, he, gray_thrd=0.0, fix_hue_enabled=False, targ_hue=0.0, hso=0.0, heo=0.0):
+    def _apply_target_color_range(planar_rgb, pixel_depth, delta_hue, delta_sat, delta_luma, hs, he, gray_thrd=0.0, fix_hue_enabled=False, targ_hue=0.0, hst=0.0, het=0.0, hsp=0.0, hep=0.0):
         """Selectively adjust colors whose hue lies inside the target range [hs, he].
 
         When hs > he the range wraps around: [hs, 360] U [0, he].  Only pixels
@@ -1954,13 +1981,23 @@ def open_csc_ui(args=None):
         Pixels with saturation below gray_thrd are treated as gray (black/gray/
         white) and are left untouched regardless of hue.
 
-        The overlay zones [hs, hs+hso] and [he-heo, he] (mod 360) are the soft
-        edges inside the range: there the fully-adjusted result is alpha-blended
-        with the input pixel (alpha fades 0 -> 1 across each zone), so the
-        adjustment eases in/out; the middle of the range keeps the full result.
-        The end zone is extended by the hue tolerance (eps) so alpha reaches 0
-        exactly at the in-range boundary, keeping the transition continuous even
-        with 8-bit hue quantization.
+        Each range edge fades over a larger interval made of a Tail (outside the
+        nominal range) plus a Padding (inside the range):
+          start edge: [hs - hst, hs + hsp]   (Tail below hs, Padding above hs)
+          end edge:   [he - hep, he + het]   (Padding below he, Tail above he)
+        (mod 360).  The transition mode depends on how many segments are set:
+          - both Tail and Padding > 0: two-segment ramp meeting at the edge with
+            alpha = 0.5, so each segment has its own ramp rate:
+              start: Tail [hs - hst, hs] 0 -> 0.5, Padding [hs, hs + hsp] 0.5 -> 1
+              end:   Padding [he - hep, he] 1 -> 0.5, Tail [he, he + het] 0.5 -> 0
+          - only one of them > 0: single-segment linear ramp over that zone
+            (0 -> 1 at start, 1 -> 0 at end)
+          - neither: no transition (hard edge).
+        The fully-adjusted result is alpha-blended with the input pixel inside
+        the zone; the middle of the range keeps the full result.  The zones are
+        extended by the hue tolerance (eps) so alpha reaches 0 exactly at the
+        in-range boundary, keeping the transition continuous even with 8-bit hue
+        quantization.
 
         When fix_hue_enabled, Delta Hue is treated as a percentage (clamped to
         [-100, 100]): all in-range pixels rotate toward +targ_hue (positive
@@ -1979,31 +2016,78 @@ def open_csc_ui(args=None):
         # in 8-bit the color nearest to hue=330 computes to 329.9 (and 30 to
         # 30.1), so an exact >= hs / <= he test would wrongly exclude them.
         eps = 0.5
+        hst = float(hst)
+        hsp = float(hsp)
+        het = float(het)
+        hep = float(hep)
+        # The in-range set extends past the nominal [hs, he] by the Tail amounts
+        # (hst below hs / het above he) plus the hue tolerance, so the Tail fade
+        # actually blends those out-of-range pixels and alpha reaches 0 exactly
+        # at the in_range boundary.
         if hs <= he:
-            in_range = (h_deg >= hs - eps) & (h_deg <= he + eps)
+            in_range = (h_deg >= hs - hst - eps) & (h_deg <= he + het + eps)
         else:
-            in_range = (h_deg >= hs - eps) | (h_deg <= he + eps)
+            in_range = (h_deg >= hs - hst - eps) | (h_deg <= he + het + eps)
 
-        # Overlay alpha: the soft edges inside the range.  The fade spans
-        # [hs-eps, hs+hso] (start) and [he-heo-eps, he+eps] (end) so the
-        # quantization edge is part of the fade instead of a hard seam.
-        hso = float(hso)
-        heo = float(heo)
-        d_start = (h_deg - (float(hs) - eps)) % 360.0
-        d_end = (h_deg - (float(he) - float(heo) - eps)) % 360.0
+        # Soft transition alpha.  Each edge fades over its Tail/Padding zone,
+        # with the transition mode depending on how many segments are present:
+        #   - both Tail and Padding (> 0): two-segment ramp meeting at the edge
+        #     with alpha = 0.5 (each segment has its own rate):
+        #       start: Tail [hs-hst-eps, hs] 0 -> 0.5, Padding [hs, hs+hsp] 0.5 -> 1
+        #       end:   Padding [he-hep, he] 1 -> 0.5, Tail [he, he+het+eps] 0.5 -> 0
+        #   - only one of them (> 0): single-segment linear ramp over that zone:
+        #       start Tail-only [hs-hst-eps, hs] 0 -> 1, Padding-only [hs-eps, hs+hsp] 0 -> 1
+        #       end   Tail-only [he, he+het+eps] 1 -> 0, Padding-only [he-hep, he+eps] 1 -> 0
+        #   - neither: no transition (hard edge).
+        # The extra eps on the Tail/edge side keeps the quantization edge part
+        # of the fade instead of a hard seam.
         alpha = np.ones_like(h_deg)
-        if hso > 0.0:
-            zs = d_start <= (hso + eps)
-            alpha[zs] = np.minimum(alpha[zs], np.clip(d_start[zs] / (hso + eps), 0.0, 1.0))
-        if heo > 0.0:
-            # The end overlay spans [he-heo-eps, he+eps] so alpha reaches 0 exactly
-            # at the in_range edge (he+eps) instead of at he.  The band h in
-            # (he, he+eps] is still considered in-range (8-bit hue quantization can
-            # land there), so keeping alpha at 1 there left a residual full-adjustment
-            # strip that showed up as red specks breaking the overlay continuity.
-            end_span = heo + 2 * eps
-            ze = d_end <= end_span
-            alpha[ze] = np.minimum(alpha[ze], np.clip(1.0 - d_end[ze] / end_span, 0.0, 1.0))
+        if hst > 0.0 and hsp > 0.0:
+            tail_len = hst + eps
+            d_tail = (h_deg - (float(hs) - tail_len)) % 360.0
+            zs1 = d_tail <= tail_len
+            alpha[zs1] = np.minimum(alpha[zs1], np.clip(d_tail[zs1] / tail_len * 0.5, 0.0, 0.5))
+            d_pad = (h_deg - float(hs)) % 360.0
+            zs2 = d_pad <= hsp
+            alpha[zs2] = np.minimum(alpha[zs2], np.clip(0.5 + d_pad[zs2] / hsp * 0.5, 0.5, 1.0))
+        elif hst > 0.0:
+            # Tail-only: single ramp [hs-hst-eps, hs], alpha 0 -> 1.
+            tail_len = hst + eps
+            d_tail = (h_deg - (float(hs) - tail_len)) % 360.0
+            zs = d_tail <= tail_len
+            alpha[zs] = np.minimum(alpha[zs], np.clip(d_tail[zs] / tail_len, 0.0, 1.0))
+        elif hsp > 0.0:
+            # Padding-only: single ramp [hs-eps, hs+hsp], alpha 0 -> 1.
+            start_len = hsp + eps
+            d_pad = (h_deg - (float(hs) - eps)) % 360.0
+            zs = d_pad <= start_len
+            alpha[zs] = np.minimum(alpha[zs], np.clip(d_pad[zs] / start_len, 0.0, 1.0))
+        if het > 0.0 and hep > 0.0:
+            d_pad_end = (h_deg - (float(he) - hep)) % 360.0
+            ze1 = d_pad_end <= hep
+            alpha[ze1] = np.minimum(alpha[ze1], np.clip(1.0 - d_pad_end[ze1] / hep * 0.5, 0.5, 1.0))
+            # The end Tail spans [he, he+het+eps] so alpha reaches 0 exactly
+            # at the in_range edge (he+het+eps) instead of at he.  The band h in
+            # (he, he+het+eps] is still considered in-range (8-bit hue
+            # quantization can land there), so keeping alpha at 1 there left a
+            # residual full-adjustment strip that showed up as red specks
+            # breaking the overlay continuity.
+            tail_len_end = het + eps
+            d_tail_end = (h_deg - float(he)) % 360.0
+            ze2 = d_tail_end <= tail_len_end
+            alpha[ze2] = np.minimum(alpha[ze2], np.clip(0.5 - d_tail_end[ze2] / tail_len_end * 0.5, 0.0, 0.5))
+        elif het > 0.0:
+            # End Tail-only: single ramp [he, he+het+eps], alpha 1 -> 0.
+            tail_len_end = het + eps
+            d_tail_end = (h_deg - float(he)) % 360.0
+            ze = d_tail_end <= tail_len_end
+            alpha[ze] = np.minimum(alpha[ze], np.clip(1.0 - d_tail_end[ze] / tail_len_end, 0.0, 1.0))
+        elif hep > 0.0:
+            # End Padding-only: single ramp [he-hep, he+eps], alpha 1 -> 0.
+            end_len = hep + eps
+            d_pad_end = (h_deg - (float(he) - hep)) % 360.0
+            ze = d_pad_end <= end_len
+            alpha[ze] = np.minimum(alpha[ze], np.clip(1.0 - d_pad_end[ze] / end_len, 0.0, 1.0))
         # Black/gray/white pixels (saturation below the threshold) must not change.
         if gray_thrd and gray_thrd > 0.0:
             in_range = in_range & (hsv[:, 1] >= gray_thrd)
@@ -2074,8 +2158,10 @@ def open_csc_ui(args=None):
                 sathue_gray_thrd,
                 sathue_fix_hue_enabled,
                 sathue_fix_hue_val,
-                sathue_target_hso,
-                sathue_target_heo,
+                sathue_target_hst,
+                sathue_target_het,
+                sathue_target_hsp,
+                sathue_target_hep,
             )
             # 3) Back to the output colorspace (RGB_Full -> oclr).
             out_clr = get_clrspc_from_display(values['-OUT-CLR-'])
@@ -2387,7 +2473,8 @@ def open_csc_ui(args=None):
     # Sat/Hue spin bindings
     for spin_key in ('-SAT-LUMA-SPIN-', '-SAT-HUE-SPIN-', '-SAT-SAT-SPIN-',
                      '-SAT-DELTA-LUMA-SPIN-', '-SAT-TARGET-HS-SPIN-', '-SAT-TARGET-HE-SPIN-',
-                     '-SAT-TARGET-HSO-SPIN-', '-SAT-TARGET-HEO-SPIN-',
+                     '-SAT-TARGET-HST-SPIN-', '-SAT-TARGET-HET-SPIN-',
+                     '-SAT-TARGET-HSP-SPIN-', '-SAT-TARGET-HEP-SPIN-',
                      '-SAT-FIX-HUE-SPIN-'):
         window[spin_key].bind('<Return>', '+ENTER')
         window[spin_key].bind('<KP_Enter>', '+ENTER')
@@ -2806,8 +2893,10 @@ def open_csc_ui(args=None):
     # Start with the target-color-range controls disabled until Enable is checked.
     window['-SAT-TARGET-HS-SPIN-'].update(disabled=True)
     window['-SAT-TARGET-HE-SPIN-'].update(disabled=True)
-    window['-SAT-TARGET-HSO-SPIN-'].update(disabled=True)
-    window['-SAT-TARGET-HEO-SPIN-'].update(disabled=True)
+    window['-SAT-TARGET-HST-SPIN-'].update(disabled=True)
+    window['-SAT-TARGET-HET-SPIN-'].update(disabled=True)
+    window['-SAT-TARGET-HSP-SPIN-'].update(disabled=True)
+    window['-SAT-TARGET-HEP-SPIN-'].update(disabled=True)
     # Fix Target Hue value controls are disabled until its checkbox is checked.
     window['-SAT-FIX-HUE-'].update(disabled=True)
     window['-SAT-FIX-HUE-SPIN-'].update(disabled=True)
@@ -2976,8 +3065,10 @@ def open_csc_ui(args=None):
                 sathue_target_enabled = False
                 window['-SAT-TARGET-HS-SPIN-'].update(disabled=True)
                 window['-SAT-TARGET-HE-SPIN-'].update(disabled=True)
-                window['-SAT-TARGET-HSO-SPIN-'].update(disabled=True)
-                window['-SAT-TARGET-HEO-SPIN-'].update(disabled=True)
+                window['-SAT-TARGET-HST-SPIN-'].update(disabled=True)
+                window['-SAT-TARGET-HET-SPIN-'].update(disabled=True)
+                window['-SAT-TARGET-HSP-SPIN-'].update(disabled=True)
+                window['-SAT-TARGET-HEP-SPIN-'].update(disabled=True)
             _set_sat_preview_visible(show_map)
             main_preview_size = _get_preview_widget_size('-MAIN-IMAGE-COL-')
             last_main_preview_size = main_preview_size
@@ -3124,8 +3215,10 @@ def open_csc_ui(args=None):
                 _set_sat_preview_visible(False)
             window['-SAT-TARGET-HS-SPIN-'].update(disabled=not sathue_target_enabled)
             window['-SAT-TARGET-HE-SPIN-'].update(disabled=not sathue_target_enabled)
-            window['-SAT-TARGET-HSO-SPIN-'].update(disabled=not sathue_target_enabled)
-            window['-SAT-TARGET-HEO-SPIN-'].update(disabled=not sathue_target_enabled)
+            window['-SAT-TARGET-HST-SPIN-'].update(disabled=not sathue_target_enabled)
+            window['-SAT-TARGET-HET-SPIN-'].update(disabled=not sathue_target_enabled)
+            window['-SAT-TARGET-HSP-SPIN-'].update(disabled=not sathue_target_enabled)
+            window['-SAT-TARGET-HEP-SPIN-'].update(disabled=not sathue_target_enabled)
             if current_planar_in is not None:
                 display_result(window, values)
         elif event == '-SAT-FIX-HUE-ENABLE-':
@@ -3151,9 +3244,11 @@ def open_csc_ui(args=None):
             if sathue_target_enabled and current_planar_in is not None:
                 display_result(window, values)
         elif event_key in ('-SAT-TARGET-HS-SPIN-', '-SAT-TARGET-HE-SPIN-',
-                           '-SAT-TARGET-HSO-SPIN-', '-SAT-TARGET-HEO-SPIN-') and event_suffix in {'STEP', 'ENTER'}:
-            # Start/End Hue (HS/HE) and their Overlay values (HSO/HEO).  The
-            # HS/HE sliders were removed, so these spins are the only input.
+                           '-SAT-TARGET-HST-SPIN-', '-SAT-TARGET-HET-SPIN-',
+                           '-SAT-TARGET-HSP-SPIN-', '-SAT-TARGET-HEP-SPIN-') and event_suffix in {'STEP', 'ENTER'}:
+            # Start/End Hue (HS/HE), their Tail values (HST/HET) and Padding
+            # values (HSP/HEP).  The HS/HE sliders were removed, so these spins
+            # are the only input.
             if event_key == '-SAT-TARGET-HS-SPIN-':
                 try:
                     v = int(values.get(event_key, sathue_target_hs))
@@ -3168,20 +3263,34 @@ def open_csc_ui(args=None):
                 except (TypeError, ValueError):
                     v = sathue_target_he
                 sathue_target_he = v
-            elif event_key == '-SAT-TARGET-HSO-SPIN-':
+            elif event_key == '-SAT-TARGET-HST-SPIN-':
                 try:
-                    v = int(values.get(event_key, sathue_target_hso))
+                    v = int(values.get(event_key, sathue_target_hst))
                     v = max(0, min(60, v))
                 except (TypeError, ValueError):
-                    v = sathue_target_hso
-                sathue_target_hso = v
+                    v = sathue_target_hst
+                sathue_target_hst = v
+            elif event_key == '-SAT-TARGET-HET-SPIN-':
+                try:
+                    v = int(values.get(event_key, sathue_target_het))
+                    v = max(0, min(60, v))
+                except (TypeError, ValueError):
+                    v = sathue_target_het
+                sathue_target_het = v
+            elif event_key == '-SAT-TARGET-HSP-SPIN-':
+                try:
+                    v = int(values.get(event_key, sathue_target_hsp))
+                    v = max(0, min(60, v))
+                except (TypeError, ValueError):
+                    v = sathue_target_hsp
+                sathue_target_hsp = v
             else:
                 try:
-                    v = int(values.get(event_key, sathue_target_heo))
+                    v = int(values.get(event_key, sathue_target_hep))
                     v = max(0, min(60, v))
                 except (TypeError, ValueError):
-                    v = sathue_target_heo
-                sathue_target_heo = v
+                    v = sathue_target_hep
+                sathue_target_hep = v
             window[event_key].update(value=str(v))
             if sathue_target_enabled and current_planar_in is not None:
                 display_result(window, values)

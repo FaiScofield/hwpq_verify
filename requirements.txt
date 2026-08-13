@@ -6,3 +6,4 @@ keyboard
 PySimpleGUI
 Pillow
 PyInstaller
+matplotlib

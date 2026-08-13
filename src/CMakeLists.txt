@@ -13,14 +13,29 @@ if(WIN32)
     endif()
 elseif(ABI STREQUAL "x86_64")
     set(PREBUILT_DIR ${CMAKE_CURRENT_LIST_DIR}/../prebuilt/x86_linux/lib)
+elseif(ABI STREQUAL "aarch64" OR ABI STREQUAL "armhf")
+    # no prebuilt libs shipped for ARM ABIs (e.g. Android), warn and continue
+    message(WARNING "[SRC] No prebuilt libraries for ABI: ${ABI}, skip targets that need prebuilt libs!")
+    set(PREBUILT_DIR "")
 else()
-    message(FATAL_ERROR "[SRC] Unsupported ABI: ${ABI} for prebuilt libraries!")
+    message(WARNING "[SRC] Unsupported ABI: ${ABI} for prebuilt libraries, skip targets that need prebuilt libs!")
+    set(PREBUILT_DIR "")
 endif()
-file(GLOB PREBUILT_LIBS
-    LIST_DIRECTORIES false
-    "${PREBUILT_DIR}/${PREBUILT_LIB_SUFFIX}"
-)
-message(STATUS "[SRC] set PREBUILT_DIR: ${PREBUILT_DIR}")
+
+## if PREBUILT_DIR is missing/empty, mark prebuilt libs unavailable so dependant targets can be skipped
+set(PREBUILT_AVAILABLE ON)
+if(PREBUILT_DIR AND EXISTS "${PREBUILT_DIR}")
+    file(GLOB PREBUILT_LIBS
+        LIST_DIRECTORIES false
+        "${PREBUILT_DIR}/${PREBUILT_LIB_SUFFIX}"
+    )
+    message(STATUS "[SRC] set PREBUILT_DIR: ${PREBUILT_DIR}")
+else()
+    set(PREBUILT_AVAILABLE OFF)
+    set(PREBUILT_LIBS "")
+    message(WARNING "[SRC] PREBUILT_DIR not found: '${PREBUILT_DIR}', skip targets that need prebuilt libs!")
+endif()
+message(STATUS "[SRC] PREBUILT_AVAILABLE: ${PREBUILT_AVAILABLE}")
 # message(STATUS "[SRC] set PREBUILT_LIBS: ${PREBUILT_LIBS}")
 
 ## add common utility libraries
@@ -33,3 +48,4 @@ message(STATUS "[SRC] built VERIFY_LIBS: ${VERIFY_LIBS}")
 add_subdirectory(csc)
 add_subdirectory(acm)
 add_subdirectory(dci)
+add_subdirectory(bcsh)

@@ -6,6 +6,7 @@ from collections.abc import Callable
 import os
 import re
 
+import numpy as np
 from PIL import Image
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QWidget
 
@@ -16,15 +17,101 @@ from script.csc.run_csc import (
     FMT_OPTIONS,
     get_frame_size,
 )
+from script.bcsh.hsv_adjust import hsv_to_rgb
 from script.img_io import (
     ImageFrame, STB_IMAGE_EXTENSIONS, guess_fmt_from_ext,
     is_limited_range, is_yuv_format, get_pixel_depth,
+    _PLANAR_RGB_8,
 )
 
 try:
     from ..ui_gen.io_ui import Ui_IoUiWidget
 except ImportError:
     from ui_gen.io_ui import Ui_IoUiWidget
+
+
+# ------------------------------------------------------------------ #
+# Synthetic test pattern generation                                  #
+# ------------------------------------------------------------------ #
+
+def build_test_pattern_rgb(
+    kind: str, width: int, height: int, value_v: float = 1.0,
+    value_h: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Generate a synthetic RGB planar test image.
+
+    Returns (R, G, B) uint8 arrays of shape (height, width), full-range RGB.
+    kind: "Rainbow Hue Circle" / "Rainbow Hue Ramp" / "HSV Patches" /
+          "Saturation Ramp" / "Value Ramp" / "Gray Ramp".
+    value_v: normalized V in [0, 1] used by the patterns with a fixed V
+             (Rainbow Hue Circle / Rainbow Hue Ramp / Saturation Ramp);
+             ignored by the others.
+    value_h: hue in degrees [0, 360) used by Saturation Ramp / Value Ramp.
+    """
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Invalid size: {width}x{height}")
+    if not 0.0 <= value_v <= 1.0:
+        raise ValueError(f"Invalid V value: {value_v}")
+    if not 0.0 <= value_h < 360.0:
+        raise ValueError(f"Invalid H value: {value_h}")
+    xx = np.linspace(0.0, 1.0, width, dtype=np.float32)      # column position [0,1]
+    yy = np.linspace(0.0, 1.0, height, dtype=np.float32)     # row position [0,1]
+    if kind == "Rainbow Hue Circle":
+        # Circular HSV colour wheel: hue = angle, saturation = radius,
+        # value = value_v inside the inscribed circle, white outside.
+        cx = (width - 1) * 0.5
+        cy = (height - 1) * 0.5
+        y_idx, x_idx = np.mgrid[0:height, 0:width].astype(np.float64)
+        radius = np.sqrt((x_idx - cx) ** 2 + (y_idx - cy) ** 2)
+        max_r = max(1.0, min(width, height) / 2.0)
+        h = (np.degrees(np.arctan2(y_idx - cy, x_idx - cx)) + 360.0) % 360.0
+        s = np.clip(radius / max_r, 0.0, 1.0)
+        v = np.full((height, width), value_v, dtype=np.float32)
+        outside = radius > max_r
+        s[outside] = 0.0   # white background outside the circle
+        v[outside] = 1.0
+    elif kind == "Rainbow Hue Ramp":
+        h = np.tile(xx * 360.0, (height, 1))
+        s = np.ones((height, width), dtype=np.float32)
+        v = np.full((height, width), value_v, dtype=np.float32)
+    elif kind == "HSV Patches":
+        n_hue = 12
+        n_val = 6
+        hue_cols = (np.floor(xx * n_hue) / n_hue * 360.0).astype(np.float32)              # (width,)
+        val_rows = (1.0 - np.floor(yy * n_val) / max(1, n_val - 1)).astype(np.float32)    # (height,)
+        h = np.tile(hue_cols, (height, 1))
+        v = np.tile(val_rows[:, None], (1, width))
+        s = np.ones((height, width), dtype=np.float32)
+    elif kind == "Saturation Ramp":
+        h = np.full((height, width), value_h, dtype=np.float32)
+        s = np.tile(xx, (height, 1))
+        v = np.full((height, width), value_v, dtype=np.float32)
+    elif kind == "Value Ramp":
+        h = np.full((height, width), value_h, dtype=np.float32)
+        s = np.ones((height, width), dtype=np.float32)
+        v = np.tile(xx, (height, 1))
+    elif kind == "Gray Ramp":
+        g = (np.tile(xx, (height, 1)) * 255.0 + 0.5).astype(np.uint8)
+        return (g.copy(), g.copy(), g.copy())
+    else:
+        raise ValueError(f"Unknown test pattern: {kind!r}")
+    hsv = np.stack([h, s, v], axis=-1)
+    rgb = np.clip(hsv_to_rgb(hsv), 0.0, 1.0)
+    rgb_u8 = (rgb * 255.0 + 0.5).astype(np.uint8)
+    return rgb_u8[..., 0], rgb_u8[..., 1], rgb_u8[..., 2]
+
+
+# Suffix token (after '_', case-insensitive) -> format code for .yuv file names.
+_YUV_SUFFIX_FMT = {
+    "yu24": 0x3,   # YUV444P_YU24
+    "nv24": 0x4,   # YUV444SP_NV24
+    "vu24": 0x5,   # YUV444I_VU24
+    "yu16": 0x6,   # YUV422P_YU16
+    "nv16": 0x7,   # YUV422SP_NV16
+    "yu12": 0x8,   # YUV420P_YU12
+    "nv12": 0x9,   # YUV420SP_NV12
+    "gray": 0xA,   # YUV400_Gray
+}
 
 
 class IoUiWidget(QWidget):
@@ -102,6 +189,16 @@ class IoUiController:
 
         self.ui.comboBox_output_format.setEnabled(False)
         self.ui.comboBox_output_colorspace.setEnabled(False)
+        # Test-pattern controls are active only when the test-pattern radio is checked.
+        self.ui.comboBox_useTestPattern.setEnabled(False)
+        self.ui.label_valueV.setEnabled(False)
+        self.ui.spinBox_valueV.setEnabled(False)
+        self.ui.spinBox_valueH.setEnabled(False)
+        # Remember per-domain colorspace choices (restored when the format
+        # switches between the RGB and YUV domains).
+        self._last_clrspc_rgb = 0
+        clr_str = self.ui.comboBox_input_colorspace.currentText()
+        self._last_clrspc_yuv = int(clr_str.split(" ")[0]) if clr_str else 5
 
     def _connect_signals(self) -> None:
         """Wire I/O widget signals to internal handlers."""
@@ -112,8 +209,15 @@ class IoUiController:
         self.ui.pushButton_browse_config.clicked.connect(self._on_browse_config)
         self.ui.pushButton_load_config.clicked.connect(self._on_load_config)
         self.ui.comboBox_input_format.currentIndexChanged.connect(self._on_input_format_changed)
-        self.ui.checkBox_set_color.toggled.connect(self._on_set_color_toggled)
-        self.ui.lineEdit_set_color.returnPressed.connect(self._on_set_color_return_pressed)
+        self.ui.radioButton_useSecColor.toggled.connect(self._on_set_color_toggled)
+        self.ui.lineEdit_setColor.returnPressed.connect(self._on_set_color_return_pressed)
+        self.ui.radioButton_useTestPattern.toggled.connect(self._on_use_test_pattern_toggled)
+        self.ui.radioButton_useInputFile.toggled.connect(self._on_use_input_file_toggled)
+        self.ui.comboBox_useTestPattern.currentIndexChanged.connect(self._on_test_pattern_combo_changed)
+        self.ui.spinBox_valueV.valueChanged.connect(self._on_test_pattern_value_changed)
+        self.ui.spinBox_valueH.valueChanged.connect(self._on_test_pattern_value_changed)
+        self.ui.spinBox_width.valueChanged.connect(self._on_input_size_changed)
+        self.ui.spinBox_height.valueChanged.connect(self._on_input_size_changed)
 
     # ------------------------------------------------------------------ #
     # Public queries                                                     #
@@ -143,18 +247,17 @@ class IoUiController:
         )
         if path:
             self.ui.lineEdit_input_file.setText(path)
+            self.ui.radioButton_useInputFile.setChecked(True)
             self._guess_input_params(path)
             self._recalc_frame_num()
             self._load_input_image()
 
     def _on_reload_input(self) -> None:
-        """Reload the current input file with the latest I/O settings."""
-        self.ui.checkBox_set_color.setChecked(False)
+        """Reload the current input file, re-guessing format/resolution."""
+        self.ui.radioButton_useInputFile.setChecked(True)
         path = self.ui.lineEdit_input_file.text()
         if path:
-            # Only re-guess format if no input has been loaded yet.
-            if not self._input_loaded:
-                self._guess_input_params(path)
+            self._guess_input_params(path)
             self._recalc_frame_num()
             self._load_input_image()
 
@@ -189,17 +292,115 @@ class IoUiController:
             return
         fmt_code = int(fmt_str.split(" ")[0], 16)
         clrspc_display = [f"{clr} - {CLRSPC_NAMES[clr]}" for clr in CLRSPC_OPTIONS]
-        if (fmt_code & 0xF) <= 0x2:
+        is_rgb = (fmt_code & 0xF) <= 0x2
+        if is_rgb:
             options = [item for item in clrspc_display if int(item.split(" ")[0]) in (0, 1)]
         else:
             options = [item for item in clrspc_display if int(item.split(" ")[0]) in range(2, 8)]
+        # Remember the current domain selection before rebuilding the list.
         current_text = self.ui.comboBox_input_colorspace.currentText()
+        if current_text:
+            cur_clr = int(current_text.split(" ")[0])
+            if cur_clr in (0, 1):
+                self._last_clrspc_rgb = cur_clr
+            else:
+                self._last_clrspc_yuv = cur_clr
+        # Keep the current colorspace if still valid; otherwise restore the
+        # remembered one for the new domain, falling back to the first option.
+        if current_text in options:
+            idx = options.index(current_text)
+        else:
+            fallback = self._last_clrspc_yuv if not is_rgb else self._last_clrspc_rgb
+            fallback_item = next((it for it in options if it.startswith(f"{fallback} ")), "")
+            idx = options.index(fallback_item) if fallback_item else 0
         self.ui.comboBox_input_colorspace.clear()
         self.ui.comboBox_input_colorspace.addItems(options)
-        idx = options.index(current_text) if current_text in options else -1
-        self.ui.comboBox_input_colorspace.setCurrentIndex(max(0, idx))
+        self.ui.comboBox_input_colorspace.setCurrentIndex(idx)
         self._recalc_frame_num()
         self._load_input_image()
+
+    def _on_test_pattern_combo_changed(self, index: int) -> None:
+        """Auto-generate the selected test pattern when the combo changes."""
+        del index
+        self._on_generate_test_pattern()
+
+    def _on_test_pattern_value_changed(self, value: int) -> None:
+        """Regenerate the test pattern when the H/V value changes."""
+        del value
+        self._on_generate_test_pattern()
+
+    def _on_input_size_changed(self, value: int) -> None:
+        """Regenerate the current input when the width/height changes.
+
+        Test patterns are re-rendered at the new resolution; the specified
+        color is rebuilt as a solid frame of the new size.  File mode is left
+        untouched (resolution is a load parameter there, applied via Reload).
+        """
+        del value
+        if self.ui.radioButton_useTestPattern.isChecked():
+            self._on_generate_test_pattern()
+        elif self.ui.radioButton_useSecColor.isChecked():
+            self._load_set_color_input()
+
+    def _on_use_test_pattern_toggled(self, enabled: bool) -> None:
+        """Enable the test-pattern controls and load the selected pattern as input."""
+        self.ui.comboBox_useTestPattern.setEnabled(enabled)
+        self.ui.label_valueV.setEnabled(enabled)
+        self.ui.spinBox_valueV.setEnabled(enabled)
+        self.ui.spinBox_valueH.setEnabled(enabled)
+        if not enabled:
+            return   # exclusive group: the newly-checked radio performs the load
+        # Test patterns are full-range RGB: force input format 0x0 / colorspace 0x1.
+        # If the format changed, the format-change handler already regenerated.
+        if not self._set_test_pattern_input_fmt():
+            # The combo always holds a valid pattern (no "None" entry); generate it.
+            self._on_generate_test_pattern()
+
+    def _set_test_pattern_input_fmt(self) -> bool:
+        """Force the input format to 0x0 (RGB888) and colorspace to 0x1 (RGB_Full).
+
+        Returns True when the format combo actually changed (the format-change
+        handler then already regenerated the pattern); False otherwise.
+        """
+        fmt_items = [self.ui.comboBox_input_format.itemText(i)
+                     for i in range(self.ui.comboBox_input_format.count())]
+        fmt_item = next((it for it in fmt_items if it.startswith("0x0 ")), "")
+        changed = False
+        if fmt_item and self.ui.comboBox_input_format.currentText() != fmt_item:
+            self.ui.comboBox_input_format.setCurrentText(fmt_item)
+            changed = True
+        clrspc_items = [self.ui.comboBox_input_colorspace.itemText(i)
+                        for i in range(self.ui.comboBox_input_colorspace.count())]
+        clrspc_item = next((it for it in clrspc_items if it.startswith("1 - ")), "")
+        if clrspc_item:
+            self.ui.comboBox_input_colorspace.setCurrentText(clrspc_item)
+        return changed
+
+    def _on_use_input_file_toggled(self, enabled: bool) -> None:
+        """Reload the file input (re-guess format/resolution) when the
+        file-source radio is selected."""
+        if enabled:
+            self._on_reload_input()
+
+    def _on_generate_test_pattern(self) -> None:
+        """Generate the selected synthetic test pattern at the current resolution."""
+        if not self.ui.radioButton_useTestPattern.isChecked():
+            return
+        kind = self.ui.comboBox_useTestPattern.currentText()
+        if not kind:
+            return
+        width = self.ui.spinBox_width.value()
+        height = self.ui.spinBox_height.value()
+        value_v = self.ui.spinBox_valueV.value() / 255.0
+        value_h = self.ui.spinBox_valueH.value()
+        try:
+            r, g, b = build_test_pattern_rgb(kind, width, height, value_v, value_h)
+        except Exception as exc:
+            QMessageBox.critical(None, "Error", f"Failed to generate test pattern: {exc}")
+            return
+        frame = ImageFrame(r, g, b, _PLANAR_RGB_8, 1)
+        self._emit_input_loaded(
+            frame, f"Test pattern generated: {kind}, V={self.ui.spinBox_valueV.value()}, H={value_h}, size: {width}x{height}")
 
     # ------------------------------------------------------------------ #
     # Auto-load defaults on startup                                       #
@@ -231,23 +432,26 @@ class IoUiController:
         self._auto_load_defaults()
 
     def _on_set_color_toggled(self, enabled: bool) -> None:
-        """Toggle the explicit-color input edit and reload."""
-        self.ui.lineEdit_set_color.setEnabled(enabled)
-        if enabled:
-            # Clear any previous success style so the user starts fresh
-            self.ui.lineEdit_set_color.setStyleSheet("")
+        """Enable/disable the explicit-color edit; the newly-checked source
+        radio's own handler performs the load."""
+        self.ui.lineEdit_setColor.setEnabled(enabled)
+        if not enabled:
+            return
+        # Clear any previous error style so the user starts fresh
+        self.ui.lineEdit_setColor.setStyleSheet("")
         self._load_input_image()
 
     def _guess_input_params(self, filepath: str) -> None:
-        """Guess format and resolution from the selected input file name."""
+        """Guess format and resolution from the selected input file name.
+
+        Resolution is guessed before the format so that the format-change
+        handler (which reloads the input) never runs with stale width/height.
+        """
         basename = os.path.basename(filepath).lower()
         ext = os.path.splitext(basename)[1]
-        fmt_display = [f"0x{fmt:x} - {FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_OPTIONS]
 
+        # --- Resolution first ---
         if ext in STB_IMAGE_EXTENSIONS:
-            rgb_fmt = next((item for item in fmt_display if item.startswith("0x0 ")), None)
-            if rgb_fmt:
-                self.ui.comboBox_input_format.setCurrentText(rgb_fmt)
             try:
                 with Image.open(filepath) as image:
                     width, height = image.size
@@ -255,19 +459,29 @@ class IoUiController:
                 self.ui.spinBox_height.setValue(height)
             except Exception:
                 pass
-        elif ext == ".yuv":
-            yuv_fmt = next((item for item in fmt_display if item.startswith("0x3 ")), None)
-            if yuv_fmt:
-                self.ui.comboBox_input_format.setCurrentText(yuv_fmt)
-        elif ext == ".rgb":
-            rgb_fmt = next((item for item in fmt_display if item.startswith("0x0 ")), None)
-            if rgb_fmt:
-                self.ui.comboBox_input_format.setCurrentText(rgb_fmt)
-
         match = re.search(r"(\d+)x(\d+)", basename)
         if match:
             self.ui.spinBox_width.setValue(int(match.group(1)))
             self.ui.spinBox_height.setValue(int(match.group(2)))
+
+        # --- Format after ---
+        fmt_display = [f"0x{fmt:x} - {FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_OPTIONS]
+        if ext in STB_IMAGE_EXTENSIONS:
+            fmt_code = 0x0
+        elif ext == ".yuv":
+            fmt_code = next(
+                (code for token, code in _YUV_SUFFIX_FMT.items()
+                 if f"_{token}" in basename),
+                0x3,   # default YUV444P_YU24 when no token matches
+            )
+        elif ext == ".rgb":
+            fmt_code = 0x1 if "_rgba" in basename else 0x0
+        else:
+            return
+        fmt_item = next(
+            (item for item in fmt_display if item.startswith(f"0x{fmt_code:x} ")), None)
+        if fmt_item:
+            self.ui.comboBox_input_format.setCurrentText(fmt_item)
 
     def _recalc_frame_num(self) -> None:
         """Recalculate frame count from the selected file and format."""
@@ -317,18 +531,20 @@ class IoUiController:
     def _load_set_color_input(self) -> None:
         """Build a solid-colour ImageFrame from the set-color fields.
 
-        The three channel values are parsed as RGB or YUV depending on the
-        selected input format.  Limited-range colorspaces clamp the 8-bit
-        values to the spec-defined ranges before scaling to 10-bit.
+        The three channel values are interpreted at the selected format's bit
+        depth (0..255 for 8-bit, 0..1023 for 10-bit) and as RGB or YUV
+        depending on the input format.  Out-of-range values are rejected with
+        a warning (text turns red; the user re-enters or switches source)
+        instead of being clamped.  Limited-range colorspaces clamp valid
+        values to the spec-defined ranges.
         """
-        color_str = self.ui.lineEdit_set_color.text().strip()
+        color_str = self.ui.lineEdit_setColor.text().strip()
         parsed = self._parse_color_text(color_str)
         if parsed is None:
             QMessageBox.warning(None, "Warning", "Invalid color format. Use three numbers separated by spaces or commas (e.g. 128,128,128 or 128 128 128)")
-            self.ui.lineEdit_set_color.setStyleSheet("")
+            self.ui.lineEdit_setColor.setStyleSheet("color: #ff0000;")
             return
         c1, c2, c3 = parsed
-        self.ui.lineEdit_set_color.setStyleSheet("color: #22dd22;")
         fmt_str = self.ui.comboBox_input_format.currentText()
         if not fmt_str:
             return
@@ -339,17 +555,32 @@ class IoUiController:
         width = self.ui.spinBox_width.value()
         height = self.ui.spinBox_height.value()
 
-        # Clamp 8-bit base values when using limited range.
-        if limited and is_yuv_format(fmt_code):
-            # Y ∈ [16, 235], U/V ∈ [16, 240]
-            c1 = max(16, min(235, c1))
-            c2 = max(16, min(240, c2))
-            c3 = max(16, min(240, c3))
-        elif limited:
-            # RGB ∈ [16, 235]
-            c1 = max(16, min(235, c1))
-            c2 = max(16, min(235, c2))
-            c3 = max(16, min(235, c3))
+        # Reject values outside the format's bit-depth range (no silent clamp).
+        max_val = 1023 if depth >= 10 else 255
+        if any(v < 0 or v > max_val for v in (c1, c2, c3)):
+            self.ui.lineEdit_setColor.setStyleSheet("color: #ff0000;")
+            QMessageBox.warning(
+                None, "Warning",
+                f"Value out of range for {depth}-bit input. Use values in [0, {max_val}].",
+            )
+            return
+
+        # Clamp valid values to the limited-range window (depth-scaled).
+        if limited:
+            if depth >= 10:
+                lo_y, hi_y, hi_uv = 64, 940, 960
+            else:
+                lo_y, hi_y, hi_uv = 16, 235, 240
+            if is_yuv_format(fmt_code):
+                # Y ∈ [lo_y, hi_y], U/V ∈ [lo_y, hi_uv]
+                c1 = max(lo_y, min(hi_y, c1))
+                c2 = max(lo_y, min(hi_uv, c2))
+                c3 = max(lo_y, min(hi_uv, c3))
+            else:
+                # RGB ∈ [lo_y, hi_y]
+                c1 = max(lo_y, min(hi_y, c1))
+                c2 = max(lo_y, min(hi_y, c2))
+                c3 = max(lo_y, min(hi_y, c3))
 
         channel_label = "YUV" if is_yuv_format(fmt_code) else "RGB"
         if is_yuv_format(fmt_code):
@@ -360,6 +591,7 @@ class IoUiController:
             frame = ImageFrame.from_solid_color(
                 width, height, c1, c2, c3, clrspc, depth,
             )
+        self.ui.lineEdit_setColor.setStyleSheet("")
         self._emit_input_loaded(
             frame,
             f"Input generated ({channel_label} {c1}, {c2}, {c3}) "
@@ -370,18 +602,19 @@ class IoUiController:
     def _on_set_color_return_pressed(self) -> None:
         """Parse the set-color text when Enter is pressed.
 
-        On success the text colour turns green; on failure a warning is shown
-        and the colour stays unchanged.
+        On success the text colour stays default; on failure the text turns
+        red and a warning is shown.
         """
-        color_str = self.ui.lineEdit_set_color.text().strip()
+        color_str = self.ui.lineEdit_setColor.text().strip()
         parsed = self._parse_color_text(color_str)
         if parsed is None:
             QMessageBox.warning(
                 None, "Warning",
                 "Invalid color format. Use three numbers separated by spaces or commas (e.g. 128,128,128 or 128 128 128)",
             )
+            self.ui.lineEdit_setColor.setStyleSheet("color: #ff0000;")
             return
-        self.ui.lineEdit_set_color.setStyleSheet("color: #22dd22;")
+        self.ui.lineEdit_setColor.setStyleSheet("")
         self._load_input_image()
 
     @staticmethod
@@ -399,10 +632,12 @@ class IoUiController:
     def _load_input_image(self) -> None:
         """Load input data as an ImageFrame and notify parent."""
         input_file = self.ui.lineEdit_input_file.text()
-        use_set_color = self.ui.checkBox_set_color.isChecked()
 
-        if use_set_color:
+        if self.ui.radioButton_useSecColor.isChecked():
             self._load_set_color_input()
+            return
+        if self.ui.radioButton_useTestPattern.isChecked():
+            self._on_generate_test_pattern()
             return
 
         if not input_file or not os.path.isfile(input_file):

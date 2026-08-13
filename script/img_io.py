@@ -610,34 +610,33 @@ class ImageFrame:
     def from_solid_color(
         cls, width: int, height: int, red: int, green: int, blue: int, clrspc: int = 5, depth: int = 8
     ) -> "ImageFrame":
-        """Create a solid YUV444 ImageFrame from 8-bit R/G/B values.
+        """Create a solid YUV444 ImageFrame from R/G/B values.
 
-        Values are scaled by ``1 << (depth - 8)`` for 10-bit output.
+        Values are interpreted at the format's bit depth (0..255 for 8-bit,
+        0..1023 for 10-bit) and stored directly without scaling.
         Limited-range clamping is applied when ``is_limited_range(clrspc)``.
         """
         d = np.uint16 if depth >= 10 else np.uint8
-        scale = 1 << max(0, depth - 8)
-        r = np.full((height, width), red * scale, dtype=d)
-        g = np.full((height, width), green * scale, dtype=d)
-        b = np.full((height, width), blue * scale, dtype=d)
+        r = np.full((height, width), red, dtype=d)
+        g = np.full((height, width), green, dtype=d)
+        b = np.full((height, width), blue, dtype=d)
         return cls.from_rgb_channels(r, g, b, clrspc, depth)
 
     @classmethod
     def from_solid_yuv(
         cls, width: int, height: int, y_val: int, u_val: int, v_val: int, clrspc: int = 5, depth: int = 8
     ) -> "ImageFrame":
-        """Create a solid YUV444 ImageFrame from 8-bit Y/U/V values.
+        """Create a solid YUV444 ImageFrame from Y/U/V values.
 
-        The plane arrays are stored directly without colours space conversion.
-        Values are scaled by ``1 << (depth - 8)`` for 10-bit output.
+        Values are interpreted at the format's bit depth (0..255 for 8-bit,
+        0..1023 for 10-bit) and stored directly without scaling.
         Limited-range clamping is applied when ``is_limited_range(clrspc)``.
         """
         d = np.uint16 if depth >= 10 else np.uint8
-        scale = 1 << max(0, depth - 8)
         out_fmt = _PLANAR_YUV_10 if depth >= 10 else _PLANAR_YUV_8
-        y = np.full((height, width), y_val * scale, dtype=d)
-        u = np.full((height, width), u_val * scale, dtype=d)
-        v = np.full((height, width), v_val * scale, dtype=d)
+        y = np.full((height, width), y_val, dtype=d)
+        u = np.full((height, width), u_val, dtype=d)
+        v = np.full((height, width), v_val, dtype=d)
         return cls(y, u, v, out_fmt, clrspc)
 
     # ------------------------------------------------------------------ #

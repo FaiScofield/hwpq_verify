@@ -1,6 +1,6 @@
 # CSC 实现算法对比
 
-## 算法实现
+## CSC 算法实现
 
 **对比表**
 
@@ -30,14 +30,14 @@
   - 注： `I`表示作用于输入, `O`表示作用于输出, `MO`表示作用于输出的中间层，`MI`表示作用于输入的中间层, `X`表示不生效（下同）
   - 所谓中间层指：Y2Y时 yuv 数据需要先转到 rgb 的中间层再应用 rgb 域的BCSH参数，最后再转回 yuv 域； R2R时亦然。
 
-    | 参数类型 | 映射范围 | 作用域 |  R2Y | Y2R | R2R | Y2Y |
-    | ------- | ------- | ------ | :----:|:---:|:---:|:---:|
-    | 亮度 `Brightness`   | `[-1/4, 1/4]`  | RGB/YUV OUT |  O | O | O  | O |
-    | 对比度 `Contrast`   | `[0.0, 2.0]`   | RGB |  I | O | O  | MO |
-    | 饱和度 `Saturation` | `[0.0, 2.0]`   | YUV |  O | I | MO | O |
-    | 色调 `Hue`          | `[-30, 30]deg` | YUV |  O | I | MO | O |
-    | RGB增益 `RgbGain`   | `[0.0, 2.0]`   | RGB |  I | O | O  | MO |
-    | RGB偏移 `RgbOffset` | `[-1/8, 1/8]`  | RGB OUT |  X | O | O  | X |
+    | 参数类型 | 映射范围 | 作用域 | R2Y | Y2R | R2R | Y2Y |
+    | ------- | ------- | ------ | :----: | :---: | :---: | :---: |
+    | 亮度 `Brightness` | `[-1/4, 1/4]` | RGB/YUV OUT | O | O | O | O |
+    | 对比度 `Contrast` | `[0.0, 2.0]` | RGB | I | O | O | MO |
+    | 饱和度 `Saturation` | `[0.0, 2.0]` | YUV | O | I | MO | O |
+    | 色调 `Hue` | `[-30, 30]deg` | YUV | O | I | MO | O |
+    | RGB增益 `RgbGain` | `[0.0, 2.0]` | RGB | I | O | O | MO |
+    | RGB偏移 `RgbOffset` | `[-1/8, 1/8]` | RGB OUT | X | O | O | X |
 
 ### RK SW CSC
 
@@ -56,14 +56,14 @@
   - 当 `coef_precision > 0` 时，量化入口改为 `get_fixed_coefs_affine()`
 - BCSH参数生效表：
 
-    | 参数类型 | 映射范围 | 作用域 |  R2Y | Y2R | R2R | Y2Y |
-    | ------- | ------- | ------ | :----:|:---:|:---:|:---:|
-    | 亮度 `Brightness`   | `[-1.0, 1.0]`  | RGB/YUV OUT |  O | O | O  | O |
-    | 对比度 `Contrast`   | `[0.0, 2.0]`   | RGB |  I | O | O  | MO |
-    | 饱和度 `Saturation` | `[0.0, 2.0]`   | YUV |  O | I | MO | O |
-    | 色调 `Hue`          |`[-180, 180]deg`| YUV |  O | I | MO | O |
-    | RGB增益 `RgbGain`   | `[0.0, 8.0]`   | RGB |  I | O | O  | MO |
-    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]`  | RGB OUT |  X | O | O  | X |
+    | 参数类型 | 映射范围 | 作用域 | R2Y | Y2R | R2R | Y2Y |
+    | ------- | ------- | ------ | :----: | :---: | :---: | :---: |
+    | 亮度 `Brightness` | `[-1.0, 1.0]` | RGB/YUV OUT | O | O | O | O |
+    | 对比度 `Contrast` | `[0.0, 2.0]` | RGB | I | O | O | MO |
+    | 饱和度 `Saturation` | `[0.0, 2.0]` | YUV | O | I | MO | O |
+    | 色调 `Hue` | `[-180, 180]deg` | YUV | O | I | MO | O |
+    | RGB增益 `RgbGain` | `[0.0, 8.0]` | RGB | I | O | O | MO |
+    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]` | RGB OUT | X | O | O | X |
 
 - BCSH 色偏现象理论与 RK SW CSC 一致
 
@@ -93,14 +93,14 @@
     - `Step2` 根据以上4个模式的分支显示 `Q_yuv/Q_rgb` 的系数和偏移
     - 中间域转换使用的 `M_{r2y}` / `M_{y2r}` 不在 UI 中单独显示
 
-    | 参数类型 | 映射范围 | 作用域 |  R2Y | Y2R | R2R | Y2Y |
-    | ------- | ------- | ------ | :----:|:---:|:---:|:---:|
-    | 亮度 `Brightness`   | `[-1.0, 1.0]`  | YUV |  O | I | MI | O |
-    | 对比度 `Contrast`   | `[0.0, 2.0]`   | YUV |  O | I | MI | O |
-    | 饱和度 `Saturation` | `[0.0, 2.0]`   | YUV |  O | I | MI | O |
-    | 色调 `Hue`          |`[-180, 180]deg`| YUV |  O | I | MI | O |
-    | RGB增益 `RgbGain`   | `[0.0, 8.0]`   | RGB |  I | O | O  | MI |
-    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]`  | RGB |  I | O | O  | MI |
+    | 参数类型 | 映射范围 | 作用域 | R2Y | Y2R | R2R | Y2Y |
+    | ------- | ------- | ------ | :----: | :---: | :---: | :---: |
+    | 亮度 `Brightness` | `[-1.0, 1.0]` | YUV | O | I | MI | O |
+    | 对比度 `Contrast` | `[0.0, 2.0]` | YUV | O | I | MI | O |
+    | 饱和度 `Saturation` | `[0.0, 2.0]` | YUV | O | I | MI | O |
+    | 色调 `Hue` | `[-180, 180]deg` | YUV | O | I | MI | O |
+    | RGB增益 `RgbGain` | `[0.0, 8.0]` | RGB | I | O | O | MI |
+    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]` | RGB | I | O | O | MI |
 
 ### eVideo CSC Plan B
 
@@ -115,14 +115,14 @@
   - 对于 `R2R`：`step1 = None`，`step2 = Q_rgb * M_{r2r}`
 - 因此当前代码中的参数生效范围可以总结为：
 
-    | 参数类型 | 映射范围 | 作用域 |  R2Y | Y2R | R2R | Y2Y |
-    | ------- | ------- | ------ | :----:|:---:|:---:|:---:|
-    | 亮度 `Brightness`   | `[-1.0, 1.0]`    | YUV |  O | I | X | O |
-    | 对比度 `Contrast`   | `[0.0, 2.0]`     | YUV |  O | I | X | O |
-    | 饱和度 `Saturation` | `[0.0, 2.0]`     | YUV |  O | I | X | O |
-    | 色调 `Hue`          | `[-180, 180]deg` | YUV |  O | I | X | O |
-    | RGB增益 `RgbGain`   | `[0.0, 8.0]`     | RGB |  I | O | O | X |
-    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]`    | RGB |  I | O | O | X |
+    | 参数类型 | 映射范围 | 作用域 | R2Y | Y2R | R2R | Y2Y |
+    | ------- | ------- | ------ | :----: | :---: | :---: | :---: |
+    | 亮度 `Brightness` | `[-1.0, 1.0]` | YUV | O | I | X | O |
+    | 对比度 `Contrast` | `[0.0, 2.0]` | YUV | O | I | X | O |
+    | 饱和度 `Saturation` | `[0.0, 2.0]` | YUV | O | I | X | O |
+    | 色调 `Hue` | `[-180, 180]deg` | YUV | O | I | X | O |
+    | RGB增益 `RgbGain` | `[0.0, 8.0]` | RGB | I | O | O | X |
+    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]` | RGB | I | O | O | X |
 
 ### eVideo CSC Plan C
 
@@ -141,18 +141,16 @@
   - 调色全程在 HSV 域进行，为非线性路径（非矩阵合成），因此不参与固定点系数量化，精度为浮点
   - 四模式下所有参数均生效，无 `X` 项；`RgbGain/RgbOffset` 在转回 RGB 后应用
 
-    | 参数类型 | 映射范围 | 作用域 |  R2Y | Y2R | R2R | Y2Y |
-    | ------- | ------- | ------ | :----:|:---:|:---:|:---:|
-    | 亮度 `Brightness`   | `[-1.0, 1.0]`  | HSV-V |  I | O | O | MO |
-    | 对比度 `Contrast`   | `[0.0, 2.0]`   | HSV-V |  I | O | O | MO |
-    | 饱和度 `Saturation` | `[0.0, 2.0]`   | HSV-S |  I | O | O | MO |
-    | 色调 `Hue`          |`[-180, 180]deg`| HSV-H |  I | O | O | MO |
-    | RGB增益 `RgbGain`   | `[0.0, 8.0]`   | RGB |  I | O | O | MO |
-    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]`  | RGB |  I | O | O | MO |
+    | 参数类型 | 映射范围 | 作用域 | R2Y | Y2R | R2R | Y2Y |
+    | ------- | ------- | ------ | :----: | :---: | :---: | :---: |
+    | 亮度 `Brightness` | `[-1.0, 1.0]` | HSV-V | I | O | O | MO |
+    | 对比度 `Contrast` | `[0.0, 2.0]` | HSV-V | I | O | O | MO |
+    | 饱和度 `Saturation` | `[0.0, 2.0]` | HSV-S | I | O | O | MO |
+    | 色调 `Hue` | `[-180, 180]deg` | HSV-H | I | O | O | MO |
+    | RGB增益 `RgbGain` | `[0.0, 8.0]` | RGB | I | O | O | MO |
+    | RGB偏移 `RgbOffset` | `[-1.0, 1.0]` | RGB | I | O | O | MO |
 
-## 其他
-
-**关键差异**
+### 各版本算法差异
 
 | 对比项 | `RK HW CSC` | `RK SW CSC` | `eVideo CSC` | `eVideo CSC Plan A` | `eVideo CSC Plan B` | `eVideo CSC Plan C` |
 | --- | --- | --- | --- | --- | --- | --- |
