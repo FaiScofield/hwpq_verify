@@ -98,17 +98,20 @@
       </widget>
      </item>
      <item>
-      <widget class="QComboBox" name="comboBox_preview_type">
-       <item>
-        <property name="text">
-         <string>BothInLeft</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>SideBySide</string>
-        </property>
-       </item>
+      <widget class="QRadioButton" name="radioButton_preview_bothInLeft">
+       <property name="text">
+        <string>BothInLeft</string>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QRadioButton" name="radioButton_preview_sideBySide">
+       <property name="text">
+        <string>SideBySide</string>
+       </property>
       </widget>
      </item>
      <item>
