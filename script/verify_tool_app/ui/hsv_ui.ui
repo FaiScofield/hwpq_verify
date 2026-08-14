@@ -18,6 +18,9 @@
     <layout class="QHBoxLayout" name="horizontalLayout_enable">
      <item>
       <widget class="QCheckBox" name="checkBox_enableHsvAdj">
+       <property name="toolTip">
+        <string>启用 HSV 调整处理</string>
+       </property>
        <property name="text">
         <string>Enable HSV Adjust</string>
        </property>
@@ -35,6 +38,9 @@
      </item>
      <item>
       <widget class="QLabel" name="label_toleranceS">
+       <property name="toolTip">
+        <string>S 保护阈值：小于该值的像素视为灰色像素，不会被放大</string>
+       </property>
        <property name="text">
         <string>S Tolerance</string>
        </property>
@@ -42,6 +48,9 @@
      </item>
      <item>
       <widget class="QDoubleSpinBox" name="spinBox_toleranceS">
+       <property name="toolTip">
+        <string>S 保护阈值：小于该值的像素视为灰色像素，不会被放大</string>
+       </property>
        <property name="sizePolicy">
         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
          <horstretch>0</horstretch>
@@ -84,6 +93,9 @@
      </property>
      <item>
       <widget class="QGroupBox" name="groupBox_hsvAdjust">
+       <property name="toolTip">
+        <string>V/S/H 三通道调整参数</string>
+       </property>
        <property name="title">
         <string>HSV Adjust</string>
        </property>
@@ -93,6 +105,9 @@
         </property>
         <item row="0" column="0">
          <widget class="QLabel" name="label_gainC">
+          <property name="toolTip">
+           <string>对比度增益（乘性作用于 V 通道）</string>
+          </property>
           <property name="text">
            <string>Contrast</string>
           </property>
@@ -100,6 +115,9 @@
         </item>
         <item row="4" column="3">
          <widget class="QPushButton" name="pushButton_resetH">
+          <property name="toolTip">
+           <string>将 Delta H 重置为中性值 0</string>
+          </property>
           <property name="text">
            <string>Reset</string>
           </property>
@@ -107,6 +125,9 @@
         </item>
         <item row="1" column="2">
          <widget class="QDoubleSpinBox" name="spinBox_deltaV">
+          <property name="toolTip">
+           <string>V 加性偏移 dv</string>
+          </property>
           <property name="decimals">
            <number>2</number>
           </property>
@@ -126,6 +147,9 @@
         </item>
         <item row="6" column="2">
          <widget class="QDoubleSpinBox" name="spinBox_deltaS">
+          <property name="toolTip">
+           <string>S 调整量 ds，支持加性或乘性</string>
+          </property>
           <property name="decimals">
            <number>2</number>
           </property>
@@ -145,6 +169,9 @@
         </item>
         <item row="4" column="1">
          <widget class="QSlider" name="slider_deltaH">
+          <property name="toolTip">
+           <string>H 加性偏移 dh</string>
+          </property>
           <property name="sizePolicy">
            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
             <horstretch>1</horstretch>
@@ -167,6 +194,9 @@
         </item>
         <item row="4" column="2">
          <widget class="QSpinBox" name="spinBox_deltaH">
+          <property name="toolTip">
+           <string>H 加性偏移 dh</string>
+          </property>
           <property name="minimum">
            <number>-180</number>
           </property>
@@ -183,6 +213,9 @@
         </item>
         <item row="4" column="0">
          <widget class="QLabel" name="label_deltaH">
+          <property name="toolTip">
+           <string>H 通道加性偏移</string>
+          </property>
           <property name="text">
            <string>Delta H</string>
           </property>
@@ -190,6 +223,9 @@
         </item>
         <item row="0" column="1">
          <widget class="QSlider" name="slider_gainC">
+          <property name="toolTip">
+           <string>对比度增益 gc，乘性作用于 V 通道</string>
+          </property>
           <property name="sizePolicy">
            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
             <horstretch>1</horstretch>
@@ -212,6 +248,9 @@
         </item>
         <item row="0" column="2">
          <widget class="QDoubleSpinBox" name="spinBox_gainC">
+          <property name="toolTip">
+           <string>对比度增益 gc，乘性作用于 V 通道</string>
+          </property>
           <property name="decimals">
            <number>2</number>
           </property>
@@ -241,6 +280,9 @@
         </item>
         <item row="6" column="3">
          <widget class="QPushButton" name="pushButton_resetS">
+          <property name="toolTip">
+           <string>将 S 调整量重置为当前模式的中性值（加性 0 / 乘性 1）</string>
+          </property>
           <property name="text">
            <string>Reset</string>
           </property>
@@ -255,6 +297,9 @@
         </item>
         <item row="6" column="1">
          <widget class="QSlider" name="slider_deltaS">
+          <property name="toolTip">
+           <string>S 调整量 ds，支持加性或乘性生效</string>
+          </property>
           <property name="sizePolicy">
            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
             <horstretch>1</horstretch>
@@ -280,6 +325,9 @@
         </item>
         <item row="1" column="1">
          <widget class="QSlider" name="slider_deltaV">
+          <property name="toolTip">
+           <string>V 加性偏移 dv</string>
+          </property>
           <property name="sizePolicy">
            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
             <horstretch>1</horstretch>
@@ -302,6 +350,9 @@
         </item>
         <item row="1" column="0">
          <widget class="QLabel" name="label_deltaV">
+          <property name="toolTip">
+           <string>V 通道加性偏移（叠加在对比度增益之后）</string>
+          </property>
           <property name="text">
            <string>Delta V</string>
           </property>
@@ -309,6 +360,9 @@
         </item>
         <item row="9" column="2">
          <widget class="QRadioButton" name="radioButton_modeAdd">
+          <property name="toolTip">
+           <string>S 调整为加性模式</string>
+          </property>
           <property name="text">
            <string>Additive</string>
           </property>
@@ -319,6 +373,9 @@
         </item>
         <item row="9" column="3">
          <widget class="QRadioButton" name="radioButton_modeMul">
+          <property name="toolTip">
+           <string>S 调整为乘性模式</string>
+          </property>
           <property name="text">
            <string>Multiplicative</string>
           </property>
@@ -332,6 +389,9 @@
         </item>
         <item row="1" column="3">
          <widget class="QPushButton" name="pushButton_resetV">
+          <property name="toolTip">
+           <string>将 Delta V 重置为中性值 0</string>
+          </property>
           <property name="text">
            <string>Reset</string>
           </property>
@@ -339,6 +399,9 @@
         </item>
         <item row="6" column="0">
          <widget class="QLabel" name="label_deltaS">
+          <property name="toolTip">
+           <string>S 通道调整量：加性模式为 Delta，乘性模式为 Gain</string>
+          </property>
           <property name="text">
            <string>Delta S</string>
           </property>
@@ -346,6 +409,9 @@
         </item>
         <item row="10" column="0" colspan="2">
          <widget class="QLabel" name="label_modeC">
+          <property name="toolTip">
+           <string>对比度增益参考点选择</string>
+          </property>
           <property name="text">
            <string>Contrast Adjust Mode</string>
           </property>
@@ -353,6 +419,9 @@
         </item>
         <item row="10" column="2" colspan="2">
          <widget class="QComboBox" name="comboBox_modeC">
+          <property name="toolTip">
+           <string>对比度增益参考点：MidPoint 过 v=0.5 中点 / ZeroPoint 过 v=0 原点 / Both 按 gc&lt;1 或 &gt;1 自动选择</string>
+          </property>
           <item>
            <property name="text">
             <string>GainAtMidPoint</string>
@@ -379,7 +448,7 @@
         <bool>true</bool>
        </property>
        <property name="toolTip">
-        <string>Enable specified hue adjustment (only pixels whose hue falls in the range are processed)</string>
+        <string>只处理指定色调区域的像素</string>
        </property>
        <property name="title">
         <string>Specified Hue Adjust</string>
@@ -413,6 +482,9 @@
         </item>
         <item row="1" column="3">
          <widget class="QSpinBox" name="spinBox_hueEndTail">
+          <property name="toolTip">
+           <string>结束端向内过渡角度（0~hr/2），过渡区与输入色 alpha 融合</string>
+          </property>
           <property name="sizePolicy">
            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
             <horstretch>0</horstretch>
@@ -429,6 +501,9 @@
         </item>
         <item row="0" column="3">
          <widget class="QSpinBox" name="spinBox_hueEnd">
+          <property name="toolTip">
+           <string>目标色调范围结束角（0-360，支持跨 0° 环绕）</string>
+          </property>
           <property name="sizePolicy">
            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
             <horstretch>0</horstretch>
@@ -445,6 +520,9 @@
         </item>
         <item row="1" column="1">
          <widget class="QSpinBox" name="spinBox_hueStartTail">
+          <property name="toolTip">
+           <string>起始端向内过渡角度（0~hr/2），过渡区与输入色 alpha 融合</string>
+          </property>
           <property name="sizePolicy">
            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
             <horstretch>0</horstretch>
@@ -488,6 +566,9 @@
         </item>
         <item row="2" column="1">
          <widget class="QSpinBox" name="spinBox_hueStartPad">
+          <property name="toolTip">
+           <string>起始端向外扩展角度（0~hr/2），扩展区与输入色 alpha 融合</string>
+          </property>
           <property name="sizePolicy">
            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
             <horstretch>0</horstretch>
@@ -504,6 +585,9 @@
         </item>
         <item row="2" column="3">
          <widget class="QSpinBox" name="spinBox_hueEndPad">
+          <property name="toolTip">
+           <string>结束端向外扩展角度（0~hr/2），扩展区与输入色 alpha 融合</string>
+          </property>
           <property name="sizePolicy">
            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
             <horstretch>0</horstretch>
@@ -520,6 +604,9 @@
         </item>
         <item row="0" column="1">
          <widget class="QSpinBox" name="spinBox_hueStart">
+          <property name="toolTip">
+           <string>目标色调范围起始角（0-360，支持跨 0° 环绕）</string>
+          </property>
           <property name="sizePolicy">
            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
             <horstretch>0</horstretch>
@@ -553,6 +640,9 @@
         </item>
         <item row="3" column="3" colspan="2">
          <widget class="QSlider" name="slider_sameHueGoal">
+          <property name="toolTip">
+           <string>目标色调角（0-360），HSV 调整向该颜色变化</string>
+          </property>
           <property name="enabled">
            <bool>false</bool>
           </property>
@@ -578,6 +668,9 @@
         </item>
         <item row="3" column="1" colspan="2">
          <widget class="QSpinBox" name="spinBox_sameHueGoal">
+          <property name="toolTip">
+           <string>目标色调角（0-360），HSV 调整向该颜色变化</string>
+          </property>
           <property name="enabled">
            <bool>false</bool>
           </property>

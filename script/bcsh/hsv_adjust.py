@@ -91,7 +91,8 @@ def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='
            'both'  gc<1 时等效 'zero'，gc>1 时等效 'mid'（gc==1 恒等）
       S：mode='add'  s'=clip(s+ds)；mode='mul'  s'=clip(s*ds)     （ds ∈ [-1,1] 或乘性增益 ∈ [0,4]）
       H：始终加性     h'=(h + dh*360) % 360                        （dh ∈ [-0.5,0.5]，0.5=180°）
-    语义：S=0（灰/黑）像素保持 S'=0（不因 +ds / *ds 变色）；H 统一平移（对灰色无影响）。
+    语义：S < tolerance_s 的像素不做放大（增色），缩小（减色）始终允许；
+          H 统一平移（对灰色无影响）。
     支持单个像素 (h,s,v) 或一帧图像 (...,3) 数组，返回同形状。"""
     orig = hsv
     arr = np.asarray(hsv, dtype=np.float32)
@@ -106,12 +107,12 @@ def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='
     mode = str(mode).lower()
     if mode == 'add':
         ds = 0.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), -1.0, 1.0)
-        # ---- S：灰/黑保持 S'=0，其余 clamp(S+ds) ----
-        s_new = np.where(s >= tolerance_s, np.clip(s + ds, 0.0, 1.0), s)
+        # ---- S：S<tolerance_s 的像素不放大（增色），缩小（减色）始终允许 ----
+        s_new = np.where((s >= tolerance_s) | (ds <= 0.0), np.clip(s + ds, 0.0, 1.0), s)
     elif mode == 'mul':
         gs = 1.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), 0.0, 4.0)
-        # ---- S：灰/黑保持 S'=0，其余 clamp(S*gs) ----
-        s_new = np.where(s >= tolerance_s, np.clip(s * gs, 0.0, 1.0), s)
+        # ---- S：S<tolerance_s 的像素不放大（增色），缩小（减色）始终允许 ----
+        s_new = np.where((s >= tolerance_s) | (gs <= 1.0), np.clip(s * gs, 0.0, 1.0), s)
     else:
         raise ValueError(f"Unsupported adjust_hsv mode: {mode!r}, expect 'add' or 'mul'")
     # ---- V：Contrast 乘性 + delta_v 加性 + clamp，mode_c 决定增益参考点 ----
@@ -158,6 +159,15 @@ if __name__ == '__main__':
           adjust_hsv((20.0, 0.5, 0.5), delta_s=1.5, mode='mul'))
     print('标量: adjust_hsv((0.0, 0.0, 0.5), delta_s=3.0, mode="mul") =',
           adjust_hsv((0.0, 0.0, 0.5), delta_s=3.0, mode='mul'))
+    # tolerance_s：S<阈值 的像素不放大（增色），缩小（减色）仍允许
+    print('标量: adjust_hsv((20.0, 0.02, 0.5), delta_s=0.3, tolerance_s=0.05) =',
+          adjust_hsv((20.0, 0.02, 0.5), delta_s=0.3, tolerance_s=0.05))
+    print('标量: adjust_hsv((20.0, 0.02, 0.5), delta_s=-0.1, tolerance_s=0.05) =',
+          adjust_hsv((20.0, 0.02, 0.5), delta_s=-0.1, tolerance_s=0.05))
+    print('标量: adjust_hsv((20.0, 0.02, 0.5), delta_s=2.0, mode="mul", tolerance_s=0.05) =',
+          adjust_hsv((20.0, 0.02, 0.5), delta_s=2.0, mode='mul', tolerance_s=0.05))
+    print('标量: adjust_hsv((20.0, 0.02, 0.5), delta_s=0.5, mode="mul", tolerance_s=0.05) =',
+          adjust_hsv((20.0, 0.02, 0.5), delta_s=0.5, mode='mul', tolerance_s=0.05))
     try:
         adjust_hsv((0.0, 0.0, 0.5), mode='bad')
     except ValueError as exc:

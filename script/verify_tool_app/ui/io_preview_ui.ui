@@ -25,6 +25,9 @@
      </item>
      <item row="0" column="1">
       <widget class="QLineEdit" name="lineEdit_display_size">
+       <property name="toolTip">
+        <string>当前预览显示分辨率（宽×高）</string>
+       </property>
        <property name="readOnly">
         <bool>true</bool>
        </property>
@@ -39,6 +42,9 @@
      </item>
      <item row="0" column="3">
       <widget class="QLineEdit" name="lineEdit_position">
+       <property name="toolTip">
+        <string>鼠标在预览图上的像素坐标 (x, y)</string>
+       </property>
        <property name="readOnly">
         <bool>true</bool>
        </property>
@@ -53,6 +59,9 @@
      </item>
      <item row="0" column="5">
       <widget class="QLineEdit" name="lineEdit_time_cost">
+       <property name="toolTip">
+        <string>最近一次处理模块的耗时（毫秒）</string>
+       </property>
        <property name="readOnly">
         <bool>true</bool>
        </property>
@@ -67,6 +76,9 @@
      </item>
      <item row="1" column="1">
       <widget class="QLineEdit" name="lineEdit_input_pixel">
+       <property name="toolTip">
+        <string>输入像素值</string>
+       </property>
        <property name="readOnly">
         <bool>true</bool>
        </property>
@@ -81,6 +93,9 @@
      </item>
      <item row="1" column="3">
       <widget class="QLineEdit" name="lineEdit_output_pixel">
+       <property name="toolTip">
+        <string>输出像素值</string>
+       </property>
        <property name="readOnly">
         <bool>true</bool>
        </property>
@@ -99,6 +114,9 @@
      </item>
      <item>
       <widget class="QRadioButton" name="radioButton_preview_bothInLeft">
+       <property name="toolTip">
+        <string>输入与输出切换显示（勾选 Show Left Input 显示输入，默认显示输出）</string>
+       </property>
        <property name="text">
         <string>BothInLeft</string>
        </property>
@@ -109,6 +127,9 @@
      </item>
      <item>
       <widget class="QRadioButton" name="radioButton_preview_sideBySide">
+       <property name="toolTip">
+        <string>输入输出左右并排显示：左=输入，右=输出</string>
+       </property>
        <property name="text">
         <string>SideBySide</string>
        </property>
@@ -123,6 +144,9 @@
      </item>
      <item>
       <widget class="QSlider" name="slider_preview_scale">
+       <property name="toolTip">
+        <string>预览缩放比例</string>
+       </property>
        <property name="minimum">
         <number>10</number>
        </property>
@@ -166,6 +190,9 @@
      </item>
      <item>
       <widget class="QCheckBox" name="checkBox_show_input">
+       <property name="toolTip">
+        <string>左预览显示输入图（BothInLeft 模式）</string>
+       </property>
        <property name="text">
         <string>Show Left Input</string>
        </property>
@@ -173,6 +200,9 @@
      </item>
      <item>
       <widget class="QPushButton" name="pushButton_save_left">
+       <property name="toolTip">
+        <string>保存左预览当前帧到输出目录</string>
+       </property>
        <property name="text">
         <string>Save Left Image</string>
        </property>
@@ -180,6 +210,9 @@
      </item>
      <item>
       <widget class="QCheckBox" name="checkBox_show_right_input">
+       <property name="toolTip">
+        <string>右预览显示输入图（SideBySide 模式）</string>
+       </property>
        <property name="enabled">
         <bool>false</bool>
        </property>
@@ -190,6 +223,9 @@
      </item>
      <item>
       <widget class="QPushButton" name="pushButton_save_right">
+       <property name="toolTip">
+        <string>保存右预览图像到输出目录</string>
+       </property>
        <property name="text">
         <string>Save Right Image</string>
        </property>
