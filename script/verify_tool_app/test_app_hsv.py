@@ -96,6 +96,12 @@ class HsvTestAppWindow(QMainWindow):
 
         self._mount_host_page(self.ui.tab_io_host, self.io_widget, use_scroll_area=True)
         self._mount_host_page(self.ui.tab_module_host, self.hsv_widget, use_scroll_area=True)
+        # 本程序不使用配置文件，隐藏 I/O 页的配置文件行（共享 UI 中未被用到的部分）。
+        for _w in (self.io_widget.ui.label_config_file,
+                   self.io_widget.ui.lineEdit_config_file,
+                   self.io_widget.ui.pushButton_browse_config,
+                   self.io_widget.ui.pushButton_load_config):
+            _w.setVisible(False)
 
         self.preview_ctrl = PreviewUiController(
             self.preview_widget,
