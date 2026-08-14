@@ -81,10 +81,14 @@ def hsv_to_rgb(hsv):
     return _wrap(orig, out)
 
 
-def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='add', tolerance_s: float = 0.0):
+def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='add',
+               tolerance_s: float = 0.0, mode_c='mid'):
     """HSV 域 V/S/H 调整（hsv 输入、hsv 输出，不涉及 RGB 重建）。
     按 V -> S -> H 顺序执行：
-      V：Contrast 乘性 + delta_v 加性   v'=clip(v*gain_c + dv)     （gain_c ∈ [0,4]，dv ∈ [-1,1]）
+      V：Contrast 乘性 + delta_v 加性；mode_c 选择增益参考点：
+           'mid'   v'=clip((v-0.5)*gc + 0.5 + dv)   （过 v=0.5 中点，默认）
+           'zero'  v'=clip(gc*v + dv)               （过 v=0.0 原点）
+           'both'  gc<1 时等效 'zero'，gc>1 时等效 'mid'（gc==1 恒等）
       S：mode='add'  s'=clip(s+ds)；mode='mul'  s'=clip(s*ds)     （ds ∈ [-1,1] 或乘性增益 ∈ [0,4]）
       H：始终加性     h'=(h + dh*360) % 360                        （dh ∈ [-0.5,0.5]，0.5=180°）
     语义：S=0（灰/黑）像素保持 S'=0（不因 +ds / *ds 变色）；H 统一平移（对灰色无影响）。
@@ -110,8 +114,18 @@ def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='
         s_new = np.where(s >= tolerance_s, np.clip(s * gs, 0.0, 1.0), s)
     else:
         raise ValueError(f"Unsupported adjust_hsv mode: {mode!r}, expect 'add' or 'mul'")
-    # ---- V：Contrast 乘性 + delta_v 加性 + clamp ----
-    v_new = np.clip(v * gc + dv, 0.0, 1.0)
+    # ---- V：Contrast 乘性 + delta_v 加性 + clamp，mode_c 决定增益参考点 ----
+    mode_c = str(mode_c).lower()
+    if mode_c == 'zero':
+        # 过 v=0.0 原点：v' = gc*v
+        v_new = np.clip(gc * v, 0.0, 1.0)
+    elif mode_c == 'both':
+        # gc<1 等效 GainAtZeroPoint，gc>1 等效 GainAtMidPoint；gc==1 恒等
+        v_new = np.where(gc < 1.0, gc * v, (v - 0.5) * gc + 0.5)
+        v_new = np.clip(v_new, 0.0, 1.0)
+    else:   # 'mid'（默认）：过 v=0.5 中点
+        v_new = np.clip((v - 0.5) * gc + 0.5, 0.0, 1.0)
+    v_new = np.clip(v_new + dv, 0.0, 1.0)
     # ---- H：平移 360° 归一（始终加性） ----
     h_new = (h + dh * 360.0) % 360.0
     out = np.stack([h_new, s_new, v_new], axis=-1)
@@ -130,6 +144,15 @@ if __name__ == '__main__':
     # Contrast（gain_c）乘性作用于 V，dv 仍加性
     print('标量: adjust_hsv((20.0, 0.5, 0.5), gain_c=2.0, delta_v=0.1) =',
           adjust_hsv((20.0, 0.5, 0.5), gain_c=2.0, delta_v=0.1))
+    # mode_c：三种对比度增益参考点
+    print('标量: adjust_hsv((20.0, 0.5, 0.5), gain_c=2.0, mode_c="zero") =',
+          adjust_hsv((20.0, 0.5, 0.5), gain_c=2.0, mode_c='zero'))
+    print('标量: adjust_hsv((20.0, 0.5, 0.5), gain_c=2.0, mode_c="mid")   =',
+          adjust_hsv((20.0, 0.5, 0.5), gain_c=2.0, mode_c='mid'))
+    print('标量: adjust_hsv((20.0, 0.5, 0.5), gain_c=0.5, mode_c="both") =',
+          adjust_hsv((20.0, 0.5, 0.5), gain_c=0.5, mode_c='both'))
+    print('标量: adjust_hsv((20.0, 0.5, 0.5), gain_c=2.0, mode_c="both") =',
+          adjust_hsv((20.0, 0.5, 0.5), gain_c=2.0, mode_c='both'))
     # S 乘性模式（仅 S 受 mode 影响）
     print('标量: adjust_hsv((20.0, 0.5, 0.5), delta_s=1.5, mode="mul") =',
           adjust_hsv((20.0, 0.5, 0.5), delta_s=1.5, mode='mul'))

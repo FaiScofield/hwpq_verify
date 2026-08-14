@@ -2,7 +2,8 @@
 HSV tab controller — encapsulates all HSV-related UI behavior and state.
 
 调整语义（对应 script/bcsh/hsv_adjust.py）：
-  V：Contrast 乘性 + delta_v 加性   v'=clip(v*gain_c + dv)
+  V：Contrast 乘性 + delta_v 加性，增益参考点由 comboBox_modeC 选择：
+     GainAtMidPoint（过 v=0.5 中点）/ GainAtZeroPoint（过 v=0 原点）/ GainAtBothZeroAndMid
   S：mode 切换加性/乘性            s'=clip(s+ds) 或 s'=clip(s*ds)
   H：始终加性（或 Same Hue Goal 向指定色调旋转）
 指定色调（groupBox_setHueRange 勾选）：仅色调落在 [hs, he] 附近的像素被处理，
@@ -87,7 +88,7 @@ class HsvUiController:
         self._frozen_pixel: tuple[int, int] | None = None
         self._last_input_rgb = None
         self._last_output_rgb = None
-        self._s_mode = False          # False=add, True=mul（S 通道模式）
+        self._s_mode = True           # False=add, True=mul（S 通道模式，.ui 默认 Mul）
         self._work_size: tuple[int, int] | None = None   # 最近一次预览处理的分辨率
 
         # --- Auto-run debounce timer ---
@@ -100,7 +101,9 @@ class HsvUiController:
 
     def _init_state(self) -> None:
         """Perform initial state sync after all widgets are ready."""
-        self._apply_s_mode_ui(is_mul=False)   # .ui 默认 Additive，不 remap 初值
+        # .ui 默认 Multiplicative：同步 S 模式内部状态并应用其控件范围/中性值。
+        self._s_mode = self.ui.radioButton_modeMul.isChecked()
+        self._apply_s_mode_ui(self._s_mode)
         self._update_hue_limits()
         self._on_same_hue_goal_toggled(self.ui.checkBox_sameHueGoal.isChecked())
         # A checkable QGroupBox defaults to checked=True; the specified-hue
@@ -133,6 +136,7 @@ class HsvUiController:
         ui.checkBox_enableHsvAdj.toggled.connect(self._schedule_auto_run)
         ui.radioButton_modeAdd.toggled.connect(self._on_mode_changed)
         ui.radioButton_modeMul.toggled.connect(self._on_mode_changed)
+        ui.comboBox_modeC.currentIndexChanged.connect(self._schedule_auto_run)
         ui.pushButton_resetC.clicked.connect(self._on_reset_c)
         ui.pushButton_resetV.clicked.connect(self._on_reset_v)
         ui.pushButton_resetS.clicked.connect(self._on_reset_s)
@@ -442,6 +446,13 @@ class HsvUiController:
             r, g, b = yuv_to_rgb(frame.pyr, frame.pug, frame.pvb, input_cs=input_cs, output_cs=1)
         return r, g, b, depth
 
+    def _mode_c_code(self) -> str:
+        """Map comboBox_modeC text to adjust_hsv mode_c ('mid'/'zero'/'both')."""
+        text = self.ui.comboBox_modeC.currentText()
+        return {'GainAtMidPoint': 'mid',
+                'GainAtZeroPoint': 'zero',
+                'GainAtBothZeroAndMid': 'both'}.get(text, 'mid')
+
     def _compute_adjusted_hsv(
         self, hsv: np.ndarray, h_deg: np.ndarray,
     ) -> np.ndarray:
@@ -454,7 +465,8 @@ class HsvUiController:
         # S Tolerance：控件已是归一化浮点 [0, 0.1]，直接传给 adjust_hsv。
         tolerance_s = float(self.ui.spinBox_toleranceS.value())
         adj_hsv = adjust_hsv(hsv, delta_v=dv, delta_s=ds, delta_h=dh_deg / 360.0,
-                             gain_c=gc, mode=mode, tolerance_s=tolerance_s)
+                             gain_c=gc, mode=mode, tolerance_s=tolerance_s,
+                             mode_c=self._mode_c_code())
         if self.ui.checkBox_sameHueGoal.isChecked():
             target = float(self.ui.spinBox_sameHueGoal.value())
             progress = float(np.clip(dh_deg / 180.0, -1.0, 1.0))
