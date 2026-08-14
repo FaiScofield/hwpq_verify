@@ -19,7 +19,13 @@ if PROJECT_ROOT not in sys.path:
 
 
 def _ensure_generated_ui_modules():
-    """Regenerate ui_gen modules when they are missing or older than the source .ui files."""
+    """Regenerate ui_gen modules when they are missing or older than the source .ui files.
+
+    PyInstaller 打包后跳过：ui_gen 模块已内置于可执行文件中，
+    运行时不存在 .ui 源文件与 uic.cmd。
+    """
+    if getattr(sys, "frozen", False):
+        return
     ui_pairs = (
         ("ui\\module_app_mainwindow.ui", "ui_gen\\module_app_mainwindow.py"),
         ("ui\\io_preview_ui.ui", "ui_gen\\io_preview_ui.py"),
