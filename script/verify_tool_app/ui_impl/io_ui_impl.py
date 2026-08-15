@@ -20,7 +20,7 @@ from script.csc.run_csc import (
 from script.bcsh.hsv_adjust import hsv_to_rgb
 from script.img_io import (
     ImageFrame, STB_IMAGE_EXTENSIONS, guess_fmt_from_ext,
-    is_limited_range, is_yuv_format, get_pixel_depth,
+    is_limited_range, is_rgb_format, is_yuv_format, get_pixel_depth,
     _PLANAR_RGB_8,
 )
 
@@ -113,6 +113,15 @@ _YUV_SUFFIX_FMT = {
     "gray": 0xA,   # YUV400_Gray
 }
 
+_RGB_SUFFIX_FMT = {
+    "rgba": 0x1,
+    "bgra": 0x1,
+    "argb": 0x1,
+    "abgr": 0x1,
+    "rgb": 0x0,
+    "bgr": 0x0,
+}
+
 
 class IoUiWidget(QWidget):
     """Reusable I/O configuration widget."""
@@ -159,6 +168,7 @@ class IoUiController:
         self._input_loaded = False
         self._init_ui()
         self._connect_signals()
+        self._update_swap_controls()
         if auto_load_defaults:
             self._auto_load_defaults()
 
@@ -209,6 +219,7 @@ class IoUiController:
         self.ui.pushButton_browse_config.clicked.connect(self._on_browse_config)
         self.ui.pushButton_load_config.clicked.connect(self._on_load_config)
         self.ui.comboBox_input_format.currentIndexChanged.connect(self._on_input_format_changed)
+        self.ui.comboBox_input_colorspace.currentIndexChanged.connect(self._on_input_colorspace_changed)
         self.ui.radioButton_useSecColor.toggled.connect(self._on_set_color_toggled)
         self.ui.lineEdit_setColor.returnPressed.connect(self._on_set_color_return_pressed)
         self.ui.radioButton_useTestPattern.toggled.connect(self._on_use_test_pattern_toggled)
@@ -218,6 +229,9 @@ class IoUiController:
         self.ui.spinBox_valueH.valueChanged.connect(self._on_test_pattern_value_changed)
         self.ui.spinBox_width.valueChanged.connect(self._on_input_size_changed)
         self.ui.spinBox_height.valueChanged.connect(self._on_input_size_changed)
+        self.ui.spinBox_frame_idx.valueChanged.connect(self._on_frame_idx_changed)
+        self.ui.checkBox_swapRB.toggled.connect(self._on_swap_toggled)
+        self.ui.checkBox_swapUV.toggled.connect(self._on_swap_toggled)
 
     # ------------------------------------------------------------------ #
     # Public queries                                                     #
@@ -316,8 +330,81 @@ class IoUiController:
         self.ui.comboBox_input_colorspace.clear()
         self.ui.comboBox_input_colorspace.addItems(options)
         self.ui.comboBox_input_colorspace.setCurrentIndex(idx)
+        # 输出格式/色彩空间保持禁用，但强制与输入保持一致。
+        # 输出色彩空间的选项列表也跟随输入重建，确保禁用状态下同步显示值始终匹配。
+        self.ui.comboBox_output_format.setCurrentText(fmt_str)
+        self.ui.comboBox_output_colorspace.clear()
+        self.ui.comboBox_output_colorspace.addItems(options)
+        self.ui.comboBox_output_colorspace.setCurrentText(
+            self.ui.comboBox_input_colorspace.currentText())
+        self._update_swap_controls()
         self._recalc_frame_num()
         self._load_input_image()
+
+    def _on_input_colorspace_changed(self, index: int) -> None:
+        """Keep the disabled output colorspace in sync with the input, and
+        reload the input since reading uses the selected colorspace."""
+        del index
+        clr = self.ui.comboBox_input_colorspace.currentText()
+        out_box = self.ui.comboBox_output_colorspace
+        if out_box.findText(clr) < 0:
+            out_box.clear()
+            out_box.addItems([self.ui.comboBox_input_colorspace.itemText(i)
+                              for i in range(self.ui.comboBox_input_colorspace.count())])
+        out_box.setCurrentText(clr)
+        self._load_input_image()
+
+    # ------------------------------------------------------------------ #
+    # Input channel swap (R/B for RGB, U/V for YUV)                      #
+    # ------------------------------------------------------------------ #
+
+    def _update_swap_controls(self) -> None:
+        """Enable the matching swap checkbox for file input.
+
+        Swap R/B is offered for RGB formats, Swap U/V for YUV formats; both
+        are disabled when the input source is not a file (test pattern or
+        solid colour).
+        """
+        is_file = self.ui.radioButton_useInputFile.isChecked()
+        fmt_str = self.ui.comboBox_input_format.currentText()
+        fmt_code = int(fmt_str.split(" ")[0], 16) if fmt_str else 0
+        is_rgb = is_rgb_format(fmt_code)
+
+        if not is_file:
+            self.ui.checkBox_swapRB.setEnabled(False)
+            self.ui.checkBox_swapUV.setEnabled(False)
+            return
+        if is_rgb:
+            self.ui.checkBox_swapRB.setEnabled(True)
+            self.ui.checkBox_swapUV.setEnabled(False)
+            # Uncheck the irrelevant checkbox without triggering a reload.
+            self.ui.checkBox_swapUV.blockSignals(True)
+            self.ui.checkBox_swapUV.setChecked(False)
+            self.ui.checkBox_swapUV.blockSignals(False)
+        else:
+            self.ui.checkBox_swapRB.setEnabled(False)
+            self.ui.checkBox_swapUV.setEnabled(True)
+            self.ui.checkBox_swapRB.blockSignals(True)
+            self.ui.checkBox_swapRB.setChecked(False)
+            self.ui.checkBox_swapRB.blockSignals(False)
+
+    def _on_swap_toggled(self, checked: bool) -> None:
+        """Reload the file input so the new channel order takes effect."""
+        del checked
+        if self.ui.radioButton_useInputFile.isChecked():
+            self._load_input_image()
+
+    def _apply_swap(self, frame: ImageFrame) -> ImageFrame:
+        """Swap input channels according to the active swap checkbox.
+
+        R/B are swapped for RGB frames, U/V for YUV frames. Operates in place
+        and returns the same frame.
+        """
+        if self.ui.checkBox_swapRB.isChecked() and frame.is_rgb:
+            frame.pyr, frame.pvb = frame.pvb, frame.pyr
+        elif self.ui.checkBox_swapUV.isChecked() and frame.is_yuv:
+            frame.pug, frame.pvb = frame.pvb, frame.pug
+        return frame
 
     def _on_test_pattern_combo_changed(self, index: int) -> None:
         """Auto-generate the selected test pattern when the combo changes."""
@@ -342,12 +429,19 @@ class IoUiController:
         elif self.ui.radioButton_useSecColor.isChecked():
             self._load_set_color_input()
 
+    def _on_frame_idx_changed(self, value: int) -> None:
+        """Reload the file input at the newly selected frame index."""
+        del value
+        if self.ui.radioButton_useInputFile.isChecked():
+            self._load_input_image()
+
     def _on_use_test_pattern_toggled(self, enabled: bool) -> None:
         """Enable the test-pattern controls and load the selected pattern as input."""
         self.ui.comboBox_useTestPattern.setEnabled(enabled)
         self.ui.label_valueV.setEnabled(enabled)
         self.ui.spinBox_valueV.setEnabled(enabled)
         self.ui.spinBox_valueH.setEnabled(enabled)
+        self._update_swap_controls()
         if not enabled:
             return   # exclusive group: the newly-checked radio performs the load
         # Test patterns are full-range RGB: force input format 0x0 / colorspace 0x1.
@@ -377,8 +471,9 @@ class IoUiController:
         return changed
 
     def _on_use_input_file_toggled(self, enabled: bool) -> None:
-        """Reload the file input (re-guess format/resolution) when the
-        file-source radio is selected."""
+        """Update the swap controls, and reload the file input (re-guess
+        format/resolution) when the file-source radio is selected."""
+        self._update_swap_controls()
         if enabled:
             self._on_reload_input()
 
@@ -435,6 +530,7 @@ class IoUiController:
         """Enable/disable the explicit-color edit; the newly-checked source
         radio's own handler performs the load."""
         self.ui.lineEdit_setColor.setEnabled(enabled)
+        self._update_swap_controls()
         if not enabled:
             return
         # Clear any previous error style so the user starts fresh
@@ -476,6 +572,22 @@ class IoUiController:
             )
         elif ext == ".rgb":
             fmt_code = 0x1 if "_rgba" in basename else 0x0
+            fmt_code = next(
+                (code for token, code in _RGB_SUFFIX_FMT.items()
+                    if f"_{token}" in basename),
+                0x0,   # default RGB888 when no token matches
+            )
+        elif ext == ".bin":
+            # raw .bin：先匹配 YUV token，再匹配 RGB token，默认 RGB888(0x0)。
+            fmt_code = next(
+                (code for token, code in _YUV_SUFFIX_FMT.items()
+                 if f"_{token}" in basename),
+                next(
+                    (code for token, code in _RGB_SUFFIX_FMT.items()
+                     if f"_{token}" in basename),
+                    0x0,
+                ),
+            )
         else:
             return
         fmt_item = next(
@@ -492,6 +604,7 @@ class IoUiController:
         ext = os.path.splitext(input_file)[1].lower()
         if ext in STB_IMAGE_EXTENSIONS:
             self.ui.spinBox_frame_num.setValue(1)
+            self.ui.spinBox_frame_idx.setMaximum(0)
             return
 
         fmt_str = self.ui.comboBox_input_format.currentText()
@@ -504,6 +617,8 @@ class IoUiController:
         actual_size = os.path.getsize(input_file)
         frame_num = max(1, actual_size // frame_size) if frame_size > 0 else 1
         self.ui.spinBox_frame_num.setValue(frame_num)
+        # Frame index is 0-based: valid range is [0, frame_num - 1].
+        self.ui.spinBox_frame_idx.setMaximum(max(0, frame_num - 1))
 
     # ------------------------------------------------------------------ #
     # Image loading                                                      #
@@ -572,12 +687,12 @@ class IoUiController:
             else:
                 lo_y, hi_y, hi_uv = 16, 235, 240
             if is_yuv_format(fmt_code):
-                # Y ∈ [lo_y, hi_y], U/V ∈ [lo_y, hi_uv]
+                # Y: [lo_y, hi_y], U/V: [lo_y, hi_uv]
                 c1 = max(lo_y, min(hi_y, c1))
                 c2 = max(lo_y, min(hi_uv, c2))
                 c3 = max(lo_y, min(hi_uv, c3))
             else:
-                # RGB ∈ [lo_y, hi_y]
+                # RGB: [lo_y, hi_y]
                 c1 = max(lo_y, min(hi_y, c1))
                 c2 = max(lo_y, min(hi_y, c2))
                 c3 = max(lo_y, min(hi_y, c3))
@@ -660,6 +775,7 @@ class IoUiController:
                 frame = ImageFrame.from_file(
                     input_file, width, height, fmt_code, clrspc, frame_idx,
                 )
+            frame = self._apply_swap(frame)
             self._emit_input_loaded(
                 frame, f"Input loaded: {frame.width}x{frame.height}, idx={frame_idx}")
             self._input_loaded = True

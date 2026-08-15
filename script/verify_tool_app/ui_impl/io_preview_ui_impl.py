@@ -19,7 +19,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from script.img_io import ImageFrame, yuv_to_rgb
+from script.img_io import (
+    ImageFrame, _csc_range_params, is_limited_range, yuv_to_rgb,
+)
 
 try:
     from ..ui_gen.io_preview_ui import Ui_PreviewUiWidget
@@ -93,6 +95,7 @@ class PreviewUiController(QObject):
         self.is_pixel_info_frozen = False
         self._last_pixel_selection: PixelSelection | None = None
         self._preview_scale = 1.0
+        self._full_res_output_provider: Callable[[], ImageFrame | None] | None = None
         self._left_pixmap_item = None
         self._right_pixmap_item = None
         self._frozen_marker_item: QGraphicsPathItem | None = None
@@ -142,7 +145,8 @@ class PreviewUiController(QObject):
             self.ui.lineEdit_time_cost,
             self.ui.lineEdit_input_pixel,
             self.ui.lineEdit_output_pixel,
-            self.ui.comboBox_preview_type,
+            self.ui.radioButton_preview_bothInLeft,
+            self.ui.radioButton_preview_sideBySide,
             self.ui.slider_preview_scale,
             self.ui.pushButton_save_left,
             self.ui.pushButton_save_right,
@@ -163,6 +167,29 @@ class PreviewUiController(QObject):
     def set_output_dir_getter(self, output_dir_getter: Callable[[], str] | None) -> None:
         """Update the output-directory provider used by save actions."""
         self._output_dir_getter = output_dir_getter or (lambda: os.getcwd())
+
+    def set_full_res_output_provider(
+        self, provider: Callable[[], ImageFrame | None] | None,
+    ) -> None:
+        """Set a provider returning a full-resolution output frame for saving.
+
+        When the preview pass ran at a downsampled resolution, this provider
+        recomputes the output at the source resolution so saved files stay
+        exact.
+        """
+        self._full_res_output_provider = provider
+
+    def get_work_size(self, src_w: int, src_h: int) -> tuple[int, int]:
+        """Return the preview processing resolution: min(source, preview size).
+
+        The preview display is ``source x preview_scale``; processing at this
+        (or smaller) resolution keeps the preview responsive while staying
+        pixel-identical whenever the source is no larger than the preview size.
+        """
+        scale = self._preview_scale
+        if scale >= 1.0:
+            return src_w, src_h
+        return max(1, int(round(src_w * scale))), max(1, int(round(src_h * scale)))
 
     def set_pixel_selection_callback(
         self,
@@ -213,6 +240,8 @@ class PreviewUiController(QObject):
         if self.is_pixel_info_frozen:
             if self._last_pixel_selection is not None:
                 self._set_position_text(self._last_pixel_selection.x_pos, self._last_pixel_selection.y_pos)
+            # 先用本地缓存填充（总是可用），再让 HSV 侧补充更丰富的格式。
+            self._restore_frozen_pixel_readout()
             self._emit_pixel_selection()
         else:
             self._set_position_text(*self.mouse_pos)
@@ -231,8 +260,10 @@ class PreviewUiController(QObject):
         self.ui.slider_preview_scale.valueChanged.connect(self._on_preview_scale_changed)
         if hasattr(self.ui, "comboBox_compare_mode"):
             self.ui.comboBox_compare_mode.currentIndexChanged.connect(self._on_compare_mode_changed)
-        if hasattr(self.ui, "comboBox_preview_type"):
-            self.ui.comboBox_preview_type.currentTextChanged.connect(self._on_preview_type_changed)
+        if hasattr(self.ui, "radioButton_preview_bothInLeft"):
+            self.ui.radioButton_preview_bothInLeft.toggled.connect(self._on_preview_type_toggled)
+        if hasattr(self.ui, "radioButton_preview_sideBySide"):
+            self.ui.radioButton_preview_sideBySide.toggled.connect(self._on_preview_type_toggled)
         if hasattr(self.ui, "checkBox_show_input"):
             self.ui.checkBox_show_input.toggled.connect(self._on_show_input_toggled)
         for view in (self.ui.graphicsView_left, self.ui.graphicsView_right):
@@ -244,8 +275,13 @@ class PreviewUiController(QObject):
     # Preview layout                                                     #
     # ------------------------------------------------------------------ #
 
-    def _on_preview_type_changed(self, text: str) -> None:
-        self._preview_mode = text
+    def _on_preview_type_toggled(self, checked: bool) -> None:
+        """Update the preview layout when a preview-type radio is selected."""
+        if not checked:
+            return
+        side_by_side = bool(getattr(self.ui, "radioButton_preview_sideBySide", None)
+                             and self.ui.radioButton_preview_sideBySide.isChecked())
+        self._preview_mode = "SideBySide" if side_by_side else "BothInLeft"
         self._sync_preview_layout()
 
     def _on_show_input_toggled(self, checked: bool) -> None:
@@ -281,6 +317,8 @@ class PreviewUiController(QObject):
     def _set_scene_image(self, scene, qimage, item_attr):
         """Replace a scene's pixmap and store the item reference."""
         scene.clear()
+        # scene.clear() 会删除冻结像素 marker 的 C++ 对象，Python 引用立即失效。
+        self._frozen_marker_item = None
         if qimage is None:
             setattr(self, item_attr, None)
             return
@@ -294,7 +332,23 @@ class PreviewUiController(QObject):
     def _frame_to_qimage(self, frame: ImageFrame, is_input: bool) -> QImage:
         """Convert an ImageFrame to a displayable QImage, caching ndarrays."""
         if frame.is_rgb:
-            cache = np.stack([frame.pyr, frame.pug, frame.pvb], axis=-1)
+            if is_input and frame.clrspc == 0:
+                # 输入 limited RGB（8bit [16,235] / 10bit [64,940]）：解析时转为
+                # full range 再显示，与 HSV 处理域（full RGB）保持一致，避免
+                # 输入/输出预览差异。
+                max_val = (1 << frame.depth) - 1
+                rp = _csc_range_params(frame.depth)
+                lo = rp["yr_lo_l"]
+                scale = max_val / (rp["yr_hi_l"] - lo)
+                r = np.clip(np.rint((frame.pyr.astype(np.float32) - lo) * scale),
+                            0, max_val).astype(frame.pyr.dtype)
+                g = np.clip(np.rint((frame.pug.astype(np.float32) - lo) * scale),
+                            0, max_val).astype(frame.pug.dtype)
+                b = np.clip(np.rint((frame.pvb.astype(np.float32) - lo) * scale),
+                            0, max_val).astype(frame.pvb.dtype)
+                cache = np.stack([r, g, b], axis=-1)
+            else:
+                cache = np.stack([frame.pyr, frame.pug, frame.pvb], axis=-1)
             if is_input:
                 self.input_cache_rgb444 = cache
             else:
@@ -329,6 +383,8 @@ class PreviewUiController(QObject):
     @staticmethod
     def _rgb444_to_qimage(rgb_data: np.ndarray) -> QImage:
         rgb_data = PreviewUiController._yuv444_to_u8(rgb_data)
+        # QImage 需要 C-contiguous 缓冲（升采样/子采样路径可能产生非连续数组）。
+        rgb_data = np.ascontiguousarray(rgb_data)
         height, width = rgb_data.shape[:2]
         return QImage(rgb_data.data, width, height, 3 * width, QImage.Format_RGB888).copy()
 
@@ -399,7 +455,10 @@ class PreviewUiController(QObject):
         scene is refreshed (``_set_scene_image`` clears the scene).
         """
         if self._frozen_marker_item is not None:
-            scene = self._frozen_marker_item.scene()
+            try:
+                scene = self._frozen_marker_item.scene()
+            except RuntimeError:
+                scene = None   # C++ 对象已被 scene.clear() 删除
             if scene is not None:
                 scene.removeItem(self._frozen_marker_item)
             self._frozen_marker_item = None
@@ -410,23 +469,27 @@ class PreviewUiController(QObject):
             item = self._right_pixmap_item
         else:
             item = self._left_pixmap_item
-        if item is None or item.scene() is None:
-            return
-        luma = self._pixel_luma(sel)
-        if luma is None:
-            color = QColor(255, 0, 0)   # fallback when the pixel is unavailable
-        else:
-            color = QColor(255, 255, 255) if luma < 128 else QColor(0, 0, 0)
-        half = 8
-        path = QPainterPath()
-        path.moveTo(sel.x_pos - half, sel.y_pos)
-        path.lineTo(sel.x_pos + half, sel.y_pos)
-        path.moveTo(sel.x_pos, sel.y_pos - half)
-        path.lineTo(sel.x_pos, sel.y_pos + half)
-        marker = QGraphicsPathItem(path)
-        marker.setPen(QPen(color, 2))
-        item.scene().addItem(marker)
-        self._frozen_marker_item = marker
+        try:
+            if item is None or item.scene() is None:
+                return
+            luma = self._pixel_luma(sel)
+            if luma is None:
+                color = QColor(255, 0, 0)   # fallback when the pixel is unavailable
+            else:
+                color = QColor(255, 255, 255) if luma < 128 else QColor(0, 0, 0)
+            half = 8
+            path = QPainterPath()
+            path.moveTo(sel.x_pos - half, sel.y_pos)
+            path.lineTo(sel.x_pos + half, sel.y_pos)
+            path.moveTo(sel.x_pos, sel.y_pos - half)
+            path.lineTo(sel.x_pos, sel.y_pos + half)
+            marker = QGraphicsPathItem(path)
+            marker.setPen(QPen(color, 2))
+            item.scene().addItem(marker)
+            self._frozen_marker_item = marker
+        except RuntimeError:
+            # item 的 C++ 对象可能已被 scene 刷新删除；放弃本次绘制。
+            self._frozen_marker_item = None
 
     def _pixel_luma(self, sel) -> int | None:
         """Return the luma (Y) of the frozen pixel as 8-bit 0..255.
@@ -604,14 +667,38 @@ class PreviewUiController(QObject):
     # Save actions                                                       #
     # ------------------------------------------------------------------ #
 
-    def _save_assets(self, frame: ImageFrame | None, qimage: QImage | None, base_name: str) -> None:
+    def _save_assets(
+        self, frame: ImageFrame | None, qimage: QImage | None, base_name: str,
+        apply_output_f2l: bool = False,
+    ) -> None:
+        """Save a frame as raw data plus an optional PNG preview.
+
+        ``apply_output_f2l``: when True the frame carries full-range RGB data
+        (HSV pipeline output) while its target colorspace is limited — the raw
+        data is converted full->limited before writing so the saved file
+        matches the colorspace.  PNG preview always uses the display image.
+        """
         if frame is None:
             QMessageBox.warning(None, "Warning", "No image data to save")
             return
         output_dir = self._output_dir_getter() or os.getcwd()
         os.makedirs(output_dir, exist_ok=True)
         raw_path = os.path.join(output_dir, f"{base_name}_0x{frame.fmt:x}.yuv")
-        frame.copy().to_file(raw_path)
+        frame = frame.copy()
+        if apply_output_f2l and frame.is_rgb and is_limited_range(frame.clrspc):
+            # full -> limited RGB（8bit [16,235] / 10bit [64,940]）。
+            max_val = (1 << frame.depth) - 1
+            rp = _csc_range_params(frame.depth)
+            lo = rp["yr_lo_l"]
+            scale = (rp["yr_hi_l"] - lo) / max_val
+            r = np.clip(np.rint(frame.pyr.astype(np.float32) * scale + lo),
+                        0, max_val).astype(frame.pyr.dtype)
+            g = np.clip(np.rint(frame.pug.astype(np.float32) * scale + lo),
+                        0, max_val).astype(frame.pug.dtype)
+            b = np.clip(np.rint(frame.pvb.astype(np.float32) * scale + lo),
+                        0, max_val).astype(frame.pvb.dtype)
+            frame = ImageFrame(r, g, b, frame.fmt, frame.clrspc)
+        frame.to_file(raw_path)
         if qimage is not None:
             png_path = os.path.join(output_dir, f"{base_name}.png")
             if not qimage.save(png_path):
@@ -622,15 +709,36 @@ class PreviewUiController(QObject):
             return
         self._status_callback(f"Saved: {raw_path}")
 
+    def _get_output_for_save(self) -> ImageFrame | None:
+        """Return the output frame to save.
+
+        Uses the full-resolution provider when available (recomputes at source
+        resolution if the preview pass was downsampled), falling back to the
+        cached preview output frame.
+        """
+        if self._full_res_output_provider is not None:
+            full = self._full_res_output_provider()
+            if full is not None:
+                return full
+        return self.output_frame
+
+    def _save_output_image(self, base_name: str) -> None:
+        """Save the output as raw + PNG at full resolution when possible."""
+        frame = self._get_output_for_save()
+        qimage = self.output_qimage
+        if frame is not None and frame is not self.output_frame:
+            qimage = self._frame_to_qimage(frame, is_input=False)
+        self._save_assets(frame, qimage, base_name, apply_output_f2l=True)
+
     def _on_save_left_image(self) -> None:
         mode = self._preview_mode
         if mode == "BothInLeft" and self.output_frame is not None and self._acm_enabled:
             show_input = bool(getattr(self.ui, "checkBox_show_input", None)
                               and self.ui.checkBox_show_input.isChecked())
             if not show_input:
-                self._save_assets(self.output_frame, self.output_qimage, "acm_output")
+                self._save_output_image("acm_output")
                 return
         self._save_assets(self.input_frame, self.input_qimage, "acm_input")
 
     def _on_save_right_image(self) -> None:
-        self._save_assets(self.output_frame, self.output_qimage, "acm_output")
+        self._save_output_image("acm_output")

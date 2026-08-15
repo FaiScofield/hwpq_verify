@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>757</width>
-    <height>263</height>
+    <height>247</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -31,6 +31,9 @@
      </item>
      <item row="4" column="3">
       <widget class="QPushButton" name="pushButton_open_output">
+       <property name="toolTip">
+        <string>打开输出目录</string>
+       </property>
        <property name="text">
         <string>Open Dir</string>
        </property>
@@ -38,6 +41,9 @@
      </item>
      <item row="5" column="1">
       <widget class="QLineEdit" name="lineEdit_config_file">
+       <property name="toolTip">
+        <string>配置文件路径</string>
+       </property>
        <property name="text">
         <string>G:/Codes/gerrit_projects/hwpq_verify/data/tmp_acm_config.json</string>
        </property>
@@ -45,6 +51,9 @@
      </item>
      <item row="4" column="2">
       <widget class="QPushButton" name="pushButton_browse_output">
+       <property name="toolTip">
+        <string>浏览选择输出目录</string>
+       </property>
        <property name="text">
         <string>Browse</string>
        </property>
@@ -52,6 +61,9 @@
      </item>
      <item row="3" column="2">
       <widget class="QPushButton" name="pushButton_browse_input">
+       <property name="toolTip">
+        <string>浏览选择输入图像文件</string>
+       </property>
        <property name="text">
         <string>Browse</string>
        </property>
@@ -59,6 +71,9 @@
      </item>
      <item row="1" column="0">
       <widget class="QRadioButton" name="radioButton_useTestPattern">
+       <property name="toolTip">
+        <string>使用内置合成测试图作为输入（勾选后自动切换为 RGB888 / RGB_Full）</string>
+       </property>
        <property name="text">
         <string>Use Test Pattern</string>
        </property>
@@ -69,6 +84,9 @@
      </item>
      <item row="4" column="1">
       <widget class="QLineEdit" name="lineEdit_output_dir">
+       <property name="toolTip">
+        <string>输出文件保存目录</string>
+       </property>
        <property name="text">
         <string>D:/RkDefaultDumpData/</string>
        </property>
@@ -90,6 +108,9 @@
      </item>
      <item row="3" column="1">
       <widget class="QLineEdit" name="lineEdit_input_file">
+       <property name="toolTip">
+        <string>输入图像文件路径</string>
+       </property>
        <property name="text">
         <string>G:/Project/pq/inputs/512x428_test_image_many_pattern_nv24.yuv</string>
        </property>
@@ -97,6 +118,9 @@
      </item>
      <item row="5" column="3">
       <widget class="QPushButton" name="pushButton_load_config">
+       <property name="toolTip">
+        <string>重新加载配置文件</string>
+       </property>
        <property name="text">
         <string>Reload</string>
        </property>
@@ -117,6 +141,9 @@
      </item>
      <item row="3" column="3">
       <widget class="QPushButton" name="pushButton_reload">
+       <property name="toolTip">
+        <string>重新加载输入图像文件</string>
+       </property>
        <property name="text">
         <string>Reload</string>
        </property>
@@ -137,6 +164,9 @@
      </item>
      <item row="5" column="2">
       <widget class="QPushButton" name="pushButton_browse_config">
+       <property name="toolTip">
+        <string>浏览选择配置文件</string>
+       </property>
        <property name="text">
         <string>Browse</string>
        </property>
@@ -149,6 +179,9 @@
        </property>
        <item>
         <widget class="QComboBox" name="comboBox_useTestPattern">
+         <property name="toolTip">
+          <string>选择合成测试图类型：色环 / 彩虹 / 色块 / 饱和度渐变 / 明度渐变 / 灰阶渐变 等</string>
+         </property>
          <property name="enabled">
           <bool>false</bool>
          </property>
@@ -217,6 +250,9 @@
      </item>
      <item row="1" column="2">
       <widget class="QSpinBox" name="spinBox_valueV">
+       <property name="toolTip">
+        <string>固定 V 值（0-255），用于色环 / 彩虹 / 饱和度渐变等图案</string>
+       </property>
        <property name="enabled">
         <bool>false</bool>
        </property>
@@ -230,6 +266,9 @@
      </item>
      <item row="1" column="3">
       <widget class="QSpinBox" name="spinBox_valueH">
+       <property name="toolTip">
+        <string>固定 H 值（0-360 度），用于饱和度 / 明度渐变等图案</string>
+       </property>
        <property name="enabled">
         <bool>false</bool>
        </property>
@@ -247,6 +286,12 @@
     <layout class="QGridLayout" name="gridLayout_fmt">
      <item row="0" column="5">
       <widget class="QSpinBox" name="spinBox_frame_num">
+       <property name="toolTip">
+        <string>输入文件总帧数（只读）</string>
+       </property>
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
        <property name="readOnly">
         <bool>true</bool>
        </property>
@@ -259,10 +304,18 @@
       </widget>
      </item>
      <item row="1" column="1">
-      <widget class="QComboBox" name="comboBox_input_format"/>
+      <widget class="QComboBox" name="comboBox_input_format">
+       <property name="toolTip">
+        <string>输入图像格式</string>
+       </property>
+      </widget>
      </item>
      <item row="1" column="5">
-      <widget class="QComboBox" name="comboBox_output_format"/>
+      <widget class="QComboBox" name="comboBox_output_format">
+       <property name="toolTip">
+        <string>输出帧格式</string>
+       </property>
+      </widget>
      </item>
      <item row="0" column="0">
       <widget class="QLabel" name="label_width">
@@ -273,6 +326,9 @@
      </item>
      <item row="0" column="3">
       <widget class="QSpinBox" name="spinBox_height">
+       <property name="toolTip">
+        <string>输入图像高度（测试图 / 纯色按此生成）</string>
+       </property>
        <property name="minimum">
         <number>1</number>
        </property>
@@ -293,6 +349,9 @@
      </item>
      <item row="0" column="1">
       <widget class="QSpinBox" name="spinBox_width">
+       <property name="toolTip">
+        <string>输入图像宽度（测试图 / 纯色按此生成）</string>
+       </property>
        <property name="minimum">
         <number>1</number>
        </property>
@@ -313,16 +372,27 @@
      </item>
      <item row="0" column="7">
       <widget class="QSpinBox" name="spinBox_frame_idx">
+       <property name="toolTip">
+        <string>输入文件帧索引</string>
+       </property>
        <property name="maximum">
         <number>9999</number>
        </property>
       </widget>
      </item>
      <item row="1" column="3">
-      <widget class="QComboBox" name="comboBox_input_colorspace"/>
+      <widget class="QComboBox" name="comboBox_input_colorspace">
+       <property name="toolTip">
+        <string>输入色彩空间</string>
+       </property>
+      </widget>
      </item>
      <item row="1" column="7">
-      <widget class="QComboBox" name="comboBox_output_colorspace"/>
+      <widget class="QComboBox" name="comboBox_output_colorspace">
+       <property name="toolTip">
+        <string>输出帧色彩空间</string>
+       </property>
+      </widget>
      </item>
      <item row="0" column="6">
       <widget class="QLabel" name="label_frame_idx">
@@ -360,7 +430,10 @@
       </widget>
      </item>
      <item row="2" column="1">
-      <widget class="QCheckBox" name="checkBox">
+      <widget class="QCheckBox" name="checkBox_swapUV">
+       <property name="toolTip">
+        <string>交换输入的 U/V 色度分量</string>
+       </property>
        <property name="enabled">
         <bool>false</bool>
        </property>
@@ -370,7 +443,10 @@
       </widget>
      </item>
      <item row="2" column="0">
-      <widget class="QCheckBox" name="checkBox_2">
+      <widget class="QCheckBox" name="checkBox_swapRB">
+       <property name="toolTip">
+        <string>交换输入的 R/B 分量</string>
+       </property>
        <property name="enabled">
         <bool>false</bool>
        </property>
