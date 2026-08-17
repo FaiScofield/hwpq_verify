@@ -621,4 +621,5 @@ class HsvUiController:
         bv = int(b[y_pos, x_pos])
         max_val = (1 << depth) - 1
         h, s, v = rgb_to_hsv(np.array([rv, gv, bv], dtype=np.float32) / max_val)
-        return f"RGB({rv}, {gv}, {bv}) HSV({float(h):.1f}, {float(s):.3f}, {float(v):.3f})"
+        # S/V 保留 2 位小数，与预览实时像素读数格式一致。
+        return f"RGB({rv}, {gv}, {bv}) HSV({float(h):.1f}, {float(s):.2f}, {float(v):.2f})"

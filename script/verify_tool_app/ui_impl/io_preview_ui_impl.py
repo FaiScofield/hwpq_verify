@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from script.bcsh.hsv_adjust import rgb_to_hsv
 from script.img_io import (
     ImageFrame, _csc_range_params, is_limited_range, yuv_to_rgb,
 )
@@ -539,15 +540,29 @@ class PreviewUiController(QObject):
         self.ui.lineEdit_position.setText(f"({x_pos}, {y_pos}) [{state}]")
 
     @staticmethod
+    def _rgb_hsv_text(r: int, g: int, b: int) -> str:
+        """Format 'RGB(r, g, b) HSV(h, s, v)' consistent with the frozen-pixel readout.
+
+        S/V 保留 2 位小数；预览显示缓存为 8bit，HSV 以 max=255 计算。
+        """
+        h, s, v = rgb_to_hsv(np.array([int(r), int(g), int(b)], dtype=np.float32) / 255.0)
+        return f"RGB({int(r)}, {int(g)}, {int(b)}) HSV({float(h):.1f}, {float(s):.2f}, {float(v):.2f})"
+
+    @staticmethod
     def _fill_pixel_readout(line_edit, rgb_cache, yuv_cache, rgb_from_yuv, x_pos, y_pos):
-        """Fill a QLineEdit with the pixel value from available caches."""
+        """Fill a QLineEdit with the pixel value from available caches.
+
+        实时（未冻结）显示格式与冻结像素保持一致：
+        'RGB(r, g, b) HSV(h, s, v)'（YUV 输入额外保留 YUV 前缀）。
+        """
         if rgb_cache is not None:
             r, g, b = rgb_cache[y_pos, x_pos]
-            line_edit.setText(f"R={r}, G={g}, B={b}")
+            line_edit.setText(PreviewUiController._rgb_hsv_text(r, g, b))
         elif yuv_cache is not None and rgb_from_yuv is not None:
             yv, uv, vv = yuv_cache[y_pos, x_pos]
             r, g, b = rgb_from_yuv[y_pos, x_pos]
-            line_edit.setText(f"YUV({yv}, {uv}, {vv}) => RGB({r}, {g}, {b})")
+            line_edit.setText(
+                f"YUV({yv}, {uv}, {vv}) => {PreviewUiController._rgb_hsv_text(r, g, b)}")
         else:
             line_edit.clear()
 
@@ -639,14 +654,11 @@ class PreviewUiController(QObject):
             y_pos=y_pos,
             display_role="output",
         )
-        if self.output_cache_rgb444 is not None:
-            r, g, b = self.output_cache_rgb444[y_pos, x_pos]
-            self.ui.lineEdit_output_pixel.setText(f"R={r}, G={g}, B={b}")
-        elif self.output_cache_yuv444 is not None and self.output_rgb_from_yuv is not None:
-            yv, uv, vv = self.output_cache_yuv444[y_pos, x_pos]
-            r, g, b = self.output_rgb_from_yuv[y_pos, x_pos]
-            self.ui.lineEdit_output_pixel.setText(f"YUV({yv}, {uv}, {vv}) => RGB({r}, {g}, {b})")
-        # Always fill both input and output pixel readouts.
+        # Always fill both input and output pixel readouts with the shared format.
+        self._fill_pixel_readout(
+            self.ui.lineEdit_output_pixel,
+            self.output_cache_rgb444, self.output_cache_yuv444, self.output_rgb_from_yuv,
+            x_pos, y_pos)
         self._fill_pixel_readout(
             self.ui.lineEdit_input_pixel,
             self.input_cache_rgb444, self.input_cache_yuv444, self.input_rgb_from_yuv,
