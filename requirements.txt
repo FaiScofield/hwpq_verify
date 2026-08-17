@@ -7,3 +7,5 @@ PySimpleGUI
 Pillow
 PyInstaller
 matplotlib
+PySide6
+opencv-python

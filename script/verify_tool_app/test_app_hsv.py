@@ -10,7 +10,7 @@ import os
 import subprocess
 import sys
 
-HSV_APP_VERSION = "v1.0"
+HSV_APP_VERSION = "v1.1"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
 

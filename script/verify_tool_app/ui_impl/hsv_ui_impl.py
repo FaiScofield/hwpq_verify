@@ -2,10 +2,12 @@
 HSV tab controller — encapsulates all HSV-related UI behavior and state.
 
 调整语义（对应 script/bcsh/hsv_adjust.py）：
-  V：Contrast 乘性 + delta_v 加性，增益参考点由 comboBox_modeC 选择：
-     GainAtMidPoint（过 v=0.5 中点）/ GainAtZeroPoint（过 v=0 原点）/ GainAtBothZeroAndMid
-  S：mode 切换加性/乘性            s'=clip(s+ds) 或 s'=clip(s*ds)
-  H：始终加性（或 Same Hue Goal 向指定色调旋转）
+  V：Contrast 乘性 + delta_v（加性/乘性由 comboBox_modeV 选择），增益参考点由
+     comboBox_modeC 选择：GainAtMidPoint（过 v=0.5 中点）/ GainAtZeroPoint
+     （过 v=0 原点）/ GainAtBothZeroAndMid
+  S：comboBox_modeS 切换加性/乘性   s'=clip(s+ds) 或 s'=clip(s*ds)
+  H：始终加性（comboBox_modeH 预留，当前 UI 置灰禁用；或 Same Hue Goal 向指定
+     色调旋转）
 指定色调（groupBox_setHueRange 勾选）：仅色调落在 [hs, he] 附近的像素被处理，
 通过 Tail（向内）/ Pad（向外）的 alpha blending 过渡。
 """
@@ -89,6 +91,7 @@ class HsvUiController:
         self._last_input_rgb = None
         self._last_output_rgb = None
         self._s_mode = True           # False=add, True=mul（S 通道模式，.ui 默认 Mul）
+        self._v_mode = False          # False=add, True=mul（V 通道模式，.ui 默认 Add）
         self._work_size: tuple[int, int] | None = None   # 最近一次预览处理的分辨率
 
         # --- Auto-run debounce timer ---
@@ -101,9 +104,12 @@ class HsvUiController:
 
     def _init_state(self) -> None:
         """Perform initial state sync after all widgets are ready."""
-        # .ui 默认 Multiplicative：同步 S 模式内部状态并应用其控件范围/中性值。
-        self._s_mode = self.ui.radioButton_modeMul.isChecked()
+        # .ui 默认 S=Multiplicative、V=Additive：同步各通道模式内部状态并
+        # 应用其控件范围/中性值（索引 1 == ModeMul）。
+        self._s_mode = self.ui.comboBox_modeS.currentIndex() == 1
+        self._v_mode = self.ui.comboBox_modeV.currentIndex() == 1
         self._apply_s_mode_ui(self._s_mode)
+        self._apply_v_mode_ui(self._v_mode)
         self._update_hue_limits()
         self._on_same_hue_goal_toggled(self.ui.checkBox_sameHueGoal.isChecked())
         # A checkable QGroupBox defaults to checked=True; the specified-hue
@@ -134,8 +140,9 @@ class HsvUiController:
         """Wire HSV widget signals to internal handlers."""
         ui = self.ui
         ui.checkBox_enableHsvAdj.toggled.connect(self._schedule_auto_run)
-        ui.radioButton_modeAdd.toggled.connect(self._on_mode_changed)
-        ui.radioButton_modeMul.toggled.connect(self._on_mode_changed)
+        ui.comboBox_modeV.currentIndexChanged.connect(self._on_v_mode_changed)
+        ui.comboBox_modeS.currentIndexChanged.connect(self._on_s_mode_changed)
+        ui.comboBox_modeH.currentIndexChanged.connect(self._on_h_mode_changed)
         ui.comboBox_modeC.currentIndexChanged.connect(self._schedule_auto_run)
         ui.pushButton_resetC.clicked.connect(self._on_reset_c)
         ui.pushButton_resetV.clicked.connect(self._on_reset_v)
@@ -198,28 +205,56 @@ class HsvUiController:
     # ------------------------------------------------------------------ #
 
     def _apply_s_mode_ui(self, is_mul: bool) -> None:
-        """Set spin/slider ranges and the label for the S mode (no value remap)."""
+        """Set spin/slider ranges for the S mode (no value remap).
+        """
         if is_mul:
             self.ui.spinBox_deltaS.setRange(0.0, 4.0)
             self.ui.spinBox_deltaS.setSingleStep(0.02)
             self.ui.slider_deltaS.setRange(0, 400)
-            self.ui.label_deltaS.setText("Gain S")
         else:
             self.ui.spinBox_deltaS.setRange(-1.0, 1.0)
             self.ui.spinBox_deltaS.setSingleStep(0.01)
             self.ui.slider_deltaS.setRange(-100, 100)
-            self.ui.label_deltaS.setText("Delta S")
 
-    def _on_mode_changed(self, *_args) -> None:
+    def _apply_v_mode_ui(self, is_mul: bool) -> None:
+        """Set spin/slider ranges for the V mode (no value remap)."""
+        if is_mul:
+            self.ui.spinBox_deltaV.setRange(0.0, 4.0)
+            self.ui.spinBox_deltaV.setSingleStep(0.1)
+            self.ui.slider_deltaV.setRange(0, 400)
+        else:
+            self.ui.spinBox_deltaV.setRange(-1.0, 1.0)
+            self.ui.spinBox_deltaV.setSingleStep(0.01)
+            self.ui.slider_deltaV.setRange(-100, 100)
+
+    def _on_v_mode_changed(self, *_args) -> None:
+        """Switch the V delta between additive offset and multiplicative gain.
+
+        The deltaV spin/slider range and its neutral value change with the mode
+        (add: 0.0 offset in [-1, 1], mul: 1.0 gain in [0, 4]).  Initial state
+        and redundant signals are no-ops.
+        """
+        del _args
+        is_mul = self.ui.comboBox_modeV.currentIndex() == 1
+        if is_mul == self._v_mode:
+            return
+        neutral = 1.0 if is_mul else 0.0
+        self._apply_v_mode_ui(is_mul)
+        self._set_spin_value(self.ui.spinBox_deltaV, neutral)
+        self._set_slider_value(self.ui.slider_deltaV, int(round(neutral * 100)))
+        self._v_mode = is_mul
+        self._schedule_auto_run()
+
+    def _on_s_mode_changed(self, *_args) -> None:
         """Switch the saturation adjustment between additive and multiplicative.
 
         Only the S channel is affected: the deltaS spin/slider range and its
         neutral (default) value change with the mode (add: 0.0, mul: 1.0).
         The V/H/Contrast controls keep their values.  Initial state and
-        redundant toggled signals are no-ops.
+        redundant signals are no-ops.
         """
         del _args
-        is_mul = self.ui.radioButton_modeMul.isChecked()
+        is_mul = self.ui.comboBox_modeS.currentIndex() == 1
         if is_mul == self._s_mode:
             return
         neutral = 1.0 if is_mul else 0.0
@@ -229,17 +264,28 @@ class HsvUiController:
         self._s_mode = is_mul
         self._schedule_auto_run()
 
+    def _on_h_mode_changed(self, *_args) -> None:
+        """H 通道模式：UI 当前置灰禁用，恒为加性（不改变控件状态）。
+
+        若未来在 .ui 中启用 ModeMul，需先在 adjust_hsv 增加 H 乘性逻辑。
+        """
+        del _args
+        if self.ui.comboBox_modeH.currentIndex() != 0:
+            self.ui.comboBox_modeH.setCurrentIndex(0)
+        self._schedule_auto_run()
+
     def _on_reset_c(self) -> None:
         """Reset the Contrast gain to neutral (1.0)."""
         self._reset_mapped(self.ui.slider_gainC, self.ui.spinBox_gainC, 1.0, 100.0)
 
     def _on_reset_v(self) -> None:
-        """Reset the Delta V to neutral (0.0)."""
-        self._reset_mapped(self.ui.slider_deltaV, self.ui.spinBox_deltaV, 0.0, 100.0)
+        """Reset the V value to its mode neutral (0.0 add / 1.0 mul)."""
+        neutral = 1.0 if self.ui.comboBox_modeV.currentIndex() == 1 else 0.0
+        self._reset_mapped(self.ui.slider_deltaV, self.ui.spinBox_deltaV, neutral, 100.0)
 
     def _on_reset_s(self) -> None:
         """Reset the S value to its mode neutral (0.0 add / 1.0 mul)."""
-        neutral = 1.0 if self.ui.radioButton_modeMul.isChecked() else 0.0
+        neutral = 1.0 if self.ui.comboBox_modeS.currentIndex() == 1 else 0.0
         self._reset_mapped(self.ui.slider_deltaS, self.ui.spinBox_deltaS, neutral, 100.0)
 
     def _on_reset_h(self) -> None:
@@ -461,12 +507,13 @@ class HsvUiController:
         gc = float(self.ui.spinBox_gainC.value())
         ds = float(self.ui.spinBox_deltaS.value())
         dh_deg = float(self.ui.spinBox_deltaH.value())
-        mode = 'mul' if self.ui.radioButton_modeMul.isChecked() else 'add'
+        mode = 'mul' if self.ui.comboBox_modeS.currentIndex() == 1 else 'add'
+        mode_v = 'mul' if self.ui.comboBox_modeV.currentIndex() == 1 else 'add'
         # S Tolerance：控件已是归一化浮点 [0, 0.1]，直接传给 adjust_hsv。
         tolerance_s = float(self.ui.spinBox_toleranceS.value())
         adj_hsv = adjust_hsv(hsv, delta_v=dv, delta_s=ds, delta_h=dh_deg / 360.0,
                              gain_c=gc, mode=mode, tolerance_s=tolerance_s,
-                             mode_c=self._mode_c_code())
+                             mode_c=self._mode_c_code(), mode_v=mode_v)
         if self.ui.checkBox_sameHueGoal.isChecked():
             target = float(self.ui.spinBox_sameHueGoal.value())
             progress = float(np.clip(dh_deg / 180.0, -1.0, 1.0))
