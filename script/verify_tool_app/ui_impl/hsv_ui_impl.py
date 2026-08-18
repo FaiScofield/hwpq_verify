@@ -3,8 +3,7 @@ HSV tab controller — encapsulates all HSV-related UI behavior and state.
 
 调整语义（对应 script/bcsh/hsv_adjust.py）：
   V：Contrast 乘性 + delta_v（加性/乘性由 comboBox_modeV 选择），增益参考点由
-     comboBox_modeC 选择：GainAtMidPoint（过 v=0.5 中点）/ GainAtZeroPoint
-     （过 v=0 原点）/ GainAtBothZeroAndMid
+     comboBox_modeC 选择：GainAtMid v=0.5 中点）/ GainAtZero（过 v=0 原点）/ GainAtBoth
   S：comboBox_modeS 切换加性/乘性   s'=clip(s+ds) 或 s'=clip(s*ds)
   H：始终加性（comboBox_modeH 预留，当前 UI 置灰禁用；或 Same Hue Goal 向指定
      色调旋转）
@@ -220,7 +219,7 @@ class HsvUiController:
         """Set spin/slider ranges for the V mode (no value remap)."""
         if is_mul:
             self.ui.spinBox_deltaV.setRange(0.0, 4.0)
-            self.ui.spinBox_deltaV.setSingleStep(0.1)
+            self.ui.spinBox_deltaV.setSingleStep(0.02)
             self.ui.slider_deltaV.setRange(0, 400)
         else:
             self.ui.spinBox_deltaV.setRange(-1.0, 1.0)
@@ -495,9 +494,9 @@ class HsvUiController:
     def _mode_c_code(self) -> str:
         """Map comboBox_modeC text to adjust_hsv mode_c ('mid'/'zero'/'both')."""
         text = self.ui.comboBox_modeC.currentText()
-        return {'GainAtMidPoint': 'mid',
-                'GainAtZeroPoint': 'zero',
-                'GainAtBothZeroAndMid': 'both'}.get(text, 'mid')
+        return {'GainAtMid': 'mid',
+                'GainAtZero': 'zero',
+                'GainAtBoth': 'both'}.get(text, 'mid')
 
     def _compute_adjusted_hsv(
         self, hsv: np.ndarray, h_deg: np.ndarray,

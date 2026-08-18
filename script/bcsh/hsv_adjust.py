@@ -124,7 +124,7 @@ def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='
         # 过 v=0.0 原点：v' = gc*v
         v_new = np.clip(gc * v, 0.0, 1.0)
     elif mode_c == 'both':
-        # gc<1 等效 GainAtZeroPoint，gc>1 等效 GainAtMidPoint；gc==1 恒等
+        # gc<1 等效 GainAtZero>1 等效 GainAtMid==1 恒等
         v_new = np.where(gc < 1.0, gc * v, (v - 0.5) * gc + 0.5)
         v_new = np.clip(v_new, 0.0, 1.0)
     else:   # 'mid'（默认）：过 v=0.5 中点

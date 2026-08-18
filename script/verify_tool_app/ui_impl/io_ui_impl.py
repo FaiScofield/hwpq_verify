@@ -59,12 +59,15 @@ def build_test_pattern_rgb(
     if kind == "Rainbow Hue Circle":
         # Circular HSV colour wheel: hue = angle, saturation = radius,
         # value = value_v inside the inscribed circle, white outside.
+        # 注意：图像坐标 y 轴向下，直接 atan2(dy,dx) 会让色相在屏幕上顺时针
+        # 增大（0° 红 -> 右上 300° 品红）。取反角度使色相按标准色环逆时针
+        # 增大：右=0° 红，右上=60° 黄，上=90° 黄绿，左=180° 青……
         cx = (width - 1) * 0.5
         cy = (height - 1) * 0.5
         y_idx, x_idx = np.mgrid[0:height, 0:width].astype(np.float64)
         radius = np.sqrt((x_idx - cx) ** 2 + (y_idx - cy) ** 2)
         max_r = max(1.0, min(width, height) / 2.0)
-        h = (np.degrees(np.arctan2(y_idx - cy, x_idx - cx)) + 360.0) % 360.0
+        h = (360.0 - np.degrees(np.arctan2(y_idx - cy, x_idx - cx))) % 360.0
         s = np.clip(radius / max_r, 0.0, 1.0)
         v = np.full((height, width), value_v, dtype=np.float32)
         outside = radius > max_r

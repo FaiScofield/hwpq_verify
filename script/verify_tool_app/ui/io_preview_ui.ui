@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>980</width>
+    <width>981</width>
     <height>396</height>
    </rect>
   </property>
@@ -144,6 +144,18 @@
      </item>
      <item>
       <widget class="QSlider" name="slider_preview_scale">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>40</width>
+         <height>0</height>
+        </size>
+       </property>
        <property name="toolTip">
         <string>预览缩放比例</string>
        </property>
@@ -210,11 +222,11 @@
      </item>
      <item>
       <widget class="QCheckBox" name="checkBox_show_right_input">
-       <property name="toolTip">
-        <string>右预览显示输入图（SideBySide 模式）</string>
-       </property>
        <property name="enabled">
         <bool>false</bool>
+       </property>
+       <property name="toolTip">
+        <string>右预览显示输入图（SideBySide 模式）</string>
        </property>
        <property name="text">
         <string>Show Right Input</string>
@@ -275,7 +287,7 @@
         <item>
          <widget class="QGraphicsView" name="graphicsView_right">
           <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <sizepolicy hsizetype="MinimumExpanding" vsizetype="Expanding">
             <horstretch>1</horstretch>
             <verstretch>1</verstretch>
            </sizepolicy>
