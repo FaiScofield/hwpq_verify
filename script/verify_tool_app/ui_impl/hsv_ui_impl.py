@@ -2,14 +2,13 @@
 HSV tab controller — encapsulates all HSV-related UI behavior and state.
 
 调整语义（对应 script/bcsh/hsv_adjust.py）：
-  V：Contrast 乘性 + delta_v（加性/乘性/保底乘性由 comboBox_modeV 选择），
+  V：Contrast 乘性 + delta_v（加性/乘性由 comboBox_modeV 选择），
      增益参考点由 comboBox_modeC 选择：GainAtMid（v=0.5 中点）/ GainAtZero
      （过 v=0 原点）/ GainAtBoth（按 gc<1 或 >1 自动选择）
-     modeV: ModeAdd 加性偏移 / ModeMul 乘性增益 / ModeMulKeepMin 调小时保底
-     旧 RGB 最小通道 m（v'=m+(v-m)*gv 线性缩小，永不小于 m，S 不变）
+     modeV: ModeAdd 加性偏移 / ModeMul 乘性增益
   S：comboBox_modeS 切换加性/乘性   s'=clip(s+ds) 或 s'=clip(s*ds)
-  H：始终加性（comboBox_modeH 预留，当前 UI 置灰禁用；或 Same Hue Goal 向指定
-     色调旋转）
+  H：comboBox_modeH 选择——SameOffset 恒为加性偏移（默认）；SameTarget 向指定
+     目标色调旋转（激活 Same Hue Goal 行控件）
 指定色调（groupBox_setHueRange 勾选）：仅色调落在 [hs, he] 附近的像素被处理，
 通过 Tail（向内）/ Pad（向外）的 alpha blending 过渡。
 
@@ -112,10 +111,10 @@ def format_pixel_chain(colorspace_is_rgb: bool, input_is_rgb: bool,
     if colorspace_is_rgb and input_is_rgb:
         return f"{rgb_txt}, {hsv_txt}"
     if colorspace_is_rgb and not input_is_rgb:
-        return f"{yuv_txt}, {rgb_txt}, {hsy_txt}"
+        return f"{yuv_txt}, {rgb_txt}, {hsv_txt}"
     if not colorspace_is_rgb and input_is_rgb:
         return f"{rgb_txt}, {yuv_txt}, {hsy_txt}"
-    return f"{yuv_txt}, {hsy_txt}"
+    return f"{yuv_txt}, {rgb_txt}, {hsy_txt}"
 
 
 class HsvUiWidget(QWidget):
@@ -181,7 +180,7 @@ class HsvUiController:
         self._last_output_yuv = None
         self._input_is_rgb = True     # 源输入帧是否为 RGB（决定像素读数链路前缀）
         self._s_mode = True           # False=add, True=mul（S 通道模式，.ui 默认 Mul）
-        self._v_mode = 'add'          # 'add'/'mul'/'mulKeepMin'（V 通道模式，.ui 默认 Add）
+        self._v_mode = 'add'          # 'add'/'mul'（V 通道模式，.ui 默认 Add）
         self._work_size: tuple[int, int] | None = None   # 最近一次预览处理的分辨率
 
         # --- Auto-run debounce timer ---
@@ -201,7 +200,7 @@ class HsvUiController:
         self._apply_s_mode_ui(self._s_mode)
         self._apply_v_mode_ui(self._v_mode)
         self._update_hue_limits()
-        self._on_same_hue_goal_toggled(self.ui.checkBox_sameHueGoal.isChecked())
+        self._on_h_mode_changed()
         # A checkable QGroupBox defaults to checked=True; the specified-hue
         # adjustment must be OFF by default so the whole image is processed.
         self.ui.groupBox_setHueRange.setChecked(False)
@@ -246,7 +245,6 @@ class HsvUiController:
                      ui.spinBox_hueStartPad, ui.spinBox_hueEndPad):
             spin.valueChanged.connect(self._schedule_auto_run)
         ui.spinBox_toleranceS.valueChanged.connect(self._schedule_auto_run)
-        ui.checkBox_sameHueGoal.toggled.connect(self._on_same_hue_goal_toggled)
         # Mapped slider-spin pairs (scale maps slider int to spin value).
         self._connect_mapped_slider_spin(ui.slider_gainC, ui.spinBox_gainC, 100.0)
         self._connect_mapped_slider_spin(ui.slider_deltaV, ui.spinBox_deltaV, 100.0)
@@ -311,15 +309,14 @@ class HsvUiController:
         """Map comboBox_modeV text to adjust_hsv mode_v code."""
         text = self.ui.comboBox_modeV.currentText()
         return {'ModeAdd': 'add',
-                'ModeMul': 'mul',
-                'ModeMulKeepMin': 'mulKeepMin'}.get(text, 'add')
+                'ModeMul': 'mul'}.get(text, 'add')
 
     def _apply_v_mode_ui(self, mode: str) -> None:
         """Set spin/slider ranges for the V mode (no value remap).
 
-        加性模式量程 [-1, 1]；乘性类模式（mul / mulKeepMin）量程 [0, 4]。
+        加性模式量程 [-1, 1]；乘性模式量程 [0, 4]。
         """
-        if mode in ('mul', 'mulKeepMin'):
+        if mode == 'mul':
             self.ui.spinBox_deltaV.setRange(0.0, 4.0)
             self.ui.spinBox_deltaV.setSingleStep(0.02)
             self.ui.slider_deltaV.setRange(0, 400)
@@ -329,17 +326,17 @@ class HsvUiController:
             self.ui.slider_deltaV.setRange(-100, 100)
 
     def _on_v_mode_changed(self, *_args) -> None:
-        """Switch the V delta between additive / multiplicative / keep-min modes.
+        """Switch the V delta between additive and multiplicative modes.
 
         The deltaV spin/slider range and its neutral value change with the mode
-        (add: 0.0 offset in [-1, 1]; mul / mulKeepMin: 1.0 gain in [0, 4]).
+        (add: 0.0 offset in [-1, 1]; mul: 1.0 gain in [0, 4]).
         Initial state and redundant signals are no-ops.
         """
         del _args
         code = self._v_mode_code()
         if code == self._v_mode:
             return
-        neutral = 1.0 if code in ('mul', 'mulKeepMin') else 0.0
+        neutral = 1.0 if code == 'mul' else 0.0
         self._apply_v_mode_ui(code)
         self._set_spin_value(self.ui.spinBox_deltaV, neutral)
         self._set_slider_value(self.ui.slider_deltaV, int(round(neutral * 100)))
@@ -366,13 +363,20 @@ class HsvUiController:
         self._schedule_auto_run()
 
     def _on_h_mode_changed(self, *_args) -> None:
-        """H 通道模式：UI 当前置灰禁用，恒为加性（不改变控件状态）。
-
-        若未来在 .ui 中启用 ModeMul，需先在 adjust_hsv 增加 H 乘性逻辑。
-        """
+        """H 通道模式：SameOffset 恒为加性偏移（默认）；SameTarget 激活 Same Hue Goal 行，
+        且 Delta H 范围改为 [0,100]（表示向目标色相旋转的进度）。"""
         del _args
-        if self.ui.comboBox_modeH.currentIndex() != 0:
-            self.ui.comboBox_modeH.setCurrentIndex(0)
+        same_target = self.ui.comboBox_modeH.currentIndex() == 1
+        self._apply_same_hue_goal_enable(same_target)
+        if same_target:
+            self.ui.spinBox_deltaH.setRange(0, 100)
+            self.ui.slider_deltaH.setRange(0, 100)
+        else:
+            self.ui.spinBox_deltaH.setRange(-180, 180)
+            self.ui.slider_deltaH.setRange(-180, 180)
+        # 切换模式时把 Delta H 重置为中性值 0。
+        self._set_spin_value(self.ui.spinBox_deltaH, 0)
+        self._set_slider_value(self.ui.slider_deltaH, 0)
         self._schedule_auto_run()
 
     def _on_reset_c(self) -> None:
@@ -380,8 +384,8 @@ class HsvUiController:
         self._reset_mapped(self.ui.slider_gainC, self.ui.spinBox_gainC, 1.0, 100.0)
 
     def _on_reset_v(self) -> None:
-        """Reset the V value to its mode neutral (0.0 add / 1.0 mul / mulKeepMin)."""
-        neutral = 1.0 if self._v_mode_code() in ('mul', 'mulKeepMin') else 0.0
+        """Reset the V value to its mode neutral (0.0 add / 1.0 mul)."""
+        neutral = 1.0 if self._v_mode_code() == 'mul' else 0.0
         self._reset_mapped(self.ui.slider_deltaV, self.ui.spinBox_deltaV, neutral, 100.0)
 
     def _on_reset_s(self) -> None:
@@ -410,11 +414,14 @@ class HsvUiController:
         for spin in (self.ui.spinBox_hueStartTail, self.ui.spinBox_hueEndTail):
             spin.setMaximum(max_side)
 
-    def _on_same_hue_goal_toggled(self, checked: bool) -> None:
-        """Enable the same-hue-goal target controls and re-run."""
-        self.ui.spinBox_sameHueGoal.setEnabled(checked)
-        self.ui.slider_sameHueGoal.setEnabled(checked)
-        self._schedule_auto_run()
+    def _apply_same_hue_goal_enable(self, active: bool) -> None:
+        """按 H 模式使能/禁用目标色相滑块与数字框。
+
+        ``active`` 表示 comboBox_modeH 是否选中 SameTarget；Same Hue Goal 已改为
+        静态 label，仅 SameTarget 下目标色相控件可用。
+        """
+        self.ui.slider_sameHueGoal.setEnabled(active)
+        self.ui.spinBox_sameHueGoal.setEnabled(active)
 
     # ------------------------------------------------------------------ #
     # HSV processing                                                     #
@@ -491,22 +498,31 @@ class HsvUiController:
             work_frame = self._downsample_frame(frame, work_wh[0], work_wh[1])
 
         if self._is_yuv_colorspace():
-            out_frame, in_rgb, out_rgb, depth = self._process_frame_ycbcr(work_frame)
+            out_frame, in_rgb, out_rgb, depth, out_yuv = self._process_frame_ycbcr(work_frame)
         else:
             out_frame, in_rgb, out_rgb, depth = self._process_frame_hsv(work_frame)
+            out_yuv = None
 
         # 降采样处理时升采样回源分辨率，保证预览/像素读数与输入对齐。
         if work_frame is not frame:
             out_frame = self._upsample_frame(out_frame, src_h, src_w)
             in_rgb = self._upsample_planar(in_rgb, src_h, src_w)
             out_rgb = self._upsample_planar(out_rgb, src_h, src_w)
+            if out_yuv is not None:
+                yuv_planar = self._upsample_planar(
+                    np.stack([out_yuv[0], out_yuv[1], out_yuv[2]], axis=0),
+                    src_h, src_w)
+                out_yuv = (yuv_planar[0], yuv_planar[1], yuv_planar[2], depth)
 
         # Cache source-resolution RGB/YUV planes for the frozen-pixel readout.
+        # YUV 域输出读数直接用输出帧原始 YUV（不经 RGB 往返，避免色域外颜色被
+        # RGB clip 后读数失真）；RGB 域无原始 YUV，按 RGB 推导。
         self._input_is_rgb = frame.is_rgb
         self._last_input_rgb = (in_rgb[0], in_rgb[1], in_rgb[2], depth)
         self._last_output_rgb = (out_rgb[0], out_rgb[1], out_rgb[2], depth)
         self._last_input_yuv = self._rgb_planes_to_yuv(in_rgb, depth)
-        self._last_output_yuv = self._rgb_planes_to_yuv(out_rgb, depth)
+        self._last_output_yuv = (out_yuv if out_yuv is not None
+                                 else self._rgb_planes_to_yuv(out_rgb, depth))
         return out_frame
 
     @staticmethod
@@ -574,7 +590,8 @@ class HsvUiController:
         以 (角度, 极径归一化, Y) 复用 adjust_hsv 的调整逻辑；处理后再加回
         0.5 转回 YUV444p 作为输出帧，并转 RGB 供冻结像素读数。
 
-        Returns (out_frame_yuv444p, in_rgb_planes, out_rgb_planes, depth).
+        Returns (out_frame_yuv444p, in_rgb_planes, out_rgb_planes, depth, out_yuv).
+        out_yuv = (y_out, u_out, v_out, depth)：输出帧原始 YUV，供像素读数直接显示。
         """
         r, g, b, depth = self._frame_to_rgb_planar(work_frame)
         max_val = (1 << depth) - 1
@@ -623,7 +640,7 @@ class HsvUiController:
         in_planar = np.stack([r, g, b], axis=0)
         rr, gg, bb = yuv_to_rgb(y_out, u_out, v_out, input_cs=5, output_cs=1)
         out_planar = np.stack([rr, gg, bb], axis=0)
-        return out_frame, in_planar, out_planar, depth
+        return out_frame, in_planar, out_planar, depth, (y_out, u_out, v_out, depth)
 
     @staticmethod
     def _upsample_frame(frame: ImageFrame, out_h: int, out_w: int) -> ImageFrame:
@@ -704,14 +721,18 @@ class HsvUiController:
         mode_v = self._v_mode_code()
         # S Tolerance：控件已是归一化浮点 [0, 0.1]，直接传给 adjust_hsv。
         tolerance_s = float(self.ui.spinBox_toleranceS.value())
-        adj_hsv = adjust_hsv(hsv, delta_v=dv, delta_s=ds, delta_h=dh_deg / 360.0,
+        same_target = self.ui.comboBox_modeH.currentIndex() == 1
+        # SameTarget 下 Delta H 表示向目标旋转的进度，不作为加性偏移传入 adjust_hsv。
+        adj_hsv = adjust_hsv(hsv, delta_v=dv, delta_s=ds,
+                             delta_h=0.0 if same_target else dh_deg / 360.0,
                              gain_c=gc, mode=mode, tolerance_s=tolerance_s,
                              mode_c=self._mode_c_code(), mode_v=mode_v)
-        if self.ui.checkBox_sameHueGoal.isChecked():
+        if same_target:
             target = float(self.ui.spinBox_sameHueGoal.value())
-            progress = float(np.clip(dh_deg / 180.0, -1.0, 1.0))
+            # Delta H 范围 [0,100]：表示向目标色相旋转的进度（0=不旋转，100=完全到位）。
+            progress = float(np.clip(dh_deg / 100.0, 0.0, 1.0))
             arc = ((target - h_deg + 180.0) % 360.0) - 180.0   # shortest signed arc
-            h_adj = (h_deg + np.abs(progress) * arc) % 360.0
+            h_adj = (h_deg + progress * arc) % 360.0
             adj_hsv = np.stack([h_adj, adj_hsv[..., 1], adj_hsv[..., 2]], axis=-1)
         return adj_hsv
 

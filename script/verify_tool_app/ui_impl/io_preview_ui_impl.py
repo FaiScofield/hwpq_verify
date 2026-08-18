@@ -11,6 +11,7 @@ from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QColor, QImage, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDockWidget,
+    QFileDialog,
     QGraphicsPathItem,
     QGraphicsScene,
     QMainWindow,
@@ -666,11 +667,35 @@ class PreviewUiController(QObject):
     # Save actions                                                       #
     # ------------------------------------------------------------------ #
 
+    def _ask_save_base(self, default_name: str) -> str | None:
+        """Open a save dialog rooted at the I/O output dir; return the base path.
+
+        返回的基名会去掉用户可能输入的 .yuv/.png 扩展名，
+        使 raw（.yuv）与 PNG 预览共用用户指定的文件名。取消时返回 None。
+        """
+        output_dir = self._output_dir_getter() or os.getcwd()
+        os.makedirs(output_dir, exist_ok=True)
+        suggested = os.path.join(output_dir, f"{default_name}.yuv")
+        path, _ = QFileDialog.getSaveFileName(
+            self._win, "Save Image", suggested,
+            "Image files (*.yuv *.png);;All files (*)")
+        if not path:
+            return None
+        for ext in (".yuv", ".png"):
+            if path.lower().endswith(ext):
+                path = path[:-len(ext)]
+                break
+        return path
+
     def _save_assets(
-        self, frame: ImageFrame | None, qimage: QImage | None, base_name: str,
+        self, frame: ImageFrame | None, qimage: QImage | None, base_path: str,
         apply_output_f2l: bool = False,
     ) -> None:
         """Save a frame as raw data plus an optional PNG preview.
+
+        ``base_path``: full output path without extension (e.g. "D:/out/dump");
+        raw data is written to ``<base_path>_0x{fmt}.yuv`` and the PNG preview
+        to ``<base_path>.png``.
 
         ``apply_output_f2l``: when True the frame carries full-range RGB data
         (HSV pipeline output) while its target colorspace is limited — the raw
@@ -680,9 +705,9 @@ class PreviewUiController(QObject):
         if frame is None:
             QMessageBox.warning(None, "Warning", "No image data to save")
             return
-        output_dir = self._output_dir_getter() or os.getcwd()
-        os.makedirs(output_dir, exist_ok=True)
-        raw_path = os.path.join(output_dir, f"{base_name}_0x{frame.fmt:x}.yuv")
+        out_dir = os.path.dirname(base_path) or os.getcwd()
+        os.makedirs(out_dir, exist_ok=True)
+        raw_path = f"{base_path}_0x{frame.fmt:x}.yuv"
         frame = frame.copy()
         if apply_output_f2l and frame.is_rgb and is_limited_range(frame.clrspc):
             # full -> limited RGB（8bit [16,235] / 10bit [64,940]）。
@@ -699,7 +724,7 @@ class PreviewUiController(QObject):
             frame = ImageFrame(r, g, b, frame.fmt, frame.clrspc)
         frame.to_file(raw_path)
         if qimage is not None:
-            png_path = os.path.join(output_dir, f"{base_name}.png")
+            png_path = f"{base_path}.png"
             if not qimage.save(png_path):
                 QMessageBox.warning(None, "Warning", f"Failed to save image: {png_path}")
                 self._status_callback(f"Save failed: {png_path}")
@@ -721,13 +746,13 @@ class PreviewUiController(QObject):
                 return full
         return self.output_frame
 
-    def _save_output_image(self, base_name: str) -> None:
+    def _save_output_image(self, base_path: str) -> None:
         """Save the output as raw + PNG at full resolution when possible."""
         frame = self._get_output_for_save()
         qimage = self.output_qimage
         if frame is not None and frame is not self.output_frame:
             qimage = self._frame_to_qimage(frame, is_input=False)
-        self._save_assets(frame, qimage, base_name, apply_output_f2l=True)
+        self._save_assets(frame, qimage, base_path, apply_output_f2l=True)
 
     def _on_save_left_image(self) -> None:
         mode = self._preview_mode
@@ -735,9 +760,15 @@ class PreviewUiController(QObject):
             show_input = bool(getattr(self.ui, "checkBox_show_input", None)
                               and self.ui.checkBox_show_input.isChecked())
             if not show_input:
-                self._save_output_image("acm_output")
+                base = self._ask_save_base("acm_output")
+                if base is not None:
+                    self._save_output_image(base)
                 return
-        self._save_assets(self.input_frame, self.input_qimage, "acm_input")
+        base = self._ask_save_base("acm_input")
+        if base is not None:
+            self._save_assets(self.input_frame, self.input_qimage, base)
 
     def _on_save_right_image(self) -> None:
-        self._save_output_image("acm_output")
+        base = self._ask_save_base("acm_output")
+        if base is not None:
+            self._save_output_image(base)
