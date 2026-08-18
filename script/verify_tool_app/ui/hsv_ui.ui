@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>840</width>
+    <width>857</width>
     <height>284</height>
    </rect>
   </property>
@@ -336,6 +336,9 @@
           <property name="toolTip">
            <string>对比度增益参考点：MidPoint 过 v=0.5 中点 / ZeroPoint 过 v=0 原点 / Both 按 gc&lt;1 或 &gt;1 自动选择</string>
           </property>
+          <property name="currentIndex">
+           <number>1</number>
+          </property>
           <item>
            <property name="text">
             <string>GainAtMid</string>
@@ -652,7 +655,7 @@
            <string>起始端向外扩展角度（0~hr/2），扩展区与输入色 alpha 融合</string>
           </property>
           <property name="maximum">
-           <number>180</number>
+           <number>60</number>
           </property>
           <property name="value">
            <number>0</number>
@@ -671,7 +674,7 @@
            <string>结束端向外扩展角度（0~hr/2），扩展区与输入色 alpha 融合</string>
           </property>
           <property name="maximum">
-           <number>180</number>
+           <number>60</number>
           </property>
           <property name="value">
            <number>0</number>

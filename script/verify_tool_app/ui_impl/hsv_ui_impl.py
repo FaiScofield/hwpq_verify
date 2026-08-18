@@ -407,8 +407,7 @@ class HsvUiController:
         if hr == 0:
             hr = 360
         max_side = int(hr // 2)
-        for spin in (self.ui.spinBox_hueStartTail, self.ui.spinBox_hueEndTail,
-                     self.ui.spinBox_hueStartPad, self.ui.spinBox_hueEndPad):
+        for spin in (self.ui.spinBox_hueStartTail, self.ui.spinBox_hueEndTail):
             spin.setMaximum(max_side)
 
     def _on_same_hue_goal_toggled(self, checked: bool) -> None:
