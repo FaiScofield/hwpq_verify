@@ -41,11 +41,11 @@ def build_test_pattern_rgb(
     """Generate a synthetic RGB planar test image.
 
     Returns (R, G, B) uint8 arrays of shape (height, width), full-range RGB.
-    kind: "Rainbow Hue Circle" / "Rainbow Hue Ramp" / "HSV Patches" /
-          "Saturation Ramp" / "Value Ramp" / "Gray Ramp".
+    kind: "Rainbow Hue Circle" / "Rainbow Hue Ramp" / "HSV Patches dV" /
+          "HSV Patches dS" / "Saturation Ramp" / "Value Ramp" / "Gray Ramp".
     value_v: normalized V in [0, 1] used by the patterns with a fixed V
-             (Rainbow Hue Circle / Rainbow Hue Ramp / Saturation Ramp);
-             ignored by the others.
+             (Rainbow Hue Circle / Rainbow Hue Ramp / Saturation Ramp /
+              HSV Patches dS); ignored by the others.
     value_h: hue in degrees [0, 360) used by Saturation Ramp / Value Ramp.
     """
     if width <= 0 or height <= 0:
@@ -77,7 +77,8 @@ def build_test_pattern_rgb(
         h = np.tile(xx * 360.0, (height, 1))
         s = np.ones((height, width), dtype=np.float32)
         v = np.full((height, width), value_v, dtype=np.float32)
-    elif kind == "HSV Patches":
+    elif kind == "HSV Patches dV":
+        # 色相×明度色块：12 列色相，6 行明度，V 从上到下 1→0（S 恒 1）。
         n_hue = 12
         n_val = 6
         hue_cols = (np.floor(xx * n_hue) / n_hue * 360.0).astype(np.float32)              # (width,)
@@ -85,6 +86,15 @@ def build_test_pattern_rgb(
         h = np.tile(hue_cols, (height, 1))
         v = np.tile(val_rows[:, None], (1, width))
         s = np.ones((height, width), dtype=np.float32)
+    elif kind == "HSV Patches dS":
+        # 色相×饱和度色块：12 列色相，6 行饱和度，S 从上到下 1→0（V 固定为 value_v）。
+        n_hue = 12
+        n_val = 6
+        hue_cols = (np.floor(xx * n_hue) / n_hue * 360.0).astype(np.float32)              # (width,)
+        sat_rows = (1.0 - np.floor(yy * n_val) / max(1, n_val - 1)).astype(np.float32)    # (height,)
+        h = np.tile(hue_cols, (height, 1))
+        s = np.tile(sat_rows[:, None], (1, width))
+        v = np.full((height, width), value_v, dtype=np.float32)
     elif kind == "Saturation Ramp":
         h = np.full((height, width), value_h, dtype=np.float32)
         s = np.tile(xx, (height, 1))

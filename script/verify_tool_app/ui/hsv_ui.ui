@@ -806,6 +806,37 @@
    </item>
   </layout>
  </widget>
+ <tabstops>
+  <tabstop>checkBox_enableHsvAdj</tabstop>
+  <tabstop>comboBox_colorspace</tabstop>
+  <tabstop>spinBox_toleranceS</tabstop>
+  <tabstop>comboBox_modeC</tabstop>
+  <tabstop>slider_gainC</tabstop>
+  <tabstop>spinBox_gainC</tabstop>
+  <tabstop>pushButton_resetC</tabstop>
+  <tabstop>comboBox_modeV</tabstop>
+  <tabstop>slider_deltaV</tabstop>
+  <tabstop>spinBox_deltaV</tabstop>
+  <tabstop>pushButton_resetV</tabstop>
+  <tabstop>comboBox_modeS</tabstop>
+  <tabstop>slider_deltaS</tabstop>
+  <tabstop>spinBox_deltaS</tabstop>
+  <tabstop>pushButton_resetS</tabstop>
+  <tabstop>comboBox_modeH</tabstop>
+  <tabstop>slider_deltaH</tabstop>
+  <tabstop>spinBox_deltaH</tabstop>
+  <tabstop>pushButton_resetH</tabstop>
+  <tabstop>groupBox_setHueRange</tabstop>
+  <tabstop>spinBox_hueStart</tabstop>
+  <tabstop>spinBox_hueEnd</tabstop>
+  <tabstop>spinBox_hueStartTail</tabstop>
+  <tabstop>spinBox_hueEndTail</tabstop>
+  <tabstop>spinBox_hueStartPad</tabstop>
+  <tabstop>spinBox_hueEndPad</tabstop>
+  <tabstop>checkBox_sameHueGoal</tabstop>
+  <tabstop>spinBox_sameHueGoal</tabstop>
+  <tabstop>slider_sameHueGoal</tabstop>
+ </tabstops>
  <resources/>
  <connections/>
 </ui>

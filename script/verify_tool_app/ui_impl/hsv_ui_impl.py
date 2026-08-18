@@ -52,6 +52,37 @@ def _bt709_chroma_max() -> float:
 _BT709_CHROMA_MAX = _bt709_chroma_max()
 
 
+def _build_hue_sync_lut(n: int = 4096) -> tuple[np.ndarray, np.ndarray]:
+    """构建 HSV 色相 -> YCbCr 极角（去 360° 环绕、单调）LUT，供双向同步换算。
+
+    HSV 色相按六边形等角分布；YCbCr 极角是 Cb/Cr 平面真实角度，两者相差一个
+    非恒定偏移（BT.709 约 +103°~+115°）。该 LUT 使两者可精确互转（往返 0.000°）。
+    """
+    r2y, _ = _get_csc_matrices(5)
+    hsv = np.linspace(0.0, 360.0, n, endpoint=False)
+    rgb = hsv_to_rgb(np.stack([hsv, np.ones(n), np.ones(n)], axis=-1))
+    chroma = rgb @ r2y[1:, :].T                            # (n, 2): (Cb, Cr)
+    ycbcr = (np.degrees(np.arctan2(chroma[:, 1], chroma[:, 0])) + 360.0) % 360.0
+    ycbcr_unwrap = np.unwrap(np.radians(ycbcr)) * 180.0 / np.pi
+    return hsv, ycbcr_unwrap
+
+
+_HUE_LUT_HSV, _HUE_LUT_YCBCR = _build_hue_sync_lut()
+_HUE_LUT_START = float(_HUE_LUT_YCBCR[0])                  # ~102.91°
+
+
+def hue_hsv_to_ycbcr(h) -> np.ndarray:
+    """HSV 色相 -> YCbCr 极角（[0,360)）。支持标量或数组。"""
+    return np.interp(np.asarray(h, dtype=np.float64), _HUE_LUT_HSV, _HUE_LUT_YCBCR) % 360.0
+
+
+def hue_ycbcr_to_hsv(h) -> np.ndarray:
+    """YCbCr 极角 -> HSV 色相（[0,360)）。支持标量或数组；处理 <起点 的环绕段。"""
+    x = np.asarray(h, dtype=np.float64) % 360.0
+    x = np.where(x < _HUE_LUT_START, x + 360.0, x)         # [0,起点) 段 +360 对齐到单调区间
+    return np.interp(x, _HUE_LUT_YCBCR, _HUE_LUT_HSV) % 360.0
+
+
 def format_pixel_chain(colorspace_is_rgb: bool, input_is_rgb: bool,
                        rv: int, gv: int, bv: int,
                        yv: int, uv: int, vv: int, depth: int) -> str:
@@ -61,13 +92,14 @@ def format_pixel_chain(colorspace_is_rgb: bool, input_is_rgb: bool,
                        YUV 输入 -> "YUV(y,u,v), RGB(r,g,b), HSY(h,s,y)"
     YUV(YCbCr) 色彩空间：RGB 输入 -> "RGB(r,g,b), YUV(y,u,v), HSY(h,s,y)"
                        YUV 输入 -> "YUV(y,u,v), HSY(h,s,y)"
-    HSV 由 RGB 计算；HSY 的 h/s/y 来自 YCbCr 极坐标（角度/归一化极径/亮度）。
+    HSV 由 RGB 计算；HSY 的 h 是 YCbCr 极角经 hue_ycbcr_to_hsv 换算的 HSV 同源
+    色相（与 HSV 读数同步），s/y 为归一化极径/亮度。
     """
     max_val = (1 << depth) - 1
     h, s, v = rgb_to_hsv(np.array([rv, gv, bv], dtype=np.float32) / max_val)
     cb = uv / max_val - 0.5
     cr = vv / max_val - 0.5
-    hh = (np.degrees(np.arctan2(cr, cb)) + 360.0) % 360.0
+    hh = hue_ycbcr_to_hsv((np.degrees(np.arctan2(cr, cb)) + 360.0) % 360.0)
     radius = np.sqrt(cb * cb + cr * cr)
     ss = np.clip(radius / _BT709_CHROMA_MAX, 0.0, 1.0)
     yy = yv / max_val
@@ -562,12 +594,16 @@ class HsvUiController:
         s_norm = np.clip(radius / _BT709_CHROMA_MAX, 0.0, 1.0)
         angle = (np.degrees(np.arctan2(cr, cb)) + 360.0) % 360.0
 
-        yhs = np.stack([angle, s_norm, y_n], axis=-1)                 # (H, W, 3)
-        adj = self._compute_adjusted_hsv(yhs, angle)
-        angle_a, s_a, y_a = adj[..., 0], adj[..., 1], adj[..., 2]
+        # 色相同步：YCbCr 极角先换算成 HSV 同源色相再做调整，使 YUV 域与 HSV 域的
+        # dh/目标色/指定色域语义一致；调整后再换算回 YCbCr 极角重建 Cb/Cr。
+        hue_sync = hue_ycbcr_to_hsv(angle)
+        yhs = np.stack([hue_sync, s_norm, y_n], axis=-1)              # (H, W, 3)
+        adj = self._compute_adjusted_hsv(yhs, hue_sync)
+        hue_sync_a, s_a, y_a = adj[..., 0], adj[..., 1], adj[..., 2]
+        angle_a = hue_hsv_to_ycbcr(hue_sync_a)
 
-        # 指定色调按角度计算权重，在 YCbCr 笛卡尔域 blend。
-        w = self._hue_blend_weights_for(angle)
+        # 指定色调按同步后的色相计算权重，在 YCbCr 笛卡尔域 blend。
+        w = self._hue_blend_weights_for(hue_sync)
         radius_a = s_a * _BT709_CHROMA_MAX
         cb_a = radius_a * np.cos(np.radians(angle_a))
         cr_a = radius_a * np.sin(np.radians(angle_a))
