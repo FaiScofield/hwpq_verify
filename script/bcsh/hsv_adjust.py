@@ -82,13 +82,20 @@ def hsv_to_rgb(hsv):
 
 
 def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='add',
-               tolerance_s: float = 0.0, mode_c='mid'):
+               tolerance_s: float = 0.0, mode_c='mid', mode_v='add'):
     """HSV 域 V/S/H 调整（hsv 输入、hsv 输出，不涉及 RGB 重建）。
     按 V -> S -> H 顺序执行：
-      V：Contrast 乘性 + delta_v 加性；mode_c 选择增益参考点：
-           'mid'   v'=clip((v-0.5)*gc + 0.5 + dv)   （过 v=0.5 中点，默认）
-           'zero'  v'=clip(gc*v + dv)               （过 v=0.0 原点）
+      V：Contrast 乘性 + delta_v（加性或乘性）；mode_c 选择增益参考点：
+           'mid'   v'=clip((v-0.5)*gc + 0.5 [+dv])   （过 v=0.5 中点，默认）
+           'zero'  v'=clip(gc*v [+dv])               （过 v=0.0 原点）
            'both'  gc<1 时等效 'zero'，gc>1 时等效 'mid'（gc==1 恒等）
+         mode_v 决定 delta_v 生效方式：
+           'add'   v'=clip(contrast(v)+dv)           （dv ∈ [-1,1]，默认）
+           'mul'   v'=clip(contrast(v)*gv)           （gv 增益 ∈ [0,4]，中性 1.0）
+           'mulKeepMin'  保底乘性：调小(gv<1)时 V 线性缩小到旧 RGB 最小通道
+                   m=v'*(1-s)（v'=m+(v-m)*gv，永不小于 m），S 保持不变（饱和度
+                   不变，新最小通道自动 m'=r*v'，r=m/v）；调大(gv>=1)时与 'mul'
+                   一致（gv 增益 ∈ [0,4]）
       S：mode='add'  s'=clip(s+ds)；mode='mul'  s'=clip(s*ds)     （ds ∈ [-1,1] 或乘性增益 ∈ [0,4]）
       H：始终加性     h'=(h + dh*360) % 360                        （dh ∈ [-0.5,0.5]，0.5=180°）
     语义：S < tolerance_s 的像素不做放大（增色），缩小（减色）始终允许；
@@ -121,12 +128,27 @@ def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='
         # 过 v=0.0 原点：v' = gc*v
         v_new = np.clip(gc * v, 0.0, 1.0)
     elif mode_c == 'both':
-        # gc<1 等效 GainAtZeroPoint，gc>1 等效 GainAtMidPoint；gc==1 恒等
+        # gc<1 等效 GainAtZero>1 等效 GainAtMid==1 恒等
         v_new = np.where(gc < 1.0, gc * v, (v - 0.5) * gc + 0.5)
         v_new = np.clip(v_new, 0.0, 1.0)
     else:   # 'mid'（默认）：过 v=0.5 中点
         v_new = np.clip((v - 0.5) * gc + 0.5, 0.0, 1.0)
-    v_new = np.clip(v_new + dv, 0.0, 1.0)
+    # ---- delta_v 生效方式：mode_v='add' 加性 / 'mul' 乘性 / 'mulKeepMin' 保底乘性 ----
+    mode_v = str(mode_v).lower()
+    if mode_v in ('mul', 'mulkeepmin'):
+        gv = 1.0 if delta_v is None else np.clip(np.asarray(delta_v, np.float32), 0.0, 4.0)
+        if mode_v == 'mulkeepmin':
+            # 保底乘性：乘法增益作用于 V；调小(gv<1)时按量程比例线性缩小到旧
+            # RGB 最小通道 m=v_new*(1-s_new)（v'=m+(v-m)*gv，永不小于 m），
+            # S 保持不变 -> 饱和度不变，新最小通道自动为 m'=r*v'（r=m/v）。
+            m_val = np.clip(v_new * (1.0 - s_new), 0.0, 1.0)
+            v_new = np.clip(
+                np.where(gv < 1.0, m_val + (v_new - m_val) * gv, v_new * gv),
+                0.0, 1.0)
+        else:
+            v_new = np.clip(v_new * gv, 0.0, 1.0)
+    else:   # 'add'（默认）：加性
+        v_new = np.clip(v_new + dv, 0.0, 1.0)
     # ---- H：平移 360° 归一（始终加性） ----
     h_new = (h + dh * 360.0) % 360.0
     out = np.stack([h_new, s_new, v_new], axis=-1)
@@ -154,6 +176,16 @@ if __name__ == '__main__':
           adjust_hsv((20.0, 0.5, 0.5), gain_c=0.5, mode_c='both'))
     print('标量: adjust_hsv((20.0, 0.5, 0.5), gain_c=2.0, mode_c="both") =',
           adjust_hsv((20.0, 0.5, 0.5), gain_c=2.0, mode_c='both'))
+    # mode_v：delta_v 乘性增益（默认加性）
+    print('标量: adjust_hsv((20.0, 0.5, 0.5), delta_v=1.5, mode_v="mul") =',
+          adjust_hsv((20.0, 0.5, 0.5), delta_v=1.5, mode_v='mul'))
+    print('标量: adjust_hsv((20.0, 0.5, 0.5), delta_v=0.7, mode_v="mul") =',
+          adjust_hsv((20.0, 0.5, 0.5), delta_v=0.7, mode_v='mul'))
+    # mode_v='mulKeepMin'：调小保底旧 m 且 S 不变（v=0.5,s=0.5 -> m=0.25）
+    print('标量: adjust_hsv((20.0, 0.5, 0.5), delta_v=0.5, mode_v="mulKeepMin") =',
+          adjust_hsv((20.0, 0.5, 0.5), delta_v=0.5, mode_v='mulKeepMin'))
+    print('标量: adjust_hsv((20.0, 0.5, 0.5), delta_v=0.0, mode_v="mulKeepMin") =',
+          adjust_hsv((20.0, 0.5, 0.5), delta_v=0.0, mode_v='mulKeepMin'))
     # S 乘性模式（仅 S 受 mode 影响）
     print('标量: adjust_hsv((20.0, 0.5, 0.5), delta_s=1.5, mode="mul") =',
           adjust_hsv((20.0, 0.5, 0.5), delta_s=1.5, mode='mul'))

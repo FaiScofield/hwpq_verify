@@ -10,7 +10,7 @@ import os
 import subprocess
 import sys
 
-HSV_APP_VERSION = "v1.0"
+HSV_APP_VERSION = "v2.0"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
 
@@ -87,7 +87,7 @@ class HsvTestAppWindow(QMainWindow):
         self.setWindowTitle(f"HSV Test App {HSV_APP_VERSION}")
         # The host window .ui is shared across apps; set the HSV tab label here.
         self.ui.tabWidget_main.setTabText(
-            self.ui.tabWidget_main.indexOf(self.ui.tab_module_host), "HSV Config")
+            self.ui.tabWidget_main.indexOf(self.ui.tab_module_host), "BCSH Config")
         self._syncing_preview_action = False
 
         self.io_widget = IoUiWidget(self)
@@ -122,13 +122,15 @@ class HsvTestAppWindow(QMainWindow):
             input_provider=lambda: self.preview_ctrl.input_frame,
             output_callback=self.preview_ctrl.set_output_image,
             status_callback=self.ui.statusbar.showMessage,
-            time_cost_callback=self.preview_ctrl.set_time_cost_ms,
             work_size_provider=self.preview_ctrl.get_work_size,
             input_pixel_edit=self.preview_widget.ui.lineEdit_input_pixel,
             output_pixel_edit=self.preview_widget.ui.lineEdit_output_pixel,
         )
         self.preview_ctrl.set_full_res_output_provider(self.hsv_ctrl.get_full_res_output)
         self.preview_ctrl.set_pixel_selection_callback(self.hsv_ctrl.on_preview_pixel_selection)
+        # 让预览实时像素读数跟随 BCSH 处理域（RGB(HSV)/YUV(YCbCr)）。
+        self.preview_ctrl.set_colorspace_getter(
+            lambda: self.hsv_ctrl.ui.comboBox_colorspace.currentText())
         self._install_view_menu()
         # Propagate HSV enabled state to preview for BothInLeft mode.
         self.hsv_ctrl.ui.checkBox_enableHsvAdj.toggled.connect(self.preview_ctrl.set_acm_enabled)
@@ -187,7 +189,6 @@ class HsvTestAppWindow(QMainWindow):
         """Forward loaded input data to the preview and HSV controllers."""
         self.preview_ctrl.set_input_image(frame)
         self.preview_ctrl.set_output_image(None)
-        self.preview_ctrl.set_time_cost_ms(None)
         self.ui.statusbar.showMessage(status_message)
         self.hsv_ctrl.request_auto_run()
 

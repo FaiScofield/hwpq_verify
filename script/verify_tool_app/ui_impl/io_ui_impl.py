@@ -41,11 +41,11 @@ def build_test_pattern_rgb(
     """Generate a synthetic RGB planar test image.
 
     Returns (R, G, B) uint8 arrays of shape (height, width), full-range RGB.
-    kind: "Rainbow Hue Circle" / "Rainbow Hue Ramp" / "HSV Patches" /
-          "Saturation Ramp" / "Value Ramp" / "Gray Ramp".
+    kind: "Rainbow Hue Circle" / "Rainbow Hue Ramp" / "HSV Patches dV" /
+          "HSV Patches dS" / "Saturation Ramp" / "Value Ramp" / "Gray Ramp".
     value_v: normalized V in [0, 1] used by the patterns with a fixed V
-             (Rainbow Hue Circle / Rainbow Hue Ramp / Saturation Ramp);
-             ignored by the others.
+             (Rainbow Hue Circle / Rainbow Hue Ramp / Saturation Ramp /
+              HSV Patches dS); ignored by the others.
     value_h: hue in degrees [0, 360) used by Saturation Ramp / Value Ramp.
     """
     if width <= 0 or height <= 0:
@@ -59,12 +59,15 @@ def build_test_pattern_rgb(
     if kind == "Rainbow Hue Circle":
         # Circular HSV colour wheel: hue = angle, saturation = radius,
         # value = value_v inside the inscribed circle, white outside.
+        # 注意：图像坐标 y 轴向下，直接 atan2(dy,dx) 会让色相在屏幕上顺时针
+        # 增大（0° 红 -> 右上 300° 品红）。取反角度使色相按标准色环逆时针
+        # 增大：右=0° 红，右上=60° 黄，上=90° 黄绿，左=180° 青……
         cx = (width - 1) * 0.5
         cy = (height - 1) * 0.5
         y_idx, x_idx = np.mgrid[0:height, 0:width].astype(np.float64)
         radius = np.sqrt((x_idx - cx) ** 2 + (y_idx - cy) ** 2)
         max_r = max(1.0, min(width, height) / 2.0)
-        h = (np.degrees(np.arctan2(y_idx - cy, x_idx - cx)) + 360.0) % 360.0
+        h = (360.0 - np.degrees(np.arctan2(y_idx - cy, x_idx - cx))) % 360.0
         s = np.clip(radius / max_r, 0.0, 1.0)
         v = np.full((height, width), value_v, dtype=np.float32)
         outside = radius > max_r
@@ -74,7 +77,8 @@ def build_test_pattern_rgb(
         h = np.tile(xx * 360.0, (height, 1))
         s = np.ones((height, width), dtype=np.float32)
         v = np.full((height, width), value_v, dtype=np.float32)
-    elif kind == "HSV Patches":
+    elif kind == "HSV Patches dV":
+        # 色相×明度色块：12 列色相，6 行明度，V 从上到下 1→0（S 恒 1）。
         n_hue = 12
         n_val = 6
         hue_cols = (np.floor(xx * n_hue) / n_hue * 360.0).astype(np.float32)              # (width,)
@@ -82,6 +86,15 @@ def build_test_pattern_rgb(
         h = np.tile(hue_cols, (height, 1))
         v = np.tile(val_rows[:, None], (1, width))
         s = np.ones((height, width), dtype=np.float32)
+    elif kind == "HSV Patches dS":
+        # 色相×饱和度色块：12 列色相，6 行饱和度，S 从上到下 1→0（V 固定为 value_v）。
+        n_hue = 12
+        n_val = 6
+        hue_cols = (np.floor(xx * n_hue) / n_hue * 360.0).astype(np.float32)              # (width,)
+        sat_rows = (1.0 - np.floor(yy * n_val) / max(1, n_val - 1)).astype(np.float32)    # (height,)
+        h = np.tile(hue_cols, (height, 1))
+        s = np.tile(sat_rows[:, None], (1, width))
+        v = np.full((height, width), value_v, dtype=np.float32)
     elif kind == "Saturation Ramp":
         h = np.full((height, width), value_h, dtype=np.float32)
         s = np.tile(xx, (height, 1))
