@@ -19,15 +19,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from script.bcsh.hsv_adjust import rgb_to_hsv
 from script.img_io import (
-    ImageFrame, _csc_range_params, is_limited_range, yuv_to_rgb,
+    ImageFrame, _csc_range_params, is_limited_range, rgb_to_yuv, yuv_to_rgb,
 )
 
 try:
     from ..ui_gen.io_preview_ui import Ui_PreviewUiWidget
 except ImportError:
     from ui_gen.io_preview_ui import Ui_PreviewUiWidget
+
+try:
+    from .hsv_ui_impl import format_pixel_chain
+except ImportError:
+    from ui_impl.hsv_ui_impl import format_pixel_chain
 
 
 class PreviewUiWidget(QWidget):
@@ -46,8 +50,9 @@ class PreviewUiWidget(QWidget):
         self.ui.gridLayout_info.setColumnStretch(1, 2)
         self.ui.gridLayout_info.setColumnStretch(2, 0)
         self.ui.gridLayout_info.setColumnStretch(3, 2)
+        # 第 4/5 列为空（无控件），不设拉伸，避免幽灵空列抢占右侧空间。
         self.ui.gridLayout_info.setColumnStretch(4, 0)
-        self.ui.gridLayout_info.setColumnStretch(5, 2)
+        self.ui.gridLayout_info.setColumnStretch(5, 0)
 
 
 @dataclass
@@ -70,6 +75,7 @@ class PreviewUiController(QObject):
         output_dir_getter: Callable[[], str] | None = None,
         status_callback: Callable[[str], None] | None = None,
         pixel_selection_callback: Callable[[dict | None], None] | None = None,
+        colorspace_getter: Callable[[], str] | None = None,
     ) -> None:
         """Bind to a PreviewUiWidget instance and mount it into a dock when possible."""
         super().__init__(parent_window or preview_widget)
@@ -79,6 +85,7 @@ class PreviewUiController(QObject):
         self._output_dir_getter = output_dir_getter or (lambda: os.getcwd())
         self._status_callback = status_callback or (lambda message: None)
         self._pixel_selection_callback = pixel_selection_callback or (lambda selection: None)
+        self._colorspace_getter = colorspace_getter or (lambda: "RGB(HSV)")
         self._acm_enabled: bool = True
         self._preview_mode: str = "BothInLeft"  # or "SideBySide"
 
@@ -105,7 +112,6 @@ class PreviewUiController(QObject):
         self.scene_right = QGraphicsScene(self)
         self.ui.graphicsView_left.setScene(self.scene_left)
         self.ui.graphicsView_right.setScene(self.scene_right)
-        self._relax_minimum_sizes()
 
         self.preview_dock = None
         if self._win is not None:
@@ -125,35 +131,6 @@ class PreviewUiController(QObject):
         self._connect_signals()
         self._on_preview_scale_changed(self.ui.slider_preview_scale.value())
         self._sync_preview_layout()
-
-    def _relax_minimum_sizes(self) -> None:
-        """Prefer resizing the preview canvases while keeping the info rows stable."""
-        self.widget.setMinimumSize(0, 0)
-        self.widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-
-        for widget in (
-            self.ui.graphicsView_left,
-            self.ui.graphicsView_right,
-            self.ui.groupBox_left_preview,
-            self.ui.groupBox_right_preview,
-        ):
-            widget.setMinimumSize(0, 0)
-            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-        for widget in (
-            self.ui.lineEdit_display_size,
-            self.ui.lineEdit_position,
-            self.ui.lineEdit_time_cost,
-            self.ui.lineEdit_input_pixel,
-            self.ui.lineEdit_output_pixel,
-            self.ui.radioButton_preview_bothInLeft,
-            self.ui.radioButton_preview_sideBySide,
-            self.ui.slider_preview_scale,
-            self.ui.pushButton_save_left,
-            self.ui.pushButton_save_right,
-            self.ui.checkBox_show_input,
-        ):
-            widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
     # ------------------------------------------------------------------ #
     # Public interface                                                   #
@@ -225,13 +202,6 @@ class PreviewUiController(QObject):
             self.output_qimage = self._frame_to_qimage(frame, is_input=False)
         self._sync_preview_layout()
         self._restore_frozen_pixel_readout()
-
-    def set_time_cost_ms(self, elapsed_ms: float | None) -> None:
-        """Update the displayed processing time."""
-        if elapsed_ms is None:
-            self.ui.lineEdit_time_cost.clear()
-            return
-        self.ui.lineEdit_time_cost.setText(f"{elapsed_ms:.2f} ms")
 
     def handle_key_press(self, event: QEvent) -> bool:
         """Toggle pixel-info freeze with the space key."""
@@ -539,46 +509,61 @@ class PreviewUiController(QObject):
         state = "Frozen" if self.is_pixel_info_frozen else "Live"
         self.ui.lineEdit_position.setText(f"({x_pos}, {y_pos}) [{state}]")
 
+    def set_colorspace_getter(self, getter: Callable[[], str] | None) -> None:
+        """Set the callback returning the active colorspace text ('RGB(HSV)'/'YUV(YCbCr)')."""
+        self._colorspace_getter = getter or (lambda: "RGB(HSV)")
+
+    def _is_yuv_colorspace(self) -> bool:
+        """True when the BCSH processing domain is YUV(YCbCr)."""
+        return self._colorspace_getter() == "YUV(YCbCr)"
+
+    def _input_is_rgb(self) -> bool:
+        """True when the source input frame is RGB (not YUV)."""
+        return bool(self.input_frame is None or self.input_frame.is_rgb)
+
     @staticmethod
-    def _rgb_hsv_text(r: int, g: int, b: int) -> str:
-        """Format 'RGB(r, g, b) HSV(h, s, v)' consistent with the frozen-pixel readout.
+    def _rgb_pixel_to_yuv(rv: int, gv: int, bv: int) -> tuple[int, int, int]:
+        """Derive (y, u, v) 8bit BT.709 full for one RGB pixel."""
+        r = np.array([[rv]], dtype=np.uint8)
+        g = np.array([[gv]], dtype=np.uint8)
+        b = np.array([[bv]], dtype=np.uint8)
+        y, u, v = rgb_to_yuv(r, g, b, input_cs=1, output_cs=5)
+        return int(y[0, 0]), int(u[0, 0]), int(v[0, 0])
 
-        S/V 保留 2 位小数；预览显示缓存为 8bit，HSV 以 max=255 计算。
-        """
-        h, s, v = rgb_to_hsv(np.array([int(r), int(g), int(b)], dtype=np.float32) / 255.0)
-        return f"RGB({int(r)}, {int(g)}, {int(b)}) HSV({float(h):.1f}, {float(s):.2f}, {float(v):.2f})"
+    def _fill_pixel_readout(self, line_edit, rgb_cache, yuv_cache, rgb_from_yuv,
+                            x_pos: int, y_pos: int, input_is_rgb: bool) -> None:
+        """Fill a QLineEdit with the pixel readout chain per colorspace rules.
 
-    @staticmethod
-    def _fill_pixel_readout(line_edit, rgb_cache, yuv_cache, rgb_from_yuv, x_pos, y_pos):
-        """Fill a QLineEdit with the pixel value from available caches.
-
-        实时（未冻结）显示格式与冻结像素保持一致：
-        'RGB(r, g, b) HSV(h, s, v)'（YUV 输入额外保留 YUV 前缀）。
+        实时（未冻结）显示与冻结像素共用 format_pixel_chain；显示缓存为 8bit。
         """
         if rgb_cache is not None:
-            r, g, b = rgb_cache[y_pos, x_pos]
-            line_edit.setText(PreviewUiController._rgb_hsv_text(r, g, b))
+            rv, gv, bv = (int(v) for v in rgb_cache[y_pos, x_pos])
+            yv, uv, vv = self._rgb_pixel_to_yuv(rv, gv, bv)
         elif yuv_cache is not None and rgb_from_yuv is not None:
-            yv, uv, vv = yuv_cache[y_pos, x_pos]
-            r, g, b = rgb_from_yuv[y_pos, x_pos]
-            line_edit.setText(
-                f"YUV({yv}, {uv}, {vv}) => {PreviewUiController._rgb_hsv_text(r, g, b)}")
+            yv, uv, vv = (int(v) for v in yuv_cache[y_pos, x_pos])
+            rv, gv, bv = (int(v) for v in rgb_from_yuv[y_pos, x_pos])
         else:
             line_edit.clear()
+            return
+        line_edit.setText(format_pixel_chain(
+            colorspace_is_rgb=not self._is_yuv_colorspace(),
+            input_is_rgb=input_is_rgb,
+            rv=rv, gv=gv, bv=bv, yv=yv, uv=uv, vv=vv, depth=8))
 
     def _restore_frozen_pixel_readout(self) -> None:
         """Re-fill pixel readout fields from current caches after a frame update."""
         if not self.is_pixel_info_frozen or self._last_pixel_selection is None:
             return
         x, y = self._last_pixel_selection.x_pos, self._last_pixel_selection.y_pos
+        input_is_rgb = self._input_is_rgb()
         self._fill_pixel_readout(
             self.ui.lineEdit_input_pixel,
             self.input_cache_rgb444, self.input_cache_yuv444, self.input_rgb_from_yuv,
-            x, y)
+            x, y, input_is_rgb)
         self._fill_pixel_readout(
             self.ui.lineEdit_output_pixel,
             self.output_cache_rgb444, self.output_cache_yuv444, self.output_rgb_from_yuv,
-            x, y)
+            x, y, input_is_rgb)
 
     def _handle_view_leave(self) -> None:
         """Clear live pixel text when the cursor leaves a preview viewport."""
@@ -630,14 +615,15 @@ class PreviewUiController(QObject):
         )
 
         # Always fill both input and output pixel readouts.
+        input_is_rgb = self._input_is_rgb()
         self._fill_pixel_readout(
             self.ui.lineEdit_input_pixel,
             self.input_cache_rgb444, self.input_cache_yuv444, self.input_rgb_from_yuv,
-            x_pos, y_pos)
+            x_pos, y_pos, input_is_rgb)
         self._fill_pixel_readout(
             self.ui.lineEdit_output_pixel,
             self.output_cache_rgb444, self.output_cache_yuv444, self.output_rgb_from_yuv,
-            x_pos, y_pos)
+            x_pos, y_pos, input_is_rgb)
 
     def _on_mouse_move_right(self, pos) -> None:
         """Right preview pixel readout."""
@@ -655,14 +641,15 @@ class PreviewUiController(QObject):
             display_role="output",
         )
         # Always fill both input and output pixel readouts with the shared format.
+        input_is_rgb = self._input_is_rgb()
         self._fill_pixel_readout(
             self.ui.lineEdit_output_pixel,
             self.output_cache_rgb444, self.output_cache_yuv444, self.output_rgb_from_yuv,
-            x_pos, y_pos)
+            x_pos, y_pos, input_is_rgb)
         self._fill_pixel_readout(
             self.ui.lineEdit_input_pixel,
             self.input_cache_rgb444, self.input_cache_yuv444, self.input_rgb_from_yuv,
-            x_pos, y_pos)
+            x_pos, y_pos, input_is_rgb)
 
     def eventFilter(self, obj: object, event: QEvent) -> bool:
         if event.type() == QEvent.MouseMove:

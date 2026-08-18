@@ -96,8 +96,6 @@ class AcmTestAppWindow(QMainWindow):
             parent_window=self,
             status_callback=self.ui.statusbar.showMessage,
         )
-        # self.preview_widget.ui.label_time_cost.setVisible(False)
-        # self.preview_widget.ui.lineEdit_time_cost.setVisible(False)
         self.io_ctrl = IoUiController(
             self.io_widget,
             parent_window=self,
@@ -112,7 +110,6 @@ class AcmTestAppWindow(QMainWindow):
             parent_window=self,
             input_provider=lambda: self.preview_ctrl.input_frame,
             output_callback=self.preview_ctrl.set_output_image,
-            preview_time_callback=self.preview_ctrl.set_time_cost_ms,
             status_callback=self.ui.statusbar.showMessage,
             config_path_getter=self.io_ctrl.get_config_path,
             config_path_setter=self.io_ctrl.set_config_path,
@@ -177,7 +174,6 @@ class AcmTestAppWindow(QMainWindow):
         """Forward loaded input data to the preview and ACM controllers."""
         self.preview_ctrl.set_input_image(frame)
         self.preview_ctrl.set_output_image(None)
-        self.preview_ctrl.set_time_cost_ms(None)
         self.acm_ctrl.clear_preview_h_marker()
         self.ui.statusbar.showMessage(status_message)
         self.acm_ctrl.request_auto_run()

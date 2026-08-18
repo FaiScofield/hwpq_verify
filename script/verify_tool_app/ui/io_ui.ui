@@ -112,7 +112,7 @@
         <string>输入图像文件路径</string>
        </property>
        <property name="text">
-        <string>G:/Project/pq/inputs/512x428_test_image_many_pattern_nv24.yuv</string>
+        <string>C:/Users/wfyash/Desktop/Simplify WXGA_Pattern_png/Image17_HSV_v128.png</string>
        </property>
       </widget>
      </item>
