@@ -2,8 +2,11 @@
 HSV tab controller — encapsulates all HSV-related UI behavior and state.
 
 调整语义（对应 script/bcsh/hsv_adjust.py）：
-  V：Contrast 乘性 + delta_v（加性/乘性由 comboBox_modeV 选择），增益参考点由
-     comboBox_modeC 选择：GainAtMid v=0.5 中点）/ GainAtZero（过 v=0 原点）/ GainAtBoth
+  V：Contrast 乘性 + delta_v（加性/乘性/保底乘性由 comboBox_modeV 选择），
+     增益参考点由 comboBox_modeC 选择：GainAtMid（v=0.5 中点）/ GainAtZero
+     （过 v=0 原点）/ GainAtBoth（按 gc<1 或 >1 自动选择）
+     modeV: ModeAdd 加性偏移 / ModeMul 乘性增益 / ModeMulKeepMin 调小时保底
+     旧 RGB 最小通道 m（v'=m+(v-m)*gv 线性缩小，永不小于 m，S 不变）
   S：comboBox_modeS 切换加性/乘性   s'=clip(s+ds) 或 s'=clip(s*ds)
   H：始终加性（comboBox_modeH 预留，当前 UI 置灰禁用；或 Same Hue Goal 向指定
      色调旋转）
@@ -90,7 +93,7 @@ class HsvUiController:
         self._last_input_rgb = None
         self._last_output_rgb = None
         self._s_mode = True           # False=add, True=mul（S 通道模式，.ui 默认 Mul）
-        self._v_mode = False          # False=add, True=mul（V 通道模式，.ui 默认 Add）
+        self._v_mode = 'add'          # 'add'/'mul'/'mulKeepMin'（V 通道模式，.ui 默认 Add）
         self._work_size: tuple[int, int] | None = None   # 最近一次预览处理的分辨率
 
         # --- Auto-run debounce timer ---
@@ -104,9 +107,9 @@ class HsvUiController:
     def _init_state(self) -> None:
         """Perform initial state sync after all widgets are ready."""
         # .ui 默认 S=Multiplicative、V=Additive：同步各通道模式内部状态并
-        # 应用其控件范围/中性值（索引 1 == ModeMul）。
+        # 应用其控件范围/中性值。
         self._s_mode = self.ui.comboBox_modeS.currentIndex() == 1
-        self._v_mode = self.ui.comboBox_modeV.currentIndex() == 1
+        self._v_mode = self._v_mode_code()
         self._apply_s_mode_ui(self._s_mode)
         self._apply_v_mode_ui(self._v_mode)
         self._update_hue_limits()
@@ -215,9 +218,19 @@ class HsvUiController:
             self.ui.spinBox_deltaS.setSingleStep(0.01)
             self.ui.slider_deltaS.setRange(-100, 100)
 
-    def _apply_v_mode_ui(self, is_mul: bool) -> None:
-        """Set spin/slider ranges for the V mode (no value remap)."""
-        if is_mul:
+    def _v_mode_code(self) -> str:
+        """Map comboBox_modeV text to adjust_hsv mode_v code."""
+        text = self.ui.comboBox_modeV.currentText()
+        return {'ModeAdd': 'add',
+                'ModeMul': 'mul',
+                'ModeMulKeepMin': 'mulKeepMin'}.get(text, 'add')
+
+    def _apply_v_mode_ui(self, mode: str) -> None:
+        """Set spin/slider ranges for the V mode (no value remap).
+
+        加性模式量程 [-1, 1]；乘性类模式（mul / mulKeepMin）量程 [0, 4]。
+        """
+        if mode in ('mul', 'mulKeepMin'):
             self.ui.spinBox_deltaV.setRange(0.0, 4.0)
             self.ui.spinBox_deltaV.setSingleStep(0.02)
             self.ui.slider_deltaV.setRange(0, 400)
@@ -227,21 +240,21 @@ class HsvUiController:
             self.ui.slider_deltaV.setRange(-100, 100)
 
     def _on_v_mode_changed(self, *_args) -> None:
-        """Switch the V delta between additive offset and multiplicative gain.
+        """Switch the V delta between additive / multiplicative / keep-min modes.
 
         The deltaV spin/slider range and its neutral value change with the mode
-        (add: 0.0 offset in [-1, 1], mul: 1.0 gain in [0, 4]).  Initial state
-        and redundant signals are no-ops.
+        (add: 0.0 offset in [-1, 1]; mul / mulKeepMin: 1.0 gain in [0, 4]).
+        Initial state and redundant signals are no-ops.
         """
         del _args
-        is_mul = self.ui.comboBox_modeV.currentIndex() == 1
-        if is_mul == self._v_mode:
+        code = self._v_mode_code()
+        if code == self._v_mode:
             return
-        neutral = 1.0 if is_mul else 0.0
-        self._apply_v_mode_ui(is_mul)
+        neutral = 1.0 if code in ('mul', 'mulKeepMin') else 0.0
+        self._apply_v_mode_ui(code)
         self._set_spin_value(self.ui.spinBox_deltaV, neutral)
         self._set_slider_value(self.ui.slider_deltaV, int(round(neutral * 100)))
-        self._v_mode = is_mul
+        self._v_mode = code
         self._schedule_auto_run()
 
     def _on_s_mode_changed(self, *_args) -> None:
@@ -278,8 +291,8 @@ class HsvUiController:
         self._reset_mapped(self.ui.slider_gainC, self.ui.spinBox_gainC, 1.0, 100.0)
 
     def _on_reset_v(self) -> None:
-        """Reset the V value to its mode neutral (0.0 add / 1.0 mul)."""
-        neutral = 1.0 if self.ui.comboBox_modeV.currentIndex() == 1 else 0.0
+        """Reset the V value to its mode neutral (0.0 add / 1.0 mul / mulKeepMin)."""
+        neutral = 1.0 if self._v_mode_code() in ('mul', 'mulKeepMin') else 0.0
         self._reset_mapped(self.ui.slider_deltaV, self.ui.spinBox_deltaV, neutral, 100.0)
 
     def _on_reset_s(self) -> None:
@@ -507,7 +520,7 @@ class HsvUiController:
         ds = float(self.ui.spinBox_deltaS.value())
         dh_deg = float(self.ui.spinBox_deltaH.value())
         mode = 'mul' if self.ui.comboBox_modeS.currentIndex() == 1 else 'add'
-        mode_v = 'mul' if self.ui.comboBox_modeV.currentIndex() == 1 else 'add'
+        mode_v = self._v_mode_code()
         # S Tolerance：控件已是归一化浮点 [0, 0.1]，直接传给 adjust_hsv。
         tolerance_s = float(self.ui.spinBox_toleranceS.value())
         adj_hsv = adjust_hsv(hsv, delta_v=dv, delta_s=ds, delta_h=dh_deg / 360.0,
