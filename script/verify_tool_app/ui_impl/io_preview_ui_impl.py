@@ -11,6 +11,7 @@ from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QColor, QImage, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDockWidget,
+    QFileDialog,
     QGraphicsPathItem,
     QGraphicsScene,
     QMainWindow,
@@ -666,23 +667,71 @@ class PreviewUiController(QObject):
     # Save actions                                                       #
     # ------------------------------------------------------------------ #
 
+    def _ask_save_target(self, default_name: str, frame: ImageFrame | None):
+        """Open a save dialog; return (base_path, chosen_ext) or None.
+
+        默认后缀按帧格式决定：YUV 系列为 .yuv、RGB 系列为 .rgb。
+        chosen_ext 为用户选择的扩展名（小写）：.yuv/.rgb/.png/.jpg/.bmp，
+        未输入扩展名时为 ""。base_path 为去掉扩展名后的路径。
+        取消时返回 None。
+        """
+        raw_ext = ".yuv" if (frame is not None and frame.is_yuv) else ".rgb"
+        output_dir = self._output_dir_getter() or os.getcwd()
+        os.makedirs(output_dir, exist_ok=True)
+        suggested = os.path.join(output_dir, f"{default_name}{raw_ext}")
+        path, _ = QFileDialog.getSaveFileName(
+            self._win, "Save Image", suggested,
+            "Raw (*.yuv *.rgb);;PNG (*.png);;JPEG (*.jpg);;BMP (*.bmp);;All files (*)")
+        if not path:
+            return None
+        lower = path.lower()
+        chosen = ""
+        for ext in (".yuv", ".rgb", ".png", ".jpg", ".jpeg", ".bmp"):
+            if lower.endswith(ext):
+                chosen = ".jpg" if ext == ".jpeg" else ext
+                path = path[:-len(ext)]
+                break
+        return path, chosen
+
     def _save_assets(
-        self, frame: ImageFrame | None, qimage: QImage | None, base_name: str,
-        apply_output_f2l: bool = False,
+        self, frame: ImageFrame | None, qimage: QImage | None, base_path: str,
+        chosen_ext: str = "", apply_output_f2l: bool = False,
     ) -> None:
-        """Save a frame as raw data plus an optional PNG preview.
+        """Save a frame as raw data or as an image.
+
+        ``base_path``: full output path without extension.
+        ``chosen_ext``: 用户选择的扩展名（小写）。为 .png/.jpg/.bmp 时仅保存
+        显示图像到 ``<base_path><chosen_ext>``；为 .yuv/.rgb 或未输扩展名时
+        按帧格式保存 raw 数据到 ``<base_path>_0x{fmt}<raw_ext>``
+        （YUV 系列 .yuv / RGB 系列 .rgb），不再附带 PNG 预览。
 
         ``apply_output_f2l``: when True the frame carries full-range RGB data
         (HSV pipeline output) while its target colorspace is limited — the raw
         data is converted full->limited before writing so the saved file
-        matches the colorspace.  PNG preview always uses the display image.
+        matches the colorspace.
         """
         if frame is None:
             QMessageBox.warning(None, "Warning", "No image data to save")
             return
-        output_dir = self._output_dir_getter() or os.getcwd()
-        os.makedirs(output_dir, exist_ok=True)
-        raw_path = os.path.join(output_dir, f"{base_name}_0x{frame.fmt:x}.yuv")
+        out_dir = os.path.dirname(base_path) or os.getcwd()
+        os.makedirs(out_dir, exist_ok=True)
+
+        # 仅保存图像（png/jpg/bmp）：用显示图，不做 raw 导出。
+        if chosen_ext in (".png", ".jpg", ".bmp"):
+            if qimage is None:
+                QMessageBox.warning(None, "Warning", "No image data to save")
+                return
+            img_path = f"{base_path}{chosen_ext}"
+            if not qimage.save(img_path):
+                QMessageBox.warning(None, "Warning", f"Failed to save image: {img_path}")
+                self._status_callback(f"Save failed: {img_path}")
+                return
+            self._status_callback(f"Saved: {img_path}")
+            return
+
+        # raw 导出：后缀按帧格式（YUV=.yuv / RGB=.rgb），不附带 PNG 预览。
+        raw_ext = ".yuv" if frame.is_yuv else ".rgb"
+        raw_path = f"{base_path}_0x{frame.fmt:x}{raw_ext}"
         frame = frame.copy()
         if apply_output_f2l and frame.is_rgb and is_limited_range(frame.clrspc):
             # full -> limited RGB（8bit [16,235] / 10bit [64,940]）。
@@ -698,14 +747,6 @@ class PreviewUiController(QObject):
                         0, max_val).astype(frame.pvb.dtype)
             frame = ImageFrame(r, g, b, frame.fmt, frame.clrspc)
         frame.to_file(raw_path)
-        if qimage is not None:
-            png_path = os.path.join(output_dir, f"{base_name}.png")
-            if not qimage.save(png_path):
-                QMessageBox.warning(None, "Warning", f"Failed to save image: {png_path}")
-                self._status_callback(f"Save failed: {png_path}")
-                return
-            self._status_callback(f"Saved: {raw_path}, {png_path}")
-            return
         self._status_callback(f"Saved: {raw_path}")
 
     def _get_output_for_save(self) -> ImageFrame | None:
@@ -721,13 +762,13 @@ class PreviewUiController(QObject):
                 return full
         return self.output_frame
 
-    def _save_output_image(self, base_name: str) -> None:
-        """Save the output as raw + PNG at full resolution when possible."""
+    def _save_output_image(self, base_path: str, chosen_ext: str = "") -> None:
+        """Save the output as raw (or image-only) at full resolution when possible."""
         frame = self._get_output_for_save()
         qimage = self.output_qimage
         if frame is not None and frame is not self.output_frame:
             qimage = self._frame_to_qimage(frame, is_input=False)
-        self._save_assets(frame, qimage, base_name, apply_output_f2l=True)
+        self._save_assets(frame, qimage, base_path, chosen_ext, apply_output_f2l=True)
 
     def _on_save_left_image(self) -> None:
         mode = self._preview_mode
@@ -735,9 +776,15 @@ class PreviewUiController(QObject):
             show_input = bool(getattr(self.ui, "checkBox_show_input", None)
                               and self.ui.checkBox_show_input.isChecked())
             if not show_input:
-                self._save_output_image("acm_output")
+                target = self._ask_save_target("output_img", self._get_output_for_save())
+                if target is not None:
+                    self._save_output_image(*target)
                 return
-        self._save_assets(self.input_frame, self.input_qimage, "acm_input")
+        target = self._ask_save_target("input_img", self.input_frame)
+        if target is not None:
+            self._save_assets(self.input_frame, self.input_qimage, *target)
 
     def _on_save_right_image(self) -> None:
-        self._save_output_image("acm_output")
+        target = self._ask_save_target("output_img", self._get_output_for_save())
+        if target is not None:
+            self._save_output_image(*target)
