@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>825</width>
+    <width>865</width>
     <height>276</height>
    </rect>
   </property>
@@ -532,6 +532,8 @@
  <tabstops>
   <tabstop>radioButton_useTestPattern</tabstop>
   <tabstop>comboBox_useTestPattern</tabstop>
+  <tabstop>spinBox_valueV</tabstop>
+  <tabstop>spinBox_valueH</tabstop>
   <tabstop>radioButton_useSecColor</tabstop>
   <tabstop>lineEdit_setColor</tabstop>
   <tabstop>radioButton_useInputFile</tabstop>

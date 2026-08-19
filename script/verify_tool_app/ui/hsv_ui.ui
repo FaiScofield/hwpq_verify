@@ -806,7 +806,7 @@
  </widget>
  <tabstops>
   <tabstop>checkBox_enableHsvAdj</tabstop>
-  <tabstop>comboBox</tabstop>
+  <tabstop>comboBox_colorspace</tabstop>
   <tabstop>spinBox_toleranceS</tabstop>
   <tabstop>comboBox_modeC</tabstop>
   <tabstop>slider_gainC</tabstop>
@@ -824,6 +824,8 @@
   <tabstop>slider_deltaH</tabstop>
   <tabstop>spinBox_deltaH</tabstop>
   <tabstop>pushButton_resetH</tabstop>
+  <tabstop>slider_sameHueGoal</tabstop>
+  <tabstop>spinBox_sameHueGoal</tabstop>
   <tabstop>groupBox_setHueRange</tabstop>
   <tabstop>spinBox_hueStart</tabstop>
   <tabstop>spinBox_hueEnd</tabstop>
