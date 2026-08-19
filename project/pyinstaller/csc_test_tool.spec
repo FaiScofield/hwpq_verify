@@ -1,11 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+
+# 仓库根目录由 spec 文件自身位置（SPECPATH）推导，全部路径用相对仓库的
+# 相对路径拼接，不依赖执行 pyinstaller 时的当前工作目录，可跨机器构建。
+_SPEC_DIR = os.path.abspath(SPECPATH)
+_REPO_ROOT = os.path.abspath(os.path.join(_SPEC_DIR, '..', '..'))
+_APP_MAIN = os.path.join(_REPO_ROOT, 'script', 'csc', 'run_csc_ui.py')
+_FONT = os.path.join(_REPO_ROOT, 'data', 'fonts', 'NotoSans-Regular.ttf')
+
 
 a = Analysis(
-    ['G:\\Codes\\gerrit_projects\\hwpq_verify\\script\\csc\\run_csc_ui.py'],
+    [_APP_MAIN],
     pathex=[],
     binaries=[],
-    datas=[('G:\\Codes\\gerrit_projects\\hwpq_verify\\data\\fonts\\NotoSans-Regular.ttf', 'assets/fonts')],
+    datas=[(_FONT, 'assets/fonts')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

@@ -6,15 +6,27 @@
 #   pyinstaller --noconfirm --distpath output/pyinstaller/dist --workpath output/pyinstaller/build project/pyinstaller/test_app_hsv.spec
 # Output: output/pyinstaller/dist/test_app_hsv/test_app_hsv.exe (onedir)
 
+import os
+
+# 仓库根目录由 spec 文件自身位置（SPECPATH）推导，全部路径用相对仓库的
+# 相对路径拼接，不依赖执行 pyinstaller 时的当前工作目录，可跨机器构建。
+_SPEC_DIR = os.path.abspath(SPECPATH)
+_REPO_ROOT = os.path.abspath(os.path.join(_SPEC_DIR, '..', '..'))
+_APP_MAIN = os.path.join(_REPO_ROOT, 'script', 'verify_tool_app', 'test_app_hsv.py')
+
+# script/csc 必须加入 pathex：run_csc.py 用 sys.path.insert + 平级导入
+# （from get_csc_coef_hsv import ...），PyInstaller 分析时不执行该插入，
+# 需显式提供搜索路径才能收集 get_csc_coefs / get_csc_coef_hsv。
+_PATHEX = [
+    os.path.join(_REPO_ROOT, 'script', 'verify_tool_app'),
+    os.path.join(_REPO_ROOT, 'script', 'csc'),
+    _REPO_ROOT,
+]
+
 
 a = Analysis(
-    ['G:\\Codes\\gerrit_projects\\hwpq_verify\\script\\verify_tool_app\\test_app_hsv.py'],
-    # script/csc 必须加入 pathex：run_csc.py 用 sys.path.insert + 平级导入
-    # （from get_csc_coef_hsv import ...），PyInstaller 分析时不执行该插入，
-    # 需显式提供搜索路径才能收集 get_csc_coefs / get_csc_coef_hsv。
-    pathex=['G:\\Codes\\gerrit_projects\\hwpq_verify\\script\\verify_tool_app',
-            'G:\\Codes\\gerrit_projects\\hwpq_verify\\script\\csc',
-            'G:\\Codes\\gerrit_projects\\hwpq_verify'],
+    [_APP_MAIN],
+    pathex=_PATHEX,
     binaries=[],
     datas=[],
     hiddenimports=[],
