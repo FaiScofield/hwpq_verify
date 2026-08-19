@@ -133,7 +133,8 @@ Rockchip Electronics Co., Ltd.
   - `ModeMul`（默认）：按倍数缩放饱和度，取值范围: `[0.0, 4.0]`，默认为 `1.0`
 - **Hue（H）**：色调调整，默认为 `0°`；由`H Mode` 决定生效方式：
   - `SameOffset`（默认）：所有像素都统一旋转相同的色相角度，取值范围 `[-180°, 180°]`
-  - `SameTarget`：所有像素都统一向一个目标角度旋转，此时`H`的含义变成旋转进度，取值范围 `[0, 100]`（0=不旋转，100=完全旋转到目标色相）
+  - `SameTarget`：所有像素都统一向一个目标角度旋转，此时`H`的含义变成旋转的进度百分比，取值范围 `[0, 100]`（0=不旋转，100=完全旋转到目标色相）
+- 以上4个参数的参数取值范围可以通过可执行程序同级目录下的`test_app_hsv_params.json`配置文件进行修改
 
 ### 4.4 指定色调调整
 
@@ -142,7 +143,6 @@ Rockchip Electronics Co., Ltd.
 - **Target Hue Range**：目标色调起止角（0-360，默认 330°~30°，支持跨 0° 环绕）
 - **Target Hue Tail**：目标范围边缘向内做平滑过渡（0~hr/2，hr 为目标范围跨度），避免边界生硬
 - **Target Hue Pad**：向外扩展实际处理范围（0~hr/2），扩展部分同样平滑过渡
-- **Same Hue Goal**：勾选后色调统一向某个目标颜色变化（`目标色调角` 0-360），适合统一某类物体的颜色
 
 ## 5. Preview 预览
 
@@ -151,7 +151,7 @@ Rockchip Electronics Co., Ltd.
   - `SideBySide`：左右并排，左=输入、右=输出（`Show Right Input` 复选框当前禁用，右预览固定显示输出）
 - **Preview Scale**（10%-100%，默认 50%）：预览缩放。调参时可调低提高响应速度，保存时按原始分辨率输出
 - `Show Left Input` / `Show Right Input`：控制对应预览显示输入还是结果
-- `Save Left Image` / `Save Right Image`：保存当前预览帧（.yuv + .png）到 `Output Dir`
+- `Save Left Image` / `Save Right Image`：保存当前预览帧图像默认到 `Output Dir`
 - 信息行：`Display Size`（显示尺寸）、`Position`（鼠标位置）、`Input Pixel` / `Output Pixel`（输入/输出像素读数）
 
 ### 像素冻结

@@ -78,7 +78,7 @@
         <string>Use Test Pattern</string>
        </property>
        <attribute name="buttonGroup">
-        <string notr="true">buttonGroup</string>
+        <string notr="true">buttonGroup_inputType</string>
        </attribute>
       </widget>
      </item>
@@ -135,7 +135,7 @@
         <bool>true</bool>
        </property>
        <attribute name="buttonGroup">
-        <string notr="true">buttonGroup</string>
+        <string notr="true">buttonGroup_inputType</string>
        </attribute>
       </widget>
      </item>
@@ -158,7 +158,7 @@
         <string>Use Specified Color</string>
        </property>
        <attribute name="buttonGroup">
-        <string notr="true">buttonGroup</string>
+        <string notr="true">buttonGroup_inputType</string>
        </attribute>
       </widget>
      </item>
@@ -338,6 +338,12 @@
      </item>
      <item row="1" column="1">
       <widget class="QComboBox" name="comboBox_input_format">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
        <property name="toolTip">
         <string>输入图像格式</string>
        </property>
@@ -345,6 +351,12 @@
      </item>
      <item row="1" column="5">
       <widget class="QComboBox" name="comboBox_output_format">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
        <property name="toolTip">
         <string>输出帧格式</string>
        </property>
@@ -433,6 +445,12 @@
      </item>
      <item row="1" column="3">
       <widget class="QComboBox" name="comboBox_input_colorspace">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
        <property name="toolTip">
         <string>输入色彩空间</string>
        </property>
@@ -441,7 +459,7 @@
      <item row="1" column="7">
       <widget class="QComboBox" name="comboBox_output_colorspace">
        <property name="sizePolicy">
-        <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+        <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
          <horstretch>0</horstretch>
          <verstretch>0</verstretch>
         </sizepolicy>
@@ -560,6 +578,6 @@
  <resources/>
  <connections/>
  <buttongroups>
-  <buttongroup name="buttonGroup"/>
+  <buttongroup name="buttonGroup_inputType"/>
  </buttongroups>
 </ui>
