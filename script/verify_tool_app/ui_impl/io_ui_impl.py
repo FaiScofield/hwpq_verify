@@ -187,13 +187,13 @@ class IoUiController:
 
     def _init_ui(self) -> None:
         """Populate format/colorspace combo boxes with default selections."""
-        fmt_display = [f"0x{fmt:x} - {FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_OPTIONS]
+        fmt_display = [f"0x{fmt:x}-{FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_OPTIONS]
         self.ui.comboBox_input_format.addItems(fmt_display)
         self.ui.comboBox_output_format.addItems(fmt_display)
 
-        clrspc_display = [f"{clr} - {CLRSPC_NAMES[clr]}" for clr in CLRSPC_OPTIONS]
-        clrspc_rgb = [item for item in clrspc_display if int(item.split(" ")[0]) in (0, 1)]
-        clrspc_yuv = [item for item in clrspc_display if int(item.split(" ")[0]) in range(2, 8)]
+        clrspc_display = [f"{clr}-{CLRSPC_NAMES[clr]}" for clr in CLRSPC_OPTIONS]
+        clrspc_rgb = [item for item in clrspc_display if int(item.split("-")[0]) in (0, 1)]
+        clrspc_yuv = [item for item in clrspc_display if int(item.split("-")[0]) in range(2, 8)]
         self.ui.comboBox_input_colorspace.addItems(clrspc_rgb)
         self.ui.comboBox_output_colorspace.addItems(clrspc_rgb)
 
@@ -221,7 +221,7 @@ class IoUiController:
         # switches between the RGB and YUV domains).
         self._last_clrspc_rgb = 0
         clr_str = self.ui.comboBox_input_colorspace.currentText()
-        self._last_clrspc_yuv = int(clr_str.split(" ")[0]) if clr_str else 5
+        self._last_clrspc_yuv = int(clr_str.split("-")[0]) if clr_str else 5
 
     def _connect_signals(self) -> None:
         """Wire I/O widget signals to internal handlers."""
@@ -253,12 +253,12 @@ class IoUiController:
     def get_input_fmt_code(self) -> int:
         """Return the currently selected input format integer code."""
         fmt_str = self.ui.comboBox_input_format.currentText()
-        return int(fmt_str.split(" ")[0], 16) if fmt_str else 0
+        return int(fmt_str.split("-")[0], 16) if fmt_str else 0
 
     def get_input_clrspc(self) -> int:
         """Return the currently selected input colorspace integer code."""
         clr_str = self.ui.comboBox_input_colorspace.currentText()
-        return int(clr_str.split(" ")[0]) if clr_str else 0
+        return int(clr_str.split("-")[0]) if clr_str else 0
 
     # ------------------------------------------------------------------ #
     # Signal handlers                                                    #
@@ -317,17 +317,17 @@ class IoUiController:
         fmt_str = self.ui.comboBox_input_format.currentText()
         if not fmt_str:
             return
-        fmt_code = int(fmt_str.split(" ")[0], 16)
+        fmt_code = int(fmt_str.split("-")[0], 16)
         clrspc_display = [f"{clr} - {CLRSPC_NAMES[clr]}" for clr in CLRSPC_OPTIONS]
         is_rgb = (fmt_code & 0xF) <= 0x2
         if is_rgb:
-            options = [item for item in clrspc_display if int(item.split(" ")[0]) in (0, 1)]
+            options = [item for item in clrspc_display if int(item.split("-")[0]) in (0, 1)]
         else:
-            options = [item for item in clrspc_display if int(item.split(" ")[0]) in range(2, 8)]
+            options = [item for item in clrspc_display if int(item.split("-")[0]) in range(2, 8)]
         # Remember the current domain selection before rebuilding the list.
         current_text = self.ui.comboBox_input_colorspace.currentText()
         if current_text:
-            cur_clr = int(current_text.split(" ")[0])
+            cur_clr = int(current_text.split("-")[0])
             if cur_clr in (0, 1):
                 self._last_clrspc_rgb = cur_clr
             else:
@@ -380,7 +380,7 @@ class IoUiController:
         """
         is_file = self.ui.radioButton_useInputFile.isChecked()
         fmt_str = self.ui.comboBox_input_format.currentText()
-        fmt_code = int(fmt_str.split(" ")[0], 16) if fmt_str else 0
+        fmt_code = int(fmt_str.split("-")[0], 16) if fmt_str else 0
         is_rgb = is_rgb_format(fmt_code)
 
         if not is_file:
@@ -557,7 +557,7 @@ class IoUiController:
         handler (which reloads the input) never runs with stale width/height.
         """
         basename = os.path.basename(filepath).lower()
-        ext = os.path.splitext(basename)[1]
+        ext = os.path.splitext(basename)[-1]
 
         # --- Resolution first ---
         if ext in STB_IMAGE_EXTENSIONS:
@@ -574,7 +574,7 @@ class IoUiController:
             self.ui.spinBox_height.setValue(int(match.group(2)))
 
         # --- Format after ---
-        fmt_display = [f"0x{fmt:x} - {FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_OPTIONS]
+        fmt_display = [f"0x{fmt:x}-{FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_OPTIONS]
         if ext in STB_IMAGE_EXTENSIONS:
             fmt_code = 0x0
         elif ext == ".yuv":
@@ -590,7 +590,7 @@ class IoUiController:
                     if f"_{token}" in basename),
                 0x0,   # default RGB888 when no token matches
             )
-        elif ext == ".bin":
+        else:
             # raw .bin：先匹配 YUV token，再匹配 RGB token，默认 RGB888(0x0)。
             fmt_code = next(
                 (code for token, code in _YUV_SUFFIX_FMT.items()
@@ -601,10 +601,9 @@ class IoUiController:
                     0x0,
                 ),
             )
-        else:
-            return
+
         fmt_item = next(
-            (item for item in fmt_display if item.startswith(f"0x{fmt_code:x} ")), None)
+            (item for item in fmt_display if item.startswith(f"0x{fmt_code:x}")), None)
         if fmt_item:
             self.ui.comboBox_input_format.setCurrentText(fmt_item)
 
@@ -623,7 +622,7 @@ class IoUiController:
         fmt_str = self.ui.comboBox_input_format.currentText()
         if not fmt_str:
             return
-        fmt_code = int(fmt_str.split(" ")[0], 16)
+        fmt_code = int(fmt_str.split("-")[0], 16)
         width = self.ui.spinBox_width.value()
         height = self.ui.spinBox_height.value()
         frame_size = get_frame_size(width, height, fmt_code)
@@ -676,7 +675,7 @@ class IoUiController:
         fmt_str = self.ui.comboBox_input_format.currentText()
         if not fmt_str:
             return
-        fmt_code = int(fmt_str.split(" ")[0], 16)
+        fmt_code = int(fmt_str.split("-")[0], 16)
         clrspc = self.get_input_clrspc()
         depth = get_pixel_depth(fmt_code)
         limited = is_limited_range(clrspc)
@@ -774,7 +773,7 @@ class IoUiController:
         fmt_str = self.ui.comboBox_input_format.currentText()
         if not fmt_str:
             return
-        fmt_code = int(fmt_str.split(" ")[0], 16)
+        fmt_code = int(fmt_str.split("-")[0], 16)
         width = self.ui.spinBox_width.value()
         height = self.ui.spinBox_height.value()
         frame_idx = self.ui.spinBox_frame_idx.value()
