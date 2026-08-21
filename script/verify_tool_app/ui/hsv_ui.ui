@@ -68,6 +68,16 @@
        </item>
        <item>
         <property name="text">
+         <string>Lch</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>RGB</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
          <string>YCbCr</string>
         </property>
        </item>
@@ -203,7 +213,7 @@
            <string>对比度增益参考点：MidPoint 过 v=0.5 中点 / ZeroPoint 过 v=0 原点 / Both 按 gc&lt;1 或 &gt;1 自动选择</string>
           </property>
           <property name="currentIndex">
-           <number>1</number>
+           <number>0</number>
           </property>
           <item>
            <property name="text">
@@ -218,6 +228,11 @@
           <item>
            <property name="text">
             <string>GainAtBoth</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>TanSlant</string>
            </property>
           </item>
          </widget>
@@ -298,6 +313,11 @@
           <item>
            <property name="text">
             <string>ModeMul</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>NegMulPosRat</string>
            </property>
           </item>
          </widget>

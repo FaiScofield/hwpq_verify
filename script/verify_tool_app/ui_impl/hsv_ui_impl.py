@@ -4,16 +4,21 @@ HSV tab controller — encapsulates all HSV-related UI behavior and state.
 调整语义（对应 script/bcsh/hsv_adjust.py）：
   V：Contrast 乘性 + delta_v（加性/乘性由 comboBox_modeV 选择），
      增益参考点由 comboBox_modeC 选择：GainAtMid（v=0.5 中点）/ GainAtZero
-     （过 v=0 原点）/ GainAtBoth（按 gc<1 或 >1 自动选择）
-     modeV: ModeAdd 加性偏移 / ModeMul 乘性增益
-  S：comboBox_modeS 切换加性/乘性   s'=clip(s+ds) 或 s'=clip(s*ds)
+     （过 v=0 原点）/ GainAtBoth（按 gc<1 或 >1 自动选择）/ TanSlant
+     （c∈[-1,1]，增益=tan((c+1)π/4)）
+     modeV: ModeAdd 加性偏移 / ModeMul 乘性增益 / NegMulPosRat（δV∈[-1,1]：
+     负值乘性压缩、正值按进度向白靠拢，极值纯黑/纯白）
+  S：comboBox_modeS 切换加性/乘性   s'=clip(s+ds) 或 s'=clip(s*ds)；
+     RGB 域禁用 ModeS，恒为 scale 灰阶混合 out=scale*in+(1-scale)*gray(in)
   H：comboBox_modeH 选择——SameOffset 恒为加性偏移（默认）；SameTarget 向指定
-     目标色调旋转（激活 Same Hue Goal 行控件）
+     目标色调旋转（激活 Same Hue Goal 行控件）；RGB 域为绕灰色轴 (1,1,1) 旋转
 指定色调（groupBox_setHueRange 勾选）：仅色调落在 [hs, he] 附近的像素被处理，
 通过 Tail（向内）/ Pad（向外）的 alpha blending 过渡。
 
-comboBox_adjustField 选择处理域（4 选项）：
-  HSV/HSI/HSL（RGB 系）：full-range RGB <-> HSV/HSI/HSL 域，域内 BCSH 调整。
+comboBox_adjustField 选择处理域（6 选项）：
+  HSV/HSI/HSL/Lch/RGB（RGB 系）：full-range RGB <-> 对应域，域内 BCSH 调整。
+     Lch 为 sRGB D65 -> CIELAB 柱坐标，s=C/Cmax 归一化、l=L/100 归一化。
+     RGB 为直接 RGB 域处理：C/V 三通道一致、S 灰阶混合、H 灰色轴旋转。
   YCbCr（YUV 系）：处理域为 yuv444p full-range，uv 去中心 0.5 得 YCbCr；
      Y 通道调 B/C，Cb(x)/Cr(y) 极坐标系调 H(角度)/S(极径)。
 统一流水线（1️⃣~6️⃣）：1️⃣ 原始输入直读 -> 2️⃣ 输入 CSC 到处理域（inputCscClip
@@ -30,8 +35,9 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QLineEdit, QMainWindow, QWidget
 
 from script.bcsh.hsv_adjust import (
-    adjust_hsv, rgb_to_hsv, hsv_to_rgb,
+    adjust_hsv, adjust_rgb, rgb_to_hsv, hsv_to_rgb,
     rgb_to_hsi, hsi_to_rgb, rgb_to_hsl, hsl_to_rgb,
+    rgb_to_lch, lch_to_rgb,
 )
 from script.img_io import (
     ImageFrame, _csc_range_params, _get_csc_matrices, is_limited_range,
@@ -80,10 +86,25 @@ _CHROMA_MAX = {2: _bt_chroma_max(2), 4: _bt_chroma_max(4), 6: _bt_chroma_max(6)}
 
 
 # RGB 系处理域（Adjust Field != YCbCr）的域转换函数表。
+# Lch：sRGB D65 -> Lab 柱坐标，s=C/Cmax 归一化、l=L/100 归一化。
+# RGB：直接 RGB 域，to/from 均为恒等（钳位 [0,1]）。
+def _rgb_domain_to(rgb):
+    """RGB 处理域 to_domain：恒等返回三通道（域内钳位 [0,1]）。"""
+    rgb = np.clip(np.asarray(rgb, dtype=np.float32), 0.0, 1.0)
+    return rgb[..., 0], rgb[..., 1], rgb[..., 2]
+
+
+def _rgb_domain_from(dom):
+    """RGB 处理域 from_domain：恒等（钳位 [0,1]）。"""
+    return np.clip(np.asarray(dom, dtype=np.float32), 0.0, 1.0)
+
+
 _DOMAIN_CONVERTERS = {
     "HSV": (rgb_to_hsv, hsv_to_rgb),
     "HSI": (rgb_to_hsi, hsi_to_rgb),
     "HSL": (rgb_to_hsl, hsl_to_rgb),
+    "Lch": (rgb_to_lch, lch_to_rgb),
+    "RGB": (_rgb_domain_to, _rgb_domain_from),
 }
 
 
@@ -271,13 +292,13 @@ class HsvUiController:
         """Wire HSV widget signals to internal handlers."""
         ui = self.ui
         ui.checkBox_enableHsvAdj.toggled.connect(self._schedule_auto_run)
-        ui.comboBox_adjustField.currentIndexChanged.connect(self._schedule_auto_run)
+        ui.comboBox_adjustField.currentIndexChanged.connect(self._on_adjust_field_changed)
         ui.comboBox_inputCscClip.currentIndexChanged.connect(self._schedule_auto_run)
         ui.comboBox_outputCscClip.currentIndexChanged.connect(self._schedule_auto_run)
         ui.comboBox_modeV.currentIndexChanged.connect(self._on_v_mode_changed)
         ui.comboBox_modeS.currentIndexChanged.connect(self._on_s_mode_changed)
         ui.comboBox_modeH.currentIndexChanged.connect(self._on_h_mode_changed)
-        ui.comboBox_modeC.currentIndexChanged.connect(self._schedule_auto_run)
+        ui.comboBox_modeC.currentIndexChanged.connect(self._on_c_mode_changed)
         ui.pushButton_resetC.clicked.connect(self._on_reset_c)
         ui.pushButton_resetV.clicked.connect(self._on_reset_v)
         ui.pushButton_resetS.clicked.connect(self._on_reset_s)
@@ -337,9 +358,13 @@ class HsvUiController:
     # UI signal handlers                                                 #
     # ------------------------------------------------------------------ #
 
+    def _c_entry_mode(self) -> str:
+        """C 通道配置条目键：TanSlant 用 'tanslant'，其余增益模式用 'gain'。"""
+        return 'tanslant' if self._mode_c_code() == 'tanslant' else 'gain'
+
     def _apply_c_ui(self) -> None:
-        """按配置设置 Contrast 量程/步长，并置为配置默认值。"""
-        entry = self._entry('C')
+        """按配置设置 Contrast 量程/步长，并置为配置默认值（按 modeC 选条目）。"""
+        entry = self._entry('C', self._c_entry_mode())
         scale = SLIDER_SCALE['C']
         self.ui.spinBox_gainC.setRange(entry["min"], entry["max"])
         self.ui.spinBox_gainC.setSingleStep(entry["step"])
@@ -363,7 +388,8 @@ class HsvUiController:
         """Map comboBox_modeV text to adjust_hsv mode_v code."""
         text = self.ui.comboBox_modeV.currentText()
         return {'ModeAdd': 'add',
-                'ModeMul': 'mul'}.get(text, 'add')
+                'ModeMul': 'mul',
+                'NegMulPosRat': 'negmulposrat'}.get(text, 'add')
 
     def _apply_v_mode_ui(self, mode: str) -> None:
         """按配置设置 V 通道量程/步长，并置为配置默认值。"""
@@ -375,6 +401,23 @@ class HsvUiController:
                                        int(round(entry["max"] * scale)))
         self._set_spin_value(self.ui.spinBox_deltaV, entry["default"])
         self._set_slider_value(self.ui.slider_deltaV, int(round(entry["default"] * scale)))
+
+    def _on_c_mode_changed(self, *_args) -> None:
+        """Contrast 模式切换：TanSlant 用 [-1,1] 量程/中性 0，其余 [0,4]/中性 1。"""
+        del _args
+        self._apply_c_ui()
+        self._schedule_auto_run()
+
+    def _on_adjust_field_changed(self, *_args) -> None:
+        """adjustField 切换：RGB 域禁用 ModeS（S 恒为 scale 灰阶混合）。"""
+        del _args
+        is_rgb = self._adjust_field() == "RGB"
+        self.ui.comboBox_modeS.setEnabled(not is_rgb)
+        if is_rgb:
+            self._apply_s_mode_ui(True)          # scale 语义（mul 量程/中性）
+        else:
+            self._apply_s_mode_ui(self.ui.comboBox_modeS.currentIndex() == 1)
+        self._schedule_auto_run()
 
     def _on_v_mode_changed(self, *_args) -> None:
         """Switch the V delta between additive and multiplicative modes.
@@ -428,7 +471,7 @@ class HsvUiController:
     def _on_reset_c(self) -> None:
         """Reset the Contrast gain to its configured neutral value."""
         self._reset_mapped(self.ui.slider_gainC, self.ui.spinBox_gainC,
-                           self._entry('C')["default"], SLIDER_SCALE['C'])
+                           self._entry('C', self._c_entry_mode())["default"], SLIDER_SCALE['C'])
 
     def _on_reset_v(self) -> None:
         """Reset the V value to its mode neutral from the config."""
@@ -623,9 +666,10 @@ class HsvUiController:
     def _process_frame_rgb(
         self, work_frame: ImageFrame,
     ) -> tuple[ImageFrame, ImageFrame, PixelReadoutCache]:
-        """RGB 系（HSV/HSI/HSL）处理：步骤 1️⃣~6️⃣。
+        """RGB 系（HSV/HSI/HSL/Lch/RGB）处理：步骤 1️⃣~6️⃣。
 
         处理域 = full-range RGB。输入 rgb/yuv 两分支（用例 1/3）。
+        RGB 域直接处理（无域转换）；其余先转域再 BCSH 调整。
         Returns (输出帧 6️⃣, 预览帧 5️⃣, 读数缓存).
         """
         depth = work_frame.depth
@@ -648,10 +692,17 @@ class HsvUiController:
 
         # ---- 3️⃣ 域转换（有钳位） ----
         domain = np.stack(to_domain(rgb_2), axis=-1)           # (H,W,3)
-        h_deg = domain[..., 0]
+        if field == "RGB":
+            # RGB 域：无域转换，直接用 HSV 色相做指定色相/SameTarget 决策
+            h_deg = rgb_to_hsv(rgb_2)[0]
+        else:
+            h_deg = domain[..., 0]
 
         # ---- 4️⃣ BCSH 调整 ----
-        adj = self._compute_adjusted_hsv(domain, h_deg)
+        if field == "RGB":
+            adj = self._compute_adjusted_rgb(rgb_2, h_deg)
+        else:
+            adj = self._compute_adjusted_hsv(domain, h_deg)
 
         # ---- 5️⃣ 回 full-range RGB（域往返本身有钳位 -> 恒 [0,1]） ----
         rgb_5 = from_domain(adj)
@@ -760,7 +811,7 @@ class HsvUiController:
     # ------------------------------------------------------------------ #
 
     def _adjust_field(self) -> str:
-        """当前处理色域名（HSV/HSI/HSL/YCbCr）。"""
+        """当前处理色域名（HSV/HSI/HSL/Lch/RGB/YCbCr）。"""
         return self.ui.comboBox_adjustField.currentText()
 
     def _input_csc_clip(self) -> bool:
@@ -983,11 +1034,12 @@ class HsvUiController:
         return planar[:, yi][:, :, xi]
 
     def _mode_c_code(self) -> str:
-        """Map comboBox_modeC text to adjust_hsv mode_c ('mid'/'zero'/'both')."""
+        """Map comboBox_modeC text to adjust_hsv mode_c ('mid'/'zero'/'both'/'tanslant')."""
         text = self.ui.comboBox_modeC.currentText()
         return {'GainAtMid': 'mid',
                 'GainAtZero': 'zero',
-                'GainAtBoth': 'both'}.get(text, 'mid')
+                'GainAtBoth': 'both',
+                'TanSlant': 'tanslant'}.get(text, 'mid')
 
     def _compute_adjusted_hsv(
         self, hsv: np.ndarray, h_deg: np.ndarray,
@@ -1015,6 +1067,31 @@ class HsvUiController:
             h_adj = (h_deg + progress * arc) % 360.0
             adj_hsv = np.stack([h_adj, adj_hsv[..., 1], adj_hsv[..., 2]], axis=-1)
         return adj_hsv
+
+    def _compute_adjusted_rgb(
+        self, rgb: np.ndarray, h_deg: np.ndarray,
+    ) -> np.ndarray:
+        """RGB 域 BCSH 调整：C/V 逐通道、S 灰阶混合、H 绕灰色轴旋转。
+
+        SameOffset：angle=dh；SameTarget：angle=progress*shortest_arc（逐像素，
+        用 HSV 色相 h_deg 计算弧长）。
+        """
+        dv = float(self.ui.spinBox_deltaV.value())
+        gc = float(self.ui.spinBox_gainC.value())
+        ds = float(self.ui.spinBox_deltaS.value())
+        dh_deg = float(self.ui.spinBox_deltaH.value())
+        same_target = self.ui.comboBox_modeH.currentIndex() == 1
+        if same_target:
+            target = float(self.ui.spinBox_sameHueGoal.value())
+            progress = float(np.clip(dh_deg / 100.0, 0.0, 1.0))
+            arc = ((target - h_deg + 180.0) % 360.0) - 180.0   # shortest signed arc
+            angle = progress * arc
+        else:
+            angle = dh_deg
+        return adjust_rgb(rgb, delta_v=dv, delta_s=ds, gain_c=gc,
+                          tolerance_s=float(self.ui.spinBox_toleranceS.value()),
+                          mode_c=self._mode_c_code(), mode_v=self._v_mode_code(),
+                          angle_deg=angle)
 
     @staticmethod
     def _hue_blend_weights(hue_deg, hs, he, st, et, sp, ep):

@@ -16,8 +16,12 @@ DEFAULT_PARAMS = {
     "B": {
         "add": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
         "mul": {"min": 0.0, "max": 4.0, "step": 0.02, "default": 1.0},
+        "negmulposrat": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
     },
-    "C": {"min": 0.0, "max": 4.0, "step": 0.1, "default": 1.0},
+    "C": {
+        "gain": {"min": 0.0, "max": 4.0, "step": 0.1, "default": 1.0},
+        "tanslant": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
+    },
     "S": {
         "add": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
         "mul": {"min": 0.0, "max": 4.0, "step": 0.02, "default": 1.0},

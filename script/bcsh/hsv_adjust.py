@@ -195,6 +195,224 @@ def hsl_to_rgb(hsl):
     return _wrap(orig, out)
 
 
+# ------------------------------------------------------------------ #
+# Lch（CIELAB 柱坐标）                                               #
+# ------------------------------------------------------------------ #
+# sRGB (D65) <-> XYZ 矩阵与 D65 白点（标准值）。
+_SRGB_TO_XYZ = np.array([
+    [0.4124564, 0.3575761, 0.1804375],
+    [0.2126729, 0.7151522, 0.0721750],
+    [0.0193339, 0.1191920, 0.9503041],
+], dtype=np.float32)
+_XYZ_TO_SRGB = np.array([
+    [3.2404542, -1.5371385, -0.4985314],
+    [-0.9692660, 1.8760108, 0.0415560],
+    [0.0556434, -0.2040259, 1.0572252],
+], dtype=np.float32)
+_XYZ_D65 = np.array([0.95047, 1.0, 1.08883], dtype=np.float32)
+
+
+def _srgb_to_xyz(rgb):
+    """归一化 sRGB (...,3) -> XYZ (...,3)（线性化 + D65 矩阵）。"""
+    rgb = np.asarray(rgb, dtype=np.float32)
+    lin = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+    return lin @ _SRGB_TO_XYZ.T
+
+
+def _xyz_to_lab(xyz):
+    """XYZ (...,3) -> (L, a, b)（各 (...,)）。D65 白点，L∈[0,100]。"""
+    xyz = np.asarray(xyz, dtype=np.float32)
+
+    def _f(t):
+        eps = (6.0 / 29.0) ** 3
+        return np.where(t > eps, t ** (1.0 / 3.0),
+                        t / (3.0 * (6.0 / 29.0) ** 2) + 4.0 / 29.0)
+
+    fx = _f(xyz[..., 0] / _XYZ_D65[0])
+    fy = _f(xyz[..., 1] / _XYZ_D65[1])
+    fz = _f(xyz[..., 2] / _XYZ_D65[2])
+    return 116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)
+
+
+def _lab_to_xyz(L, a, b):
+    """(L, a, b) -> XYZ (...,3)。D65 白点。"""
+    delta = 6.0 / 29.0
+    fy = (L + 16.0) / 116.0
+    fx = fy + a / 500.0
+    fz = fy - b / 200.0
+
+    def _inv_f(t):
+        return np.where(t > delta, t ** 3, 3.0 * delta ** 2 * (t - 4.0 / 29.0))
+
+    return np.stack([_inv_f(fx) * _XYZ_D65[0], _inv_f(fy) * _XYZ_D65[1],
+                     _inv_f(fz) * _XYZ_D65[2]], axis=-1)
+
+
+def _lab_to_srgb(L, a, b):
+    """(L, a, b) -> sRGB (...,3)（去线性化，越界钳位 [0,1]）。"""
+    xyz = _lab_to_xyz(L, a, b)
+    lin = xyz @ _XYZ_TO_SRGB.T
+    rgb = np.where(lin <= 0.0031308, 12.92 * lin,
+                   1.055 * np.maximum(lin, 0.0) ** (1.0 / 2.4) - 0.055)
+    return np.clip(rgb, 0.0, 1.0)
+
+
+def _compute_lch_cmax(samples: int = 48) -> float:
+    """sRGB 色域内最大 LCH 色度 C（S 归一化因子，约 134）。"""
+    vals = np.linspace(0.0, 1.0, samples, dtype=np.float32)
+    r, g, b = np.meshgrid(vals, vals, vals, indexing="ij")
+    rgb = np.stack([r.ravel(), g.ravel(), b.ravel()], axis=-1)
+    L, a, b = _xyz_to_lab(_srgb_to_xyz(rgb))
+    c = np.sqrt(a * a + b * b)
+    return float(c.max())
+
+
+_LCH_C_MAX = _compute_lch_cmax()
+
+
+def rgb_to_lch(rgb):
+    """RGB -> Lch（CIELAB 柱坐标，D65/sRGB）。h∈[0,360)，s=c/Cmax∈[0,1]，l=L/100∈[0,1]。
+
+    标量或数组 (...,3) 均可；接口与 rgb_to_hsv 一致（(h, s, 第三通道)）。
+    """
+    orig = rgb
+    arr = np.asarray(rgb, dtype=np.float32)
+    if arr.shape[-1] != 3:
+        raise ValueError(f'lch 最后一维必须为 3，实际 shape={arr.shape}')
+    L, a, b = _xyz_to_lab(_srgb_to_xyz(np.clip(arr, 0.0, 1.0)))
+    c = np.sqrt(a * a + b * b)
+    h = (np.degrees(np.arctan2(b, a)) + 360.0) % 360.0
+    s = c / _LCH_C_MAX
+    l = L / 100.0
+    if _is_scalar_rgb(orig):
+        return float(h), float(s), float(l)
+    return h, s, l
+
+
+def lch_to_rgb(lch):
+    """Lch -> RGB（sRGB D65）。返回 rgb∈[0,1]。标量或数组 (...,3) 均可。"""
+    orig = lch
+    arr = np.asarray(lch, dtype=np.float32)
+    if arr.shape[-1] != 3:
+        raise ValueError(f'lch 最后一维必须为 3，实际 shape={arr.shape}')
+    h = arr[..., 0] % 360.0
+    s = np.clip(arr[..., 1], 0.0, 1.0)
+    l = np.clip(arr[..., 2], 0.0, 1.0)
+    c = s * _LCH_C_MAX
+    a = c * np.cos(np.radians(h))
+    b = c * np.sin(np.radians(h))
+    return _wrap(orig, _lab_to_srgb(l * 100.0, a, b))
+
+
+# ------------------------------------------------------------------ #
+# RGB 域直接调整                                                      #
+# ------------------------------------------------------------------ #
+
+def _rgb_luma(rgb):
+    """BT.709 luma -> (...,) 灰度（RGB 域 S 灰阶混合用）。"""
+    return (rgb[..., 0] * 0.2126 + rgb[..., 1] * 0.7152 + rgb[..., 2] * 0.0722)
+
+
+def _rgb_saturation(rgb):
+    """HSV 式饱和度 (max-min)/max，除0保护 -> (...,)。"""
+    mx = np.max(rgb, axis=-1)
+    mn = np.min(rgb, axis=-1)
+    c = mx - mn
+    return np.divide(c, mx, out=np.zeros_like(c), where=mx != 0)
+
+
+def _rotate_hue(rgb, angle_deg):
+    """RGB 绕灰色轴 (1,1,1)/√3 旋转 angle_deg（度，标量或数组）。
+
+    灰阶保持不变；等价标准 hue-rotate（圆形色相旋转，与 HSV 六边形色相存在
+    模型固有差异，用于 RGB 域 H 通道调整）。
+    """
+    th = np.radians(angle_deg)
+    c = np.cos(th)
+    s = np.sin(th)
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    gray3 = (r + g + b) / 3.0
+    inv = 1.0 / np.sqrt(3.0)
+    out0 = c * r + (1.0 - c) * gray3 + s * (b - g) * inv
+    out1 = c * g + (1.0 - c) * gray3 + s * (r - b) * inv
+    out2 = c * b + (1.0 - c) * gray3 + s * (g - r) * inv
+    return np.stack([out0, out1, out2], axis=-1)
+
+
+def _rgb_contrast_brightness(rgb, gain_c, dv, mode_c, mode_v):
+    """RGB 域 C/V：三通道统一 contrast(ch) 后按 mode_v 施加 dv。返回 (...,3)。"""
+    if gain_c is None:
+        gain_c = 1.0
+    if dv is None:
+        dv = 0.0
+    mode_c = str(mode_c).lower()
+    if mode_c == 'tanslant':
+        c = np.clip(np.asarray(gain_c, np.float64), -1.0, 1.0)
+        g = np.tan((c + 1.0) * (np.pi / 4.0))
+        out = np.clip((rgb - 0.5) * g[..., None] + 0.5, 0.0, 1.0).astype(np.float32)
+    elif mode_c == 'zero':
+        gc = np.clip(np.asarray(gain_c, np.float32), 0.0, 4.0)
+        out = np.clip(gc * rgb, 0.0, 1.0)
+    elif mode_c == 'both':
+        gc = np.clip(np.asarray(gain_c, np.float32), 0.0, 4.0)
+        out = np.where(gc < 1.0, gc * rgb, (rgb - 0.5) * gc + 0.5)
+        out = np.clip(out, 0.0, 1.0)
+    else:   # 'mid'（默认）：过 0.5 中点
+        gc = np.clip(np.asarray(gain_c, np.float32), 0.0, 4.0)
+        out = np.clip((rgb - 0.5) * gc + 0.5, 0.0, 1.0)
+    mode_v = str(mode_v).lower()
+    if mode_v in ('mul', 'mulkeepmin'):
+        gv = np.clip(np.asarray(dv, np.float32), 0.0, 4.0)
+        out = np.clip(out * gv[..., None], 0.0, 1.0)
+    elif mode_v == 'negmulposrat':
+        d = np.clip(np.asarray(dv, np.float32), -1.0, 1.0)
+        comp = out * (1.0 + d[..., None])                       # δV<0：乘法压缩
+        white = out + d[..., None] * (1.0 - out)                # δV>0：向白靠拢
+        out = np.clip(np.where((d < 0)[..., None], comp, white), 0.0, 1.0)
+    else:   # 'add'（默认）：加性
+        d = np.clip(np.asarray(dv, np.float32), -1.0, 1.0)
+        out = np.clip(out + d[..., None], 0.0, 1.0)
+    return out
+
+
+def adjust_rgb(rgb, delta_v=None, delta_s=None, gain_c=1.0, tolerance_s=0.0,
+               mode_c='mid', mode_v='add', angle_deg=0.0):
+    """RGB 域直接 BCSH 调整（不经过 HSV 域转换）。标量或数组 (...,3) 均可。
+
+    - C/V：三通道统一 ch'=contrast(ch) 按 mode_c 参考点，再按 mode_v 施加 delta_v
+    - S：scale=delta_s（乘性，中性 1.0）；out=scale*in+(1-scale)*gray(in)，
+         gray=BT.709 luma；scale>1（增色）时 S<tolerance_s 的像素保持原样。
+    - H：绕灰色轴旋转 angle_deg（度，可逐像素数组；由调用方算好 SameOffset
+         角度或 SameTarget 进度*弧长）。
+    """
+    orig = rgb
+    arr = np.asarray(rgb, dtype=np.float32)
+    if arr.shape[-1] != 3:
+        raise ValueError(f'rgb 最后一维必须为 3，实际 shape={arr.shape}')
+    rgb_in = np.clip(arr, 0.0, 1.0)
+    # ---- V：逐通道 contrast + brightness ----
+    rgb_v = _rgb_contrast_brightness(rgb_in, gain_c, delta_v,
+                                     str(mode_c).lower(), str(mode_v).lower())
+    # ---- S：灰阶混合（scale 语义，始终生效） ----
+    scale = np.asarray(
+        1.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), 0.0, 4.0),
+        np.float32)
+    gray = _rgb_luma(rgb_v)
+    sat = _rgb_saturation(rgb_v)
+    apply = (sat >= tolerance_s) | (scale <= 1.0)
+    rgb_s = np.where(
+        apply[..., None],
+        scale[..., None] * rgb_v + (1.0 - scale)[..., None] * gray[..., None],
+        rgb_v)
+    # ---- H：绕灰色轴旋转 ----
+    angle = np.asarray(angle_deg, dtype=np.float32)
+    if np.any(angle != 0.0):
+        rgb_h = _rotate_hue(rgb_s, angle)
+    else:
+        rgb_h = rgb_s
+    return _wrap(orig, np.clip(rgb_h, 0.0, 1.0))
+
+
 def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='add',
                tolerance_s: float = 0.0, mode_c='mid', mode_v='add'):
     """HSV 域 V/S/H 调整（hsv 输入、hsv 输出，不涉及 RGB 重建）。
@@ -203,9 +421,13 @@ def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='
            'mid'   v'=clip((v-0.5)*gc + 0.5 [+dv])   （过 v=0.5 中点，默认）
            'zero'  v'=clip(gc*v [+dv])               （过 v=0.0 原点）
            'both'  gc<1 时等效 'zero'，gc>1 时等效 'mid'（gc==1 恒等）
+           'tanslant'  v'=clip((v-0.5)*tan((c+1)π/4)+0.5)（c∈[-1,1]，中性 0；
+                   tan 映射增益：c=0->1 恒等，c=-1->0 全压到 0.5，c=1->∞ 极强对比）
          mode_v 决定 delta_v 生效方式：
            'add'   v'=clip(contrast(v)+dv)           （dv ∈ [-1,1]，默认）
            'mul'   v'=clip(contrast(v)*gv)           （gv 增益 ∈ [0,4]，中性 1.0）
+           'negmulposrat'  dv∈[-1,1]，中性 0：dv<0 乘性压缩 v'=clip(v*(1+dv))；
+                   dv>0 按进度向白靠拢 v'=clip(v+dv*(1-v))；dv=-1 纯黑、dv=1 纯白
            'mulKeepMin'  保底乘性：调小(gv<1)时 V 线性缩小到旧 RGB 最小通道
                    m=v'*(1-s)（v'=m+(v-m)*gv，永不小于 m），S 保持不变（饱和度
                    不变，新最小通道自动 m'=r*v'，r=m/v）；调大(gv>=1)时与 'mul'
@@ -224,7 +446,12 @@ def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='
     v = np.clip(arr[..., 2], 0.0, 1.0)
     dv = 0.0 if delta_v is None else np.clip(np.asarray(delta_v, np.float32), -1.0, 1.0)
     dh = 0.0 if delta_h is None else np.clip(np.asarray(delta_h, np.float32), -0.5, 0.5)
-    gc = 1.0 if gain_c is None else np.clip(np.asarray(gain_c, np.float32), 0.0, 4.0)
+    mode_c = str(mode_c).lower()
+    if mode_c == 'tanslant':
+        # TanSlant：c∈[-1,1]，tan 映射增益（中性 0 -> tan(π/4)=1）
+        gc = 1.0 if gain_c is None else np.clip(np.asarray(gain_c, np.float32), -1.0, 1.0)
+    else:
+        gc = 1.0 if gain_c is None else np.clip(np.asarray(gain_c, np.float32), 0.0, 4.0)
     mode = str(mode).lower()
     if mode == 'add':
         ds = 0.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), -1.0, 1.0)
@@ -245,6 +472,10 @@ def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='
         # gc<1 等效 GainAtZero>1 等效 GainAtMid==1 恒等
         v_new = np.where(gc < 1.0, gc * v, (v - 0.5) * gc + 0.5)
         v_new = np.clip(v_new, 0.0, 1.0)
+    elif mode_c == 'tanslant':
+        # TanSlant：增益 = tan((c+1)π/4)，c∈[-1,1]；用 float64 避免 π/2 附近符号翻转
+        g = np.tan((np.asarray(gc, np.float64) + 1.0) * (np.pi / 4.0))
+        v_new = np.clip((v - 0.5) * g + 0.5, 0.0, 1.0).astype(np.float32)
     else:   # 'mid'（默认）：过 v=0.5 中点
         v_new = np.clip((v - 0.5) * gc + 0.5, 0.0, 1.0)
     # ---- delta_v 生效方式：mode_v='add' 加性 / 'mul' 乘性 / 'mulKeepMin' 保底乘性 ----
@@ -261,6 +492,12 @@ def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='
                 0.0, 1.0)
         else:
             v_new = np.clip(v_new * gv, 0.0, 1.0)
+    elif mode_v == 'negmulposrat':
+        # 负值乘性压缩 / 正值按进度向白靠拢（dv∈[-1,1]，中性 0）
+        neg = dv < 0
+        v_comp = np.clip(v_new * (1.0 + dv), 0.0, 1.0)          # δV<0：乘法压缩
+        v_white = np.clip(v_new + dv * (1.0 - v_new), 0.0, 1.0)  # δV>0：向白靠拢
+        v_new = np.where(neg, v_comp, v_white)
     else:   # 'add'（默认）：加性
         v_new = np.clip(v_new + dv, 0.0, 1.0)
     # ---- H：平移 360° 归一（始终加性） ----
@@ -314,6 +551,32 @@ if __name__ == '__main__':
           adjust_hsv((20.0, 0.02, 0.5), delta_s=2.0, mode='mul', tolerance_s=0.05))
     print('标量: adjust_hsv((20.0, 0.02, 0.5), delta_s=0.5, mode="mul", tolerance_s=0.05) =',
           adjust_hsv((20.0, 0.02, 0.5), delta_s=0.5, mode='mul', tolerance_s=0.05))
+    # mode_c='tanslant'：c∈[-1,1]，tan 映射增益（c=0 恒等 / c=1 极强 / c=-1 压平）
+    print('标量: adjust_hsv((20.0, 0.5, 0.5), gain_c=1.0, mode_c="tanslant") =',
+          adjust_hsv((20.0, 0.5, 0.5), gain_c=1.0, mode_c='tanslant'))
+    print('标量: adjust_hsv((20.0, 0.5, 0.7), gain_c=1.0, mode_c="tanslant") =',
+          adjust_hsv((20.0, 0.5, 0.7), gain_c=1.0, mode_c='tanslant'))
+    print('标量: adjust_hsv((20.0, 0.5, 0.3), gain_c=1.0, mode_c="tanslant") =',
+          adjust_hsv((20.0, 0.5, 0.3), gain_c=1.0, mode_c='tanslant'))
+    print('标量: adjust_hsv((20.0, 0.5, 0.7), gain_c=-1.0, mode_c="tanslant") =',
+          adjust_hsv((20.0, 0.5, 0.7), gain_c=-1.0, mode_c='tanslant'))
+    # mode_v='negmulposrat'：dv<0 乘性压缩 / dv>0 向白靠拢（dv=-1 纯黑、dv=1 纯白）
+    print('标量: adjust_hsv((20.0, 0.5, 0.6), delta_v=-1.0, mode_v="negmulposrat") =',
+          adjust_hsv((20.0, 0.5, 0.6), delta_v=-1.0, mode_v='negmulposrat'))
+    print('标量: adjust_hsv((20.0, 0.5, 0.6), delta_v=1.0, mode_v="negmulposrat") =',
+          adjust_hsv((20.0, 0.5, 0.6), delta_v=1.0, mode_v='negmulposrat'))
+    print('标量: adjust_hsv((20.0, 0.5, 0.6), delta_v=0.5, mode_v="negmulposrat") =',
+          adjust_hsv((20.0, 0.5, 0.6), delta_v=0.5, mode_v='negmulposrat'))
+    print('标量: adjust_hsv((20.0, 0.5, 0.6), delta_v=-0.5, mode_v="negmulposrat") =',
+          adjust_hsv((20.0, 0.5, 0.6), delta_v=-0.5, mode_v='negmulposrat'))
+    # adjust_rgb：中性恒等 / S 灰阶混合 / H 灰色轴旋转 / tanslant / negmulposrat
+    _ar = np.array([0.2, 0.5, 0.8], np.float32)
+    print('adjust_rgb 中性恒等 =', adjust_rgb(_ar))
+    print('adjust_rgb S=0（纯灰） =', adjust_rgb(np.array([1.0, 0.0, 0.0], np.float32), delta_s=0.0))
+    print('adjust_rgb H=120（红->绿） =', adjust_rgb(np.array([1.0, 0.0, 0.0], np.float32), angle_deg=120.0))
+    print('adjust_rgb TanSlant c=1（v>0.5->1） =', adjust_rgb(np.array([0.7, 0.7, 0.7], np.float32), mode_c='tanslant', gain_c=1.0))
+    print('adjust_rgb NegMulPosRat dv=-1（纯黑） =', adjust_rgb(np.array([0.6, 0.3, 0.1], np.float32), mode_v='negmulposrat', delta_v=-1.0))
+    print('adjust_rgb NegMulPosRat dv=1（纯白） =', adjust_rgb(np.array([0.6, 0.3, 0.1], np.float32), mode_v='negmulposrat', delta_v=1.0))
     try:
         adjust_hsv((0.0, 0.0, 0.5), mode='bad')
     except ValueError as exc:
