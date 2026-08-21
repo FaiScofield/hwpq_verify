@@ -81,6 +81,120 @@ def hsv_to_rgb(hsv):
     return _wrap(orig, out)
 
 
+def rgb_to_hsi(rgb):
+    """RGB -> HSI（Gonzalez 模型）。h∈[0,360)，s/i∈[0,1]。标量或数组 (...,3) 均可。
+
+    I = (R+G+B)/3；S = 1-min/I（I>0，全黑 I=0 时 S=0）；H 用 acos 连续公式
+    （B<=G 取 θ，否则 360°-θ），与 HSV 的 60° 扇区色相数值等价。
+    """
+    orig = rgb
+    arr = np.asarray(rgb, dtype=np.float32)
+    if arr.shape[-1] != 3:
+        raise ValueError(f'hsi 最后一维必须为 3，实际 shape={arr.shape}')
+    rgb_c = np.clip(arr, 0.0, 1.0)
+    r, g, b = rgb_c[..., 0], rgb_c[..., 1], rgb_c[..., 2]
+    i = (r + g + b) / 3.0
+    mn = np.minimum(np.minimum(r, g), b)
+    s = np.divide(i - mn, i, out=np.zeros_like(i), where=i > 0)   # S=1-min/I，I=0 全黑 S=0
+    # H：acos 连续公式
+    denom = np.sqrt((r - g) ** 2 + (r - b) * (g - b))
+    safe = denom > 0.0
+    num = 0.5 * ((r - g) + (r - b))
+    theta = np.zeros_like(i)
+    theta = np.where(safe, np.degrees(np.arccos(
+        np.clip(num / np.where(safe, denom, 1.0), -1.0, 1.0))), 0.0)
+    h = np.where(b <= g, theta, 360.0 - theta) % 360.0
+    if _is_scalar_rgb(orig):
+        return float(h), float(s), float(i)
+    return h, s, i
+
+
+def hsi_to_rgb(hsi):
+    """HSI -> RGB，Gonzalez 三段扇区公式。返回 rgb∈[0,1]。标量或数组 (...,3) 均可。"""
+    orig = hsi
+    arr = np.asarray(hsi, dtype=np.float32)
+    if arr.shape[-1] != 3:
+        raise ValueError(f'hsi 最后一维必须为 3，实际 shape={arr.shape}')
+    h = arr[..., 0] % 360.0
+    s = np.clip(arr[..., 1], 0.0, 1.0)
+    i = np.clip(arr[..., 2], 0.0, 1.0)
+    m0 = (h >= 0.0) & (h < 120.0)
+    m1 = (h >= 120.0) & (h < 240.0)
+    m2 = h >= 240.0
+    # 扇区 0：红为主
+    h0 = h
+    b0 = i * (1.0 - s)
+    r0 = i * (1.0 + s * np.cos(np.radians(h0)) / np.cos(np.radians(60.0 - h0)))
+    g0 = 3.0 * i - (r0 + b0)
+    # 扇区 1：绿为主
+    h1 = h - 120.0
+    r1 = i * (1.0 - s)
+    g1 = i * (1.0 + s * np.cos(np.radians(h1)) / np.cos(np.radians(60.0 - h1)))
+    b1 = 3.0 * i - (r1 + g1)
+    # 扇区 2：蓝为主
+    h2 = h - 240.0
+    g2 = i * (1.0 - s)
+    b2 = i * (1.0 + s * np.cos(np.radians(h2)) / np.cos(np.radians(60.0 - h2)))
+    r2 = 3.0 * i - (g2 + b2)
+    r = np.where(m0, r0, np.where(m1, r1, r2))
+    g = np.where(m0, g0, np.where(m1, g1, g2))
+    b = np.where(m0, b0, np.where(m1, b1, b2))
+    out = np.clip(np.stack([r, g, b], axis=-1), 0.0, 1.0)
+    return _wrap(orig, out)
+
+
+def rgb_to_hsl(rgb):
+    """RGB -> HSL（双锥模型）。h∈[0,360)，s/l∈[0,1]。标量或数组 (...,3) 均可。
+
+    L=(max+min)/2；S=(max-min)/(1-|2L-1|)（L=0/1 时 S=0）；H 与 HSV 相同 60° 扇区。
+    """
+    orig = rgb
+    arr = np.asarray(rgb, dtype=np.float32)
+    if arr.shape[-1] != 3:
+        raise ValueError(f'hsl 最后一维必须为 3，实际 shape={arr.shape}')
+    rgb_c = np.clip(arr, 0.0, 1.0)
+    r, g, b = rgb_c[..., 0], rgb_c[..., 1], rgb_c[..., 2]
+    mx = np.maximum(np.maximum(r, g), b)
+    mn = np.minimum(np.minimum(r, g), b)
+    l = (mx + mn) / 2.0
+    c = mx - mn
+    denom = 1.0 - np.abs(2.0 * l - 1.0)
+    s = np.divide(c, denom, out=np.zeros_like(c), where=denom != 0)
+    c_safe = np.where(c == 0, 1.0, c)
+    h = np.zeros_like(c)
+    h = np.where(mx == r, 60.0 * (((g - b) / c_safe + 6) % 6), h)
+    h = np.where(mx == g, 60.0 * ((b - r) / c_safe + 2), h)
+    h = np.where(mx == b, 60.0 * ((r - g) / c_safe + 4), h)
+    if _is_scalar_rgb(orig):
+        return float(h), float(s), float(l)
+    return h, s, l
+
+
+def hsl_to_rgb(hsl):
+    """HSL -> RGB，双锥扇区公式。返回 rgb∈[0,1]。标量或数组 (...,3) 均可。"""
+    orig = hsl
+    arr = np.asarray(hsl, dtype=np.float32)
+    if arr.shape[-1] != 3:
+        raise ValueError(f'hsl 最后一维必须为 3，实际 shape={arr.shape}')
+    h = arr[..., 0] % 360.0
+    s = np.clip(arr[..., 1], 0.0, 1.0)
+    l = np.clip(arr[..., 2], 0.0, 1.0)
+    c = (1.0 - np.abs(2.0 * l - 1.0)) * s
+    hh = h / 60.0
+    x = c * (1.0 - np.abs(hh % 2.0 - 1.0))
+    m = l - c / 2.0
+    seg = np.floor(hh).astype(np.int32) % 6
+    # 每扇区 (r, g, b) 基值：seg0..5 依次取 (c,x,0)/(x,c,0)/(0,c,x)/(0,x,c)/(x,0,c)/(c,0,x)
+    r = np.where(seg == 0, c, np.where(seg == 1, x, np.where(seg == 2, 0.0,
+        np.where(seg == 3, 0.0, np.where(seg == 4, x, c)))))
+    g = np.where(seg == 0, x, np.where(seg == 1, c, np.where(seg == 2, c,
+        np.where(seg == 3, x, np.where(seg == 4, 0.0, 0.0)))))
+    b = np.where(seg == 0, 0.0, np.where(seg == 1, 0.0, np.where(seg == 2, x,
+        np.where(seg == 3, c, np.where(seg == 4, c, x)))))
+    out = np.clip(np.stack([r + m, g + m, b + m], axis=-1), 0.0, 1.0)
+    return _wrap(orig, out)
+
+
 def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='add',
                tolerance_s: float = 0.0, mode_c='mid', mode_v='add'):
     """HSV 域 V/S/H 调整（hsv 输入、hsv 输出，不涉及 RGB 重建）。

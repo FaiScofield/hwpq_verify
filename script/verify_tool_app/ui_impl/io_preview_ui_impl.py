@@ -21,18 +21,13 @@ from PySide6.QtWidgets import (
 )
 
 from script.img_io import (
-    ImageFrame, _csc_range_params, is_limited_range, rgb_to_yuv, yuv_to_rgb,
+    ImageFrame, _csc_range_params, is_limited_range, yuv_to_rgb,
 )
 
 try:
     from ..ui_gen.io_preview_ui import Ui_PreviewUiWidget
 except ImportError:
     from ui_gen.io_preview_ui import Ui_PreviewUiWidget
-
-try:
-    from .hsv_ui_impl import format_pixel_chain
-except ImportError:
-    from ui_impl.hsv_ui_impl import format_pixel_chain
 
 
 class PreviewUiWidget(QWidget):
@@ -77,6 +72,7 @@ class PreviewUiController(QObject):
         status_callback: Callable[[str], None] | None = None,
         pixel_selection_callback: Callable[[dict | None], None] | None = None,
         colorspace_getter: Callable[[], str] | None = None,
+        pixel_readout_provider: Callable[[int, int, str], str] | None = None,
     ) -> None:
         """Bind to a PreviewUiWidget instance and mount it into a dock when possible."""
         super().__init__(parent_window or preview_widget)
@@ -87,6 +83,7 @@ class PreviewUiController(QObject):
         self._status_callback = status_callback or (lambda message: None)
         self._pixel_selection_callback = pixel_selection_callback or (lambda selection: None)
         self._colorspace_getter = colorspace_getter or (lambda: "RGB(HSV)")
+        self._pixel_readout_provider = pixel_readout_provider or (lambda x, y, role: "")
         self._acm_enabled: bool = True
         self._preview_mode: str = "BothInLeft"  # or "SideBySide"
 
@@ -302,12 +299,13 @@ class PreviewUiController(QObject):
     # ------------------------------------------------------------------ #
 
     def _frame_to_qimage(self, frame: ImageFrame, is_input: bool) -> QImage:
-        """Convert an ImageFrame to a displayable QImage, caching ndarrays."""
+        """Convert an ImageFrame to a displayable QImage, caching ndarrays.
+
+        预览恒转 full-range RGB：任何 limited RGB 帧（输入/输出）都展开 full。
+        """
         if frame.is_rgb:
-            if is_input and frame.clrspc == 0:
-                # 输入 limited RGB（8bit [16,235] / 10bit [64,940]）：解析时转为
-                # full range 再显示，与 HSV 处理域（full RGB）保持一致，避免
-                # 输入/输出预览差异。
+            if frame.clrspc == 0:
+                # limited RGB（8bit [16,235] / 10bit [64,940]）：展开 full 再显示。
                 max_val = (1 << frame.depth) - 1
                 rp = _csc_range_params(frame.depth)
                 lo = rp["yr_lo_l"]
@@ -511,60 +509,28 @@ class PreviewUiController(QObject):
         self.ui.lineEdit_position.setText(f"({x_pos}, {y_pos}) [{state}]")
 
     def set_colorspace_getter(self, getter: Callable[[], str] | None) -> None:
-        """Set the callback returning the active colorspace text ('RGB(HSV)'/'YUV(YCbCr)')."""
+        """Set the callback returning the active colorspace text (compat no-op).
+
+        读数已委托给 HSV 处理缓存，此处仅保留兼容入口。
+        """
         self._colorspace_getter = getter or (lambda: "RGB(HSV)")
 
-    def _is_yuv_colorspace(self) -> bool:
-        """True when the BCSH processing domain is YUV(YCbCr)."""
-        return self._colorspace_getter() == "YUV(YCbCr)"
+    def _fill_readout(self, x_pos: int, y_pos: int) -> None:
+        """Fill both pixel readout fields from the HSV processing readout provider.
 
-    def _input_is_rgb(self) -> bool:
-        """True when the source input frame is RGB (not YUV)."""
-        return bool(self.input_frame is None or self.input_frame.is_rgb)
-
-    @staticmethod
-    def _rgb_pixel_to_yuv(rv: int, gv: int, bv: int) -> tuple[int, int, int]:
-        """Derive (y, u, v) 8bit BT.709 full for one RGB pixel."""
-        r = np.array([[rv]], dtype=np.uint8)
-        g = np.array([[gv]], dtype=np.uint8)
-        b = np.array([[bv]], dtype=np.uint8)
-        y, u, v = rgb_to_yuv(r, g, b, input_cs=1, output_cs=5)
-        return int(y[0, 0]), int(u[0, 0]), int(v[0, 0])
-
-    def _fill_pixel_readout(self, line_edit, rgb_cache, yuv_cache, rgb_from_yuv,
-                            x_pos: int, y_pos: int, input_is_rgb: bool) -> None:
-        """Fill a QLineEdit with the pixel readout chain per colorspace rules.
-
-        实时（未冻结）显示与冻结像素共用 format_pixel_chain；显示缓存为 8bit。
+        读数显示步骤 1️⃣~6️⃣ 的处理结果（视 clip 选项钳位/未钳位，可超 [0,1]）。
         """
-        if rgb_cache is not None:
-            rv, gv, bv = (int(v) for v in rgb_cache[y_pos, x_pos])
-            yv, uv, vv = self._rgb_pixel_to_yuv(rv, gv, bv)
-        elif yuv_cache is not None and rgb_from_yuv is not None:
-            yv, uv, vv = (int(v) for v in yuv_cache[y_pos, x_pos])
-            rv, gv, bv = (int(v) for v in rgb_from_yuv[y_pos, x_pos])
-        else:
-            line_edit.clear()
-            return
-        line_edit.setText(format_pixel_chain(
-            colorspace_is_rgb=not self._is_yuv_colorspace(),
-            input_is_rgb=input_is_rgb,
-            rv=rv, gv=gv, bv=bv, yv=yv, uv=uv, vv=vv, depth=8))
+        self.ui.lineEdit_input_pixel.setText(
+            self._pixel_readout_provider(x_pos, y_pos, "input"))
+        self.ui.lineEdit_output_pixel.setText(
+            self._pixel_readout_provider(x_pos, y_pos, "output"))
 
     def _restore_frozen_pixel_readout(self) -> None:
         """Re-fill pixel readout fields from current caches after a frame update."""
         if not self.is_pixel_info_frozen or self._last_pixel_selection is None:
             return
         x, y = self._last_pixel_selection.x_pos, self._last_pixel_selection.y_pos
-        input_is_rgb = self._input_is_rgb()
-        self._fill_pixel_readout(
-            self.ui.lineEdit_input_pixel,
-            self.input_cache_rgb444, self.input_cache_yuv444, self.input_rgb_from_yuv,
-            x, y, input_is_rgb)
-        self._fill_pixel_readout(
-            self.ui.lineEdit_output_pixel,
-            self.output_cache_rgb444, self.output_cache_yuv444, self.output_rgb_from_yuv,
-            x, y, input_is_rgb)
+        self._fill_readout(x, y)
 
     def _handle_view_leave(self) -> None:
         """Clear live pixel text when the cursor leaves a preview viewport."""
@@ -616,15 +582,7 @@ class PreviewUiController(QObject):
         )
 
         # Always fill both input and output pixel readouts.
-        input_is_rgb = self._input_is_rgb()
-        self._fill_pixel_readout(
-            self.ui.lineEdit_input_pixel,
-            self.input_cache_rgb444, self.input_cache_yuv444, self.input_rgb_from_yuv,
-            x_pos, y_pos, input_is_rgb)
-        self._fill_pixel_readout(
-            self.ui.lineEdit_output_pixel,
-            self.output_cache_rgb444, self.output_cache_yuv444, self.output_rgb_from_yuv,
-            x_pos, y_pos, input_is_rgb)
+        self._fill_readout(x_pos, y_pos)
 
     def _on_mouse_move_right(self, pos) -> None:
         """Right preview pixel readout."""
@@ -641,16 +599,8 @@ class PreviewUiController(QObject):
             y_pos=y_pos,
             display_role="output",
         )
-        # Always fill both input and output pixel readouts with the shared format.
-        input_is_rgb = self._input_is_rgb()
-        self._fill_pixel_readout(
-            self.ui.lineEdit_output_pixel,
-            self.output_cache_rgb444, self.output_cache_yuv444, self.output_rgb_from_yuv,
-            x_pos, y_pos, input_is_rgb)
-        self._fill_pixel_readout(
-            self.ui.lineEdit_input_pixel,
-            self.input_cache_rgb444, self.input_cache_yuv444, self.input_rgb_from_yuv,
-            x_pos, y_pos, input_is_rgb)
+        # Always fill both input and output pixel readouts.
+        self._fill_readout(x_pos, y_pos)
 
     def eventFilter(self, obj: object, event: QEvent) -> bool:
         if event.type() == QEvent.MouseMove:
@@ -763,12 +713,16 @@ class PreviewUiController(QObject):
         return self.output_frame
 
     def _save_output_image(self, base_path: str, chosen_ext: str = "") -> None:
-        """Save the output as raw (or image-only) at full resolution when possible."""
+        """Save the output as raw (or image-only) at full resolution when possible.
+
+        输出帧（步骤 6️⃣）已按所选输出 format/cs 正确编码，无需再做 f2l；
+        预览 QImage 转换使用副本，避免 as_yuv444_stacked 原地升采样破坏原始数据。
+        """
         frame = self._get_output_for_save()
         qimage = self.output_qimage
         if frame is not None and frame is not self.output_frame:
-            qimage = self._frame_to_qimage(frame, is_input=False)
-        self._save_assets(frame, qimage, base_path, chosen_ext, apply_output_f2l=True)
+            qimage = self._frame_to_qimage(frame.copy(), is_input=False)
+        self._save_assets(frame, qimage, base_path, chosen_ext)
 
     def _on_save_left_image(self) -> None:
         mode = self._preview_mode

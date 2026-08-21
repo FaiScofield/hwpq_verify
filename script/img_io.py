@@ -729,14 +729,46 @@ class ImageFrame:
     # Write                                                              #
     # ------------------------------------------------------------------ #
 
-    def to_file(self, filepath: str) -> None:
-        """Write the frame to a raw file. Appends to existing files.
+    def to_raw_bytes(self) -> np.ndarray:
+        """Serialize the frame to its format's raw byte/sample layout.
 
-        Requires the frame to be in YUV444 planar format.
+        Supports 8-bit (0x0-0xA) and 10-bit (0x10-0x1A / 0x20-0x2A) formats.
+        Interleaved/semi-planar layouts are produced here from the planar
+        channels stored in the frame.
         """
-        if not self.is_444:
-            raise ValueError("to_file currently only supports YUV444 planar frames.")
-        raw = np.stack([self.pyr, self.pug, self.pvb], axis=0).ravel()
+        base = self.fmt & 0xF
+        y, u, v = self.pyr, self.pug, self.pvb
+        if base == 0x0:      # RGB888 / RGB_10LSB（交错 RGB）
+            return np.stack([y, u, v], axis=-1).ravel()
+        if base == 0x1:      # RGBA8888 / RGBA_10LSB（交错 RGBA）
+            alpha = np.full_like(y, 255)
+            return np.stack([y, u, v, alpha], axis=-1).ravel()
+        if base == 0x2:      # RGB_Planar
+            return np.stack([y, u, v], axis=0).ravel()
+        if base == 0x3:      # YUV444P_YU24
+            return np.stack([y, u, v], axis=0).ravel()
+        if base == 0x4:      # YUV444SP_NV24（Y + UV 交错）
+            uv = np.stack([u, v], axis=-1)
+            return np.concatenate([y.ravel(), uv.ravel()])
+        if base == 0x5:      # YUV444I_VU24（V/U/Y 交错）
+            return np.stack([v, u, y], axis=-1).ravel()
+        if base == 0x6:      # YUV422P
+            return np.concatenate([y.ravel(), u.ravel(), v.ravel()])
+        if base == 0x7:      # YUV422SP_NV16
+            uv = np.stack([u, v], axis=-1)
+            return np.concatenate([y.ravel(), uv.ravel()])
+        if base == 0x8:      # YUV420P
+            return np.concatenate([y.ravel(), u.ravel(), v.ravel()])
+        if base == 0x9:      # YUV420SP_NV12
+            uv = np.stack([u, v], axis=-1)
+            return np.concatenate([y.ravel(), uv.ravel()])
+        if base == 0xA:      # YUV400_Gray
+            return y.ravel()
+        raise ValueError(f"to_raw_bytes: unsupported format base 0x{base:X}")
+
+    def to_file(self, filepath: str) -> None:
+        """Write the frame to a raw file in its format layout. Appends to existing files."""
+        raw = self.to_raw_bytes()
         raw.astype(self.pyr.dtype).tofile(filepath)
 
     # ------------------------------------------------------------------ #
@@ -784,6 +816,35 @@ class ImageFrame:
         self.pug = u_sub
         self.pvb = v_sub
         self.fmt = 0x18 if self.depth >= 10 else 0x8
+        return self
+
+    def to_format(self, fmt: int) -> "ImageFrame":
+        """Convert this frame to the target format's layout (in place).
+
+        Subsampling (422/420) is applied to YUV frames and the format tag is
+        set to ``fmt``; interleaving/packing happens lazily at ``to_raw_bytes``.
+        Returns self for chaining.
+        """
+        depth = get_pixel_depth(fmt)
+        if depth != self.depth:
+            if depth >= 10:
+                self.promote_to_10bit()
+            else:
+                self.demote_to_8bit()
+        base = fmt & 0xF
+        if base in (0x6, 0x7, 0x8, 0x9, 0xA):
+            # YUV 子采样/灰度：确保为 YUV 后再降采样
+            if self.is_rgb:
+                target = self.clrspc if self.clrspc in (2, 3, 4, 5, 6, 7) else 5
+                self.to_yuv(target_clrspc=target)
+            if base in (0x6, 0x7):
+                self.to_yuv422()
+            elif base in (0x8, 0x9):
+                self.to_yuv420()
+            else:  # 0xA gray
+                self.pug = np.full_like(self.pyr, 128)
+                self.pvb = np.full_like(self.pyr, 128)
+        self.fmt = fmt
         return self
 
     # ------------------------------------------------------------------ #

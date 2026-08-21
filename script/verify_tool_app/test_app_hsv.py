@@ -10,7 +10,7 @@ import os
 import subprocess
 import sys
 
-HSV_APP_VERSION = "v2.0"
+HSV_APP_VERSION = "v3.0"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
 
@@ -107,11 +107,13 @@ class HsvTestAppWindow(QMainWindow):
             self.preview_widget,
             parent_window=self,
             status_callback=self.ui.statusbar.showMessage,
+            pixel_readout_provider=self._pixel_readout,
         )
         self.io_ctrl = IoUiController(
             self.io_widget,
             parent_window=self,
             on_input_loaded=self._on_input_loaded,
+            on_output_changed=self._on_output_config_changed,
             status_callback=self.ui.statusbar.showMessage,
             auto_load_defaults=False,
         )
@@ -125,12 +127,11 @@ class HsvTestAppWindow(QMainWindow):
             work_size_provider=self.preview_ctrl.get_work_size,
             input_pixel_edit=self.preview_widget.ui.lineEdit_input_pixel,
             output_pixel_edit=self.preview_widget.ui.lineEdit_output_pixel,
+            output_fmt_provider=self.io_ctrl.get_output_fmt_code,
+            output_clrspc_provider=self.io_ctrl.get_output_clrspc,
         )
         self.preview_ctrl.set_full_res_output_provider(self.hsv_ctrl.get_full_res_output)
         self.preview_ctrl.set_pixel_selection_callback(self.hsv_ctrl.on_preview_pixel_selection)
-        # 让预览实时像素读数跟随 BCSH 处理域（RGB(HSV)/YUV(YCbCr)）。
-        self.preview_ctrl.set_colorspace_getter(
-            lambda: self.hsv_ctrl.ui.comboBox_colorspace.currentText())
         self._install_view_menu()
         # Propagate HSV enabled state to preview for BothInLeft mode.
         self.hsv_ctrl.ui.checkBox_enableHsvAdj.toggled.connect(self.preview_ctrl.set_acm_enabled)
@@ -184,6 +185,14 @@ class HsvTestAppWindow(QMainWindow):
             layout.addWidget(scroll_area)
             return
         layout.addWidget(child_widget)
+
+    def _pixel_readout(self, x_pos: int, y_pos: int, role: str) -> str:
+        """Delegate preview pixel readout to the HSV processing caches (步骤 1~6)."""
+        return self.hsv_ctrl.readout_text(x_pos, y_pos, role)
+
+    def _on_output_config_changed(self) -> None:
+        """Re-run HSV processing when the output format/colorspace changes."""
+        self.hsv_ctrl.request_auto_run()
 
     def _on_input_loaded(self, frame, status_message):
         """Forward loaded input data to the preview and HSV controllers."""

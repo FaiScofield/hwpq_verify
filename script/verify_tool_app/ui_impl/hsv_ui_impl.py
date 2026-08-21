@@ -12,25 +12,31 @@ HSV tab controller — encapsulates all HSV-related UI behavior and state.
 指定色调（groupBox_setHueRange 勾选）：仅色调落在 [hs, he] 附近的像素被处理，
 通过 Tail（向内）/ Pad（向外）的 alpha blending 过渡。
 
-comboBox_colorspace 选择处理域：
-  RGB(HSV)：当前方案，RGB->HSV 域调整后回 RGB。
-  YUV(YCbCr)：输入统一转 full-range YUV444p，uv 去中心 0.5 得 YCbCr；
-     Y 通道调 B/C，Cb(x)/Cr(y) 极坐标系调 H(角度)/S(极径)，处理后再转回
-     YUV444p 作为输出（预览/保存），并转 RGB 供像素读数。
+comboBox_adjustField 选择处理域（4 选项）：
+  HSV/HSI/HSL（RGB 系）：full-range RGB <-> HSV/HSI/HSL 域，域内 BCSH 调整。
+  YCbCr（YUV 系）：处理域为 yuv444p full-range，uv 去中心 0.5 得 YCbCr；
+     Y 通道调 B/C，Cb(x)/Cr(y) 极坐标系调 H(角度)/S(极径)。
+统一流水线（1️⃣~6️⃣）：1️⃣ 原始输入直读 -> 2️⃣ 输入 CSC 到处理域（inputCscClip
+  决定钳位）-> 3️⃣ 域转换（有钳位）-> 4️⃣ BCSH 调整 -> 5️⃣ 回 full-range
+  RGB/YUV（outputCscClip 决定钳位）-> 6️⃣ 输出 CSC 到输出格式/色彩空间（必钳）。
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass
 import time
 
 import numpy as np
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QLineEdit, QMainWindow, QWidget
 
-from script.bcsh.hsv_adjust import adjust_hsv, rgb_to_hsv, hsv_to_rgb
+from script.bcsh.hsv_adjust import (
+    adjust_hsv, rgb_to_hsv, hsv_to_rgb,
+    rgb_to_hsi, hsi_to_rgb, rgb_to_hsl, hsl_to_rgb,
+)
 from script.img_io import (
     ImageFrame, _csc_range_params, _get_csc_matrices, is_limited_range,
-    rgb_to_yuv, yuv_to_rgb, _PLANAR_RGB_8, _PLANAR_RGB_10, _PLANAR_YUV_8,
-    _PLANAR_YUV_10,
+    is_rgb_format, rgb_to_yuv,
+    _PLANAR_RGB_8, _PLANAR_RGB_10, _PLANAR_YUV_8, _PLANAR_YUV_10,
 )
 
 try:
@@ -44,25 +50,22 @@ except ImportError:
     from ui_gen.hsv_ui import Ui_HsvUiWidget
 
 
-def _bt709_chroma_max() -> float:
-    """BT.709 一次/二次色最大色度极径（YCbCr 极坐标 S 归一化因子，约 0.596）。"""
-    r2y, _ = _get_csc_matrices(5)
+def _bt_chroma_max(cs: int) -> float:
+    """某色彩空间一次/二次色最大色度极径（YCbCr 极坐标 S 归一化因子）。"""
+    r2y, _ = _get_csc_matrices(cs)
     primaries = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1],
                           [1, 1, 0], [0, 1, 1], [1, 0, 1]], dtype=np.float32)
     pts = primaries @ r2y[1:, :].T                      # (6, 2): (Cb, Cr)
     return float(np.max(np.sqrt(np.sum(pts ** 2, axis=1))))
 
 
-_BT709_CHROMA_MAX = _bt709_chroma_max()
-
-
-def _build_hue_sync_lut(n: int = 4096) -> tuple[np.ndarray, np.ndarray]:
+def _build_hue_sync_lut(cs: int, n: int = 4096) -> tuple[np.ndarray, np.ndarray]:
     """构建 HSV 色相 -> YCbCr 极角（去 360° 环绕、单调）LUT，供双向同步换算。
 
     HSV 色相按六边形等角分布；YCbCr 极角是 Cb/Cr 平面真实角度，两者相差一个
-    非恒定偏移（BT.709 约 +103°~+115°）。该 LUT 使两者可精确互转（往返 0.000°）。
+    非恒定偏移（随矩阵族变化）。该 LUT 使两者可精确互转（往返 0.000°）。
     """
-    r2y, _ = _get_csc_matrices(5)
+    r2y, _ = _get_csc_matrices(cs)
     hsv = np.linspace(0.0, 360.0, n, endpoint=False)
     rgb = hsv_to_rgb(np.stack([hsv, np.ones(n), np.ones(n)], axis=-1))
     chroma = rgb @ r2y[1:, :].T                            # (n, 2): (Cb, Cr)
@@ -71,55 +74,57 @@ def _build_hue_sync_lut(n: int = 4096) -> tuple[np.ndarray, np.ndarray]:
     return hsv, ycbcr_unwrap
 
 
-_HUE_LUT_HSV, _HUE_LUT_YCBCR = _build_hue_sync_lut()
-_HUE_LUT_START = float(_HUE_LUT_YCBCR[0])                  # ~102.91°
+# YUV 处理域按矩阵族（BT.601/709/2020 代表代码 2/4/6）参数化的色相同步 LUT 与色度归一化因子。
+_HUE_LUTS = {2: _build_hue_sync_lut(2), 4: _build_hue_sync_lut(4), 6: _build_hue_sync_lut(6)}
+_CHROMA_MAX = {2: _bt_chroma_max(2), 4: _bt_chroma_max(4), 6: _bt_chroma_max(6)}
 
 
-def hue_hsv_to_ycbcr(h) -> np.ndarray:
-    """HSV 色相 -> YCbCr 极角（[0,360)）。支持标量或数组。"""
-    return np.interp(np.asarray(h, dtype=np.float64), _HUE_LUT_HSV, _HUE_LUT_YCBCR) % 360.0
+# RGB 系处理域（Adjust Field != YCbCr）的域转换函数表。
+_DOMAIN_CONVERTERS = {
+    "HSV": (rgb_to_hsv, hsv_to_rgb),
+    "HSI": (rgb_to_hsi, hsi_to_rgb),
+    "HSL": (rgb_to_hsl, hsl_to_rgb),
+}
 
 
-def hue_ycbcr_to_hsv(h) -> np.ndarray:
-    """YCbCr 极角 -> HSV 色相（[0,360)）。支持标量或数组；处理 <起点 的环绕段。"""
-    x = np.asarray(h, dtype=np.float64) % 360.0
-    x = np.where(x < _HUE_LUT_START, x + 360.0, x)         # [0,起点) 段 +360 对齐到单调区间
-    return np.interp(x, _HUE_LUT_YCBCR, _HUE_LUT_HSV) % 360.0
+@dataclass
+class PixelReadoutCache:
+    """一次处理的像素读数缓存（全分辨率，源位深 float/原生）。
 
-
-def format_pixel_chain(colorspace_is_rgb: bool, input_is_rgb: bool,
-                       rv: int, gv: int, bv: int,
-                       yv: int, uv: int, vv: int, depth: int) -> str:
-    """按 comboBox_colorspace + 输入像素类型拼装像素读数链路。
-
-    RGB(HSV) 色彩空间：RGB 输入 -> "RGB(r,g,b), HSV(h,s,v)"
-                       YUV 输入 -> "YUV(y,u,v), RGB(r,g,b), HSY(h,s,y)"
-    YUV(YCbCr) 色彩空间：RGB 输入 -> "RGB(r,g,b), YUV(y,u,v), HSY(h,s,y)"
-                       YUV 输入 -> "YUV(y,u,v), HSY(h,s,y)"
-    HSV 由 RGB 计算；HSY 的 h 是 YCbCr 极角经 hue_ycbcr_to_hsv 换算的 HSV 同源
-    色相（与 HSV 读数同步），s/y 为归一化极径/亮度。
+    输入侧：in_native(1️⃣) / in_full_rgb·in_full_yuv(2️⃣, 视 clip 钳位/未钳位) / in_domain(3️⃣)。
+    输出侧：out_native(6️⃣) / out_full_rgb·out_full_yuv(5️⃣, 视 clip) / out_domain(4️⃣)。
     """
-    max_val = (1 << depth) - 1
-    h, s, v = rgb_to_hsv(np.array([rv, gv, bv], dtype=np.float32) / max_val)
-    cb = uv / max_val - 0.5
-    cr = vv / max_val - 0.5
-    hh = hue_ycbcr_to_hsv((np.degrees(np.arctan2(cr, cb)) + 360.0) % 360.0)
-    radius = np.sqrt(cb * cb + cr * cr)
-    ss = np.clip(radius / _BT709_CHROMA_MAX, 0.0, 1.0)
-    yy = yv / max_val
 
-    rgb_txt = f"RGB({int(rv)}, {int(gv)}, {int(bv)})"
-    yuv_txt = f"YUV({int(yv)}, {int(uv)}, {int(vv)})"
-    hsv_txt = f"HSV({float(h):.1f}, {float(s):.2f}, {float(v):.2f})"
-    hsy_txt = f"HSY({float(hh):.1f}, {float(ss):.2f}, {float(yy):.2f})"
+    in_native: tuple                       # (kind, (planes), depth)，kind='rgb'/'yuv'
+    in_full_rgb: np.ndarray | None         # (H,W,3) float full-range RGB（RGB 系处理域）
+    in_full_yuv: np.ndarray | None         # (H,W,3) float (Y, cb, cr)（YCbCr 处理域）
+    in_yuv_cs: int                         # in_full_yuv 的 colorspace 代码
+    in_domain: tuple                       # (name, h, s, x) 步骤 3️⃣
+    out_native: tuple                      # 输出帧 6️⃣ 的原生值 (kind, (planes), depth)
+    out_full_rgb: np.ndarray | None        # (H,W,3) 步骤 5️⃣ RGBF
+    out_full_yuv: np.ndarray | None        # (H,W,3) 步骤 5️⃣ YUVF
+    out_yuv_cs: int                        # out_full_yuv 的 colorspace 代码
+    out_domain: tuple                      # (name, h, s, x) 步骤 4️⃣
 
-    if colorspace_is_rgb and input_is_rgb:
-        return f"{rgb_txt}, {hsv_txt}"
-    if colorspace_is_rgb and not input_is_rgb:
-        return f"{yuv_txt}, {rgb_txt}, {hsv_txt}"
-    if not colorspace_is_rgb and input_is_rgb:
-        return f"{rgb_txt}, {yuv_txt}, {hsy_txt}"
-    return f"{yuv_txt}, {rgb_txt}, {hsy_txt}"
+
+def _cs_family(cs: int) -> int:
+    """Colorspace 代码 -> 矩阵族代表代码（601->2，709->4，2020->6）。"""
+    return {2: 2, 3: 2, 4: 4, 5: 4, 6: 6, 7: 6}.get(cs, 4)
+
+
+def hue_hsv_to_ycbcr(h, cs: int = 4) -> np.ndarray:
+    """HSV 色相 -> YCbCr 极角（[0,360)）。按色彩空间矩阵；支持标量或数组。"""
+    hsv, ycbcr = _HUE_LUTS[_cs_family(cs)]
+    return np.interp(np.asarray(h, dtype=np.float64), hsv, ycbcr) % 360.0
+
+
+def hue_ycbcr_to_hsv(h, cs: int = 4) -> np.ndarray:
+    """YCbCr 极角 -> HSV 色相（[0,360)）。按色彩空间矩阵；处理 <起点 的环绕段。"""
+    hsv, ycbcr = _HUE_LUTS[_cs_family(cs)]
+    x = np.asarray(h, dtype=np.float64) % 360.0
+    start = float(ycbcr[0])
+    x = np.where(x < start, x + 360.0, x)                # [0,起点) 段 +360 对齐到单调区间
+    return np.interp(x, ycbcr, hsv) % 360.0
 
 
 class HsvUiWidget(QWidget):
@@ -151,6 +156,8 @@ class HsvUiController:
         input_pixel_edit: QLineEdit | None = None,
         output_pixel_edit: QLineEdit | None = None,
         params: dict | None = None,
+        output_fmt_provider: Callable[[], int] | None = None,
+        output_clrspc_provider: Callable[[], int] | None = None,
     ) -> None:
         """Bind to an HsvUiWidget instance and explicit host callbacks.
 
@@ -177,6 +184,8 @@ class HsvUiController:
         self._work_size_provider = work_size_provider
         self._input_pixel_edit = input_pixel_edit
         self._output_pixel_edit = output_pixel_edit
+        self._output_fmt_provider = output_fmt_provider
+        self._output_clrspc_provider = output_clrspc_provider
 
         # B/C/S/H 取值范围/步长配置（JSON 可覆盖；注入便于测试）。
         if params is None:
@@ -184,11 +193,9 @@ class HsvUiController:
         self._params = params
 
         self._latest_output_frame: ImageFrame | None = None
+        self._latest_preview_frame: ImageFrame | None = None
+        self._last_readout: PixelReadoutCache | None = None
         self._frozen_pixel: tuple[int, int] | None = None
-        self._last_input_rgb = None
-        self._last_output_rgb = None
-        self._last_input_yuv = None
-        self._last_output_yuv = None
         self._input_is_rgb = True     # 源输入帧是否为 RGB（决定像素读数链路前缀）
         self._s_mode = True           # False=add, True=mul（S 通道模式，.ui 默认 Mul）
         self._v_mode = 'add'          # 'add'/'mul'（V 通道模式，.ui 默认 Add）
@@ -216,6 +223,9 @@ class HsvUiController:
         # A checkable QGroupBox defaults to checked=True; the specified-hue
         # adjustment must be OFF by default so the whole image is processed.
         self.ui.groupBox_setHueRange.setChecked(False)
+        # 两个 CSC Clip 下拉总是启用（步骤 2️⃣/5️⃣ 钳位开关）。
+        self.ui.comboBox_inputCscClip.setEnabled(True)
+        self.ui.comboBox_outputCscClip.setEnabled(True)
 
     # ------------------------------------------------------------------ #
     # Public accessors                                                   #
@@ -261,7 +271,9 @@ class HsvUiController:
         """Wire HSV widget signals to internal handlers."""
         ui = self.ui
         ui.checkBox_enableHsvAdj.toggled.connect(self._schedule_auto_run)
-        ui.comboBox_colorspace.currentIndexChanged.connect(self._schedule_auto_run)
+        ui.comboBox_adjustField.currentIndexChanged.connect(self._schedule_auto_run)
+        ui.comboBox_inputCscClip.currentIndexChanged.connect(self._schedule_auto_run)
+        ui.comboBox_outputCscClip.currentIndexChanged.connect(self._schedule_auto_run)
         ui.comboBox_modeV.currentIndexChanged.connect(self._on_v_mode_changed)
         ui.comboBox_modeS.currentIndexChanged.connect(self._on_s_mode_changed)
         ui.comboBox_modeH.currentIndexChanged.connect(self._on_h_mode_changed)
@@ -489,9 +501,11 @@ class HsvUiController:
             src_w, src_h = input_frame.width, input_frame.height
             work_w, work_h = self._resolve_work_size(src_w, src_h)
             self._work_size = (work_w, work_h)
-            out_frame = self._process_frame(input_frame, (work_w, work_h))
-            self._output_callback(out_frame)
+            out_frame, preview_frame = self._process_frame(input_frame, (work_w, work_h))
             self._latest_output_frame = out_frame
+            self._latest_preview_frame = preview_frame
+            # 预览显示步骤 5️⃣ 的处理域结果（full-range RGB / yuv444p full）。
+            self._output_callback(preview_frame)
             elapsed_ms = (time.time() - start_time) * 1000.0
             self._refresh_frozen_readout()
             self._status_callback(f"Processing completed in {elapsed_ms:.2f} ms")
@@ -502,21 +516,23 @@ class HsvUiController:
             self._status_callback(f"Processing failed: {exc}")
 
     def get_full_res_output(self) -> ImageFrame | None:
-        """Return a full-resolution output frame for saving.
+        """Return a full-resolution output frame（步骤 6️⃣）for saving.
 
         若最近一次预览处理已在源分辨率进行（源 <= 预览目标），直接复用
-        缓存帧；否则按源分辨率重算一次，保证保存的文件为精确结果。
+        缓存帧；否则按源分辨率重算一次。返回前按所选输出 format 转换
+        （子采样/打包），保证保存的文件与所选格式一致。
         """
         input_frame = self._input_provider()
         if input_frame is None:
             return None
         src_w, src_h = input_frame.width, input_frame.height
         if self._work_size == (src_w, src_h) and self._latest_output_frame is not None:
-            return self._latest_output_frame
-        out_frame = self._process_frame(input_frame)
-        self._latest_output_frame = out_frame
-        self._work_size = (src_w, src_h)
-        return out_frame
+            out_444 = self._latest_output_frame
+        else:
+            out_444, _preview = self._process_frame(input_frame)
+            self._latest_output_frame = out_444
+            self._work_size = (src_w, src_h)
+        return self._apply_output_format(out_444, self._output_fmt_code())
 
     def _resolve_work_size(self, src_w: int, src_h: int) -> tuple[int, int]:
         """Return the processing resolution: min(source, preview target)."""
@@ -526,12 +542,12 @@ class HsvUiController:
 
     def _process_frame(
         self, frame: ImageFrame, work_wh: tuple[int, int] | None = None,
-    ) -> ImageFrame:
-        """Process one frame (optionally downsampled) and return the output frame.
+    ) -> tuple[ImageFrame, ImageFrame]:
+        """Process one frame (optionally downsampled).
 
         处理分辨率取 min(源分辨率, work_wh)；降采样处理完成后升采样回源
         分辨率，保证预览显示与输入对齐（预览显示逻辑无需感知降采样）。
-        根据 comboBox_colorspace 分派到 HSV 域或 YUV(YCbCr) 域处理。
+        返回 (输出帧 6️⃣, 预览帧 5️⃣)；按 adjustField 分派到 RGB 系或 YCbCr 系处理。
         """
         src_w, src_h = frame.width, frame.height
         work_frame = frame
@@ -539,42 +555,56 @@ class HsvUiController:
             work_frame = self._downsample_frame(frame, work_wh[0], work_wh[1])
 
         if self._is_yuv_colorspace():
-            out_frame, in_rgb, out_rgb, depth, out_yuv = self._process_frame_ycbcr(work_frame)
+            out_frame, preview_frame, readout = self._process_frame_yuv(work_frame)
         else:
-            out_frame, in_rgb, out_rgb, depth = self._process_frame_hsv(work_frame)
-            out_yuv = None
+            out_frame, preview_frame, readout = self._process_frame_rgb(work_frame)
 
         # 降采样处理时升采样回源分辨率，保证预览/像素读数与输入对齐。
         if work_frame is not frame:
             out_frame = self._upsample_frame(out_frame, src_h, src_w)
-            in_rgb = self._upsample_planar(in_rgb, src_h, src_w)
-            out_rgb = self._upsample_planar(out_rgb, src_h, src_w)
-            if out_yuv is not None:
-                yuv_planar = self._upsample_planar(
-                    np.stack([out_yuv[0], out_yuv[1], out_yuv[2]], axis=0),
-                    src_h, src_w)
-                out_yuv = (yuv_planar[0], yuv_planar[1], yuv_planar[2], depth)
+            preview_frame = self._upsample_frame(preview_frame, src_h, src_w)
+            readout = self._upsample_readout(readout, src_h, src_w)
 
-        # Cache source-resolution RGB/YUV planes for the frozen-pixel readout.
-        # YUV 域输出读数直接用输出帧原始 YUV（不经 RGB 往返，避免色域外颜色被
-        # RGB clip 后读数失真）；RGB 域无原始 YUV，按 RGB 推导。
+        self._last_readout = readout
         self._input_is_rgb = frame.is_rgb
-        self._last_input_rgb = (in_rgb[0], in_rgb[1], in_rgb[2], depth)
-        self._last_output_rgb = (out_rgb[0], out_rgb[1], out_rgb[2], depth)
-        self._last_input_yuv = self._rgb_planes_to_yuv(in_rgb, depth)
-        self._last_output_yuv = (out_yuv if out_yuv is not None
-                                 else self._rgb_planes_to_yuv(out_rgb, depth))
-        return out_frame
+        return out_frame, preview_frame
 
     @staticmethod
-    def _rgb_planes_to_yuv(planes: np.ndarray, depth: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
-        """(3, H, W) full-range RGB -> (y, u, v, depth) YUV444p（BT.709 full）。"""
-        y, u, v = rgb_to_yuv(planes[0], planes[1], planes[2], input_cs=1, output_cs=5)
-        return y, u, v, depth
+    def _upsample_readout(readout: "PixelReadoutCache", out_h: int, out_w: int) -> "PixelReadoutCache":
+        """最近邻把读数缓存的各 (H,W) 数组升采样到 (out_h, out_w)。"""
+        def _up_native(native):
+            kind, planes, depth = native
+            planar = np.stack(planes, axis=0)
+            up = HsvUiController._upsample_planar(planar, out_h, out_w)
+            return (kind, (up[0], up[1], up[2]), depth)
+
+        def _up_arr(arr):
+            if arr is None:
+                return None
+            return HsvUiController._upsample_planar(
+                arr.transpose(2, 0, 1), out_h, out_w).transpose(1, 2, 0)
+
+        def _up_dom(dom):
+            name, h, s, x = dom
+            up2d = lambda a: HsvUiController._upsample_planar(a[None, ...], out_h, out_w)[0]
+            return (name, up2d(h), up2d(s), up2d(x))
+
+        return PixelReadoutCache(
+            in_native=_up_native(readout.in_native),
+            in_full_rgb=_up_arr(readout.in_full_rgb),
+            in_full_yuv=_up_arr(readout.in_full_yuv),
+            in_yuv_cs=readout.in_yuv_cs,
+            in_domain=_up_dom(readout.in_domain),
+            out_native=_up_native(readout.out_native),
+            out_full_rgb=_up_arr(readout.out_full_rgb),
+            out_full_yuv=_up_arr(readout.out_full_yuv),
+            out_yuv_cs=readout.out_yuv_cs,
+            out_domain=_up_dom(readout.out_domain),
+        )
 
     def _is_yuv_colorspace(self) -> bool:
-        """True when the BCSH processing domain is YUV(YCbCr)."""
-        return self.ui.comboBox_colorspace.currentText() == "YUV(YCbCr)"
+        """True when the BCSH processing domain is YCbCr."""
+        return self.ui.comboBox_adjustField.currentText() == "YCbCr"
 
     def _hue_blend_weights_for(self, hue_deg: np.ndarray) -> np.ndarray:
         """Return per-pixel blend weight from the specified-hue group box."""
@@ -590,98 +620,326 @@ class HsvUiController:
             )
         return np.ones_like(hue_deg, dtype=np.float32)
 
-    def _process_frame_hsv(
+    def _process_frame_rgb(
         self, work_frame: ImageFrame,
-    ) -> tuple[ImageFrame, np.ndarray, np.ndarray, int]:
-        """RGB(HSV) 路径：RGB->HSV 调整后回 RGB。
+    ) -> tuple[ImageFrame, ImageFrame, PixelReadoutCache]:
+        """RGB 系（HSV/HSI/HSL）处理：步骤 1️⃣~6️⃣。
 
-        Returns (out_frame_rgb, in_rgb_planes, out_rgb_planes, depth).
+        处理域 = full-range RGB。输入 rgb/yuv 两分支（用例 1/3）。
+        Returns (输出帧 6️⃣, 预览帧 5️⃣, 读数缓存).
         """
-        r, g, b, depth = self._frame_to_rgb_planar(work_frame)
-        max_val = (1 << depth) - 1
-        rgb_planar = np.stack([r, g, b], axis=0).astype(np.float32)   # (3, H, W)
-        rgb_norm = rgb_planar.transpose(1, 2, 0) / max_val            # (H, W, 3)
-        hsv = np.stack(rgb_to_hsv(rgb_norm), axis=-1)                 # (H, W, 3)
-        h_deg = hsv[..., 0]
+        depth = work_frame.depth
+        input_is_rgb = work_frame.is_rgb
+        in_clip = self._input_csc_clip()
+        out_clip = self._output_csc_clip()
+        field = self._adjust_field()
+        to_domain, from_domain = _DOMAIN_CONVERTERS[field]
 
-        # Fully-adjusted HSV -> RGB.
-        adj_hsv = self._compute_adjusted_hsv(hsv, h_deg)
-        rgb_adj = hsv_to_rgb(adj_hsv)                                 # (H, W, 3)
+        # ---- 1️⃣ 原始输入 ----
+        in_native = self._native_planes(work_frame)
 
-        # Specified-hue blend weight (1.0 = full image), blend in RGB space.
+        # ---- 2️⃣ 输入 CSC -> full-range RGB（inputCscClip 决定钳位） ----
+        if input_is_rgb:
+            rgb_2 = self._rgb_full_from_frame(work_frame)      # limited->full 展开
+        else:
+            rgb_2 = self._yuv_to_rgb_full_float(work_frame)    # 输入矩阵，可越界
+        if in_clip:
+            rgb_2 = np.clip(rgb_2, 0.0, 1.0)
+
+        # ---- 3️⃣ 域转换（有钳位） ----
+        domain = np.stack(to_domain(rgb_2), axis=-1)           # (H,W,3)
+        h_deg = domain[..., 0]
+
+        # ---- 4️⃣ BCSH 调整 ----
+        adj = self._compute_adjusted_hsv(domain, h_deg)
+
+        # ---- 5️⃣ 回 full-range RGB（域往返本身有钳位 -> 恒 [0,1]） ----
+        rgb_5 = from_domain(adj)
         w = self._hue_blend_weights_for(h_deg)
-        rgb_out = rgb_norm * (1.0 - w[..., None]) + rgb_adj * w[..., None]
-        rgb_out = np.clip(rgb_out, 0.0, 1.0)
-        out = (rgb_out * max_val + 0.5).astype(r.dtype)
-        out_planar = out.transpose(2, 0, 1)                           # (3, H, W)
-        out_fmt = _PLANAR_RGB_10 if depth >= 10 else _PLANAR_RGB_8
-        # HSV 输出始终为 full-range RGB；目标色彩空间跟随输入
-        # (limited -> RGB_Limited(0)，full -> RGB_Full(1))，保存时按需 f2l。
-        out_clrspc = 0 if is_limited_range(work_frame.clrspc) else 1
-        out_frame = ImageFrame(out_planar[0], out_planar[1], out_planar[2], out_fmt, out_clrspc)
-        in_planar = np.stack([r, g, b], axis=0)
-        return out_frame, in_planar, out_planar, depth
+        rgb_5 = rgb_2 * (1.0 - w[..., None]) + rgb_5 * w[..., None]
+        rgb_5 = np.clip(rgb_5, 0.0, 1.0)
+        del out_clip   # RGB 系域往返恒钳位，outputCscClip 无额外影响
 
-    def _process_frame_ycbcr(
+        # ---- 预览帧（步骤 5️⃣，full-range RGB，存储必钳位） ----
+        preview_frame = self._rgb_full_to_frame(rgb_5, depth)
+
+        # ---- 6️⃣ 输出 CSC（必钳位，444 平面帧；格式转换在保存时按全分辨率进行） ----
+        out_frame = self._to_output_frame_rgb(rgb_5, depth)
+        out_native = self._native_planes(out_frame)
+
+        readout = PixelReadoutCache(
+            in_native=in_native,
+            in_full_rgb=rgb_2, in_full_yuv=None, in_yuv_cs=5,
+            in_domain=(field, domain[..., 0], domain[..., 1], domain[..., 2]),
+            out_native=out_native,
+            out_full_rgb=rgb_5, out_full_yuv=None, out_yuv_cs=5,
+            out_domain=(field, adj[..., 0], adj[..., 1], adj[..., 2]),
+        )
+        return out_frame, preview_frame, readout
+
+    def _process_frame_yuv(
         self, work_frame: ImageFrame,
-    ) -> tuple[ImageFrame, np.ndarray, np.ndarray, int]:
-        """YUV(YCbCr) 路径：Y 上调 B/C，Cb/Cr 极坐标上调 H(角度)/S(极径)。
+    ) -> tuple[ImageFrame, ImageFrame, PixelReadoutCache]:
+        """YCbCr 处理：步骤 1️⃣~6️⃣。
 
-        输入统一转 full-range YUV444p（BT.709 full），uv 去中心 0.5 得 YCbCr；
-        以 (角度, 极径归一化, Y) 复用 adjust_hsv 的调整逻辑；处理后再加回
-        0.5 转回 YUV444p 作为输出帧，并转 RGB 供冻结像素读数。
-
-        Returns (out_frame_yuv444p, in_rgb_planes, out_rgb_planes, depth, out_yuv).
-        out_yuv = (y_out, u_out, v_out, depth)：输出帧原始 YUV，供像素读数直接显示。
+        处理域 = yuv444p full-range（归一化 (Y, cb, cr)，cb/cr 去中心）。
+        输入 rgb 用 BT.709 系数（用例 2）；输入 yuv 保持输入矩阵（用例 4）。
+        Returns (输出帧 6️⃣, 预览帧 5️⃣, 读数缓存).
         """
-        r, g, b, depth = self._frame_to_rgb_planar(work_frame)
-        max_val = (1 << depth) - 1
-        rgb_norm = np.stack([r, g, b], axis=-1).astype(np.float32) / max_val   # (H,W,3)
+        depth = work_frame.depth
+        input_is_rgb = work_frame.is_rgb
+        in_clip = self._input_csc_clip()
+        out_clip = self._output_csc_clip()
 
-        # 用浮点 BT.709 矩阵直接得 Y∈[0,1]、Cb/Cr∈[-0.5,0.5]（避免中间 8bit 量化损失）。
-        r2y, y2r = _get_csc_matrices(5)
-        yuv = rgb_norm @ r2y.T
-        y_n = np.clip(yuv[..., 0], 0.0, 1.0)
-        cb = yuv[..., 1]
-        cr = yuv[..., 2]
+        in_native = self._native_planes(work_frame)
 
-        # Cb/Cr 极坐标：H=角度，S=极径。归一化因子取最大有效极径
-        # （一次/二次色顶点，BT.709 约 0.596），保证有效色不 clip、中性往返无损。
+        # ---- 2️⃣ 输入 CSC -> yuv full-range（inputCscClip 决定钳位） ----
+        if input_is_rgb:
+            proc_cs = 5                                          # BT.709
+            rgb = self._rgb_full_from_frame(work_frame)
+            r2y, _ = _get_csc_matrices(proc_cs)
+            yuv = rgb @ r2y.T                                    # (Y, cb, cr)
+        else:
+            proc_cs = work_frame.clrspc if work_frame.clrspc in (2, 3, 4, 5, 6, 7) else 5
+            yuv = self._yuv_full_from_frame(work_frame)          # 保持输入矩阵
+        y_n, cb, cr = yuv[..., 0], yuv[..., 1], yuv[..., 2]
+        if in_clip:
+            y_n = np.clip(y_n, 0.0, 1.0)
+            cb = np.clip(cb, -0.5, 0.5)
+            cr = np.clip(cr, -0.5, 0.5)
+        # 读数用的步骤 2️⃣ 值：clip ON 显示钳位后值，OFF 显示原始值。
+        yuv_in = np.stack([y_n, cb, cr], axis=-1)
+
+        # ---- 3️⃣ YCbCr H/S（极坐标，按处理矩阵归一化） ----
+        chroma_max = _CHROMA_MAX[_cs_family(proc_cs)]
         radius = np.sqrt(cb * cb + cr * cr)
-        s_norm = np.clip(radius / _BT709_CHROMA_MAX, 0.0, 1.0)
+        s_norm = np.clip(radius / chroma_max, 0.0, 1.0)
         angle = (np.degrees(np.arctan2(cr, cb)) + 360.0) % 360.0
+        hue_sync = hue_ycbcr_to_hsv(angle, proc_cs)
 
-        # 色相同步：YCbCr 极角先换算成 HSV 同源色相再做调整，使 YUV 域与 HSV 域的
-        # dh/目标色/指定色域语义一致；调整后再换算回 YCbCr 极角重建 Cb/Cr。
-        hue_sync = hue_ycbcr_to_hsv(angle)
-        yhs = np.stack([hue_sync, s_norm, y_n], axis=-1)              # (H, W, 3)
+        # ---- 4️⃣ BCSH 调整 ----
+        yhs = np.stack([hue_sync, s_norm, y_n], axis=-1)
         adj = self._compute_adjusted_hsv(yhs, hue_sync)
         hue_sync_a, s_a, y_a = adj[..., 0], adj[..., 1], adj[..., 2]
-        angle_a = hue_hsv_to_ycbcr(hue_sync_a)
+        angle_a = hue_hsv_to_ycbcr(hue_sync_a, proc_cs)
 
-        # 指定色调按同步后的色相计算权重，在 YCbCr 笛卡尔域 blend。
+        # ---- 5️⃣ 回 yuv full-range（outputCscClip 决定钳位） ----
         w = self._hue_blend_weights_for(hue_sync)
-        radius_a = s_a * _BT709_CHROMA_MAX
+        radius_a = s_a * chroma_max
         cb_a = radius_a * np.cos(np.radians(angle_a))
         cr_a = radius_a * np.sin(np.radians(angle_a))
-        cb_b = cb * (1.0 - w) + cb_a * w
-        cr_b = cr * (1.0 - w) + cr_a * w
-        y_b = y_n * (1.0 - w) + y_a * w
+        cb_5 = cb * (1.0 - w) + cb_a * w
+        cr_5 = cr * (1.0 - w) + cr_a * w
+        y_5 = y_n * (1.0 - w) + y_a * w
+        yuv_5_raw = np.stack([y_5, cb_5, cr_5], axis=-1)
+        if out_clip:
+            yuv_5_disp = np.clip(yuv_5_raw, (0.0, -0.5, -0.5), (1.0, 0.5, 0.5))
+        else:
+            yuv_5_disp = yuv_5_raw
 
-        # 输出 YUV444p（BT.709 full），最终量化到源深度。
-        # U/V 中心用真实 uv_center（128/512），与 yuv_to_rgb 解码一致，避免
-        # 用 0.5（=127.5/255）带来的半像素中心误差。
-        uv_center = _csc_range_params(depth)["uv_center"]
-        y_out = np.clip(np.rint(y_b * max_val), 0, max_val).astype(r.dtype)
-        u_out = np.clip(np.rint(cb_b * max_val + uv_center), 0, max_val).astype(r.dtype)
-        v_out = np.clip(np.rint(cr_b * max_val + uv_center), 0, max_val).astype(r.dtype)
+        # ---- 预览帧（步骤 5️⃣，yuv444p full，存储必钳位） ----
+        preview_frame = self._yuv_norm_to_frame(
+            np.clip(yuv_5_raw, (0.0, -0.5, -0.5), (1.0, 0.5, 0.5)), depth, proc_cs)
+
+        # ---- 6️⃣ 输出 CSC（必钳位，444 平面帧；格式转换在保存时按全分辨率进行） ----
+        out_frame = self._to_output_frame_yuv(yuv_5_disp, proc_cs, depth)
+        out_native = self._native_planes(out_frame)
+
+        readout = PixelReadoutCache(
+            in_native=in_native,
+            in_full_rgb=None, in_full_yuv=yuv_in, in_yuv_cs=proc_cs,
+            in_domain=("HSY", hue_sync, s_norm, y_n),
+            out_native=out_native,
+            out_full_rgb=None, out_full_yuv=yuv_5_disp, out_yuv_cs=proc_cs,
+            out_domain=("HSY", hue_sync_a, s_a, y_a),
+        )
+        return out_frame, preview_frame, readout
+
+    # ------------------------------------------------------------------ #
+    # 统一流水线辅助（步骤 2️⃣/5️⃣/6️⃣ 的 CSC 与帧封装）                    #
+    # ------------------------------------------------------------------ #
+
+    def _adjust_field(self) -> str:
+        """当前处理色域名（HSV/HSI/HSL/YCbCr）。"""
+        return self.ui.comboBox_adjustField.currentText()
+
+    def _input_csc_clip(self) -> bool:
+        """inputCscClip ON -> 步骤 2️⃣ 输入 CSC 结果钳位。"""
+        return self.ui.comboBox_inputCscClip.currentText() == "ON"
+
+    def _output_csc_clip(self) -> bool:
+        """outputCscClip ON -> 步骤 5️⃣ 处理域输出钳位。"""
+        return self.ui.comboBox_outputCscClip.currentText() == "ON"
+
+    def _output_fmt_code(self) -> int:
+        """所选输出格式代码（io_ui 提供；默认 YUV444P）。"""
+        if self._output_fmt_provider is not None:
+            return self._output_fmt_provider()
+        return _PLANAR_YUV_8
+
+    def _output_clrspc(self) -> int:
+        """所选输出色彩空间代码（io_ui 提供；默认 BT.709 full）。"""
+        if self._output_clrspc_provider is not None:
+            return self._output_clrspc_provider()
+        return 5
+
+    @staticmethod
+    def _native_planes(frame: ImageFrame) -> tuple:
+        """步骤 1️⃣/6️⃣ 原始（native 量化）数据：(kind, (p0,p1,p2), depth)。"""
+        kind = 'rgb' if frame.is_rgb else 'yuv'
+        return (kind, (frame.pyr, frame.pug, frame.pvb), frame.depth)
+
+    @staticmethod
+    def _rgb_full_from_frame(frame: ImageFrame) -> np.ndarray:
+        """RGB 帧 -> full-range RGB float (H,W,3)；limited 展开 full。"""
+        depth = frame.depth
+        max_val = (1 << depth) - 1
+        r, g, b = (frame.pyr.astype(np.float32), frame.pug.astype(np.float32),
+                   frame.pvb.astype(np.float32))
+        if frame.clrspc == 0:  # limited RGB -> full 展开
+            rp = _csc_range_params(depth)
+            lo = rp["yr_lo_l"]
+            scale = max_val / (rp["yr_hi_l"] - lo)
+            r = (r - lo) * scale
+            g = (g - lo) * scale
+            b = (b - lo) * scale
+        return np.stack([r, g, b], axis=-1) / max_val
+
+    @staticmethod
+    def _yuv_to_rgb_full_float(frame: ImageFrame) -> np.ndarray:
+        """YUV 帧 -> full-range RGB float (H,W,3)；用输入矩阵，不钳位（可越界）。"""
+        depth = frame.depth
+        max_val = (1 << depth) - 1
+        input_cs = frame.clrspc if frame.clrspc in (2, 3, 4, 5, 6, 7) else 5
+        rp = _csc_range_params(depth)
+        uv_center = rp["uv_center"]
+        y = frame.pyr.astype(np.float32)
+        u = frame.pug.astype(np.float32)
+        v = frame.pvb.astype(np.float32)
+        if is_limited_range(input_cs):
+            scale_y = max_val / (rp["yr_hi_l"] - rp["yr_lo_l"])
+            scale_c = max_val / (rp["uv_hi_l"] - rp["uv_lo_l"])
+            y_f = (y - rp["yr_lo_l"]) * scale_y / max_val
+            u_f = (u - uv_center) * scale_c / max_val
+            v_f = (v - uv_center) * scale_c / max_val
+        else:
+            y_f = y / max_val
+            u_f = (u - uv_center) / max_val
+            v_f = (v - uv_center) / max_val
+        _, y2r = _get_csc_matrices(input_cs)
+        return np.stack([y_f, u_f, v_f], axis=-1) @ y2r.T
+
+    @staticmethod
+    def _yuv_full_from_frame(frame: ImageFrame) -> np.ndarray:
+        """YUV 帧 -> full-range 归一化 (Y, cb, cr) (H,W,3)；保持输入矩阵、去中心。"""
+        depth = frame.depth
+        max_val = (1 << depth) - 1
+        rp = _csc_range_params(depth)
+        uv_center = rp["uv_center"]
+        y = frame.pyr.astype(np.float32)
+        u = frame.pug.astype(np.float32)
+        v = frame.pvb.astype(np.float32)
+        if is_limited_range(frame.clrspc):
+            scale_y = max_val / (rp["yr_hi_l"] - rp["yr_lo_l"])
+            scale_c = max_val / (rp["uv_hi_l"] - rp["uv_lo_l"])
+            y_f = (y - rp["yr_lo_l"]) * scale_y / max_val
+            cb = (u - uv_center) * scale_c / max_val
+            cr = (v - uv_center) * scale_c / max_val
+        else:
+            y_f = y / max_val
+            cb = (u - uv_center) / max_val
+            cr = (v - uv_center) / max_val
+        return np.stack([y_f, cb, cr], axis=-1)
+
+    @staticmethod
+    def _rgb_full_to_frame(rgb_norm: np.ndarray, depth: int) -> ImageFrame:
+        """full-range RGB float -> RGB planar 帧（clrspc=1 full，必钳位量化）。"""
+        max_val = (1 << depth) - 1
+        rgb = np.clip(np.rint(rgb_norm * max_val), 0, max_val)
+        planar = rgb.transpose(2, 0, 1)
+        dtype = np.uint16 if depth >= 10 else np.uint8
+        out_fmt = _PLANAR_RGB_10 if depth >= 10 else _PLANAR_RGB_8
+        return ImageFrame(planar[0].astype(dtype), planar[1].astype(dtype),
+                          planar[2].astype(dtype), out_fmt, 1)
+
+    @staticmethod
+    def _yuv_norm_to_frame(yuv_norm: np.ndarray, depth: int, cs: int) -> ImageFrame:
+        """归一化 (Y, cb, cr) -> yuv444p full-range 帧（必钳位量化）。"""
+        max_val = (1 << depth) - 1
+        rp = _csc_range_params(depth)
+        uv_center = rp["uv_center"]
+        y = np.clip(np.rint(yuv_norm[..., 0] * max_val), 0, max_val)
+        u = np.clip(np.rint(yuv_norm[..., 1] * max_val + uv_center), 0, max_val)
+        v = np.clip(np.rint(yuv_norm[..., 2] * max_val + uv_center), 0, max_val)
+        dtype = np.uint16 if depth >= 10 else np.uint8
         out_fmt = _PLANAR_YUV_10 if depth >= 10 else _PLANAR_YUV_8
-        out_frame = ImageFrame(y_out, u_out, v_out, out_fmt, 5)       # BT.709 full YUV444p
+        clrspc = (cs | 1) if cs in (2, 3, 4, 5, 6, 7) else 5    # limited -> full 同族
+        return ImageFrame(y.astype(dtype), u.astype(dtype), v.astype(dtype), out_fmt, clrspc)
 
-        in_planar = np.stack([r, g, b], axis=0)
-        rr, gg, bb = yuv_to_rgb(y_out, u_out, v_out, input_cs=5, output_cs=1)
-        out_planar = np.stack([rr, gg, bb], axis=0)
-        return out_frame, in_planar, out_planar, depth, (y_out, u_out, v_out, depth)
+    @staticmethod
+    def _rgb_float_to_uint(rgb_norm: np.ndarray, depth: int) -> np.ndarray:
+        """full-range RGB float -> uint 量化（钳位 [0,1]，按 depth）。"""
+        max_val = (1 << depth) - 1
+        q = np.clip(np.rint(rgb_norm * max_val), 0, max_val)
+        dtype = np.uint16 if depth >= 10 else np.uint8
+        return q.astype(dtype)
+
+    @staticmethod
+    def _encode_rgb_frame(rgb_norm: np.ndarray, depth: int, out_cs: int) -> ImageFrame:
+        """full-range RGB float -> 输出 RGB 444 平面帧（按 out_cs 编码，必钳位）。"""
+        max_val = (1 << depth) - 1
+        if out_cs == 0:  # limited RGB
+            rp = _csc_range_params(depth)
+            lo = rp["yr_lo_l"]
+            scale = (rp["yr_hi_l"] - lo) / max_val
+            r = np.clip(np.rint(rgb_norm[..., 0] * max_val * scale + lo), 0, max_val)
+            g = np.clip(np.rint(rgb_norm[..., 1] * max_val * scale + lo), 0, max_val)
+            b = np.clip(np.rint(rgb_norm[..., 2] * max_val * scale + lo), 0, max_val)
+        else:  # full RGB
+            r = np.clip(np.rint(rgb_norm[..., 0] * max_val), 0, max_val)
+            g = np.clip(np.rint(rgb_norm[..., 1] * max_val), 0, max_val)
+            b = np.clip(np.rint(rgb_norm[..., 2] * max_val), 0, max_val)
+        dtype = np.uint16 if depth >= 10 else np.uint8
+        fmt = _PLANAR_RGB_10 if depth >= 10 else _PLANAR_RGB_8
+        return ImageFrame(r.astype(dtype), g.astype(dtype), b.astype(dtype), fmt, out_cs)
+
+    @staticmethod
+    def _apply_output_format(frame: ImageFrame, fmt: int) -> ImageFrame:
+        """把 planar 输出帧转到所选输出格式（子采样/深度；交错在写出时进行）。"""
+        if frame.fmt == fmt:
+            return frame
+        return frame.copy().to_format(fmt)
+
+    def _to_output_frame_rgb(self, rgb_norm: np.ndarray, depth: int) -> ImageFrame:
+        """步骤 6️⃣（RGB 系）：full-range RGB -> 444 平面输出帧（必钳位）。"""
+        out_cs = self._output_clrspc()
+        out_fmt = self._output_fmt_code()
+        if is_rgb_format(out_fmt):
+            return self._encode_rgb_frame(rgb_norm, depth, out_cs)
+        # YUV 输出：RGB uint -> YUV（out_cs 编码，rgb_to_yuv 内部钳位量化）
+        rgb_u = self._rgb_float_to_uint(rgb_norm, depth)
+        y, u, v = rgb_to_yuv(rgb_u[..., 0], rgb_u[..., 1], rgb_u[..., 2],
+                             input_cs=1, output_cs=out_cs)
+        fmt = _PLANAR_YUV_10 if depth >= 10 else _PLANAR_YUV_8
+        return ImageFrame(y, u, v, fmt, out_cs)
+
+    def _to_output_frame_yuv(self, yuv_norm: np.ndarray, proc_cs: int, depth: int) -> ImageFrame:
+        """步骤 6️⃣（YCbCr 系）：处理域 yuv（proc_cs full）-> 444 平面输出帧（必钳位）。
+
+        统一经 full-RGB 桥（y2r -> rgb 钳位 -> 输出编码），系数与
+        script/csc/get_csc_coefs.py 一致；跨族（601/709 <-> 2020）由 UI 限制保证不出现。
+        """
+        out_cs = self._output_clrspc()
+        out_fmt = self._output_fmt_code()
+        _, y2r = _get_csc_matrices(proc_cs)
+        rgb = np.clip(yuv_norm @ y2r.T, 0.0, 1.0)
+        if is_rgb_format(out_fmt):
+            return self._encode_rgb_frame(rgb, depth, out_cs)
+        rgb_u = self._rgb_float_to_uint(rgb, depth)
+        y, u, v = rgb_to_yuv(rgb_u[..., 0], rgb_u[..., 1], rgb_u[..., 2],
+                             input_cs=1, output_cs=out_cs)
+        fmt = _PLANAR_YUV_10 if depth >= 10 else _PLANAR_YUV_8
+        return ImageFrame(y, u, v, fmt, out_cs)
 
     @staticmethod
     def _upsample_frame(frame: ImageFrame, out_h: int, out_w: int) -> ImageFrame:
@@ -723,25 +981,6 @@ class HsvUiController:
         yi = np.minimum((np.arange(out_h) * h / max(1, out_h)).astype(int), h - 1)
         xi = np.minimum((np.arange(out_w) * w / max(1, out_w)).astype(int), w - 1)
         return planar[:, yi][:, :, xi]
-
-    def _frame_to_rgb_planar(self, frame: ImageFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
-        """Return (r, g, b, depth) full-range RGB planar (H, W) arrays."""
-        depth = frame.depth
-        max_val = (1 << depth) - 1
-        if frame.is_rgb:
-            r, g, b = frame.pyr, frame.pug, frame.pvb
-            if frame.clrspc == 0:  # limited RGB -> expand to full (depth-aware)
-                # 8bit [16,235] / 10bit [64,940]
-                rp = _csc_range_params(depth)
-                lo = rp["yr_lo_l"]
-                scale = max_val / (rp["yr_hi_l"] - lo)
-                r = np.clip(np.rint((r.astype(np.float32) - lo) * scale), 0, max_val).astype(r.dtype)
-                g = np.clip(np.rint((g.astype(np.float32) - lo) * scale), 0, max_val).astype(g.dtype)
-                b = np.clip(np.rint((b.astype(np.float32) - lo) * scale), 0, max_val).astype(b.dtype)
-        else:
-            input_cs = frame.clrspc if frame.clrspc in (2, 3, 4, 5, 6, 7) else 5
-            r, g, b = yuv_to_rgb(frame.pyr, frame.pug, frame.pvb, input_cs=input_cs, output_cs=1)
-        return r, g, b, depth
 
     def _mode_c_code(self) -> str:
         """Map comboBox_modeC text to adjust_hsv mode_c ('mid'/'zero'/'both')."""
@@ -848,39 +1087,65 @@ class HsvUiController:
     # ------------------------------------------------------------------ #
 
     def _refresh_frozen_readout(self) -> None:
-        """Write the pixel readout chain of the frozen pixel into the preview readouts.
-
-        仅当本地 RGB/YUV 缓存齐全时覆盖对应输入/输出框；缓存缺失（例如
-        enableHsvAdj 关闭、尚未处理过）时保留 preview 已填充的值。
-        """
+        """Write the pixel readout chain of the frozen pixel into the preview readouts."""
         if self._frozen_pixel is None:
             return
         x_pos, y_pos = self._frozen_pixel
-        if (self._last_input_rgb is not None and self._last_input_yuv is not None
-                and self._input_pixel_edit is not None):
-            self._input_pixel_edit.setText(
-                self._pixel_chain_text(self._input_is_rgb,
-                                       self._last_input_rgb, self._last_input_yuv,
-                                       x_pos, y_pos))
-        if (self._last_output_rgb is not None and self._last_output_yuv is not None
-                and self._output_pixel_edit is not None):
-            self._output_pixel_edit.setText(
-                self._pixel_chain_text(self._input_is_rgb,
-                                       self._last_output_rgb, self._last_output_yuv,
-                                       x_pos, y_pos))
+        if self._input_pixel_edit is not None:
+            self._input_pixel_edit.setText(self.readout_text(x_pos, y_pos, "input"))
+        if self._output_pixel_edit is not None:
+            self._output_pixel_edit.setText(self.readout_text(x_pos, y_pos, "output"))
 
-    def _pixel_chain_text(self, input_is_rgb: bool, rgb_cache, yuv_cache,
-                          x_pos: int, y_pos: int) -> str:
-        """Format the frozen pixel readout chain from (r,g,b,depth)+(y,u,v,depth)."""
-        if rgb_cache is None or yuv_cache is None:
+    def readout_text(self, x_pos: int, y_pos: int, role: str) -> str:
+        """按当前用例拼装 (x,y) 像素读数；role='input'/'output'。
+
+        输入侧：native(1️⃣), 处理域 full(2️⃣), 域值(3️⃣)
+        输出侧：native(6️⃣), 处理域 full(5️⃣), 域值(4️⃣)
+        视 clip 选项显示钳位或未钳位值（归一化值可超出 [0,1]、出现负值）。
+        """
+        if self._last_readout is None:
             return ""
-        r, g, b, depth = rgb_cache
-        y, u, v, _ = yuv_cache
-        if y_pos < 0 or x_pos < 0 or y_pos >= r.shape[0] or x_pos >= r.shape[1]:
+        rc = self._last_readout
+        if role == "input":
+            native = rc.in_native
+            full = rc.in_full_rgb if rc.in_full_rgb is not None else rc.in_full_yuv
+            full_kind = 'rgb' if rc.in_full_rgb is not None else 'yuv'
+            dom = rc.in_domain
+        else:
+            native = rc.out_native
+            full = rc.out_full_rgb if rc.out_full_rgb is not None else rc.out_full_yuv
+            full_kind = 'rgb' if rc.out_full_rgb is not None else 'yuv'
+            dom = rc.out_domain
+        return self._format_chain(native, full, full_kind, dom, x_pos, y_pos)
+
+    @staticmethod
+    def _format_chain(native, full, full_kind: str, dom, x_pos: int, y_pos: int) -> str:
+        """拼装 `原生(整数), RGBF/YUVF(整数), 域(H,S,X 浮点)` 读数链。
+
+        RGBF/YUVF 按帧位深缩放为整数显示（YUVF 先转 YUV [0,1]：U=cb+0.5、
+        V=cr+0.5）；未钳位时可超 [0, max]（如负值）。域值（HSY/HSV/HSI/HSL）
+        按浮点显示。
+        """
+        kind, (p0, p1, p2), depth = native
+        if y_pos < 0 or x_pos < 0 or y_pos >= p0.shape[0] or x_pos >= p0.shape[1]:
             return ""
-        rv, gv, bv = int(r[y_pos, x_pos]), int(g[y_pos, x_pos]), int(b[y_pos, x_pos])
-        yv, uv, vv = int(y[y_pos, x_pos]), int(u[y_pos, x_pos]), int(v[y_pos, x_pos])
-        return format_pixel_chain(
-            colorspace_is_rgb=not self._is_yuv_colorspace(),
-            input_is_rgb=input_is_rgb,
-            rv=rv, gv=gv, bv=bv, yv=yv, uv=uv, vv=vv, depth=depth)
+        native_txt = "{}({}, {}, {})".format(
+            'RGB' if kind == 'rgb' else 'YUV',
+            int(p0[y_pos, x_pos]), int(p1[y_pos, x_pos]), int(p2[y_pos, x_pos]))
+        if full is None:
+            return native_txt
+        max_val = (1 << depth) - 1
+        f0 = float(full[y_pos, x_pos, 0]) * max_val
+        f1 = float(full[y_pos, x_pos, 1]) * max_val
+        f2 = float(full[y_pos, x_pos, 2]) * max_val
+        if full_kind == 'yuv':
+            f1 += 128/255 * max_val   # cb -> U
+            f2 += 128/255 * max_val   # cr -> V
+        full_txt = "{}({}, {}, {})".format(
+            'RGBF' if full_kind == 'rgb' else 'YUVF',
+            int(round(f0)), int(round(f1)), int(round(f2)))
+        name, dh, ds, dx = dom
+        dom_txt = "{}({:.1f}, {:.3f}, {:.3f})".format(
+            name, float(dh[y_pos, x_pos]), float(ds[y_pos, x_pos]),
+            float(dx[y_pos, x_pos]))
+        return f"{native_txt}, {full_txt}, {dom_txt}"

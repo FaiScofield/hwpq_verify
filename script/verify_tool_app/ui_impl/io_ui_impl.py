@@ -159,6 +159,7 @@ class IoUiController:
         parent_window: QMainWindow | None = None,
         on_input_loaded: Callable[[object, str], None] | None = None,
         on_load_config: Callable[[str], None] | None = None,
+        on_output_changed: Callable[[], None] | None = None,
         status_callback: Callable[[str], None] | None = None,
         auto_load_defaults: bool = True,
     ) -> None:
@@ -177,6 +178,7 @@ class IoUiController:
         self.ui = io_widget.ui
         self._on_input_loaded = on_input_loaded
         self._load_config_callback = on_load_config
+        self._on_output_changed = on_output_changed
         self._status_callback = status_callback
         self._input_loaded = False
         self._init_ui()
@@ -197,7 +199,7 @@ class IoUiController:
         self.ui.comboBox_input_colorspace.addItems(clrspc_rgb)
         self.ui.comboBox_output_colorspace.addItems(clrspc_rgb)
 
-        default_yuv_fmt = next((item for item in fmt_display if item.startswith("0x3 ")), "")
+        default_yuv_fmt = next((item for item in fmt_display if item.startswith("0x3-")), "")
         if default_yuv_fmt:
             self.ui.comboBox_input_format.setCurrentText(default_yuv_fmt)
             self.ui.comboBox_output_format.setCurrentText(default_yuv_fmt)
@@ -210,8 +212,10 @@ class IoUiController:
             self.ui.comboBox_input_colorspace.setCurrentText(default_yuv_clrspc)
             self.ui.comboBox_output_colorspace.setCurrentText(default_yuv_clrspc)
 
-        self.ui.comboBox_output_format.setEnabled(False)
-        self.ui.comboBox_output_colorspace.setEnabled(False)
+        # 输出 format/colorspace 由用户选择（不再跟随输入）；按输入家族限制刷新 colorspace 选项。
+        self.ui.comboBox_output_format.setEnabled(True)
+        self.ui.comboBox_output_colorspace.setEnabled(True)
+        self._refresh_output_colorspace_options()
         # Test-pattern controls are active only when the test-pattern radio is checked.
         self.ui.comboBox_useTestPattern.setEnabled(False)
         self.ui.label_valueV.setEnabled(False)
@@ -233,6 +237,8 @@ class IoUiController:
         self.ui.pushButton_load_config.clicked.connect(self._on_load_config)
         self.ui.comboBox_input_format.currentIndexChanged.connect(self._on_input_format_changed)
         self.ui.comboBox_input_colorspace.currentIndexChanged.connect(self._on_input_colorspace_changed)
+        self.ui.comboBox_output_format.currentIndexChanged.connect(self._on_output_format_changed)
+        self.ui.comboBox_output_colorspace.currentIndexChanged.connect(self._on_output_colorspace_changed)
         self.ui.radioButton_useSecColor.toggled.connect(self._on_set_color_toggled)
         self.ui.lineEdit_setColor.returnPressed.connect(self._on_set_color_return_pressed)
         self.ui.radioButton_useTestPattern.toggled.connect(self._on_use_test_pattern_toggled)
@@ -259,6 +265,57 @@ class IoUiController:
         """Return the currently selected input colorspace integer code."""
         clr_str = self.ui.comboBox_input_colorspace.currentText()
         return int(clr_str.split("-")[0]) if clr_str else 0
+
+    def get_output_fmt_code(self) -> int:
+        """Return the currently selected output format integer code."""
+        fmt_str = self.ui.comboBox_output_format.currentText()
+        return int(fmt_str.split("-")[0], 16) if fmt_str else 0x3
+
+    def get_output_clrspc(self) -> int:
+        """Return the currently selected output colorspace integer code."""
+        clr_str = self.ui.comboBox_output_colorspace.currentText()
+        return int(clr_str.split("-")[0]) if clr_str else 5
+
+    def _allowed_output_clrspcs(self) -> list[int]:
+        """按输出 format 域与输入 YUV 家族限制输出 colorspace 选项。
+
+        - 输出 RGB -> {RGB_Limited, RGB_Full}（0/1）
+        - 输出 YUV + 输入 RGB -> {BT601/709/2020 × L/F}（2..7）
+        - 输出 YUV + 输入 YUV 601/709 -> {BT601, BT709}（2..5，不允许与 2020 互转）
+        - 输出 YUV + 输入 YUV 2020 -> {BT2020}（6/7）
+        """
+        if is_rgb_format(self.get_output_fmt_code()):
+            return [0, 1]
+        in_fmt = self.get_input_fmt_code()
+        if is_rgb_format(in_fmt):
+            return list(range(2, 8))
+        if self.get_input_clrspc() in (6, 7):
+            return [6, 7]
+        return [2, 3, 4, 5]
+
+    def _refresh_output_colorspace_options(self, keep_current: bool = True) -> None:
+        """重建输出 colorspace 选项；当前值仍合法时保留，否则取第一个。
+
+        显示格式与 ``_on_input_format_changed`` 一致（``"{clr} - {name}"``）。
+        """
+        clrspc_display = [f"{clr} - {CLRSPC_NAMES[clr]}" for clr in self._allowed_output_clrspcs()]
+        current = self.ui.comboBox_output_colorspace.currentText()
+        self.ui.comboBox_output_colorspace.clear()
+        self.ui.comboBox_output_colorspace.addItems(clrspc_display)
+        if keep_current and current in clrspc_display:
+            self.ui.comboBox_output_colorspace.setCurrentText(current)
+
+    @staticmethod
+    def _find_clrspc_item(combo, code: int) -> str:
+        """在 combo 中按 colorspace 代码查找显示项文本（兼容有无空格格式）。"""
+        for i in range(combo.count()):
+            item = combo.itemText(i)
+            try:
+                if int(item.split("-")[0].strip()) == code:
+                    return item
+            except ValueError:
+                continue
+        return ""
 
     # ------------------------------------------------------------------ #
     # Signal handlers                                                    #
@@ -343,29 +400,31 @@ class IoUiController:
         self.ui.comboBox_input_colorspace.clear()
         self.ui.comboBox_input_colorspace.addItems(options)
         self.ui.comboBox_input_colorspace.setCurrentIndex(idx)
-        # 输出格式/色彩空间保持禁用，但强制与输入保持一致。
-        # 输出色彩空间的选项列表也跟随输入重建，确保禁用状态下同步显示值始终匹配。
-        self.ui.comboBox_output_format.setCurrentText(fmt_str)
-        self.ui.comboBox_output_colorspace.clear()
-        self.ui.comboBox_output_colorspace.addItems(options)
-        self.ui.comboBox_output_colorspace.setCurrentText(
-            self.ui.comboBox_input_colorspace.currentText())
+        # 输出 format 独立于输入；仅按输入 YUV 家族限制刷新输出 colorspace 选项。
+        self._refresh_output_colorspace_options()
         self._update_swap_controls()
         self._recalc_frame_num()
         self._load_input_image()
 
     def _on_input_colorspace_changed(self, index: int) -> None:
-        """Keep the disabled output colorspace in sync with the input, and
-        reload the input since reading uses the selected colorspace."""
+        """Reload the input since reading uses the selected colorspace, and
+        refresh the output colorspace options (YUV family restriction)."""
         del index
-        clr = self.ui.comboBox_input_colorspace.currentText()
-        out_box = self.ui.comboBox_output_colorspace
-        if out_box.findText(clr) < 0:
-            out_box.clear()
-            out_box.addItems([self.ui.comboBox_input_colorspace.itemText(i)
-                              for i in range(self.ui.comboBox_input_colorspace.count())])
-        out_box.setCurrentText(clr)
+        self._refresh_output_colorspace_options()
         self._load_input_image()
+
+    def _on_output_format_changed(self, index: int) -> None:
+        """Output format changed: refresh colorspace options and re-run pipeline."""
+        del index
+        self._refresh_output_colorspace_options()
+        if self._on_output_changed is not None:
+            self._on_output_changed()
+
+    def _on_output_colorspace_changed(self, index: int) -> None:
+        """Output colorspace changed: re-run pipeline."""
+        del index
+        if self._on_output_changed is not None:
+            self._on_output_changed()
 
     # ------------------------------------------------------------------ #
     # Input channel swap (R/B for RGB, U/V for YUV)                      #
@@ -602,10 +661,26 @@ class IoUiController:
                 ),
             )
 
+        # 猜测格式后的默认色彩空间：RGB -> RGB_Full(1)，YUV -> BT709_Full(5)。
+        default_cs = 1 if is_rgb_format(fmt_code) else 5
+
         fmt_item = next(
             (item for item in fmt_display if item.startswith(f"0x{fmt_code:x}")), None)
         if fmt_item:
             self.ui.comboBox_input_format.setCurrentText(fmt_item)
+
+        # 输入色彩空间默认 1（RGB）/ 5（YUV）。
+        in_item = self._find_clrspc_item(self.ui.comboBox_input_colorspace, default_cs)
+        if in_item:
+            self.ui.comboBox_input_colorspace.setCurrentText(in_item)
+
+        # 猜测格式后，输出格式/色彩空间默认跟随输入（用户之后仍可手动修改）。
+        # 先同步输出 format（触发输出 cs 选项按新域/家族刷新），再按代码匹配设置输出 cs。
+        self.ui.comboBox_output_format.setCurrentText(self.ui.comboBox_input_format.currentText())
+        self._refresh_output_colorspace_options()
+        out_item = self._find_clrspc_item(self.ui.comboBox_output_colorspace, default_cs)
+        if out_item:
+            self.ui.comboBox_output_colorspace.setCurrentText(out_item)
 
     def _recalc_frame_num(self) -> None:
         """Recalculate frame count from the selected file and format."""

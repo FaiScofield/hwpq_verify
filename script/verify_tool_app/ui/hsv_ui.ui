@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>857</width>
-    <height>284</height>
+    <height>285</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -37,14 +37,14 @@
       </widget>
      </item>
      <item>
-      <widget class="QLabel" name="label">
+      <widget class="QLabel" name="label_colorspace">
        <property name="text">
-        <string>Color Space</string>
+        <string>Adjust Field</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QComboBox" name="comboBox_colorspace">
+      <widget class="QComboBox" name="comboBox_adjustField">
        <property name="sizePolicy">
         <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
          <horstretch>0</horstretch>
@@ -53,15 +53,86 @@
        </property>
        <item>
         <property name="text">
-         <string>RGB(HSV)</string>
+         <string>HSV</string>
         </property>
        </item>
        <item>
         <property name="text">
-         <string>YUV(YCbCr)</string>
+         <string>HSI</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>HSL</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>YCbCr</string>
         </property>
        </item>
       </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_clip">
+       <property name="text">
+        <string>Input/Output CSC Clip</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="comboBox_inputCscClip">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+       <item>
+        <property name="text">
+         <string>ON</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>OFF</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_2">
+       <property name="text">
+        <string>/</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="comboBox_outputCscClip">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+       <item>
+        <property name="text">
+         <string>ON</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>OFF</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer_enable">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
      </item>
      <item>
       <widget class="QLabel" name="label_toleranceS">
@@ -97,19 +168,6 @@
         <double>0.002500000000000</double>
        </property>
       </widget>
-     </item>
-     <item>
-      <spacer name="horizontalSpacer_enable">
-       <property name="orientation">
-        <enum>Qt::Orientation::Horizontal</enum>
-       </property>
-       <property name="sizeHint" stdset="0">
-        <size>
-         <width>40</width>
-         <height>20</height>
-        </size>
-       </property>
-      </spacer>
      </item>
     </layout>
    </item>
@@ -806,7 +864,7 @@
  </widget>
  <tabstops>
   <tabstop>checkBox_enableHsvAdj</tabstop>
-  <tabstop>comboBox_colorspace</tabstop>
+  <tabstop>comboBox_adjustField</tabstop>
   <tabstop>spinBox_toleranceS</tabstop>
   <tabstop>comboBox_modeC</tabstop>
   <tabstop>slider_gainC</tabstop>
