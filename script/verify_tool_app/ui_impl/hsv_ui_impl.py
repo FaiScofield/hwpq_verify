@@ -363,16 +363,20 @@ class HsvUiController:
         """C 通道配置条目键：TanSlant 用 'tanslant'，其余增益模式用 'gain'。"""
         return 'tanslant' if self._mode_c_code() == 'tanslant' else 'gain'
 
-    def _apply_c_ui(self) -> None:
-        """按配置设置 Contrast 量程/步长，并置为配置默认值（按 modeC 选条目）。"""
+    def _apply_c_ui(self, keep_value: bool = False) -> None:
+        """按配置设置 Contrast 量程/步长；默认置为配置默认值，keep_value 时保留当前值（clip 到新量程）。"""
         entry = self._entry('C', self._c_entry_mode())
         scale = SLIDER_SCALE['C']
         self.ui.spinBox_gainC.setRange(entry["min"], entry["max"])
         self.ui.spinBox_gainC.setSingleStep(entry["step"])
         self.ui.slider_gainC.setRange(int(round(entry["min"] * scale)),
                                       int(round(entry["max"] * scale)))
-        self._set_spin_value(self.ui.spinBox_gainC, entry["default"])
-        self._set_slider_value(self.ui.slider_gainC, int(round(entry["default"] * scale)))
+        if keep_value:
+            value = min(max(self.ui.spinBox_gainC.value(), entry["min"]), entry["max"])
+        else:
+            value = entry["default"]
+        self._set_spin_value(self.ui.spinBox_gainC, value)
+        self._set_slider_value(self.ui.slider_gainC, int(round(value * scale)))
 
     def _s_mode_code(self) -> str:
         """Map comboBox_modeS text to adjust_hsv S mode ('add'/'mul'/'negmulposrat')."""
@@ -381,16 +385,20 @@ class HsvUiController:
                 'ModeMul': 'mul',
                 'NegMulPosRat': 'negmulposrat'}.get(text, 'mul')
 
-    def _apply_s_mode_ui(self, mode: str) -> None:
-        """按配置设置 S 通道量程/步长，并置为配置默认值（按 modeS 选条目）。"""
+    def _apply_s_mode_ui(self, mode: str, keep_value: bool = False) -> None:
+        """按配置设置 S 通道量程/步长；默认置为配置默认值，keep_value 时保留当前值（clip 到新量程）。"""
         entry = self._entry('S', mode)
         scale = SLIDER_SCALE['S']
         self.ui.spinBox_deltaS.setRange(entry["min"], entry["max"])
         self.ui.spinBox_deltaS.setSingleStep(entry["step"])
         self.ui.slider_deltaS.setRange(int(round(entry["min"] * scale)),
                                        int(round(entry["max"] * scale)))
-        self._set_spin_value(self.ui.spinBox_deltaS, entry["default"])
-        self._set_slider_value(self.ui.slider_deltaS, int(round(entry["default"] * scale)))
+        if keep_value:
+            value = min(max(self.ui.spinBox_deltaS.value(), entry["min"]), entry["max"])
+        else:
+            value = entry["default"]
+        self._set_spin_value(self.ui.spinBox_deltaS, value)
+        self._set_slider_value(self.ui.slider_deltaS, int(round(value * scale)))
 
     def _v_mode_code(self) -> str:
         """Map comboBox_modeV text to adjust_hsv mode_v code."""
@@ -399,21 +407,25 @@ class HsvUiController:
                 'ModeMul': 'mul',
                 'NegMulPosRat': 'negmulposrat'}.get(text, 'add')
 
-    def _apply_v_mode_ui(self, mode: str) -> None:
-        """按配置设置 V 通道量程/步长，并置为配置默认值。"""
+    def _apply_v_mode_ui(self, mode: str, keep_value: bool = False) -> None:
+        """按配置设置 V 通道量程/步长；默认置为配置默认值，keep_value 时保留当前值（clip 到新量程）。"""
         entry = self._entry('B', mode)
         scale = SLIDER_SCALE['B']
         self.ui.spinBox_deltaV.setRange(entry["min"], entry["max"])
         self.ui.spinBox_deltaV.setSingleStep(entry["step"])
         self.ui.slider_deltaV.setRange(int(round(entry["min"] * scale)),
                                        int(round(entry["max"] * scale)))
-        self._set_spin_value(self.ui.spinBox_deltaV, entry["default"])
-        self._set_slider_value(self.ui.slider_deltaV, int(round(entry["default"] * scale)))
+        if keep_value:
+            value = min(max(self.ui.spinBox_deltaV.value(), entry["min"]), entry["max"])
+        else:
+            value = entry["default"]
+        self._set_spin_value(self.ui.spinBox_deltaV, value)
+        self._set_slider_value(self.ui.slider_deltaV, int(round(value * scale)))
 
     def _on_c_mode_changed(self, *_args) -> None:
-        """Contrast 模式切换：TanSlant 用 [-1,1] 量程/中性 0，其余 [0,4]/中性 1。"""
+        """Contrast 模式切换：量程随模式变化；保留当前值（clip 到新量程），不重置默认。"""
         del _args
-        self._apply_c_ui()
+        self._apply_c_ui(keep_value=True)
         self._schedule_auto_run()
 
     def _on_adjust_field_changed(self, *_args) -> None:
@@ -428,33 +440,35 @@ class HsvUiController:
         self._schedule_auto_run()
 
     def _on_v_mode_changed(self, *_args) -> None:
-        """Switch the V delta between additive and multiplicative modes.
+        """V 通道模式切换：量程随模式变化；保留当前值（clip 到新量程），不重置默认。
 
-        The deltaV spin/slider range and its neutral value change with the mode
-        (add: 0.0 offset in [-1, 1]; mul: 1.0 gain in [0, 4]).
+        The deltaV spin/slider range changes with the mode (add: [-1, 1],
+        mul: [0, 4], negmulposrat: [-1, 1]); the current value is kept and
+        clipped to the new range instead of resetting to the mode default.
         Initial state and redundant signals are no-ops.
         """
         del _args
         code = self._v_mode_code()
         if code == self._v_mode:
             return
-        self._apply_v_mode_ui(code)
+        self._apply_v_mode_ui(code, keep_value=True)
         self._v_mode = code
         self._schedule_auto_run()
 
     def _on_s_mode_changed(self, *_args) -> None:
-        """S 通道模式切换（add/mul/negmulposrat）：量程/中性值随模式变化。
+        """S 通道模式切换（add/mul/negmulposrat）：量程随模式变化；保留当前值（clip 到新量程）。
 
-        Only the S channel is affected: the deltaS spin/slider range and its
-        neutral (default) value change with the mode (add: 0.0, mul: 1.0,
-        negmulposrat: 0.0).  The V/H/Contrast controls keep their values.
-        Initial state and redundant signals are no-ops.
+        Only the S channel is affected: the deltaS spin/slider range changes
+        with the mode (add: [-1, 1], mul: [0, 4], negmulposrat: [-1, 1]); the
+        current value is kept and clipped to the new range.  The V/H/Contrast
+        controls keep their values.  Initial state and redundant signals are
+        no-ops.
         """
         del _args
         code = self._s_mode_code()
         if code == self._s_mode:
             return
-        self._apply_s_mode_ui(code)
+        self._apply_s_mode_ui(code, keep_value=True)
         self._s_mode = code
         self._schedule_auto_run()
 
@@ -470,10 +484,10 @@ class HsvUiController:
         self.ui.spinBox_deltaH.setSingleStep(int(round(entry["step"])))
         self.ui.slider_deltaH.setRange(int(round(entry["min"] * scale)),
                                        int(round(entry["max"] * scale)))
-        # 切换模式时把 Delta H 重置为配置默认值。
-        neutral = int(round(entry["default"]))
-        self._set_spin_value(self.ui.spinBox_deltaH, neutral)
-        self._set_slider_value(self.ui.slider_deltaH, int(round(neutral * scale)))
+        # 切换模式时不重置默认，保留当前值（clip 到新量程）。
+        value = int(min(max(self.ui.spinBox_deltaH.value(), entry["min"]), entry["max"]))
+        self._set_spin_value(self.ui.spinBox_deltaH, value)
+        self._set_slider_value(self.ui.slider_deltaH, int(round(value * scale)))
         self._schedule_auto_run()
 
     def _on_reset_c(self) -> None:
