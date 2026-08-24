@@ -16,9 +16,11 @@ HSV tab controller — encapsulates all HSV-related UI behavior and state.
 指定色调（groupBox_setHueRange 勾选）：仅色调落在 [hs, he] 附近的像素被处理，
 通过 Tail（向内）/ Pad（向外）的 alpha blending 过渡。
 
-comboBox_adjustField 选择处理域（6 选项）：
-  HSV/HSI/HSL/Lch/RGB（RGB 系）：full-range RGB <-> 对应域，域内 BCSH 调整。
+comboBox_adjustField 选择处理域（7 选项）：
+  HSV/HSI/HSL/HCY/Lch/RGB（RGB 系）：full-range RGB <-> 对应域，域内 BCSH 调整。
      Lch 为 sRGB D65 -> CIELAB 柱坐标，s=C/Cmax 归一化、l=L/100 归一化。
+     HCY 为 Hue/Chroma/Luma（Rec.601 luma，六边形色相），c/y 归一化 [0,1]，
+     同 Y 亮度一致。
      RGB 为直接 RGB 域处理：C/V 三通道一致、S 灰阶混合、H 灰色轴旋转。
   YCbCr（YUV 系）：处理域为 yuv444p full-range，uv 去中心 0.5 得 YCbCr；
      Y 通道调 B/C，Cb(x)/Cr(y) 极坐标系调 H(角度)/S(极径)。
@@ -38,7 +40,7 @@ from PySide6.QtWidgets import QLineEdit, QMainWindow, QWidget
 from script.bcsh.hsv_adjust import (
     adjust_hsv, adjust_rgb, rgb_to_hsv, hsv_to_rgb,
     rgb_to_hsi, hsi_to_rgb, rgb_to_hsl, hsl_to_rgb,
-    rgb_to_lch, lch_to_rgb,
+    rgb_to_lch, lch_to_rgb, rgb_to_hcy, hcy_to_rgb,
 )
 from script.img_io import (
     ImageFrame, _csc_range_params, _get_csc_matrices, is_limited_range,
@@ -88,6 +90,7 @@ _CHROMA_MAX = {2: _bt_chroma_max(2), 4: _bt_chroma_max(4), 6: _bt_chroma_max(6)}
 
 # RGB 系处理域（Adjust Field != YCbCr）的域转换函数表。
 # Lch：sRGB D65 -> Lab 柱坐标，s=C/Cmax 归一化、l=L/100 归一化。
+# HCY：Hue/Chroma/Luma，Rec.601 luma，六边形色相；c/y 归一化 [0,1]。
 # RGB：直接 RGB 域，to/from 均为恒等（钳位 [0,1]）。
 def _rgb_domain_to(rgb):
     """RGB 处理域 to_domain：恒等返回三通道（域内钳位 [0,1]）。"""
@@ -104,6 +107,7 @@ _DOMAIN_CONVERTERS = {
     "HSV": (rgb_to_hsv, hsv_to_rgb),
     "HSI": (rgb_to_hsi, hsi_to_rgb),
     "HSL": (rgb_to_hsl, hsl_to_rgb),
+    "HCY": (rgb_to_hcy, hcy_to_rgb),
     "Lch": (rgb_to_lch, lch_to_rgb),
     "RGB": (_rgb_domain_to, _rgb_domain_from),
 }
@@ -687,7 +691,7 @@ class HsvUiController:
     def _process_frame_rgb(
         self, work_frame: ImageFrame,
     ) -> tuple[ImageFrame, ImageFrame, PixelReadoutCache]:
-        """RGB 系（HSV/HSI/HSL/Lch/RGB）处理：步骤 1️⃣~6️⃣。
+        """RGB 系（HSV/HSI/HSL/HCY/Lch/RGB）处理：步骤 1️⃣~6️⃣。
 
         处理域 = full-range RGB。输入 rgb/yuv 两分支（用例 1/3）。
         RGB 域直接处理（无域转换）；其余先转域再 BCSH 调整。
@@ -832,7 +836,7 @@ class HsvUiController:
     # ------------------------------------------------------------------ #
 
     def _adjust_field(self) -> str:
-        """当前处理色域名（HSV/HSI/HSL/Lch/RGB/YCbCr）。"""
+        """当前处理色域名（HSV/HSI/HSL/HCY/Lch/RGB/YCbCr）。"""
         return self.ui.comboBox_adjustField.currentText()
 
     def _input_csc_clip(self) -> bool:
@@ -1223,7 +1227,7 @@ class HsvUiController:
         RGBF/YUVF 按帧位深缩放为整数显示（YUVF 先转 YUV [0,1]：U=cb+0.5、
         V=cr+0.5）；未钳位时可超 [0, max]（如负值）。域值为直接颜色空间
         （RGB/YUV，归一化 [0,1]）时同样按位深缩放为整数；圆柱色域
-        （HSY/HSV/HSI/HSL/Lch）按浮点显示。
+        （HSY/HSV/HSI/HSL/HCY/Lch）按浮点显示。
         """
         kind, (p0, p1, p2), depth = native
         if y_pos < 0 or x_pos < 0 or y_pos >= p0.shape[0] or x_pos >= p0.shape[1]:

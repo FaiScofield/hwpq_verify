@@ -68,6 +68,11 @@
        </item>
        <item>
         <property name="text">
+         <string>HCY</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
          <string>Lch</string>
         </property>
        </item>

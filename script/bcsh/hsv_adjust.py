@@ -196,6 +196,88 @@ def hsl_to_rgb(hsl):
 
 
 # ------------------------------------------------------------------ #
+# HCY（Hue/Chroma/Luma，Rec.601 luma，六边形色相）                   #
+# 参考 colorjs/color-space spaces/hcy.js（Kuzma Shapran/Chilliant）  #
+# ------------------------------------------------------------------ #
+
+_HCY_LUMA_W = (0.299, 0.587, 0.114)   # Rec.601 luma 权重
+
+
+def _hcy_luma(rgb):
+    """Rec.601 luma -> (...,) 灰度。"""
+    return (rgb[..., 0] * _HCY_LUMA_W[0] + rgb[..., 1] * _HCY_LUMA_W[1]
+            + rgb[..., 2] * _HCY_LUMA_W[2])
+
+
+def _hcy_hue_ramp(h):
+    """纯色相斜坡（V=1 的六边形色相，H∈[0,1)）-> (hr, hg, hb)∈[0,1]。"""
+    x = h * 6.0
+    hr = np.minimum(1.0, np.maximum(0.0, np.abs(x - 3.0) - 1.0))
+    hg = np.minimum(1.0, np.maximum(0.0, 2.0 - np.abs(x - 2.0)))
+    hb = np.minimum(1.0, np.maximum(0.0, 2.0 - np.abs(x - 4.0)))
+    return hr, hg, hb
+
+
+def rgb_to_hcy(rgb):
+    """RGB -> HCY。h∈[0,360)，c/y∈[0,1]。标量或数组 (...,3) 均可。
+
+    C 为按当前色相可承载的最大色度归一化（Y<Z 时 C*=Z/Y，否则 C*=(1-Z)/(1-Y)，
+    Z 为该色相纯色 luma），使同 Y 的颜色视觉亮度一致；接口与 rgb_to_hsv 一致
+    （(h, s, 第三通道)，S 通道为色度 C）。
+    """
+    orig = rgb
+    arr = np.asarray(rgb, dtype=np.float32)
+    if arr.shape[-1] != 3:
+        raise ValueError(f'hcy 最后一维必须为 3，实际 shape={arr.shape}')
+    rgb_c = np.clip(arr, 0.0, 1.0)
+    r, g, b = rgb_c[..., 0], rgb_c[..., 1], rgb_c[..., 2]
+    mx = np.maximum(np.maximum(r, g), b)
+    mn = np.minimum(np.minimum(r, g), b)
+    chroma = mx - mn
+    c_safe = np.where(chroma == 0, 1.0, chroma)
+    h6 = np.zeros_like(chroma)
+    h6 = np.where(mx == r, ((g - b) / c_safe % 6.0 + 6.0) % 6.0, h6)
+    h6 = np.where(mx == g, (b - r) / c_safe + 2.0, h6)
+    h6 = np.where(mx == b, (r - g) / c_safe + 4.0, h6)
+    h = h6 / 6.0 * 360.0
+    y = _hcy_luma(rgb_c)
+    hr, hg, hb = _hcy_hue_ramp(h6 / 6.0)
+    z = _hcy_luma(np.stack([hr, hg, hb], axis=-1))
+    # 反转色度归一化：还原为该色相/该 Y 可承载的最大色度（∈[0,1]）。
+    z_over_y = np.divide(z, y, out=np.ones_like(y), where=y != 0)
+    one_minus = np.divide(1.0 - z, 1.0 - y, out=np.ones_like(y), where=(1.0 - y) != 0)
+    c_out = np.where(
+        chroma != 0,
+        np.where(y < z, chroma * z_over_y, chroma * one_minus),
+        chroma)
+    if _is_scalar_rgb(orig):
+        return float(h), float(c_out), float(y)
+    return h, c_out, y
+
+
+def hcy_to_rgb(hcy):
+    """HCY -> RGB（Rec.601 luma 圆柱）。返回 rgb∈[0,1]。标量或数组 (...,3) 均可。"""
+    orig = hcy
+    arr = np.asarray(hcy, dtype=np.float32)
+    if arr.shape[-1] != 3:
+        raise ValueError(f'hcy 最后一维必须为 3，实际 shape={arr.shape}')
+    h = arr[..., 0] % 360.0
+    c = np.clip(arr[..., 1], 0.0, 1.0)
+    y = np.clip(arr[..., 2], 0.0, 1.0)
+    hr, hg, hb = _hcy_hue_ramp(h / 360.0)
+    z = _hcy_luma(np.stack([hr, hg, hb], axis=-1))
+    # 色度归一化：把 C 缩放到该 Y 下不越界（保持同 Y 亮度一致）。
+    c = np.where(
+        y < z,
+        np.where(z != 0.0, c * y / z, 0.0),
+        np.where(z < 1.0, c * (1.0 - y) / (1.0 - z), c))
+    r = (hr - z) * c + y
+    g = (hg - z) * c + y
+    b = (hb - z) * c + y
+    return _wrap(orig, np.clip(np.stack([r, g, b], axis=-1), 0.0, 1.0))
+
+
+# ------------------------------------------------------------------ #
 # Lch（CIELAB 柱坐标）                                               #
 # ------------------------------------------------------------------ #
 # sRGB (D65) <-> XYZ 矩阵与 D65 白点（标准值）。
