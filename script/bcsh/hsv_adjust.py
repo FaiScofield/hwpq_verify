@@ -278,56 +278,89 @@ def hcy_to_rgb(hcy):
 
 
 # ------------------------------------------------------------------ #
-# HCG（Hue/Chroma/Gray，六边形色相 + 绝对色度 + 灰色分量）           #
-# 参考 colorjs/color-space spaces/hcg.js（源自 Qix color-convert）   #
+# HSP（Hue/Saturation/Perceived brightness，六边形色相 + 感知亮度）  #
+# 参考 colorjs/color-space spaces/hsp.js（Darel Rex Finley）         #
 # ------------------------------------------------------------------ #
 
-def rgb_to_hcg(rgb):
-    """RGB -> HCG。h∈[0,360)，c/g∈[0,1]。标量或数组 (...,3) 均可。
+_HSP_W = (0.299, 0.587, 0.114)   # 感知亮度权重（Rec.601，作用于通道平方）
 
-    C 为绝对色度 max-min（不按亮度归一化）；G=min/(1-C) 为灰色分量（C>=1 纯色
-    时 G=0）；H 为六边形色相（与 HSV/HCY 同角）。接口与 rgb_to_hsv 一致。
+
+def rgb_to_hsp(rgb):
+    """RGB -> HSP。h∈[0,360)，s/p∈[0,1]。标量或数组 (...,3) 均可。
+
+    P = sqrt(0.299r²+0.587g²+0.114b²)（感知亮度，通道平方加权）；
+    S = 1-min/max（与 HSV 相同）；H 为六边形色相（与 HSV 同角，灰色取 0）。
     """
     orig = rgb
     arr = np.asarray(rgb, dtype=np.float32)
     if arr.shape[-1] != 3:
-        raise ValueError(f'hcg 最后一维必须为 3，实际 shape={arr.shape}')
+        raise ValueError(f'hsp 最后一维必须为 3，实际 shape={arr.shape}')
     rgb_c = np.clip(arr, 0.0, 1.0)
     r, g, b = rgb_c[..., 0], rgb_c[..., 1], rgb_c[..., 2]
     mx = np.maximum(np.maximum(r, g), b)
     mn = np.minimum(np.minimum(r, g), b)
-    chroma = mx - mn
-    c_safe = np.where(chroma == 0, 1.0, chroma)
-    h6 = np.zeros_like(chroma)
+    c = mx - mn
+    # P：感知亮度（通道平方加权）
+    p = np.sqrt(r * r * _HSP_W[0] + g * g * _HSP_W[1] + b * b * _HSP_W[2])
+    # S = 1 - min/max（HSV 饱和度）
+    s = np.divide(c, mx, out=np.zeros_like(c), where=mx != 0)
+    # 六边形色相（同 HSV/HCY）；灰色（c==0）取 0
+    c_safe = np.where(c == 0, 1.0, c)
+    h6 = np.zeros_like(c)
     h6 = np.where(mx == r, ((g - b) / c_safe % 6.0 + 6.0) % 6.0, h6)
     h6 = np.where(mx == g, (b - r) / c_safe + 2.0, h6)
     h6 = np.where(mx == b, (r - g) / c_safe + 4.0, h6)
-    h = h6 / 6.0 * 360.0
-    # 灰色分量 G = min/(1-C)；C>=1（纯色）时 G=0。
-    gray = np.divide(mn, 1.0 - chroma, out=np.zeros_like(mn), where=chroma < 1.0)
+    h = np.where(c == 0, 0.0, h6 / 6.0 * 360.0)
     if _is_scalar_rgb(orig):
-        return float(h), float(chroma), float(gray)
-    return h, chroma, gray
+        return float(h), float(s), float(p)
+    return h, s, p
 
 
-def hcg_to_rgb(hcg):
-    """HCG -> RGB。返回 rgb∈[0,1]。标量或数组 (...,3) 均可。
+def hsp_to_rgb(hsp):
+    """HSP -> RGB。返回 rgb∈[0,1]。标量或数组 (...,3) 均可。
 
-    rgb = C * pure(H) + (1-C)*G，pure 为六边形纯色相斜坡（同 _hcy_hue_ramp）。
+    6 扇区 × 全饱和/非全饱和共 12 段闭式求解，与 colorjs hsp.js 一致。
     """
-    orig = hcg
-    arr = np.asarray(hcg, dtype=np.float32)
+    orig = hsp
+    arr = np.asarray(hsp, dtype=np.float32)
     if arr.shape[-1] != 3:
-        raise ValueError(f'hcg 最后一维必须为 3，实际 shape={arr.shape}')
-    h = arr[..., 0] % 360.0
-    c = np.clip(arr[..., 1], 0.0, 1.0)
-    g = np.clip(arr[..., 2], 0.0, 1.0)
-    hr, hg, hb = _hcy_hue_ramp(h / 360.0)
-    mg = (1.0 - c) * g
-    r = c * hr + mg
-    gg = c * hg + mg
-    b = c * hb + mg
-    return _wrap(orig, np.clip(np.stack([r, gg, b], axis=-1), 0.0, 1.0))
+        raise ValueError(f'hsp 最后一维必须为 3，实际 shape={arr.shape}')
+    h = arr[..., 0] % 360.0 / 360.0
+    s = np.clip(arr[..., 1], 0.0, 1.0)
+    p = np.clip(arr[..., 2], 0.0, 1.0)
+    Pr, Pg, Pb = _HSP_W
+    mm = 1.0 - s                       # min/max 比值
+    seg = np.floor(h * 6.0).astype(np.int32) % 6
+    k = seg.astype(np.float32)
+    # 扇区内位置 h'∈[0,1]：偶扇区递增、奇扇区递减
+    hprime = np.where(seg % 2 == 0, 6.0 * (h - k / 6.0), 6.0 * (-h + (k + 1.0) / 6.0))
+    # 每扇区 (max,mid,min) 通道权重：0:(R,G,B) 1:(G,R,B) 2:(G,B,R) 3:(B,G,R) 4:(B,R,G) 5:(R,B,G)
+    def _wsel(a0, a1, a2, a3, a4, a5):
+        return np.where(seg == 0, a0, np.where(seg == 1, a1, np.where(
+            seg == 2, a2, np.where(seg == 3, a3, np.where(seg == 4, a4, a5)))))
+    wmax = _wsel(Pr, Pg, Pg, Pb, Pb, Pr)
+    wmid = _wsel(Pg, Pr, Pb, Pg, Pr, Pb)
+    wmin = _wsel(Pb, Pb, Pr, Pr, Pg, Pg)
+    full = s >= 1.0
+    mm_safe = np.where(full, 1.0, mm)
+    # 非全饱和分支（minOverMax>0）：base 为最小通道，r/mid 由 h' 内插
+    part = 1.0 + hprime * (1.0 / mm_safe - 1.0)
+    base = p / np.sqrt(wmax / (mm_safe * mm_safe) + wmid * part * part + wmin)
+    maxv = base / mm_safe
+    midv = base + hprime * (maxv - base)
+    # 全饱和分支（s==1）：最小通道=0
+    bfull = p / np.sqrt(wmax + wmid * hprime * hprime)
+    mxv = np.where(full, bfull, maxv)
+    mdv = np.where(full, bfull * hprime, midv)
+    mnv = np.where(full, 0.0, base)
+    # 通道赋值（按扇区 max/mid/min -> R/G/B）
+    r = np.where(seg == 0, mxv, np.where(seg == 1, mdv, np.where(seg == 2, mnv,
+        np.where(seg == 3, mnv, np.where(seg == 4, mdv, mxv)))))
+    g = np.where(seg == 0, mdv, np.where(seg == 1, mxv, np.where(seg == 2, mxv,
+        np.where(seg == 3, mdv, np.where(seg == 4, mnv, mnv)))))
+    b = np.where(seg == 0, mnv, np.where(seg == 1, mnv, np.where(seg == 2, mdv,
+        np.where(seg == 3, mxv, np.where(seg == 4, mxv, mdv)))))
+    return _wrap(orig, np.clip(np.stack([r, g, b], axis=-1), 0.0, 1.0))
 
 
 # ------------------------------------------------------------------ #
