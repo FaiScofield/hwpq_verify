@@ -8,8 +8,9 @@ HSV tab controller — encapsulates all HSV-related UI behavior and state.
      （c∈[-1,1]，增益=tan((c+1)π/4)）
      modeV: ModeAdd 加性偏移 / ModeMul 乘性增益 / NegMulPosRat（δV∈[-1,1]：
      负值乘性压缩、正值按进度向白靠拢，极值纯黑/纯白）
-  S：comboBox_modeS 切换加性/乘性   s'=clip(s+ds) 或 s'=clip(s*ds)；
-     RGB 域禁用 ModeS，恒为 scale 灰阶混合 out=scale*in+(1-scale)*gray(in)
+  S：comboBox_modeS 切换加性/乘性/NegMulPosRat  s'=clip(s+ds) / s'=clip(s*ds)
+     / ds<0 乘性压缩、ds>0 向全饱和靠拢；RGB 域禁用 ModeS，恒为 scale 灰阶
+     混合 out=scale*in+(1-scale)*gray(in)
   H：comboBox_modeH 选择——SameOffset 恒为加性偏移（默认）；SameTarget 向指定
      目标色调旋转（激活 Same Hue Goal 行控件）；RGB 域为绕灰色轴 (1,1,1) 旋转
 指定色调（groupBox_setHueRange 勾选）：仅色调落在 [hs, he] 附近的像素被处理，
@@ -218,7 +219,7 @@ class HsvUiController:
         self._last_readout: PixelReadoutCache | None = None
         self._frozen_pixel: tuple[int, int] | None = None
         self._input_is_rgb = True     # 源输入帧是否为 RGB（决定像素读数链路前缀）
-        self._s_mode = True           # False=add, True=mul（S 通道模式，.ui 默认 Mul）
+        self._s_mode = 'mul'          # 'add'/'mul'/'negmulposrat'（S 通道模式，.ui 默认 Mul）
         self._v_mode = 'add'          # 'add'/'mul'（V 通道模式，.ui 默认 Add）
         self._work_size: tuple[int, int] | None = None   # 最近一次预览处理的分辨率
 
@@ -234,7 +235,7 @@ class HsvUiController:
         """Perform initial state sync after all widgets are ready."""
         # .ui 默认 S=Multiplicative、V=Additive：同步各通道模式内部状态并
         # 应用其控件范围/中性值。
-        self._s_mode = self.ui.comboBox_modeS.currentIndex() == 1
+        self._s_mode = self._s_mode_code()
         self._v_mode = self._v_mode_code()
         self._apply_c_ui()
         self._apply_s_mode_ui(self._s_mode)
@@ -265,7 +266,7 @@ class HsvUiController:
         """Replace the range config and re-apply all control ranges/steps."""
         self._params = params
         self._v_mode = self._v_mode_code()
-        self._s_mode = self.ui.comboBox_modeS.currentIndex() == 1
+        self._s_mode = self._s_mode_code()
         self._apply_c_ui()
         self._apply_v_mode_ui(self._v_mode)
         self._apply_s_mode_ui(self._s_mode)
@@ -373,9 +374,16 @@ class HsvUiController:
         self._set_spin_value(self.ui.spinBox_gainC, entry["default"])
         self._set_slider_value(self.ui.slider_gainC, int(round(entry["default"] * scale)))
 
-    def _apply_s_mode_ui(self, is_mul: bool) -> None:
-        """按配置设置 S 通道量程/步长，并置为配置默认值。"""
-        entry = self._entry('S', 'mul' if is_mul else 'add')
+    def _s_mode_code(self) -> str:
+        """Map comboBox_modeS text to adjust_hsv S mode ('add'/'mul'/'negmulposrat')."""
+        text = self.ui.comboBox_modeS.currentText()
+        return {'ModeAdd': 'add',
+                'ModeMul': 'mul',
+                'NegMulPosRat': 'negmulposrat'}.get(text, 'mul')
+
+    def _apply_s_mode_ui(self, mode: str) -> None:
+        """按配置设置 S 通道量程/步长，并置为配置默认值（按 modeS 选条目）。"""
+        entry = self._entry('S', mode)
         scale = SLIDER_SCALE['S']
         self.ui.spinBox_deltaS.setRange(entry["min"], entry["max"])
         self.ui.spinBox_deltaS.setSingleStep(entry["step"])
@@ -414,9 +422,9 @@ class HsvUiController:
         is_rgb = self._adjust_field() == "RGB"
         self.ui.comboBox_modeS.setEnabled(not is_rgb)
         if is_rgb:
-            self._apply_s_mode_ui(True)          # scale 语义（mul 量程/中性）
+            self._apply_s_mode_ui('mul')          # scale 语义（mul 量程/中性）
         else:
-            self._apply_s_mode_ui(self.ui.comboBox_modeS.currentIndex() == 1)
+            self._apply_s_mode_ui(self._s_mode_code())
         self._schedule_auto_run()
 
     def _on_v_mode_changed(self, *_args) -> None:
@@ -435,19 +443,19 @@ class HsvUiController:
         self._schedule_auto_run()
 
     def _on_s_mode_changed(self, *_args) -> None:
-        """Switch the saturation adjustment between additive and multiplicative.
+        """S 通道模式切换（add/mul/negmulposrat）：量程/中性值随模式变化。
 
         Only the S channel is affected: the deltaS spin/slider range and its
-        neutral (default) value change with the mode (add: 0.0, mul: 1.0).
-        The V/H/Contrast controls keep their values.  Initial state and
-        redundant signals are no-ops.
+        neutral (default) value change with the mode (add: 0.0, mul: 1.0,
+        negmulposrat: 0.0).  The V/H/Contrast controls keep their values.
+        Initial state and redundant signals are no-ops.
         """
         del _args
-        is_mul = self.ui.comboBox_modeS.currentIndex() == 1
-        if is_mul == self._s_mode:
+        code = self._s_mode_code()
+        if code == self._s_mode:
             return
-        self._apply_s_mode_ui(is_mul)
-        self._s_mode = is_mul
+        self._apply_s_mode_ui(code)
+        self._s_mode = code
         self._schedule_auto_run()
 
     def _on_h_mode_changed(self, *_args) -> None:
@@ -481,8 +489,7 @@ class HsvUiController:
 
     def _on_reset_s(self) -> None:
         """Reset the S value to its mode neutral from the config."""
-        is_mul = self.ui.comboBox_modeS.currentIndex() == 1
-        neutral = self._entry('S', 'mul' if is_mul else 'add')["default"]
+        neutral = self._entry('S', self._s_mode_code())["default"]
         self._reset_mapped(self.ui.slider_deltaS, self.ui.spinBox_deltaS,
                            neutral, SLIDER_SCALE['S'])
 
@@ -1049,7 +1056,7 @@ class HsvUiController:
         gc = float(self.ui.spinBox_gainC.value())
         ds = float(self.ui.spinBox_deltaS.value())
         dh_deg = float(self.ui.spinBox_deltaH.value())
-        mode = 'mul' if self.ui.comboBox_modeS.currentIndex() == 1 else 'add'
+        mode = self._s_mode_code()
         mode_v = self._v_mode_code()
         # S Tolerance：控件已是归一化浮点 [0, 0.1]，直接传给 adjust_hsv。
         tolerance_s = float(self.ui.spinBox_toleranceS.value())
@@ -1200,8 +1207,9 @@ class HsvUiController:
         """拼装 `原生(整数), RGBF/YUVF(整数), 域(H,S,X 浮点)` 读数链。
 
         RGBF/YUVF 按帧位深缩放为整数显示（YUVF 先转 YUV [0,1]：U=cb+0.5、
-        V=cr+0.5）；未钳位时可超 [0, max]（如负值）。域值（HSY/HSV/HSI/HSL）
-        按浮点显示。
+        V=cr+0.5）；未钳位时可超 [0, max]（如负值）。域值为直接颜色空间
+        （RGB/YUV，归一化 [0,1]）时同样按位深缩放为整数；圆柱色域
+        （HSY/HSV/HSI/HSL/Lch）按浮点显示。
         """
         kind, (p0, p1, p2), depth = native
         if y_pos < 0 or x_pos < 0 or y_pos >= p0.shape[0] or x_pos >= p0.shape[1]:
@@ -1222,7 +1230,15 @@ class HsvUiController:
             'RGBF' if full_kind == 'rgb' else 'YUVF',
             int(round(f0)), int(round(f1)), int(round(f2)))
         name, dh, ds, dx = dom
-        dom_txt = "{}({:.1f}, {:.3f}, {:.3f})".format(
-            name, float(dh[y_pos, x_pos]), float(ds[y_pos, x_pos]),
-            float(dx[y_pos, x_pos]))
+        if name in ("RGB", "YUV"):
+            # 直接颜色空间域（归一化 [0,1]）：按帧位深缩放为整数显示
+            dom_txt = "{}({}, {}, {})".format(
+                name,
+                int(round(float(dh[y_pos, x_pos]) * max_val)),
+                int(round(float(ds[y_pos, x_pos]) * max_val)),
+                int(round(float(dx[y_pos, x_pos]) * max_val)))
+        else:
+            dom_txt = "{}({:.1f}, {:.3f}, {:.3f})".format(
+                name, float(dh[y_pos, x_pos]), float(ds[y_pos, x_pos]),
+                float(dx[y_pos, x_pos]))
         return f"{native_txt}, {full_txt}, {dom_txt}"

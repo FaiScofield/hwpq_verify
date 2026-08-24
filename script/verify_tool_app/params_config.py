@@ -25,6 +25,7 @@ DEFAULT_PARAMS = {
     "S": {
         "add": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
         "mul": {"min": 0.0, "max": 4.0, "step": 0.02, "default": 1.0},
+        "negmulposrat": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
     },
     "H": {
         "same_offset": {"min": -180.0, "max": 180.0, "step": 1.0, "default": 0.0},

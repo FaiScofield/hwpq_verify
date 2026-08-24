@@ -181,6 +181,8 @@ class IoUiController:
         self._on_output_changed = on_output_changed
         self._status_callback = status_callback
         self._input_loaded = False
+        # 参数猜测级联（格式/色彩空间/帧号变化触发重载）期间抑制装载失败弹窗。
+        self._suppress_load_errors = False
         self._init_ui()
         self._connect_signals()
         self._update_swap_controls()
@@ -296,9 +298,9 @@ class IoUiController:
     def _refresh_output_colorspace_options(self, keep_current: bool = True) -> None:
         """重建输出 colorspace 选项；当前值仍合法时保留，否则取第一个。
 
-        显示格式与 ``_on_input_format_changed`` 一致（``"{clr} - {name}"``）。
+        显示格式与 ``_on_input_format_changed`` 一致（``"{clr}-{name}"``）。
         """
-        clrspc_display = [f"{clr} - {CLRSPC_NAMES[clr]}" for clr in self._allowed_output_clrspcs()]
+        clrspc_display = [f"{clr}-{CLRSPC_NAMES[clr]}" for clr in self._allowed_output_clrspcs()]
         current = self.ui.comboBox_output_colorspace.currentText()
         self.ui.comboBox_output_colorspace.clear()
         self.ui.comboBox_output_colorspace.addItems(clrspc_display)
@@ -331,9 +333,19 @@ class IoUiController:
         )
         if path:
             self.ui.lineEdit_input_file.setText(path)
+            was_checked = self.ui.radioButton_useInputFile.isChecked()
             self.ui.radioButton_useInputFile.setChecked(True)
-            self._guess_input_params(path)
-            self._recalc_frame_num()
+            if not was_checked:
+                # 单选按钮切换已触发 _on_use_input_file_toggled -> _on_reload_input
+                # （内部已完成猜测+装载），避免重复装载/重复弹窗。
+                return
+            # 已处于文件模式：参数猜测期间抑制中间失败弹窗，只保留最终一次。
+            self._suppress_load_errors = True
+            try:
+                self._guess_input_params(path)
+                self._recalc_frame_num()
+            finally:
+                self._suppress_load_errors = False
             self._load_input_image()
 
     def _on_reload_input(self) -> None:
@@ -341,8 +353,14 @@ class IoUiController:
         self.ui.radioButton_useInputFile.setChecked(True)
         path = self.ui.lineEdit_input_file.text()
         if path:
-            self._guess_input_params(path)
-            self._recalc_frame_num()
+            # 参数猜测会触发格式/色彩空间/帧号信号导致的中间重载，失败弹窗统一
+            # 抑制，只在最终装载时报一次错。
+            self._suppress_load_errors = True
+            try:
+                self._guess_input_params(path)
+                self._recalc_frame_num()
+            finally:
+                self._suppress_load_errors = False
             self._load_input_image()
 
     def _on_browse_output(self) -> None:
@@ -375,7 +393,7 @@ class IoUiController:
         if not fmt_str:
             return
         fmt_code = int(fmt_str.split("-")[0], 16)
-        clrspc_display = [f"{clr} - {CLRSPC_NAMES[clr]}" for clr in CLRSPC_OPTIONS]
+        clrspc_display = [f"{clr}-{CLRSPC_NAMES[clr]}" for clr in CLRSPC_OPTIONS]
         is_rgb = (fmt_code & 0xF) <= 0x2
         if is_rgb:
             options = [item for item in clrspc_display if int(item.split("-")[0]) in (0, 1)]
@@ -395,11 +413,15 @@ class IoUiController:
             idx = options.index(current_text)
         else:
             fallback = self._last_clrspc_yuv if not is_rgb else self._last_clrspc_rgb
-            fallback_item = next((it for it in options if it.startswith(f"{fallback} ")), "")
+            fallback_item = next((it for it in options if it.startswith(f"{fallback}-")), "")
             idx = options.index(fallback_item) if fallback_item else 0
+        # 重建色彩空间选项期间阻断信号，避免 _on_input_colorspace_changed 再次触发
+        # 重载（一次格式改动只装载/报错一次）；输出 cs 刷新与本函数末尾的装载覆盖之。
+        self.ui.comboBox_input_colorspace.blockSignals(True)
         self.ui.comboBox_input_colorspace.clear()
         self.ui.comboBox_input_colorspace.addItems(options)
         self.ui.comboBox_input_colorspace.setCurrentIndex(idx)
+        self.ui.comboBox_input_colorspace.blockSignals(False)
         # 输出 format 独立于输入；仅按输入 YUV 家族限制刷新输出 colorspace 选项。
         self._refresh_output_colorspace_options()
         self._update_swap_controls()
@@ -530,14 +552,12 @@ class IoUiController:
         """
         fmt_items = [self.ui.comboBox_input_format.itemText(i)
                      for i in range(self.ui.comboBox_input_format.count())]
-        fmt_item = next((it for it in fmt_items if it.startswith("0x0 ")), "")
+        fmt_item = next((it for it in fmt_items if it.startswith("0x0-")), "")
         changed = False
         if fmt_item and self.ui.comboBox_input_format.currentText() != fmt_item:
             self.ui.comboBox_input_format.setCurrentText(fmt_item)
             changed = True
-        clrspc_items = [self.ui.comboBox_input_colorspace.itemText(i)
-                        for i in range(self.ui.comboBox_input_colorspace.count())]
-        clrspc_item = next((it for it in clrspc_items if it.startswith("1 - ")), "")
+        clrspc_item = self._find_clrspc_item(self.ui.comboBox_input_colorspace, 1)
         if clrspc_item:
             self.ui.comboBox_input_colorspace.setCurrentText(clrspc_item)
         return changed
@@ -867,4 +887,6 @@ class IoUiController:
                 frame, f"Input loaded: {frame.width}x{frame.height}, idx={frame_idx}")
             self._input_loaded = True
         except Exception as exc:
+            if self._suppress_load_errors:
+                return
             QMessageBox.critical(None, "Error", f"Failed to load image: {exc}")

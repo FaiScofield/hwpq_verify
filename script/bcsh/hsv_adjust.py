@@ -433,6 +433,8 @@ def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='
                    不变，新最小通道自动 m'=r*v'，r=m/v）；调大(gv>=1)时与 'mul'
                    一致（gv 增益 ∈ [0,4]）
       S：mode='add'  s'=clip(s+ds)；mode='mul'  s'=clip(s*ds)     （ds ∈ [-1,1] 或乘性增益 ∈ [0,4]）
+      S：mode='negmulposrat'  ds∈[-1,1]，中性 0：ds<0 乘性压缩 s'=clip(s*(1+ds))；
+          ds>0 向全饱和靠拢 s'=clip(s+ds*(1-s))；ds=-1 灰、ds=1 全饱和
       H：始终加性     h'=(h + dh*360) % 360                        （dh ∈ [-0.5,0.5]，0.5=180°）
     语义：S < tolerance_s 的像素不做放大（增色），缩小（减色）始终允许；
           H 统一平移（对灰色无影响）。
@@ -461,8 +463,16 @@ def adjust_hsv(hsv, delta_v=None, delta_s=None, delta_h=None, gain_c=1.0, mode='
         gs = 1.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), 0.0, 4.0)
         # ---- S：S<tolerance_s 的像素不放大（增色），缩小（减色）始终允许 ----
         s_new = np.where((s >= tolerance_s) | (gs <= 1.0), np.clip(s * gs, 0.0, 1.0), s)
+    elif mode == 'negmulposrat':
+        # 负值乘性压缩 / 正值向全饱和靠拢（ds∈[-1,1]，中性 0）
+        ds = 0.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), -1.0, 1.0)
+        s_comp = np.clip(s * (1.0 + ds), 0.0, 1.0)               # δS<0：乘性压缩（减色）
+        s_sat = np.clip(s + ds * (1.0 - s), 0.0, 1.0)            # δS>0：向全饱和靠拢（增色）
+        s_apply = np.where(ds < 0.0, s_comp, s_sat)
+        # ---- S：S<tolerance_s 的像素不放大（增色），缩小（减色）始终允许 ----
+        s_new = np.where((s >= tolerance_s) | (ds <= 0.0), s_apply, s)
     else:
-        raise ValueError(f"Unsupported adjust_hsv mode: {mode!r}, expect 'add' or 'mul'")
+        raise ValueError(f"Unsupported adjust_hsv mode: {mode!r}, expect 'add'/'mul'/'negmulposrat'")
     # ---- V：Contrast 乘性 + delta_v 加性 + clamp，mode_c 决定增益参考点 ----
     mode_c = str(mode_c).lower()
     if mode_c == 'zero':
@@ -542,6 +552,17 @@ if __name__ == '__main__':
           adjust_hsv((20.0, 0.5, 0.5), delta_s=1.5, mode='mul'))
     print('标量: adjust_hsv((0.0, 0.0, 0.5), delta_s=3.0, mode="mul") =',
           adjust_hsv((0.0, 0.0, 0.5), delta_s=3.0, mode='mul'))
+    # mode='negmulposrat'：ds<0 乘性压缩 / ds>0 向全饱和靠拢（ds=-1 灰、ds=1 全饱和）
+    print('标量: adjust_hsv((20.0, 0.6, 0.5), delta_s=-1.0, mode="negmulposrat") =',
+          adjust_hsv((20.0, 0.6, 0.5), delta_s=-1.0, mode='negmulposrat'))
+    print('标量: adjust_hsv((20.0, 0.6, 0.5), delta_s=1.0, mode="negmulposrat") =',
+          adjust_hsv((20.0, 0.6, 0.5), delta_s=1.0, mode='negmulposrat'))
+    print('标量: adjust_hsv((20.0, 0.6, 0.5), delta_s=0.5, mode="negmulposrat") =',
+          adjust_hsv((20.0, 0.6, 0.5), delta_s=0.5, mode='negmulposrat'))
+    print('标量: adjust_hsv((20.0, 0.6, 0.5), delta_s=-0.5, mode="negmulposrat") =',
+          adjust_hsv((20.0, 0.6, 0.5), delta_s=-0.5, mode='negmulposrat'))
+    print('标量: adjust_hsv((20.0, 0.02, 0.5), delta_s=0.5, mode="negmulposrat", tolerance_s=0.05) =',
+          adjust_hsv((20.0, 0.02, 0.5), delta_s=0.5, mode='negmulposrat', tolerance_s=0.05))
     # tolerance_s：S<阈值 的像素不放大（增色），缩小（减色）仍允许
     print('标量: adjust_hsv((20.0, 0.02, 0.5), delta_s=0.3, tolerance_s=0.05) =',
           adjust_hsv((20.0, 0.02, 0.5), delta_s=0.3, tolerance_s=0.05))
