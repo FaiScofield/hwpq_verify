@@ -21,6 +21,7 @@ DEFAULT_PARAMS = {
     "C": {
         "gain": {"min": 0.0, "max": 4.0, "step": 0.1, "default": 1.0},
         "tanslant": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
+        "faststone": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
     },
     "S": {
         "add": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},

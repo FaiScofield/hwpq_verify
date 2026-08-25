@@ -5,14 +5,18 @@ HSV tab controller — encapsulates all HSV-related UI behavior and state.
   V：Contrast 乘性 + delta_v（加性/乘性由 comboBox_modeV 选择），
      增益参考点由 comboBox_modeC 选择：GainAtMid（v=0.5 中点）/ GainAtZero
      （过 v=0 原点）/ GainAtBoth（按 gc<1 或 >1 自动选择）/ TanSlant
-     （c∈[-1,1]，增益=tan((c+1)π/4)）
+     （c∈[-1,1]，增益=tan((c+1)π/4)）/ FastStone（仅 RGB 域，C∈[-1,1]，
+     归一化到 [-100,100] 做逐通道 Levels 拉伸 out=clip(k·in+b)）
      modeV: ModeAdd 加性偏移 / ModeMul 乘性增益 / NegMulPosRat（δV∈[-1,1]：
      负值乘性压缩、正值按进度向白靠拢，极值纯黑/纯白）
   S：comboBox_modeS 切换加性/乘性/NegMulPosRat  s'=clip(s+ds) / s'=clip(s*ds)
      / ds<0 乘性压缩、ds>0 向全饱和靠拢；RGB 域禁用 ModeS，恒为 scale 灰阶
      混合 out=scale*in+(1-scale)*gray(in)
-  H：comboBox_modeH 选择——SameOffset 恒为加性偏移（默认）；SameTarget 向指定
-     目标色调旋转（激活 Same Hue Goal 行控件）；RGB 域为绕灰色轴 (1,1,1) 旋转
+  H：comboBox_goalH 选择目标——SameOffset 恒为加性偏移（默认）；SameTarget 向指定
+     目标色调旋转（激活 Same Hue Goal 行控件）；comboBox_modeH 选择生效方式——
+     ModeAdd 加性色相平移（所有域；RGB 域即 FastStone 兼容的六边形 HSV 加法）；
+     RotateOnGray（绕灰轴）/RotateMat709/RotateMat601（Rodrigues 3x3 矩阵，绕
+     luma 权重轴）仅 RGB 域（RotateMatMean 与 RotateOnGray 数学等价，已删）
 指定色调（groupBox_setHueRange 勾选）：仅色调落在 [hs, he] 附近的像素被处理，
 通过 Tail（向内）/ Pad（向外）的 alpha blending 过渡。
 
@@ -28,7 +32,9 @@ comboBox_adjustField 选择处理域（8 选项）：
      Y 通道调 B/C，Cb(x)/Cr(y) 极坐标系调 H(角度)/S(极径)。
 统一流水线（1️⃣~6️⃣）：1️⃣ 原始输入直读 -> 2️⃣ 输入 CSC 到处理域（inputCscClip
   决定钳位）-> 3️⃣ 域转换（有钳位）-> 4️⃣ BCSH 调整 -> 5️⃣ 回 full-range
-  RGB/YUV（outputCscClip 决定钳位）-> 6️⃣ 输出 CSC 到输出格式/色彩空间（必钳）。
+  RGB/YUV（outputCscClip 决定输出策略：OFF 原始 / ClipRGB 钳位 /
+  ClipChroma 恒定色相色度压缩 / ClipChromaSoft 软拐角）-> 6️⃣ 输出 CSC 到
+  输出格式/色彩空间（YUV 输出直接编码，不经 RGB；必钳）。
 """
 
 from collections.abc import Callable
@@ -90,6 +96,14 @@ def _build_hue_sync_lut(cs: int, n: int = 4096) -> tuple[np.ndarray, np.ndarray]
 _HUE_LUTS = {2: _build_hue_sync_lut(2), 4: _build_hue_sync_lut(4), 6: _build_hue_sync_lut(6)}
 _CHROMA_MAX = {2: _bt_chroma_max(2), 4: _bt_chroma_max(4), 6: _bt_chroma_max(6)}
 
+# outputCscClip 4 档输出策略（ui_gen 只含 ON/OFF，运行时在此补全）：
+#   OFF：不钳位，读数显示原始值（另附未钳位 RGB）
+#   ClipRGB：YCbCr 范围钳位 + RGB 硬钳（原 ON 行为；YCbCr 处理域禁用）
+#   ClipChroma：恒定色相色度压缩（保 Y + 极角，色相精确，降饱和）
+#   ClipChromaSoft：ClipChroma + 软拐角（避免整图色域边界色带）
+_OUTPUT_CLIP_MODES = ("OFF", "ClipRGB", "ClipChroma", "ClipChromaSoft")
+_SOFT_KNEE = 0.8   # ClipChromaSoft 软拐角起点比例 r_soft = knee * r_max
+
 
 # RGB 系处理域（Adjust Field != YCbCr）的域转换函数表。
 # Lch：sRGB D65 -> Lab 柱坐标，s=C/Cmax 归一化、l=L/100 归一化。
@@ -136,6 +150,7 @@ class PixelReadoutCache:
     out_full_yuv: np.ndarray | None        # (H,W,3) 步骤 5️⃣ YUVF
     out_yuv_cs: int                        # out_full_yuv 的 colorspace 代码
     out_domain: tuple                      # (name, h, s, x) 步骤 4️⃣
+    out_full_rgb_raw: np.ndarray | None = None   # OFF 档未钳位 YUV->RGB（读数显示）
 
 
 def _cs_family(cs: int) -> int:
@@ -174,6 +189,10 @@ class HsvUiController:
     # comboBox_modeS 两类互斥选项：圆柱色域 S 模式 / RGB 域灰阶混合（MixGray）。
     _MODE_S_CYLINDRICAL = ("ModeAdd", "ModeMul", "NegMulPosRat")
     _MODE_S_RGB = ("MixGray_BT709", "MixGray_BT601")
+    # comboBox_modeH 的 Rotate 系列（仅 RGB 处理域可选）。
+    _MODE_H_ROTATE = ("RotateOnGray", "RotateMat709", "RotateMat601")
+    # comboBox_modeC 的 FastStone（仅 RGB 处理域可选）。
+    _MODE_C_RGB = ("FastStone",)
 
     # ------------------------------------------------------------------ #
     # Initialization                                                     #
@@ -261,8 +280,14 @@ class HsvUiController:
         # 两个 CSC Clip 下拉总是启用（步骤 2️⃣/5️⃣ 钳位开关）。
         self.ui.comboBox_inputCscClip.setEnabled(True)
         self.ui.comboBox_outputCscClip.setEnabled(True)
+        # outputCscClip 由 ON/OFF 扩展为 4 档输出策略（默认 ClipRGB = 原 ON）。
+        self._populate_output_clip_items()
+        # YCbCr 处理域禁用 ClipRGB（YUV 输出免 RGB 桥）。
+        self._set_output_clip_items_enabled(self._adjust_field() == "YCbCr")
         # comboBox_modeS 的 MixGray 项仅在 RGB 处理域可选。
         self._set_mode_s_items_enabled(self._adjust_field() == "RGB")
+        # comboBox_modeH 的 Rotate 系列仅在 RGB 处理域可选。
+        self._set_mode_h_items_enabled(self._adjust_field() == "RGB")
 
     # ------------------------------------------------------------------ #
     # Public accessors                                                   #
@@ -313,7 +338,8 @@ class HsvUiController:
         ui.comboBox_outputCscClip.currentIndexChanged.connect(self._schedule_auto_run)
         ui.comboBox_modeV.currentIndexChanged.connect(self._on_v_mode_changed)
         ui.comboBox_modeS.currentIndexChanged.connect(self._on_s_mode_changed)
-        ui.comboBox_modeH.currentIndexChanged.connect(self._on_h_mode_changed)
+        ui.comboBox_goalH.currentIndexChanged.connect(self._on_h_mode_changed)
+        ui.comboBox_modeH.currentIndexChanged.connect(self._on_h_apply_changed)
         ui.comboBox_modeC.currentIndexChanged.connect(self._on_c_mode_changed)
         ui.pushButton_resetC.clicked.connect(self._on_reset_c)
         ui.pushButton_resetV.clicked.connect(self._on_reset_v)
@@ -376,6 +402,39 @@ class HsvUiController:
             combo.model().item(i).setEnabled(
                 (combo.itemText(i) in self._MODE_S_RGB) == rgb_only)
 
+    def _set_mode_h_items_enabled(self, rgb_only: bool) -> None:
+        """按处理域启用/禁用 comboBox_modeH 的 Rotate 系列：仅 RGB 域可选；ModeAdd 始终可用。"""
+        combo = self.ui.comboBox_modeH
+        for i in range(combo.count()):
+            combo.model().item(i).setEnabled(
+                combo.itemText(i) not in self._MODE_H_ROTATE or rgb_only)
+
+    def _set_mode_c_items_enabled(self, rgb_only: bool) -> None:
+        """按处理域启用/禁用 comboBox_modeC 的 FastStone：仅 RGB 域可选；其余模式始终可用。"""
+        combo = self.ui.comboBox_modeC
+        for i in range(combo.count()):
+            combo.model().item(i).setEnabled(
+                combo.itemText(i) not in self._MODE_C_RGB or rgb_only)
+
+    def _set_output_clip_items_enabled(self, ycbcr: bool) -> None:
+        """YCbCr 处理域禁用 outputCscClip 的 ClipRGB（其语义需 RGB，与 YUV 域
+        免 RGB 桥冲突）；进入 YCbCr 时若正选 ClipRGB 则回落 OFF。"""
+        combo = self.ui.comboBox_outputCscClip
+        for i in range(combo.count()):
+            combo.model().item(i).setEnabled(
+                not (combo.itemText(i) == "ClipRGB" and ycbcr))
+        if ycbcr and combo.currentText() == "ClipRGB":
+            self._set_combo_text(combo, "OFF")
+
+    def _h_mode_code(self) -> str:
+        """Map comboBox_modeH text to H apply-mode code
+        ('add'/'rotategray'/'rotatemat709'/'rotatemat601')."""
+        text = self.ui.comboBox_modeH.currentText()
+        return {'ModeAdd': 'add',
+                'RotateOnGray': 'rotategray',
+                'RotateMat709': 'rotatemat709',
+                'RotateMat601': 'rotatemat601'}.get(text, 'add')
+
     def _s_entry_mode(self, code: str) -> str:
         """S 模式配置条目键：MixGray 复用 'mul' 的 scale 量程/中性值。"""
         return code if code in ('add', 'mul', 'negmulposrat') else 'mul'
@@ -396,8 +455,9 @@ class HsvUiController:
     # ------------------------------------------------------------------ #
 
     def _c_entry_mode(self) -> str:
-        """C 通道配置条目键：TanSlant 用 'tanslant'，其余增益模式用 'gain'。"""
-        return 'tanslant' if self._mode_c_code() == 'tanslant' else 'gain'
+        """C 通道配置条目键：TanSlant 用 'tanslant'、FastStone 用 'faststone'，其余增益模式用 'gain'。"""
+        code = self._mode_c_code()
+        return code if code in ('tanslant', 'faststone') else 'gain'
 
     def _apply_c_ui(self, keep_value: bool = False) -> None:
         """按配置设置 Contrast 量程/步长；默认置为配置默认值，keep_value 时保留当前值（clip 到新量程）。"""
@@ -470,10 +530,13 @@ class HsvUiController:
 
     def _on_adjust_field_changed(self, *_args) -> None:
         """adjustField 切换：RGB 域只允许 MixGray_BT709/BT601（灰阶混合），
-        圆柱色域只允许 ModeAdd/ModeMul/NegMulPosRat。"""
+        圆柱色域只允许 ModeAdd/ModeMul/NegMulPosRat；modeC 的 FastStone 仅 RGB 域。"""
         del _args
         is_rgb = self._adjust_field() == "RGB"
         self._set_mode_s_items_enabled(is_rgb)
+        self._set_mode_h_items_enabled(is_rgb)
+        self._set_mode_c_items_enabled(is_rgb)
+        self._set_output_clip_items_enabled(self._adjust_field() == "YCbCr")
         code = self._s_mode_code()
         if is_rgb:
             if code not in ('mixgray_bt709', 'mixgray_bt601'):
@@ -483,6 +546,12 @@ class HsvUiController:
             if code in ('mixgray_bt709', 'mixgray_bt601'):
                 self._set_combo_text(self.ui.comboBox_modeS, 'ModeMul')
             self._apply_s_mode_ui(self._s_mode_code())
+        # modeH：非 RGB 域禁用 Rotate（回落 ModeAdd）；RGB 域 ModeAdd/Rotate 均可选。
+        if not is_rgb and self._h_mode_code() != 'add':
+            self._set_combo_text(self.ui.comboBox_modeH, 'ModeAdd')
+        # modeC：非 RGB 域禁用 FastStone（回落 GainAtMid）；RGB 域全部可选。
+        if not is_rgb and self._mode_c_code() == 'faststone':
+            self._set_combo_text(self.ui.comboBox_modeC, 'GainAtMid')
         self._schedule_auto_run()
 
     def _on_v_mode_changed(self, *_args) -> None:
@@ -519,10 +588,10 @@ class HsvUiController:
         self._schedule_auto_run()
 
     def _on_h_mode_changed(self, *_args) -> None:
-        """H 通道模式：SameOffset 恒为加性偏移（默认）；SameTarget 激活 Same Hue Goal 行，
-        且 Delta H 范围改为 [0,100]（表示向目标色相旋转的进度）。"""
+        """H 目标（comboBox_goalH）：SameOffset 恒为加性偏移（默认）；SameTarget 激活
+        Same Hue Goal 行，且 Delta H 范围改为 [0,100]（表示向目标色相旋转的进度）。"""
         del _args
-        same_target = self.ui.comboBox_modeH.currentIndex() == 1
+        same_target = self.ui.comboBox_goalH.currentIndex() == 1
         self._apply_same_hue_goal_enable(same_target)
         entry = self._entry('H', 'same_target' if same_target else 'same_offset')
         scale = SLIDER_SCALE['H']
@@ -534,6 +603,11 @@ class HsvUiController:
         value = int(min(max(self.ui.spinBox_deltaH.value(), entry["min"]), entry["max"]))
         self._set_spin_value(self.ui.spinBox_deltaH, value)
         self._set_slider_value(self.ui.slider_deltaH, int(round(value * scale)))
+        self._schedule_auto_run()
+
+    def _on_h_apply_changed(self, *_args) -> None:
+        """H 生效方式（comboBox_modeH）切换：仅重跑；Rotate 系列仅在 RGB 域可选。"""
+        del _args
         self._schedule_auto_run()
 
     def _on_reset_c(self) -> None:
@@ -555,7 +629,7 @@ class HsvUiController:
 
     def _on_reset_h(self) -> None:
         """Reset the Delta H to its mode neutral from the config."""
-        same_target = self.ui.comboBox_modeH.currentIndex() == 1
+        same_target = self.ui.comboBox_goalH.currentIndex() == 1
         entry = self._entry('H', 'same_target' if same_target else 'same_offset')
         neutral = int(round(entry["default"]))
         self._reset_mapped(self.ui.slider_deltaH, self.ui.spinBox_deltaH, neutral, 1.0)
@@ -578,9 +652,9 @@ class HsvUiController:
             spin.setMaximum(max_side)
 
     def _apply_same_hue_goal_enable(self, active: bool) -> None:
-        """按 H 模式使能/禁用目标色相滑块与数字框。
+        """按 H 目标（comboBox_goalH）使能/禁用目标色相滑块与数字框。
 
-        ``active`` 表示 comboBox_modeH 是否选中 SameTarget；Same Hue Goal 已改为
+        ``active`` 表示 comboBox_goalH 是否选中 SameTarget；Same Hue Goal 已改为
         静态 label，仅 SameTarget 下目标色相控件可用。
         """
         self.ui.slider_sameHueGoal.setEnabled(active)
@@ -710,6 +784,7 @@ class HsvUiController:
             out_full_yuv=_up_arr(readout.out_full_yuv),
             out_yuv_cs=readout.out_yuv_cs,
             out_domain=_up_dom(readout.out_domain),
+            out_full_rgb_raw=_up_arr(readout.out_full_rgb_raw),
         )
 
     def _is_yuv_colorspace(self) -> bool:
@@ -807,7 +882,7 @@ class HsvUiController:
         depth = work_frame.depth
         input_is_rgb = work_frame.is_rgb
         in_clip = self._input_csc_clip()
-        out_clip = self._output_csc_clip()
+        out_policy = self._output_csc_clip()
 
         in_native = self._native_planes(work_frame)
 
@@ -841,7 +916,7 @@ class HsvUiController:
         hue_sync_a, s_a, y_a = adj[..., 0], adj[..., 1], adj[..., 2]
         angle_a = hue_hsv_to_ycbcr(hue_sync_a, proc_cs)
 
-        # ---- 5️⃣ 回 yuv full-range（outputCscClip 决定钳位） ----
+        # ---- 5️⃣ 回 yuv full-range（outputCscClip 决定输出策略） ----
         w = self._hue_blend_weights_for(hue_sync)
         radius_a = s_a * chroma_max
         cb_a = radius_a * np.cos(np.radians(angle_a))
@@ -850,18 +925,37 @@ class HsvUiController:
         cr_5 = cr * (1.0 - w) + cr_a * w
         y_5 = y_n * (1.0 - w) + y_a * w
         yuv_5_raw = np.stack([y_5, cb_5, cr_5], axis=-1)
-        if out_clip:
-            yuv_5_disp = np.clip(yuv_5_raw, (0.0, -0.5, -0.5), (1.0, 0.5, 0.5))
-        else:
+        yuv_5_gamut = None          # ClipChroma/Soft 的色域压缩结果
+        out_rgb_raw = None          # OFF 档未钳位 YUV->RGB（读数用）
+        if out_policy in ('clipchroma', 'clipchromasoft'):
+            yuv_5_gamut = self._gamut_clip_chroma(
+                yuv_5_raw, proc_cs,
+                soft_knee=_SOFT_KNEE if out_policy == 'clipchromasoft' else 0.0)
+            yuv_5_disp = yuv_5_gamut
+        elif out_policy == 'cliprgb':
+            # ClipRGB：唯一需要 RGB 的档（逐通道硬钳），在步骤 5️⃣ 就地
+            # YUV->RGB->YUV 完成，使步骤 6️⃣ 对 YUV 输出可免 RGB 桥直接编码。
+            r2y, y2r = _get_csc_matrices(proc_cs)
+            yuv_5_disp = np.clip(yuv_5_raw @ y2r.T, 0.0, 1.0) @ r2y.T
+        else:                       # 'off'：读数显示原始值，另附未钳位 RGB
             yuv_5_disp = yuv_5_raw
+            _, y2r = _get_csc_matrices(proc_cs)
+            out_rgb_raw = yuv_5_raw @ y2r.T
 
-        # ---- 预览帧（步骤 5️⃣，yuv444p full，存储必钳位） ----
+        # ---- 预览帧（步骤 5️⃣，yuv444p full，存储必钳位；预览显示策略结果） ----
         preview_frame = self._yuv_norm_to_frame(
-            np.clip(yuv_5_raw, (0.0, -0.5, -0.5), (1.0, 0.5, 0.5)), depth, proc_cs)
+            np.clip(yuv_5_disp, (0.0, -0.5, -0.5), (1.0, 0.5, 0.5)), depth, proc_cs)
 
         # ---- 6️⃣ 输出 CSC（必钳位，444 平面帧；格式转换在保存时按全分辨率进行） ----
         out_frame = self._to_output_frame_yuv(yuv_5_disp, proc_cs, depth)
         out_native = self._native_planes(out_frame)
+
+        # 读数域值：OFF 显示调整域值；其余策略按实际输出极径更新 S（H/Y 不变）。
+        if out_policy == 'off':
+            s_out = s_a
+        else:
+            radius_out = np.sqrt(yuv_5_disp[..., 1] ** 2 + yuv_5_disp[..., 2] ** 2)
+            s_out = radius_out / chroma_max
 
         readout = PixelReadoutCache(
             in_native=in_native,
@@ -869,7 +963,8 @@ class HsvUiController:
             in_domain=("HSY", hue_sync, s_norm, y_n),
             out_native=out_native,
             out_full_rgb=None, out_full_yuv=yuv_5_disp, out_yuv_cs=proc_cs,
-            out_domain=("HSY", hue_sync_a, s_a, y_a),
+            out_domain=("HSY", hue_sync_a, s_out, y_a),
+            out_full_rgb_raw=out_rgb_raw,
         )
         return out_frame, preview_frame, readout
 
@@ -885,9 +980,24 @@ class HsvUiController:
         """inputCscClip ON -> 步骤 2️⃣ 输入 CSC 结果钳位。"""
         return self.ui.comboBox_inputCscClip.currentText() == "ON"
 
-    def _output_csc_clip(self) -> bool:
-        """outputCscClip ON -> 步骤 5️⃣ 处理域输出钳位。"""
-        return self.ui.comboBox_outputCscClip.currentText() == "ON"
+    def _populate_output_clip_items(self) -> None:
+        """把 outputCscClip 下拉重置为 4 档输出策略（ui_gen 只含 ON/OFF）。"""
+        combo = self.ui.comboBox_outputCscClip
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItems(list(_OUTPUT_CLIP_MODES))
+        combo.setCurrentIndex(1)      # 默认 ClipRGB（等价于原 ON）
+        combo.blockSignals(False)
+
+    def _output_csc_clip(self) -> str:
+        """outputCscClip 输出策略档位：'off'/'cliprgb'/'clipchroma'/'clipchromasoft'。"""
+        text = self.ui.comboBox_outputCscClip.currentText()
+        if text == "ClipRGB" and self._adjust_field() == "YCbCr":
+            return 'off'   # YCbCr 域禁用 ClipRGB（防御；正常 UI 该档不可选）
+        return {'OFF': 'off',
+                'ClipRGB': 'cliprgb',
+                'ClipChroma': 'clipchroma',
+                'ClipChromaSoft': 'clipchromasoft'}.get(text, 'cliprgb')
 
     def _output_fmt_code(self) -> int:
         """所选输出格式代码（io_ui 提供；默认 YUV444P）。"""
@@ -995,6 +1105,31 @@ class HsvUiController:
         return ImageFrame(y.astype(dtype), u.astype(dtype), v.astype(dtype), out_fmt, clrspc)
 
     @staticmethod
+    def _yuv_norm_to_output_frame(yuv_norm: np.ndarray, depth: int, cs: int) -> ImageFrame:
+        """归一化 (Y, cb, cr) -> yuv444p 输出帧（按 cs 编码 full/limited，必钳位量化）。
+
+        YCbCr 处理域的直接输出编码（步骤 6️⃣，不经过 RGB）；cs 为输出色彩空间。
+        """
+        max_val = (1 << depth) - 1
+        rp = _csc_range_params(depth)
+        uv_center = rp["uv_center"]
+        if is_limited_range(cs):
+            sy = (rp["yr_hi_l"] - rp["yr_lo_l"]) / max_val
+            sc = (rp["uv_hi_l"] - rp["uv_lo_l"]) / max_val
+            y = np.clip(np.rint(yuv_norm[..., 0] * max_val * sy + rp["yr_lo_l"]), 0, max_val)
+            u = np.clip(np.rint(yuv_norm[..., 1] * max_val * sc + uv_center), 0, max_val)
+            v = np.clip(np.rint(yuv_norm[..., 2] * max_val * sc + uv_center), 0, max_val)
+            clrspc = cs
+        else:
+            y = np.clip(np.rint(yuv_norm[..., 0] * max_val), 0, max_val)
+            u = np.clip(np.rint(yuv_norm[..., 1] * max_val + uv_center), 0, max_val)
+            v = np.clip(np.rint(yuv_norm[..., 2] * max_val + uv_center), 0, max_val)
+            clrspc = (cs | 1) if cs in (2, 3, 4, 5, 6, 7) else 5    # limited -> full 同族
+        dtype = np.uint16 if depth >= 10 else np.uint8
+        out_fmt = _PLANAR_YUV_10 if depth >= 10 else _PLANAR_YUV_8
+        return ImageFrame(y.astype(dtype), u.astype(dtype), v.astype(dtype), out_fmt, clrspc)
+
+    @staticmethod
     def _rgb_float_to_uint(rgb_norm: np.ndarray, depth: int) -> np.ndarray:
         """full-range RGB float -> uint 量化（钳位 [0,1]，按 depth）。"""
         max_val = (1 << depth) - 1
@@ -1041,23 +1176,56 @@ class HsvUiController:
         fmt = _PLANAR_YUV_10 if depth >= 10 else _PLANAR_YUV_8
         return ImageFrame(y, u, v, fmt, out_cs)
 
+    @staticmethod
+    def _gamut_clip_chroma(yuv_norm: np.ndarray, cs: int,
+                           soft_knee: float = 0.0) -> np.ndarray:
+        """沿恒定色相压缩色度，使 (Y, cb, cr) 落回 RGB 色域。
+
+        保持 Y 与 YCbCr 极角（hue-sync 后 HSV 色相）不变，只把色度极径缩到
+        该 (极角, Y) 下的色域边界半径 r_max：
+          channel_i(Y, cb, cr) = Y + k_i*r,  k_i = a_i*cosθ + b_i*sinθ
+          r_max = min( min_{k>0}(1-Y)/k, min_{k<0}(-Y)/k )
+        soft_knee>0 时用软拐角：保留 [0, knee*r_max] 不变，其后 C¹ 连续平滑
+        收敛到 r_max（避免整图在色域边界出现硬切色带）。
+        """
+        yuv = np.asarray(yuv_norm, dtype=np.float32)
+        y = np.clip(yuv[..., 0], 0.0, 1.0)
+        cb, cr = yuv[..., 1], yuv[..., 2]
+        r = np.sqrt(cb * cb + cr * cr)
+        _, y2r = _get_csc_matrices(cs)
+        a = y2r[:, 1]                                # (3,) R,G,B 对 Cb 系数
+        b = y2r[:, 2]                                # (3,) R,G,B 对 Cr 系数
+        cos_t = np.divide(cb, r, out=np.zeros_like(cb), where=r > 0)
+        sin_t = np.divide(cr, r, out=np.zeros_like(cr), where=r > 0)
+        k = (a[:, None, None] * cos_t[None, ...]
+             + b[:, None, None] * sin_t[None, ...])  # (3, ...)
+        up = np.divide(1.0 - y, k, out=np.full_like(k, np.inf), where=k > 0)
+        lo = np.divide(-y, k, out=np.full_like(k, np.inf), where=k < 0)
+        r_max = np.minimum(np.minimum(up, lo).min(axis=0), 1.0)   # (...,)
+        r_max = np.maximum(r_max, 0.0)
+        scale = np.minimum(
+            np.divide(r_max, r, out=np.ones_like(r), where=r > 0), 1.0)
+        if soft_knee > 0.0:
+            r_soft = soft_knee * r_max
+            t = np.maximum(r - r_soft, 0.0) / np.maximum(r_max - r_soft, 1e-6)
+            r_new = r_soft + (r_max - r_soft) * (t / (1.0 + t))
+            scale = np.divide(r_new, r, out=np.ones_like(r), where=r > 0)
+        return np.stack([y, cb * scale, cr * scale], axis=-1)
+
     def _to_output_frame_yuv(self, yuv_norm: np.ndarray, proc_cs: int, depth: int) -> ImageFrame:
         """步骤 6️⃣（YCbCr 系）：处理域 yuv（proc_cs full）-> 444 平面输出帧（必钳位）。
 
-        统一经 full-RGB 桥（y2r -> rgb 钳位 -> 输出编码），系数与
+        YUV 输出直接编码处理域 YUV（色域策略已在步骤 5️⃣ 完成，不再经 RGB 桥）；
+        仅 RGB 输出仍需 full-RGB 桥（y2r -> rgb 钳位 -> 输出编码）。系数与
         script/csc/get_csc_coefs.py 一致；跨族（601/709 <-> 2020）由 UI 限制保证不出现。
         """
         out_cs = self._output_clrspc()
         out_fmt = self._output_fmt_code()
+        if not is_rgb_format(out_fmt):
+            return self._yuv_norm_to_output_frame(yuv_norm, depth, out_cs)
         _, y2r = _get_csc_matrices(proc_cs)
         rgb = np.clip(yuv_norm @ y2r.T, 0.0, 1.0)
-        if is_rgb_format(out_fmt):
-            return self._encode_rgb_frame(rgb, depth, out_cs)
-        rgb_u = self._rgb_float_to_uint(rgb, depth)
-        y, u, v = rgb_to_yuv(rgb_u[..., 0], rgb_u[..., 1], rgb_u[..., 2],
-                             input_cs=1, output_cs=out_cs)
-        fmt = _PLANAR_YUV_10 if depth >= 10 else _PLANAR_YUV_8
-        return ImageFrame(y, u, v, fmt, out_cs)
+        return self._encode_rgb_frame(rgb, depth, out_cs)
 
     @staticmethod
     def _upsample_frame(frame: ImageFrame, out_h: int, out_w: int) -> ImageFrame:
@@ -1101,12 +1269,14 @@ class HsvUiController:
         return planar[:, yi][:, :, xi]
 
     def _mode_c_code(self) -> str:
-        """Map comboBox_modeC text to adjust_hsv mode_c ('mid'/'zero'/'both'/'tanslant')."""
+        """Map comboBox_modeC text to adjust_hsv mode_c
+        ('mid'/'zero'/'both'/'tanslant'/'faststone')."""
         text = self.ui.comboBox_modeC.currentText()
         return {'GainAtMid': 'mid',
                 'GainAtZero': 'zero',
                 'GainAtBoth': 'both',
-                'TanSlant': 'tanslant'}.get(text, 'mid')
+                'TanSlant': 'tanslant',
+                'FastStone': 'faststone'}.get(text, 'mid')
 
     def _compute_adjusted_hsv(
         self, hsv: np.ndarray, h_deg: np.ndarray,
@@ -1120,7 +1290,7 @@ class HsvUiController:
         mode_v = self._v_mode_code()
         # S Tolerance：控件已是归一化浮点 [0, 0.1]，直接传给 adjust_hsv。
         tolerance_s = float(self.ui.spinBox_toleranceS.value())
-        same_target = self.ui.comboBox_modeH.currentIndex() == 1
+        same_target = self.ui.comboBox_goalH.currentIndex() == 1
         # SameTarget 下 Delta H 表示向目标旋转的进度，不作为加性偏移传入 adjust_hsv。
         adj_hsv = adjust_hsv(hsv, delta_v=dv, delta_s=ds,
                              delta_h=0.0 if same_target else dh_deg / 360.0,
@@ -1138,7 +1308,8 @@ class HsvUiController:
     def _compute_adjusted_rgb(
         self, rgb: np.ndarray, h_deg: np.ndarray,
     ) -> np.ndarray:
-        """RGB 域 BCSH 调整：C/V 逐通道、S 灰阶混合（MixGray_BT709/BT601）、H 绕灰色轴旋转。
+        """RGB 域 BCSH 调整：C/V 逐通道、S 灰阶混合（MixGray_BT709/BT601）、
+        H 按 modeH 生效（ModeAdd 六边形加法 / RotateOnGray 灰轴 / RotateMat* 矩阵）。
 
         SameOffset：angle=dh；SameTarget：angle=progress*shortest_arc（逐像素，
         用 HSV 色相 h_deg 计算弧长）。
@@ -1147,7 +1318,7 @@ class HsvUiController:
         gc = float(self.ui.spinBox_gainC.value())
         ds = float(self.ui.spinBox_deltaS.value())
         dh_deg = float(self.ui.spinBox_deltaH.value())
-        same_target = self.ui.comboBox_modeH.currentIndex() == 1
+        same_target = self.ui.comboBox_goalH.currentIndex() == 1
         if same_target:
             target = float(self.ui.spinBox_sameHueGoal.value())
             progress = float(np.clip(dh_deg / 100.0, 0.0, 1.0))
@@ -1160,7 +1331,8 @@ class HsvUiController:
         return adjust_rgb(rgb, delta_v=dv, delta_s=ds, gain_c=gc,
                           tolerance_s=float(self.ui.spinBox_toleranceS.value()),
                           mode_c=self._mode_c_code(), mode_v=self._v_mode_code(),
-                          angle_deg=angle, gray_coef=gray_coef)
+                          angle_deg=angle, gray_coef=gray_coef,
+                          h_mode=self._h_mode_code())
 
     @staticmethod
     def _hue_blend_weights(hue_deg, hs, he, st, et, sp, ep):
@@ -1262,45 +1434,53 @@ class HsvUiController:
             full = rc.out_full_rgb if rc.out_full_rgb is not None else rc.out_full_yuv
             full_kind = 'rgb' if rc.out_full_rgb is not None else 'yuv'
             dom = rc.out_domain
-        return self._format_chain(native, full, full_kind, dom, x_pos, y_pos)
+        extra_rgb = rc.out_full_rgb_raw if role == "output" else None
+        return self._format_chain(native, full, full_kind, dom, x_pos, y_pos,
+                                  extra_rgb=extra_rgb)
 
     @staticmethod
-    def _format_chain(native, full, full_kind: str, dom, x_pos: int, y_pos: int) -> str:
-        """拼装 `原生(整数), RGBF/YUVF(整数), 域(H,S,X 浮点)` 读数链。
+    def _format_chain(native, full, full_kind: str, dom, x_pos: int, y_pos: int,
+                      extra_rgb: np.ndarray | None = None) -> str:
+        """拼装 `原生(整数), [RGBF(未钳位)], RGBF/YUVF(整数), 域(H,S,X 浮点)` 读数链。
 
         RGBF/YUVF 按帧位深缩放为整数显示（YUVF 先转 YUV [0,1]：U=cb+0.5、
-        V=cr+0.5）；未钳位时可超 [0, max]（如负值）。域值为直接颜色空间
-        （RGB/YUV，归一化 [0,1]）时同样按位深缩放为整数；圆柱色域
+        V=cr+0.5）；未钳位时可超 [0, max]（如负值）。extra_rgb 为 OFF 档的
+        未钳位 YUV->RGB（可越界，如 B=392）。域值为直接颜色空间（RGB/YUV，
+        归一化 [0,1]）时同样按位深缩放为整数；圆柱色域
         （HSY/HSV/HSI/HSL/HCY/HSP/Lch）按浮点显示。
         """
         kind, (p0, p1, p2), depth = native
         if y_pos < 0 or x_pos < 0 or y_pos >= p0.shape[0] or x_pos >= p0.shape[1]:
             return ""
-        native_txt = "{}({}, {}, {})".format(
-            'RGB' if kind == 'rgb' else 'YUV',
-            int(p0[y_pos, x_pos]), int(p1[y_pos, x_pos]), int(p2[y_pos, x_pos]))
-        if full is None:
-            return native_txt
         max_val = (1 << depth) - 1
-        f0 = float(full[y_pos, x_pos, 0]) * max_val
-        f1 = float(full[y_pos, x_pos, 1]) * max_val
-        f2 = float(full[y_pos, x_pos, 2]) * max_val
-        if full_kind == 'yuv':
-            f1 += 128/255 * max_val   # cb -> U
-            f2 += 128/255 * max_val   # cr -> V
-        full_txt = "{}({}, {}, {})".format(
-            'RGBF' if full_kind == 'rgb' else 'YUVF',
-            int(round(f0)), int(round(f1)), int(round(f2)))
+        parts = ["{}({}, {}, {})".format(
+            'RGB' if kind == 'rgb' else 'YUV',
+            int(p0[y_pos, x_pos]), int(p1[y_pos, x_pos]), int(p2[y_pos, x_pos]))]
+        if extra_rgb is not None:
+            parts.append("RGBF({}, {}, {})".format(
+                int(round(float(extra_rgb[y_pos, x_pos, 0]) * max_val)),
+                int(round(float(extra_rgb[y_pos, x_pos, 1]) * max_val)),
+                int(round(float(extra_rgb[y_pos, x_pos, 2]) * max_val))))
+        if full is not None:
+            f0 = float(full[y_pos, x_pos, 0]) * max_val
+            f1 = float(full[y_pos, x_pos, 1]) * max_val
+            f2 = float(full[y_pos, x_pos, 2]) * max_val
+            if full_kind == 'yuv':
+                f1 += 128/255 * max_val   # cb -> U
+                f2 += 128/255 * max_val   # cr -> V
+            parts.append("{}({}, {}, {})".format(
+                'RGBF' if full_kind == 'rgb' else 'YUVF',
+                int(round(f0)), int(round(f1)), int(round(f2))))
         name, dh, ds, dx = dom
         if name in ("RGB", "YUV"):
             # 直接颜色空间域（归一化 [0,1]）：按帧位深缩放为整数显示
-            dom_txt = "{}({}, {}, {})".format(
+            parts.append("{}({}, {}, {})".format(
                 name,
                 int(round(float(dh[y_pos, x_pos]) * max_val)),
                 int(round(float(ds[y_pos, x_pos]) * max_val)),
-                int(round(float(dx[y_pos, x_pos]) * max_val)))
+                int(round(float(dx[y_pos, x_pos]) * max_val))))
         else:
-            dom_txt = "{}({:.1f}, {:.3f}, {:.3f})".format(
+            parts.append("{}({:.1f}, {:.3f}, {:.3f})".format(
                 name, float(dh[y_pos, x_pos]), float(ds[y_pos, x_pos]),
-                float(dx[y_pos, x_pos]))
-        return f"{native_txt}, {full_txt}, {dom_txt}"
+                float(dx[y_pos, x_pos])))
+        return ", ".join(parts)

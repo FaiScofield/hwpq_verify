@@ -103,7 +103,7 @@
      <item>
       <widget class="QComboBox" name="comboBox_inputCscClip">
        <property name="enabled">
-        <bool>false</bool>
+        <bool>true</bool>
        </property>
        <item>
         <property name="text">
@@ -127,7 +127,7 @@
      <item>
       <widget class="QComboBox" name="comboBox_outputCscClip">
        <property name="enabled">
-        <bool>false</bool>
+        <bool>true</bool>
        </property>
        <item>
         <property name="text">
@@ -211,98 +211,25 @@
         <property name="leftMargin">
          <number>9</number>
         </property>
-        <item row="0" column="1">
-         <widget class="QComboBox" name="comboBox_modeC">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
+        <item row="2" column="3">
+         <widget class="QDoubleSpinBox" name="spinBox_deltaS">
           <property name="toolTip">
-           <string>对比度增益参考点：MidPoint 过 v=0.5 中点 / ZeroPoint 过 v=0 原点 / Both 按 gc&lt;1 或 &gt;1 自动选择</string>
-          </property>
-          <property name="currentIndex">
-           <number>0</number>
-          </property>
-          <item>
-           <property name="text">
-            <string>GainAtMid</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
-            <string>GainAtZero</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
-            <string>GainAtBoth</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
-            <string>TanSlant</string>
-           </property>
-          </item>
-         </widget>
-        </item>
-        <item row="4" column="1">
-         <widget class="QComboBox" name="comboBox_modeH">
-          <property name="enabled">
-           <bool>true</bool>
-          </property>
-          <item>
-           <property name="text">
-            <string>SameOffset</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
-            <string>SameTarget</string>
-           </property>
-          </item>
-         </widget>
-        </item>
-        <item row="1" column="0">
-         <widget class="QLabel" name="label_deltaV">
-          <property name="toolTip">
-           <string>V 通道加性偏移（叠加在对比度增益之后）</string>
-          </property>
-          <property name="text">
-           <string>Brightness</string>
-          </property>
-         </widget>
-        </item>
-        <item row="0" column="3">
-         <widget class="QDoubleSpinBox" name="spinBox_gainC">
-          <property name="toolTip">
-           <string>对比度增益 gc，乘性作用于 V 通道</string>
+           <string>S 调整量 ds，支持加性或乘性</string>
           </property>
           <property name="decimals">
            <number>2</number>
           </property>
           <property name="minimum">
-           <double>0.000000000000000</double>
+           <double>-1.000000000000000</double>
           </property>
           <property name="maximum">
-           <double>4.000000000000000</double>
+           <double>1.000000000000000</double>
           </property>
           <property name="singleStep">
            <double>0.010000000000000</double>
           </property>
           <property name="value">
            <double>1.000000000000000</double>
-          </property>
-         </widget>
-        </item>
-        <item row="2" column="4">
-         <widget class="QPushButton" name="pushButton_resetS">
-          <property name="toolTip">
-           <string>将 S 调整量重置为当前模式的中性值（加性 0 / 乘性 1）</string>
-          </property>
-          <property name="text">
-           <string>Reset</string>
           </property>
          </widget>
         </item>
@@ -313,8 +240,11 @@
           </property>
          </widget>
         </item>
-        <item row="1" column="1">
-         <widget class="QComboBox" name="comboBox_modeV">
+        <item row="2" column="1">
+         <widget class="QComboBox" name="comboBox_modeS">
+          <property name="currentIndex">
+           <number>1</number>
+          </property>
           <item>
            <property name="text">
             <string>ModeAdd</string>
@@ -330,6 +260,86 @@
             <string>NegMulPosRat</string>
            </property>
           </item>
+          <item>
+           <property name="text">
+            <string>MixGray_BT709</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>MixGray_BT601</string>
+           </property>
+          </item>
+         </widget>
+        </item>
+        <item row="4" column="4">
+         <widget class="QPushButton" name="pushButton_resetH">
+          <property name="toolTip">
+           <string>将 Delta H 重置为中性值 0</string>
+          </property>
+          <property name="text">
+           <string>Reset</string>
+          </property>
+         </widget>
+        </item>
+        <item row="4" column="3">
+         <widget class="QSpinBox" name="spinBox_deltaH">
+          <property name="toolTip">
+           <string>H 加性偏移 dh</string>
+          </property>
+          <property name="minimum">
+           <number>-180</number>
+          </property>
+          <property name="maximum">
+           <number>180</number>
+          </property>
+          <property name="singleStep">
+           <number>1</number>
+          </property>
+          <property name="value">
+           <number>0</number>
+          </property>
+         </widget>
+        </item>
+        <item row="4" column="0">
+         <widget class="QLabel" name="label_deltaH">
+          <property name="toolTip">
+           <string>H 通道加性偏移</string>
+          </property>
+          <property name="text">
+           <string>Hue</string>
+          </property>
+         </widget>
+        </item>
+        <item row="4" column="2">
+         <widget class="QSlider" name="slider_deltaH">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+            <horstretch>1</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>40</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>H 加性偏移 dh</string>
+          </property>
+          <property name="minimum">
+           <number>-180</number>
+          </property>
+          <property name="maximum">
+           <number>180</number>
+          </property>
+          <property name="value">
+           <number>0</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
          </widget>
         </item>
         <item row="2" column="2">
@@ -366,89 +376,6 @@
           </property>
          </widget>
         </item>
-        <item row="0" column="0">
-         <widget class="QLabel" name="label_gainC">
-          <property name="toolTip">
-           <string>对比度增益（乘性作用于 V 通道）</string>
-          </property>
-          <property name="text">
-           <string>Contrast</string>
-          </property>
-         </widget>
-        </item>
-        <item row="1" column="2">
-         <widget class="QSlider" name="slider_deltaV">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-            <horstretch>1</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="minimumSize">
-           <size>
-            <width>40</width>
-            <height>0</height>
-           </size>
-          </property>
-          <property name="toolTip">
-           <string>V 加性偏移 dv</string>
-          </property>
-          <property name="minimum">
-           <number>-100</number>
-          </property>
-          <property name="maximum">
-           <number>100</number>
-          </property>
-          <property name="value">
-           <number>0</number>
-          </property>
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
-          </property>
-         </widget>
-        </item>
-        <item row="2" column="1">
-         <widget class="QComboBox" name="comboBox_modeS">
-          <property name="currentIndex">
-           <number>1</number>
-          </property>
-          <item>
-           <property name="text">
-            <string>ModeAdd</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
-            <string>ModeMul</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
-            <string>NegMulPosRat</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
-            <string>MixGray_BT709</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
-            <string>MixGray_BT601</string>
-           </property>
-          </item>
-         </widget>
-        </item>
-        <item row="1" column="4">
-         <widget class="QPushButton" name="pushButton_resetV">
-          <property name="toolTip">
-           <string>将 Delta V 重置为中性值 0</string>
-          </property>
-          <property name="text">
-           <string>Reset</string>
-          </property>
-         </widget>
-        </item>
         <item row="0" column="2">
          <widget class="QSlider" name="slider_gainC">
           <property name="sizePolicy">
@@ -480,111 +407,80 @@
           </property>
          </widget>
         </item>
-        <item row="4" column="3">
-         <widget class="QSpinBox" name="spinBox_deltaH">
+        <item row="1" column="0">
+         <widget class="QLabel" name="label_deltaV">
           <property name="toolTip">
-           <string>H 加性偏移 dh</string>
-          </property>
-          <property name="minimum">
-           <number>-180</number>
-          </property>
-          <property name="maximum">
-           <number>180</number>
-          </property>
-          <property name="singleStep">
-           <number>1</number>
-          </property>
-          <property name="value">
-           <number>0</number>
-          </property>
-         </widget>
-        </item>
-        <item row="1" column="3">
-         <widget class="QDoubleSpinBox" name="spinBox_deltaV">
-          <property name="toolTip">
-           <string>V 加性偏移 dv</string>
-          </property>
-          <property name="decimals">
-           <number>2</number>
-          </property>
-          <property name="minimum">
-           <double>-1.000000000000000</double>
-          </property>
-          <property name="maximum">
-           <double>1.000000000000000</double>
-          </property>
-          <property name="singleStep">
-           <double>0.010000000000000</double>
-          </property>
-          <property name="value">
-           <double>0.000000000000000</double>
-          </property>
-         </widget>
-        </item>
-        <item row="4" column="0">
-         <widget class="QLabel" name="label_deltaH">
-          <property name="toolTip">
-           <string>H 通道加性偏移</string>
+           <string>V 通道加性偏移（叠加在对比度增益之后）</string>
           </property>
           <property name="text">
-           <string>Hue</string>
+           <string>Brightness</string>
           </property>
          </widget>
         </item>
-        <item row="2" column="0">
-         <widget class="QLabel" name="label_deltaS">
+        <item row="2" column="4">
+         <widget class="QPushButton" name="pushButton_resetS">
           <property name="toolTip">
-           <string>S 通道调整量：加性模式为 Delta，乘性模式为 Gain</string>
+           <string>将 S 调整量重置为当前模式的中性值（加性 0 / 乘性 1）</string>
           </property>
           <property name="text">
-           <string>Saturation</string>
+           <string>Reset</string>
           </property>
          </widget>
         </item>
-        <item row="4" column="2">
-         <widget class="QSlider" name="slider_deltaH">
+        <item row="0" column="1">
+         <widget class="QComboBox" name="comboBox_modeC">
           <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-            <horstretch>1</horstretch>
+           <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+            <horstretch>0</horstretch>
             <verstretch>0</verstretch>
            </sizepolicy>
           </property>
-          <property name="minimumSize">
-           <size>
-            <width>40</width>
-            <height>0</height>
-           </size>
-          </property>
           <property name="toolTip">
-           <string>H 加性偏移 dh</string>
+           <string>对比度增益参考点：GainAtMid 过 v=0.5 中点 / GainAtZero 过 v=0 原点 / GainAtBoth 按 gc&lt;1 或 &gt;1 自动选择 / TanSlant tan 映射 / FastStone（仅 RGB 域）逐通道 Levels 拉伸</string>
           </property>
-          <property name="minimum">
-           <number>-180</number>
-          </property>
-          <property name="maximum">
-           <number>180</number>
-          </property>
-          <property name="value">
+          <property name="currentIndex">
            <number>0</number>
           </property>
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
-          </property>
+          <item>
+           <property name="text">
+            <string>GainAtMid</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>GainAtZero</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>GainAtBoth</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>TanSlant</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>FastStone</string>
+           </property>
+          </item>
          </widget>
         </item>
-        <item row="2" column="3">
-         <widget class="QDoubleSpinBox" name="spinBox_deltaS">
+        <item row="0" column="3">
+         <widget class="QDoubleSpinBox" name="spinBox_gainC">
           <property name="toolTip">
-           <string>S 调整量 ds，支持加性或乘性</string>
+           <string>对比度增益 gc，乘性作用于 V 通道</string>
           </property>
           <property name="decimals">
            <number>2</number>
           </property>
           <property name="minimum">
-           <double>-1.000000000000000</double>
+           <double>0.000000000000000</double>
           </property>
           <property name="maximum">
-           <double>1.000000000000000</double>
+           <double>4.000000000000000</double>
           </property>
           <property name="singleStep">
            <double>0.010000000000000</double>
@@ -594,10 +490,10 @@
           </property>
          </widget>
         </item>
-        <item row="4" column="4">
-         <widget class="QPushButton" name="pushButton_resetH">
+        <item row="1" column="4">
+         <widget class="QPushButton" name="pushButton_resetV">
           <property name="toolTip">
-           <string>将 Delta H 重置为中性值 0</string>
+           <string>将 Delta V 重置为中性值 0</string>
           </property>
           <property name="text">
            <string>Reset</string>
@@ -657,14 +553,147 @@
           </property>
          </widget>
         </item>
-        <item row="5" column="0" colspan="2">
+        <item row="2" column="0">
+         <widget class="QLabel" name="label_deltaS">
+          <property name="toolTip">
+           <string>S 通道调整量：加性模式为 Delta，乘性模式为 Gain</string>
+          </property>
+          <property name="text">
+           <string>Saturation</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QSlider" name="slider_deltaV">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+            <horstretch>1</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>40</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>V 加性偏移 dv</string>
+          </property>
+          <property name="minimum">
+           <number>-100</number>
+          </property>
+          <property name="maximum">
+           <number>100</number>
+          </property>
+          <property name="value">
+           <number>0</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QComboBox" name="comboBox_modeV">
+          <item>
+           <property name="text">
+            <string>ModeAdd</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>ModeMul</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>NegMulPosRat</string>
+           </property>
+          </item>
+         </widget>
+        </item>
+        <item row="0" column="0">
+         <widget class="QLabel" name="label_gainC">
+          <property name="toolTip">
+           <string>对比度增益（乘性作用于 V 通道）</string>
+          </property>
+          <property name="text">
+           <string>Contrast</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="3">
+         <widget class="QDoubleSpinBox" name="spinBox_deltaV">
+          <property name="toolTip">
+           <string>V 加性偏移 dv</string>
+          </property>
+          <property name="decimals">
+           <number>2</number>
+          </property>
+          <property name="minimum">
+           <double>-1.000000000000000</double>
+          </property>
+          <property name="maximum">
+           <double>1.000000000000000</double>
+          </property>
+          <property name="singleStep">
+           <double>0.010000000000000</double>
+          </property>
+          <property name="value">
+           <double>0.000000000000000</double>
+          </property>
+         </widget>
+        </item>
+        <item row="5" column="0">
          <widget class="QLabel" name="label_sameHueGoal">
           <property name="toolTip">
            <string>目标色相（0-360）：SameTarget 模式下色调统一向该颜色变化</string>
           </property>
           <property name="text">
-           <string>Same Hue Goal</string>
+           <string>Hue Goal</string>
           </property>
+         </widget>
+        </item>
+        <item row="5" column="1">
+         <widget class="QComboBox" name="comboBox_goalH">
+          <property name="enabled">
+           <bool>true</bool>
+          </property>
+          <item>
+           <property name="text">
+            <string>SameOffset</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>SameTarget</string>
+           </property>
+          </item>
+         </widget>
+        </item>
+        <item row="4" column="1">
+         <widget class="QComboBox" name="comboBox_modeH">
+          <item>
+           <property name="text">
+            <string>ModeAdd</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>RotateOnGray</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>RotateMat709</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>RotateMat601</string>
+           </property>
+          </item>
          </widget>
         </item>
        </layout>
@@ -923,7 +952,6 @@
   <tabstop>slider_deltaS</tabstop>
   <tabstop>spinBox_deltaS</tabstop>
   <tabstop>pushButton_resetS</tabstop>
-  <tabstop>comboBox_modeH</tabstop>
   <tabstop>slider_deltaH</tabstop>
   <tabstop>spinBox_deltaH</tabstop>
   <tabstop>pushButton_resetH</tabstop>
