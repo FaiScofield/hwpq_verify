@@ -476,9 +476,13 @@ def lch_to_rgb(lch):
 # RGB 域直接调整                                                      #
 # ------------------------------------------------------------------ #
 
-def _rgb_luma(rgb):
-    """BT.709 luma -> (...,) 灰度（RGB 域 S 灰阶混合用）。"""
-    return (rgb[..., 0] * 0.2126 + rgb[..., 1] * 0.7152 + rgb[..., 2] * 0.0722)
+def _rgb_luma(rgb, coef='bt709'):
+    """luma -> (...,) 灰度（RGB 域 S 灰阶混合用）。coef='bt709'/'bt601'。"""
+    if coef == 'bt601':
+        w0, w1, w2 = 0.299, 0.587, 0.114
+    else:
+        w0, w1, w2 = 0.2126, 0.7152, 0.0722
+    return rgb[..., 0] * w0 + rgb[..., 1] * w1 + rgb[..., 2] * w2
 
 
 def _rgb_saturation(rgb):
@@ -544,12 +548,13 @@ def _rgb_contrast_brightness(rgb, gain_c, dv, mode_c, mode_v):
 
 
 def adjust_rgb(rgb, delta_v=None, delta_s=None, gain_c=1.0, tolerance_s=0.0,
-               mode_c='mid', mode_v='add', angle_deg=0.0):
+               mode_c='mid', mode_v='add', angle_deg=0.0, gray_coef='bt709'):
     """RGB 域直接 BCSH 调整（不经过 HSV 域转换）。标量或数组 (...,3) 均可。
 
     - C/V：三通道统一 ch'=contrast(ch) 按 mode_c 参考点，再按 mode_v 施加 delta_v
     - S：scale=delta_s（乘性，中性 1.0）；out=scale*in+(1-scale)*gray(in)，
-         gray=BT.709 luma；scale>1（增色）时 S<tolerance_s 的像素保持原样。
+         gray 为 luma——gray_coef='bt709' 用 BT.709、'bt601' 用 BT.601 系数；
+         scale>1（增色）时 S<tolerance_s 的像素保持原样。
     - H：绕灰色轴旋转 angle_deg（度，可逐像素数组；由调用方算好 SameOffset
          角度或 SameTarget 进度*弧长）。
     """
@@ -565,7 +570,7 @@ def adjust_rgb(rgb, delta_v=None, delta_s=None, gain_c=1.0, tolerance_s=0.0,
     scale = np.asarray(
         1.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), 0.0, 4.0),
         np.float32)
-    gray = _rgb_luma(rgb_v)
+    gray = _rgb_luma(rgb_v, gray_coef)
     sat = _rgb_saturation(rgb_v)
     apply = (sat >= tolerance_s) | (scale <= 1.0)
     rgb_s = np.where(

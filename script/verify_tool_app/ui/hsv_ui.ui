@@ -427,6 +427,16 @@
             <string>NegMulPosRat</string>
            </property>
           </item>
+          <item>
+           <property name="text">
+            <string>MixGray_BT709</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>MixGray_BT601</string>
+           </property>
+          </item>
          </widget>
         </item>
         <item row="1" column="4">

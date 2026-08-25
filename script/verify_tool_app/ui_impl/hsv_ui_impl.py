@@ -171,6 +171,10 @@ class HsvUiWidget(QWidget):
 class HsvUiController:
     """Controls the HSV tab: V/S/H adjustment and specified-hue processing."""
 
+    # comboBox_modeS 两类互斥选项：圆柱色域 S 模式 / RGB 域灰阶混合（MixGray）。
+    _MODE_S_CYLINDRICAL = ("ModeAdd", "ModeMul", "NegMulPosRat")
+    _MODE_S_RGB = ("MixGray_BT709", "MixGray_BT601")
+
     # ------------------------------------------------------------------ #
     # Initialization                                                     #
     # ------------------------------------------------------------------ #
@@ -257,6 +261,8 @@ class HsvUiController:
         # 两个 CSC Clip 下拉总是启用（步骤 2️⃣/5️⃣ 钳位开关）。
         self.ui.comboBox_inputCscClip.setEnabled(True)
         self.ui.comboBox_outputCscClip.setEnabled(True)
+        # comboBox_modeS 的 MixGray 项仅在 RGB 处理域可选。
+        self._set_mode_s_items_enabled(self._adjust_field() == "RGB")
 
     # ------------------------------------------------------------------ #
     # Public accessors                                                   #
@@ -353,6 +359,27 @@ class HsvUiController:
         slider.setValue(value)
         slider.blockSignals(False)
 
+    @staticmethod
+    def _set_combo_text(combo: object, text: str) -> None:
+        """Set the combo box current item by text without emitting signals."""
+        combo.blockSignals(True)
+        idx = combo.findText(text)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        combo.blockSignals(False)
+
+    def _set_mode_s_items_enabled(self, rgb_only: bool) -> None:
+        """按处理域启用/禁用 comboBox_modeS 的选项：RGB 域只留 MixGray（灰阶混合），
+        圆柱色域只留 ModeAdd/ModeMul/NegMulPosRat。"""
+        combo = self.ui.comboBox_modeS
+        for i in range(combo.count()):
+            combo.model().item(i).setEnabled(
+                (combo.itemText(i) in self._MODE_S_RGB) == rgb_only)
+
+    def _s_entry_mode(self, code: str) -> str:
+        """S 模式配置条目键：MixGray 复用 'mul' 的 scale 量程/中性值。"""
+        return code if code in ('add', 'mul', 'negmulposrat') else 'mul'
+
     def _reset_mapped(self, slider: object, spin: object, value: float, scale: float) -> None:
         """Reset a mapped slider-spin pair to ``value`` and re-run."""
         self._set_spin_value(spin, value)
@@ -388,15 +415,19 @@ class HsvUiController:
         self._set_slider_value(self.ui.slider_gainC, int(round(value * scale)))
 
     def _s_mode_code(self) -> str:
-        """Map comboBox_modeS text to adjust_hsv S mode ('add'/'mul'/'negmulposrat')."""
+        """Map comboBox_modeS text to S mode code
+        ('add'/'mul'/'negmulposrat'/'mixgray_bt709'/'mixgray_bt601')."""
         text = self.ui.comboBox_modeS.currentText()
         return {'ModeAdd': 'add',
                 'ModeMul': 'mul',
-                'NegMulPosRat': 'negmulposrat'}.get(text, 'mul')
+                'NegMulPosRat': 'negmulposrat',
+                'MixGray_BT709': 'mixgray_bt709',
+                'MixGray_BT601': 'mixgray_bt601'}.get(text, 'mul')
 
     def _apply_s_mode_ui(self, mode: str, keep_value: bool = False) -> None:
-        """按配置设置 S 通道量程/步长；默认置为配置默认值，keep_value 时保留当前值（clip 到新量程）。"""
-        entry = self._entry('S', mode)
+        """按配置设置 S 通道量程/步长；默认置为配置默认值，keep_value 时保留当前值（clip 到新量程）。
+        MixGray 复用 'mul' 的 scale 量程/中性值配置。"""
+        entry = self._entry('S', self._s_entry_mode(mode))
         scale = SLIDER_SCALE['S']
         self.ui.spinBox_deltaS.setRange(entry["min"], entry["max"])
         self.ui.spinBox_deltaS.setSingleStep(entry["step"])
@@ -438,13 +469,19 @@ class HsvUiController:
         self._schedule_auto_run()
 
     def _on_adjust_field_changed(self, *_args) -> None:
-        """adjustField 切换：RGB 域禁用 ModeS（S 恒为 scale 灰阶混合）。"""
+        """adjustField 切换：RGB 域只允许 MixGray_BT709/BT601（灰阶混合），
+        圆柱色域只允许 ModeAdd/ModeMul/NegMulPosRat。"""
         del _args
         is_rgb = self._adjust_field() == "RGB"
-        self.ui.comboBox_modeS.setEnabled(not is_rgb)
+        self._set_mode_s_items_enabled(is_rgb)
+        code = self._s_mode_code()
         if is_rgb:
+            if code not in ('mixgray_bt709', 'mixgray_bt601'):
+                self._set_combo_text(self.ui.comboBox_modeS, 'MixGray_BT709')
             self._apply_s_mode_ui('mul')          # scale 语义（mul 量程/中性）
         else:
+            if code in ('mixgray_bt709', 'mixgray_bt601'):
+                self._set_combo_text(self.ui.comboBox_modeS, 'ModeMul')
             self._apply_s_mode_ui(self._s_mode_code())
         self._schedule_auto_run()
 
@@ -512,7 +549,7 @@ class HsvUiController:
 
     def _on_reset_s(self) -> None:
         """Reset the S value to its mode neutral from the config."""
-        neutral = self._entry('S', self._s_mode_code())["default"]
+        neutral = self._entry('S', self._s_entry_mode(self._s_mode_code()))["default"]
         self._reset_mapped(self.ui.slider_deltaS, self.ui.spinBox_deltaS,
                            neutral, SLIDER_SCALE['S'])
 
@@ -1101,7 +1138,7 @@ class HsvUiController:
     def _compute_adjusted_rgb(
         self, rgb: np.ndarray, h_deg: np.ndarray,
     ) -> np.ndarray:
-        """RGB 域 BCSH 调整：C/V 逐通道、S 灰阶混合、H 绕灰色轴旋转。
+        """RGB 域 BCSH 调整：C/V 逐通道、S 灰阶混合（MixGray_BT709/BT601）、H 绕灰色轴旋转。
 
         SameOffset：angle=dh；SameTarget：angle=progress*shortest_arc（逐像素，
         用 HSV 色相 h_deg 计算弧长）。
@@ -1118,10 +1155,12 @@ class HsvUiController:
             angle = progress * arc
         else:
             angle = dh_deg
+        s_code = self._s_mode_code()
+        gray_coef = 'bt601' if s_code == 'mixgray_bt601' else 'bt709'
         return adjust_rgb(rgb, delta_v=dv, delta_s=ds, gain_c=gc,
                           tolerance_s=float(self.ui.spinBox_toleranceS.value()),
                           mode_c=self._mode_c_code(), mode_v=self._v_mode_code(),
-                          angle_deg=angle)
+                          angle_deg=angle, gray_coef=gray_coef)
 
     @staticmethod
     def _hue_blend_weights(hue_deg, hs, he, st, et, sp, ep):
