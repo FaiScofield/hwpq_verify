@@ -46,7 +46,7 @@
      <item>
       <widget class="QComboBox" name="comboBox_adjustField">
        <property name="sizePolicy">
-        <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+        <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
          <horstretch>0</horstretch>
          <verstretch>0</verstretch>
         </sizepolicy>
@@ -96,23 +96,28 @@
      <item>
       <widget class="QLabel" name="label_clip">
        <property name="text">
-        <string>Input/Output CSC Clip</string>
+        <string>RGB Clip</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QComboBox" name="comboBox_inputCscClip">
+      <widget class="QComboBox" name="comboBox_rgbClipType">
        <property name="enabled">
         <bool>true</bool>
        </property>
        <item>
         <property name="text">
-         <string>ON</string>
+         <string>HardClip</string>
         </property>
        </item>
        <item>
         <property name="text">
-         <string>OFF</string>
+         <string>SoftClip</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>ConstHue</string>
         </property>
        </item>
       </widget>
@@ -120,23 +125,33 @@
      <item>
       <widget class="QLabel" name="label_2">
        <property name="text">
-        <string>/</string>
+        <string>YUV Clip</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QComboBox" name="comboBox_outputCscClip">
+      <widget class="QComboBox" name="comboBox_yuvClipType">
        <property name="enabled">
         <bool>true</bool>
        </property>
        <item>
         <property name="text">
-         <string>ON</string>
+         <string>HardClip</string>
         </property>
        </item>
        <item>
         <property name="text">
-         <string>OFF</string>
+         <string>ClipInRGB</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>ClipChroma</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>ClipChromaSoft</string>
         </property>
        </item>
       </widget>
@@ -506,7 +521,7 @@
            <bool>false</bool>
           </property>
           <property name="sizePolicy">
-           <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+           <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
             <horstretch>0</horstretch>
             <verstretch>0</verstretch>
            </sizepolicy>
@@ -525,7 +540,7 @@
            <bool>false</bool>
           </property>
           <property name="sizePolicy">
-           <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
             <horstretch>1</horstretch>
             <verstretch>0</verstretch>
            </sizepolicy>
@@ -692,6 +707,16 @@
           <item>
            <property name="text">
             <string>RotateMat601</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>CompYByGamut</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>CompYByValue</string>
            </property>
           </item>
          </widget>
@@ -939,6 +964,8 @@
  <tabstops>
   <tabstop>checkBox_enableHsvAdj</tabstop>
   <tabstop>comboBox_adjustField</tabstop>
+  <tabstop>comboBox_rgbClipType</tabstop>
+  <tabstop>comboBox_yuvClipType</tabstop>
   <tabstop>spinBox_toleranceS</tabstop>
   <tabstop>comboBox_modeC</tabstop>
   <tabstop>slider_gainC</tabstop>
@@ -952,9 +979,11 @@
   <tabstop>slider_deltaS</tabstop>
   <tabstop>spinBox_deltaS</tabstop>
   <tabstop>pushButton_resetS</tabstop>
+  <tabstop>comboBox_modeH</tabstop>
   <tabstop>slider_deltaH</tabstop>
   <tabstop>spinBox_deltaH</tabstop>
   <tabstop>pushButton_resetH</tabstop>
+  <tabstop>comboBox_goalH</tabstop>
   <tabstop>slider_sameHueGoal</tabstop>
   <tabstop>spinBox_sameHueGoal</tabstop>
   <tabstop>groupBox_setHueRange</tabstop>

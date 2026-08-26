@@ -224,8 +224,8 @@ class IoUiController:
         self.ui.spinBox_valueV.setEnabled(False)
         self.ui.spinBox_valueH.setEnabled(False)
         # Remember per-domain colorspace choices (restored when the format
-        # switches between the RGB and YUV domains).
-        self._last_clrspc_rgb = 0
+        # switches between the RGB and YUV domains). 默认 RGB->1 全量程、YUV->5 BT.709 full。
+        self._last_clrspc_rgb = 1
         clr_str = self.ui.comboBox_input_colorspace.currentText()
         self._last_clrspc_yuv = int(clr_str.split("-")[0]) if clr_str else 5
 
@@ -296,7 +296,9 @@ class IoUiController:
         return [2, 3, 4, 5]
 
     def _refresh_output_colorspace_options(self, keep_current: bool = True) -> None:
-        """重建输出 colorspace 选项；当前值仍合法时保留，否则取第一个。
+        """重建输出 colorspace 选项；当前值仍合法时保留，否则按输出 format 域
+        落到默认全量程（RGB->1 RGB_Full，YUV->5 BT.709 full；5 不可用时如输入
+        2020 回落到 7 或列表首个）。
 
         显示格式与 ``_on_input_format_changed`` 一致（``"{clr}-{name}"``）。
         """
@@ -306,6 +308,14 @@ class IoUiController:
         self.ui.comboBox_output_colorspace.addItems(clrspc_display)
         if keep_current and current in clrspc_display:
             self.ui.comboBox_output_colorspace.setCurrentText(current)
+            return
+        default = 1 if is_rgb_format(self.get_output_fmt_code()) else 5
+        item = self._find_clrspc_item(self.ui.comboBox_output_colorspace, default)
+        if not item:
+            item = self._find_clrspc_item(self.ui.comboBox_output_colorspace, default + 2)
+        if not item:
+            item = clrspc_display[0]
+        self.ui.comboBox_output_colorspace.setCurrentText(item)
 
     @staticmethod
     def _find_clrspc_item(combo, code: int) -> str:
