@@ -87,7 +87,7 @@ class HsvTestAppWindow(QMainWindow):
         self.setWindowTitle(f"HSV Test App {HSV_APP_VERSION}")
         # The host window .ui is shared across apps; set the HSV tab label here.
         self.ui.tabWidget_main.setTabText(
-            self.ui.tabWidget_main.indexOf(self.ui.tab_module_host), "HSV Config")
+            self.ui.tabWidget_main.indexOf(self.ui.tab_module_host), "BCSH Config")
         self._syncing_preview_action = False
 
         self.io_widget = IoUiWidget(self)

@@ -272,11 +272,6 @@
           </item>
           <item>
            <property name="text">
-            <string>NegMulPosRat</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
             <string>MixGray_BT709</string>
            </property>
           </item>
@@ -624,6 +619,16 @@
           <item>
            <property name="text">
             <string>NegMulPosRat</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>ModeAddKeepHS</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>ModeAddKeepH</string>
            </property>
           </item>
          </widget>

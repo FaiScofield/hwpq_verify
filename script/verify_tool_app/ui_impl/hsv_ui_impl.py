@@ -8,10 +8,11 @@ HSV tab controller — encapsulates all HSV-related UI behavior and state.
      （c∈[-1,1]，增益=tan((c+1)π/4)）/ FastStone（仅 RGB 域，C∈[-1,1]，
      归一化到 [-100,100] 做逐通道 Levels 拉伸 out=clip(k·in+b)）
      modeV: ModeAdd 加性偏移 / ModeMul 乘性增益 / NegMulPosRat（δV∈[-1,1]：
-     负值乘性压缩、正值按进度向白靠拢，极值纯黑/纯白）
-  S：comboBox_modeS 切换加性/乘性/NegMulPosRat  s'=clip(s+ds) / s'=clip(s*ds)
-     / ds<0 乘性压缩、ds>0 向全饱和靠拢；RGB 域禁用 ModeS，恒为 scale 灰阶
-     混合 out=scale*in+(1-scale)*gray(in)
+     负值乘性压缩、正值按进度向白靠拢，极值纯黑/纯白）；ModeAddKeepHS/
+     ModeAddKeepH 仅 YCbCr 域——亮度超界处理：ModeAddKeepHS Y 双向封顶保饱和保色相，
+     ModeAddKeepH 等比缩回保色相（高侧向白、低侧向黑去饱和）
+  S：comboBox_modeS 切换加性/乘性  s'=clip(s+ds) / s'=clip(s*ds)；
+     RGB 域禁用 ModeS，恒为 scale 灰阶混合 out=scale*in+(1-scale)*gray(in)
   H：comboBox_goalH 选择目标——SameOffset 恒为加性偏移（默认）；SameTarget 向指定
      目标色调旋转（激活 Same Hue Goal 行控件）；comboBox_modeH 选择生效方式——
      ModeAdd 加性色相平移（所有域；RGB 域即 FastStone 兼容的六边形 HSV 加法）；
@@ -191,12 +192,13 @@ class HsvUiController:
     """Controls the HSV tab: V/S/H adjustment and specified-hue processing."""
 
     # comboBox_modeS 两类互斥选项：圆柱色域 S 模式 / RGB 域灰阶混合（MixGray）。
-    _MODE_S_CYLINDRICAL = ("ModeAdd", "ModeMul", "NegMulPosRat")
     _MODE_S_RGB = ("MixGray_BT709", "MixGray_BT601")
     # comboBox_modeH 的 Rotate 系列（仅 RGB 处理域可选）。
     _MODE_H_ROTATE = ("RotateOnGray", "RotateMat709", "RotateMat601")
     # comboBox_modeH 的 CompY* 系列（仅 YCbCr 处理域可选）：H 旋转后的 Y 通道补偿。
     _MODE_H_YUV_COMP = ("CompYByGamut", "CompYByValue")
+    # comboBox_modeV 的 YUV 域专用项（仅 YCbCr 处理域可选）：亮度超界时保持色相。
+    _MODE_V_YUV = ("ModeAddKeepHS", "ModeAddKeepH")
     # comboBox_modeC 的 FastStone（仅 RGB 处理域可选）。
     _MODE_C_RGB = ("FastStone",)
 
@@ -257,7 +259,7 @@ class HsvUiController:
         self._last_readout: PixelReadoutCache | None = None
         self._frozen_pixel: tuple[int, int] | None = None
         self._input_is_rgb = True     # 源输入帧是否为 RGB（决定像素读数链路前缀）
-        self._s_mode = 'mul'          # 'add'/'mul'/'negmulposrat'（S 通道模式，.ui 默认 Mul）
+        self._s_mode = 'mul'          # 'add'/'mul'（S 通道模式，.ui 默认 Mul）
         self._v_mode = 'add'          # 'add'/'mul'（V 通道模式，.ui 默认 Add）
         self._work_size: tuple[int, int] | None = None   # 最近一次预览处理的分辨率
 
@@ -290,6 +292,8 @@ class HsvUiController:
         self._set_mode_s_items_enabled(self._adjust_field() == "RGB")
         # comboBox_modeH 的 Rotate 系列仅在 RGB 处理域可选。
         self._set_mode_h_items_enabled(self._adjust_field() == "RGB")
+        # comboBox_modeV 的 CapYAtGamut/ScaleKeepHue 仅在 YCbCr 处理域可选。
+        self._set_mode_v_items_enabled(self._adjust_field() == "YCbCr")
 
     # ------------------------------------------------------------------ #
     # Public accessors                                                   #
@@ -398,7 +402,7 @@ class HsvUiController:
 
     def _set_mode_s_items_enabled(self, rgb_only: bool) -> None:
         """按处理域启用/禁用 comboBox_modeS 的选项：RGB 域只留 MixGray（灰阶混合），
-        圆柱色域只留 ModeAdd/ModeMul/NegMulPosRat。"""
+        圆柱色域只留 ModeAdd/ModeMul。"""
         combo = self.ui.comboBox_modeS
         for i in range(combo.count()):
             combo.model().item(i).setEnabled(
@@ -426,6 +430,14 @@ class HsvUiController:
             combo.model().item(i).setEnabled(
                 combo.itemText(i) not in self._MODE_C_RGB or rgb_only)
 
+    def _set_mode_v_items_enabled(self, ycbcr_only: bool) -> None:
+        """按处理域启用/禁用 comboBox_modeV 的 YUV 专用项（CapYAtGamut/ScaleKeepHue）：
+        仅 YCbCr 域可选；其余模式始终可用。"""
+        combo = self.ui.comboBox_modeV
+        for i in range(combo.count()):
+            combo.model().item(i).setEnabled(
+                combo.itemText(i) not in self._MODE_V_YUV or ycbcr_only)
+
     def _h_mode_code(self) -> str:
         """Map comboBox_modeH text to H apply-mode code
         ('add'/'rotategray'/'rotatemat709'/'rotatemat601'
@@ -440,7 +452,7 @@ class HsvUiController:
 
     def _s_entry_mode(self, code: str) -> str:
         """S 模式配置条目键：MixGray 复用 'mul' 的 scale 量程/中性值。"""
-        return code if code in ('add', 'mul', 'negmulposrat') else 'mul'
+        return code if code in ('add', 'mul') else 'mul'
 
     def _reset_mapped(self, slider: object, spin: object, value: float, scale: float) -> None:
         """Reset a mapped slider-spin pair to ``value`` and re-run."""
@@ -479,11 +491,10 @@ class HsvUiController:
 
     def _s_mode_code(self) -> str:
         """Map comboBox_modeS text to S mode code
-        ('add'/'mul'/'negmulposrat'/'mixgray_bt709'/'mixgray_bt601')."""
+        ('add'/'mul'/'mixgray_bt709'/'mixgray_bt601')."""
         text = self.ui.comboBox_modeS.currentText()
         return {'ModeAdd': 'add',
                 'ModeMul': 'mul',
-                'NegMulPosRat': 'negmulposrat',
                 'MixGray_BT709': 'mixgray_bt709',
                 'MixGray_BT601': 'mixgray_bt601'}.get(text, 'mul')
 
@@ -504,15 +515,22 @@ class HsvUiController:
         self._set_slider_value(self.ui.slider_deltaS, int(round(value * scale)))
 
     def _v_mode_code(self) -> str:
-        """Map comboBox_modeV text to adjust_hsv mode_v code."""
+        """Map comboBox_modeV text to adjust_hsv mode_v code
+        ('add'/'mul'/'negmulposrat'/'modeaddkeephs'/'modeaddkeeph')."""
         text = self.ui.comboBox_modeV.currentText()
         return {'ModeAdd': 'add',
                 'ModeMul': 'mul',
-                'NegMulPosRat': 'negmulposrat'}.get(text, 'add')
+                'NegMulPosRat': 'negmulposrat',
+                'ModeAddKeepHS': 'modeaddkeephs',
+                'ModeAddKeepH': 'modeaddkeeph'}.get(text, 'add')
+
+    def _v_entry_mode(self, code: str) -> str:
+        """V 模式配置条目键：CapYAtGamut/ScaleKeepHue 复用 'add' 的加性量程。"""
+        return code if code in ('add', 'mul', 'negmulposrat') else 'add'
 
     def _apply_v_mode_ui(self, mode: str, keep_value: bool = False) -> None:
         """按配置设置 V 通道量程/步长；默认置为配置默认值，keep_value 时保留当前值（clip 到新量程）。"""
-        entry = self._entry('B', mode)
+        entry = self._entry('B', self._v_entry_mode(mode))
         scale = SLIDER_SCALE['B']
         self.ui.spinBox_deltaV.setRange(entry["min"], entry["max"])
         self.ui.spinBox_deltaV.setSingleStep(entry["step"])
@@ -533,12 +551,13 @@ class HsvUiController:
 
     def _on_adjust_field_changed(self, *_args) -> None:
         """adjustField 切换：RGB 域只允许 MixGray_BT709/BT601（灰阶混合），
-        圆柱色域只允许 ModeAdd/ModeMul/NegMulPosRat；modeC 的 FastStone 仅 RGB 域。"""
+        圆柱色域只允许 ModeAdd/ModeMul；modeC 的 FastStone 仅 RGB 域。"""
         del _args
         is_rgb = self._adjust_field() == "RGB"
         self._set_mode_s_items_enabled(is_rgb)
         self._set_mode_h_items_enabled(is_rgb)
         self._set_mode_c_items_enabled(is_rgb)
+        self._set_mode_v_items_enabled(self._adjust_field() == "YCbCr")
         code = self._s_mode_code()
         if is_rgb:
             if code not in ('mixgray_bt709', 'mixgray_bt601'):
@@ -559,6 +578,9 @@ class HsvUiController:
         # modeC：非 RGB 域禁用 FastStone（回落 GainAtMid）；RGB 域全部可选。
         if not is_rgb and self._mode_c_code() == 'faststone':
             self._set_combo_text(self.ui.comboBox_modeC, 'GainAtMid')
+        # modeV：ModeAddKeepHS/ModeAddKeepH 仅 YCbCr 域；跨域回落 ModeAdd。
+        if field != "YCbCr" and self._v_mode_code() in ('modeaddkeephs', 'modeaddkeeph'):
+            self._set_combo_text(self.ui.comboBox_modeV, 'ModeAdd')
         self._schedule_auto_run()
 
     def _on_v_mode_changed(self, *_args) -> None:
@@ -578,10 +600,10 @@ class HsvUiController:
         self._schedule_auto_run()
 
     def _on_s_mode_changed(self, *_args) -> None:
-        """S 通道模式切换（add/mul/negmulposrat）：量程随模式变化；保留当前值（clip 到新量程）。
+        """S 通道模式切换（add/mul）：量程随模式变化；保留当前值（clip 到新量程）。
 
         Only the S channel is affected: the deltaS spin/slider range changes
-        with the mode (add: [-1, 1], mul: [0, 4], negmulposrat: [-1, 1]); the
+        with the mode (add: [-1, 1], mul: [0, 4]); the
         current value is kept and clipped to the new range.  The V/H/Contrast
         controls keep their values.  Initial state and redundant signals are
         no-ops.
@@ -624,7 +646,7 @@ class HsvUiController:
 
     def _on_reset_v(self) -> None:
         """Reset the V value to its mode neutral from the config."""
-        neutral = self._entry('B', self._v_mode_code())["default"]
+        neutral = self._entry('B', self._v_entry_mode(self._v_mode_code()))["default"]
         self._reset_mapped(self.ui.slider_deltaV, self.ui.spinBox_deltaV,
                            neutral, SLIDER_SCALE['B'])
 
@@ -933,6 +955,12 @@ class HsvUiController:
             else:
                 v_orig = None
             y_a = self._comp_y_after_hue_rotate(y_a, cb_a, cr_a, h_mode, v_orig, proc_cs)
+        # ---- 5b. 亮度超界处理（modeV=ModeAddKeepHS/ModeAddKeepH，仅 YCbCr 域）----
+        v_mode = self._v_mode_code()
+        if v_mode == 'modeaddkeephs':
+            y_a = self._cap_y_at_gamut(y_a, cb_a, cr_a, proc_cs)
+        elif v_mode == 'modeaddkeeph':
+            y_a, cb_a, cr_a = self._scale_keep_hue(y_a, cb_a, cr_a, proc_cs)
         cb_5 = cb * (1.0 - w) + cb_a * w
         cr_5 = cr * (1.0 - w) + cr_a * w
         y_5 = y_n * (1.0 - w) + y_a * w
@@ -952,9 +980,8 @@ class HsvUiController:
             cr_c = np.clip(cr_5, -0.5, 0.5)
             yuv_5_disp = np.stack([y_c, cb_c, cr_c], axis=-1)
 
-        # ---- 预览帧（步骤 5️⃣，yuv444p full，存储必钳位；预览显示策略结果） ----
-        preview_frame = self._yuv_norm_to_frame(
-            np.clip(yuv_5_disp, (0.0, -0.5, -0.5), (1.0, 0.5, 0.5)), depth, proc_cs)
+        # ---- 预览帧（步骤 5️⃣，输出 YUV 帧 -> RGB 显示，按 rgbClipType 钳位） ----
+        preview_frame = self._yuv_to_preview_frame(yuv_5_disp, proc_cs, depth)
 
         # ---- 6️⃣ 输出 CSC（必钳位，444 平面帧；格式转换在保存时按全分辨率进行） ----
         out_frame = self._to_output_frame_yuv(yuv_5_disp, proc_cs, depth)
@@ -1000,6 +1027,54 @@ class HsvUiController:
         y_target = v_orig - np.maximum.reduce(k, axis=0)
         y_new = np.clip(y_target, y_lo, y_hi)
         return np.where(y_lo <= y_hi, y_new, y)
+
+    def _cap_y_at_gamut(self, y, cb, cr, cs) -> np.ndarray:
+        """modeV=ModeAddKeepHS（YCbCr 域）：Y 双向封顶。
+
+        把 Y 钳到该 (Cb, Cr) 下的色域可行区间 [Y_lo, Y_hi]：Y_hi 由最大通道
+        顶到 1 决定（高侧封顶，不再变亮），Y_lo 由最小通道触到 0 决定（低侧
+        封底，不再变暗）。色度不变 -> YCbCr 极角不变、RGB 通道差值不变 ->
+        色相恒定，结果停留在色域边界（最饱和）。色度不可行（Y_lo>Y_hi）时
+        钳到 Y_hi（保持最大通道=1）。
+        """
+        _, y2r = _get_csc_matrices(cs)
+        k = (y2r[:, 1, None, None] * cb[None, ...]
+             + y2r[:, 2, None, None] * cr[None, ...])                 # (3,H,W)
+        y_lo = np.maximum.reduce(-k, axis=0)
+        y_hi = np.minimum.reduce(1.0 - k, axis=0)
+        return np.clip(y, y_lo, y_hi)
+
+    def _scale_keep_hue(self, y, cb, cr, cs) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """modeV=ModeAddKeepH（YCbCr 域）：双向保持色相。
+
+        高侧（max>1，即 y>y_hi）：RGB 等比缩到 max=1（负值先钳 0，等价 ConstHue），
+        继续变亮时向白去饱和，色相恒定；
+        低侧（min<0，即 y<y_lo）：保持 Y、把色度按 s=min(y/y_lo, (1-y)/(1-y_hi))
+        向 0 缩放使最小通道回到 0，继续变暗时向黑去饱和，色相恒定。
+        """
+        r2y, y2r = _get_csc_matrices(cs)
+        k = (y2r[:, 1, None, None] * cb[None, ...]
+             + y2r[:, 2, None, None] * cr[None, ...])                 # (3,H,W)
+        y_lo = np.maximum.reduce(-k, axis=0)
+        y_hi = np.minimum.reduce(1.0 - k, axis=0)
+        # 低侧：y<y_lo 时保 Y、缩色度（向黑去饱和保色相）；其余像素 scale=1 不变。
+        s_low = np.minimum(y / np.maximum(y_lo, 1e-9),
+                           (1.0 - y) / np.maximum(1.0 - y_hi, 1e-9))
+        low_scale = np.where(y < y_lo, np.minimum(s_low, 1.0), 1.0)
+        cb = cb * low_scale
+        cr = cr * low_scale
+        # 高侧：max>1 时整体等比缩回（consthue）；低侧缩放后已入域，此处恒等。
+        rgb = np.stack([y, cb, cr], axis=-1) @ y2r.T                  # (H,W,3)
+        rgb = self._rgb_const_hue_clip(rgb)
+        yuv = rgb @ r2y.T
+        return yuv[..., 0], yuv[..., 1], yuv[..., 2]
+
+    def _yuv_to_preview_frame(self, yuv_norm, proc_cs, depth) -> ImageFrame:
+        """输出 YUV 帧 -> 预览显示帧（YCbCr 域）：YUV->RGB 按 rgbClipType 钳位
+        （HardClip 硬钳 / SoftClip 软钳 / ConstHue 等比钳）。"""
+        _, y2r = _get_csc_matrices(proc_cs)
+        rgb = self._clip_rgb(yuv_norm @ y2r.T, self._rgb_clip_type())
+        return self._rgb_full_to_frame(rgb, depth)
 
     # ------------------------------------------------------------------ #
     # 统一流水线辅助（步骤 2️⃣/5️⃣/6️⃣ 的 CSC 与帧封装）                    #
@@ -1375,10 +1450,13 @@ class HsvUiController:
         tolerance_s = float(self.ui.spinBox_toleranceS.value())
         same_target = self.ui.comboBox_goalH.currentIndex() == 1
         # SameTarget 下 Delta H 表示向目标旋转的进度，不作为加性偏移传入 adjust_hsv。
+        # ModeAddKeepHS/ModeAddKeepH 是 YCbCr 域的亮度超界处理：δV 在 adjust_hsv
+        # 中按加性偏移生效（超界处理在 _process_frame_yuv 步骤 5b 施加）。
+        mode_v_adj = 'add' if mode_v in ('modeaddkeephs', 'modeaddkeeph') else mode_v
         adj_hsv = adjust_hsv(hsv, delta_v=dv, delta_s=ds,
                              delta_h=0.0 if same_target else dh_deg / 360.0,
                              gain_c=gc, mode=mode, tolerance_s=tolerance_s,
-                             mode_c=self._mode_c_code(), mode_v=mode_v)
+                             mode_c=self._mode_c_code(), mode_v=mode_v_adj)
         if same_target:
             target = float(self.ui.spinBox_sameHueGoal.value())
             if proc_cs is not None:
