@@ -18,9 +18,9 @@ HSV tab controller — encapsulates all HSV-related UI behavior and state.
      ModeAdd 加性色相平移（所有域；RGB 域即 FastStone 兼容的六边形 HSV 加法）；
      RotateOnGray（绕灰轴）/RotateMat709/RotateMat601（Rodrigues 3x3 矩阵，绕
      luma 权重轴）仅 RGB 域（RotateMatMean 与 RotateOnGray 数学等价，已删）；
-     CompYByGamut/CompYByValue 仅 YCbCr 域——H 旋转后对 Y 通道补偿：CompYByGamut
-     按 Y2R 通道钳位量补 ΔY（只补回被钳掉的部分，不直接顶到可行区间边界），
-     CompYByValue 保持输入 V（max RGB）重定 Y 并限制到色域可行区间
+     ModeAddKeepS/ModeAddKeepYH 仅 YCbCr 域——H 旋转后色域补偿：ModeAddKeepS
+     保 S 调 Y（按 Y2R 通道钳位量补 ΔY）；ModeAddKeepYH 保 Y 调 S（色度极径
+     缩到色域边界，向灰压缩）
 指定色调（groupBox_setHueRange 勾选）：仅色调落在 [hs, he] 附近的像素被处理，
 通过 Tail（向内）/ Pad（向外）的 alpha blending 过渡。
 
@@ -195,8 +195,8 @@ class HsvUiController:
     _MODE_S_RGB = ("MixGray_BT709", "MixGray_BT601")
     # comboBox_modeH 的 Rotate 系列（仅 RGB 处理域可选）。
     _MODE_H_ROTATE = ("RotateOnGray", "RotateMat709", "RotateMat601")
-    # comboBox_modeH 的 CompY* 系列（仅 YCbCr 处理域可选）：H 旋转后的 Y 通道补偿。
-    _MODE_H_YUV_COMP = ("CompYByGamut", "CompYByValue")
+    # comboBox_modeH 的 Keep* 系列（仅 YCbCr 处理域可选）：H 旋转后的色域保持补偿。
+    _MODE_H_YUV_COMP = ("ModeAddKeepS", "ModeAddKeepYH")
     # comboBox_modeB 的 YUV 域专用项（仅 YCbCr 处理域可选）：亮度超界时保持色相。
     _MODE_B_YUV = ("ModeAddKeepHS", "ModeAddKeepH")
     # comboBox_modeC 的 FastStone（仅 RGB 处理域可选）。
@@ -410,7 +410,7 @@ class HsvUiController:
 
     def _set_mode_h_items_enabled(self, rgb_only: bool) -> None:
         """按处理域启用/禁用 comboBox_modeH 的选项：Rotate 系列仅 RGB 域可选；
-        CompY* 系列仅 YCbCr 域可选；ModeAdd 始终可用。"""
+        Keep* 系列仅 YCbCr 域可选；ModeAdd 始终可用。"""
         is_ycbcr = self._adjust_field() == "YCbCr"
         combo = self.ui.comboBox_modeH
         for i in range(combo.count()):
@@ -441,14 +441,14 @@ class HsvUiController:
     def _h_mode_code(self) -> str:
         """Map comboBox_modeH text to H apply-mode code
         ('add'/'rotategray'/'rotatemat709'/'rotatemat601'
-         /'compybygamut'/'compybyvalue')."""
+         /'modeaddkeeps'/'modeaddkeepyh')."""
         text = self.ui.comboBox_modeH.currentText()
         return {'ModeAdd': 'add',
                 'RotateOnGray': 'rotategray',
                 'RotateMat709': 'rotatemat709',
                 'RotateMat601': 'rotatemat601',
-                'CompYByGamut': 'compybygamut',
-                'CompYByValue': 'compybyvalue'}.get(text, 'add')
+                'ModeAddKeepS': 'modeaddkeeps',
+                'ModeAddKeepYH': 'modeaddkeepyh'}.get(text, 'add')
 
     def _s_entry_mode(self, code: str) -> str:
         """S 模式配置条目键：MixGray 复用 'mul' 的 scale 量程/中性值。"""
@@ -567,12 +567,12 @@ class HsvUiController:
             if code in ('mixgray_bt709', 'mixgray_bt601'):
                 self._set_combo_text(self.ui.comboBox_modeS, 'ModeMul')
             self._apply_s_mode_ui(self._s_mode_code())
-        # modeH：Rotate 系列仅 RGB 域、CompY* 仅 YCbCr 域；跨域无效项回落 ModeAdd。
+        # modeH：Rotate 系列仅 RGB 域、Keep* 仅 YCbCr 域；跨域无效项回落 ModeAdd。
         h_code = self._h_mode_code()
         field = self._adjust_field()
         h_allowed = (h_code == 'add'
                      or (field == "RGB" and h_code in ('rotategray', 'rotatemat709', 'rotatemat601'))
-                     or (field == "YCbCr" and h_code in ('compybygamut', 'compybyvalue')))
+                     or (field == "YCbCr" and h_code in ('modeaddkeeps', 'modeaddkeepyh')))
         if not h_allowed:
             self._set_combo_text(self.ui.comboBox_modeH, 'ModeAdd')
         # modeC：非 RGB 域禁用 FastStone（回落 GainAtMid）；RGB 域全部可选。
@@ -942,19 +942,12 @@ class HsvUiController:
         radius_a = s_a * chroma_max
         cb_a = radius_a * np.cos(np.radians(angle_a))
         cr_a = radius_a * np.sin(np.radians(angle_a))
-        # ---- 5a. Y 通道补偿（modeH=CompY*，仅 YCbCr 域）：作用于调整后的 Y，
-        #      再按 w 混合，未旋转像素不受影响 ----
+        # ---- 5a. H 旋转后补偿（modeH=ModeAddKeepS/ModeAddKeepYH，仅 YCbCr 域）：
+        #      作用于调整后的 Y/色度，再按 w 混合，未旋转像素不受影响 ----
         h_mode = self._h_mode_code()
-        if h_mode in ('compybygamut', 'compybyvalue'):
-            if h_mode == 'compybyvalue':
-                if input_is_rgb:
-                    v_orig = rgb.max(axis=-1)              # rgb 已在步骤 2️⃣ RGB 分支得到
-                else:
-                    _, y2r = _get_csc_matrices(proc_cs)
-                    v_orig = np.clip(yuv @ y2r.T, 0.0, 1.0).max(axis=-1)
-            else:
-                v_orig = None
-            y_a = self._comp_y_after_hue_rotate(y_a, cb_a, cr_a, h_mode, v_orig, proc_cs)
+        if h_mode in ('modeaddkeeps', 'modeaddkeepyh'):
+            y_a, cb_a, cr_a = self._comp_after_hue_rotate(
+                y_a, cb_a, cr_a, h_mode, proc_cs)
         # ---- 5b. 亮度超界处理（modeB=ModeAddKeepHS/ModeAddKeepH，仅 YCbCr 域）----
         b_mode = self._b_mode_code()
         if b_mode == 'modeaddkeephs':
@@ -1002,31 +995,27 @@ class HsvUiController:
         )
         return out_frame, preview_frame, readout
 
-    def _comp_y_after_hue_rotate(self, y, cb, cr, mode, v_orig, cs) -> np.ndarray:
-        """YCbCr 域 H 旋转后的 Y 通道补偿（modeH=CompY*，仅 YCbCr 域）。
+    def _comp_after_hue_rotate(self, y, cb, cr, mode, cs) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """modeH=ModeAddKeepS/ModeAddKeepYH（YCbCr 域）：H 旋转后的色域补偿。
 
-        输入为调整后的 (y, cb, cr)（未混合），返回补偿后的 Y (H,W)。
-        CompYByGamut：按 Y2R 通道钳位量计算 ΔY——先算当前 (y, cb, cr) 转 RGB 后
-        各通道的越界量（低通道<0 的缺量 / 高通道>1 的超量），ΔY=缺量-超量；
-        只补回实际被钳掉的部分，而不是直接把 Y 顶到可行区间边界。
-        CompYByValue：保持输入亮度 V（max RGB）重定 Y'=V_orig-max(k_i)，再限制到
-        [Y_lo, Y_hi] 可行区间（区间不存在时保持原值）。
+        输入为调整后的 (y, cb, cr)（未混合），返回补偿后的 (y', cb', cr')。
+        ModeAddKeepS（保 S 调 Y）：色度不变，按 Y2R 通道钳位量补 ΔY=缺量-超量
+        （只补回实际被钳掉的部分，不直接顶到可行区间边界）。
+        ModeAddKeepYH（保 Y 调 S）：Y 不变，把色度极径缩到该 (Y, 极角) 下的色域
+        边界半径（保持极角/色相），即色度超出时向灰压缩。
         """
         _, y2r = _get_csc_matrices(cs)
         k = (y2r[:, 1, None, None] * cb[None, ...]
              + y2r[:, 2, None, None] * cr[None, ...])                 # (3,H,W) Y 系数
-        if mode == 'compybygamut':
+        if mode == 'modeaddkeeps':
             rgb_probe = y[None, ...] + k                              # 未钳位 RGB (3,H,W)
             clip_neg = np.maximum(0.0, -np.minimum.reduce(rgb_probe, axis=0))
             clip_pos = np.maximum(0.0, np.maximum.reduce(rgb_probe, axis=0) - 1.0)
             dy = clip_neg - clip_pos
-            return np.clip(y + dy, 0.0, 1.0)
-        # compybyvalue
-        y_lo = np.maximum.reduce(-k, axis=0)
-        y_hi = np.minimum.reduce(1.0 - k, axis=0)
-        y_target = v_orig - np.maximum.reduce(k, axis=0)
-        y_new = np.clip(y_target, y_lo, y_hi)
-        return np.where(y_lo <= y_hi, y_new, y)
+            return np.clip(y + dy, 0.0, 1.0), cb, cr
+        # modeaddkeepyh：保 Y，色度极径缩到色域边界（沿色相射线压缩）
+        yuv_c = self._gamut_clip_chroma(np.stack([y, cb, cr], axis=-1), cs)
+        return yuv_c[..., 0], yuv_c[..., 1], yuv_c[..., 2]
 
     def _cap_y_at_gamut(self, y, cb, cr, cs) -> np.ndarray:
         """modeB=ModeAddKeepHS（YCbCr 域）：Y 双向封顶。

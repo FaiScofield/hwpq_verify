@@ -716,12 +716,12 @@
           </item>
           <item>
            <property name="text">
-            <string>CompYByGamut</string>
+            <string>ModeAddKeepS</string>
            </property>
           </item>
           <item>
            <property name="text">
-            <string>CompYByValue</string>
+            <string>ModeAddKeepYH</string>
            </property>
           </item>
          </widget>
