@@ -16,8 +16,7 @@ HSV tab controller — encapsulates all HSV-related UI behavior and state.
   H：comboBox_goalH 选择目标——SameOffset 恒为加性偏移（默认）；SameTarget 向指定
      目标色调旋转（激活 Same Hue Goal 行控件）；comboBox_modeH 选择生效方式——
      ModeAdd 加性色相平移（所有域；RGB 域即 FastStone 兼容的六边形 HSV 加法）；
-     RotateOnGray（绕灰轴）/RotateMat709/RotateMat601（Rodrigues 3x3 矩阵，绕
-     luma 权重轴）仅 RGB 域（RotateMatMean 与 RotateOnGray 数学等价，已删）；
+     RotateOnGray（绕灰轴）仅 RGB 域；
      ModeAddKeepS/ModeAddKeepYH 仅 YCbCr 域——H 旋转后色域补偿：ModeAddKeepS
      保 S 调 Y（按 Y2R 通道钳位量补 ΔY）；ModeAddKeepYH 保 Y 调 S（色度极径
      缩到色域边界，向灰压缩）
@@ -198,7 +197,7 @@ class HsvUiController:
     # comboBox_modeS 两类互斥选项：圆柱色域 S 模式 / RGB 域灰阶混合（MixGray）。
     _MODE_S_RGB = ("MixGray_BT709", "MixGray_BT601")
     # comboBox_modeH 的 Rotate 系列（仅 RGB 处理域可选）。
-    _MODE_H_ROTATE = ("RotateOnGray", "RotateMat709", "RotateMat601")
+    _MODE_H_ROTATE = ("RotateOnGray",)
     # comboBox_modeH 的 Keep* 系列（仅 YCbCr 处理域可选）：H 旋转后的色域保持补偿。
     _MODE_H_YUV_COMP = ("ModeAddKeepS", "ModeAddKeepYH")
     # comboBox_modeB 的 YUV 域专用项（仅 YCbCr 处理域可选）：亮度超界时保持色相。
@@ -345,7 +344,7 @@ class HsvUiController:
         ui.comboBox_adjustField.currentIndexChanged.connect(self._on_adjust_field_changed)
         ui.comboBox_y2rClipType.currentIndexChanged.connect(self._schedule_auto_run)
         ui.comboBox_y2yClipType.currentIndexChanged.connect(self._on_y2y_clip_changed)
-        ui.comboBox_normYuvChroma.currentIndexChanged.connect(self._schedule_auto_run)
+        ui.comboBox_normYuvChroma.currentIndexChanged.connect(self._on_norm_chroma_changed)
         ui.comboBox_modeB.currentIndexChanged.connect(self._on_b_mode_changed)
         ui.comboBox_modeS.currentIndexChanged.connect(self._on_s_mode_changed)
         ui.comboBox_goalH.currentIndexChanged.connect(self._on_h_mode_changed)
@@ -413,16 +412,19 @@ class HsvUiController:
                 (combo.itemText(i) in self._MODE_S_RGB) == rgb_only)
 
     def _set_mode_h_items_enabled(self, rgb_only: bool) -> None:
-        """按处理域启用/禁用 comboBox_modeH 的选项：Rotate 系列仅 RGB 域可选；
-        Keep* 系列仅 YCbCr 域可选；ModeAdd 始终可用。"""
+        """按处理域与 normYuvChroma 状态启用/禁用 comboBox_modeH 的选项：
+        Rotate 系列仅 RGB 域可选；Keep* 系列仅 YCbCr 域且 NormYuvChroma=OFF
+        可选（NormBy* 下域内几何/归一化语义接管色域补偿，Keep 系列无意义）；
+        ModeAdd 始终可用。"""
         is_ycbcr = self._adjust_field() == "YCbCr"
+        keep_allowed = is_ycbcr and self._norm_chroma() == 'off'
         combo = self.ui.comboBox_modeH
         for i in range(combo.count()):
             text = combo.itemText(i)
             if text in self._MODE_H_ROTATE:
                 enable = rgb_only
             elif text in self._MODE_H_YUV_COMP:
-                enable = is_ycbcr
+                enable = keep_allowed
             else:
                 enable = True
             combo.model().item(i).setEnabled(enable)
@@ -444,19 +446,21 @@ class HsvUiController:
 
     def _h_mode_code(self) -> str:
         """Map comboBox_modeH text to H apply-mode code
-        ('add'/'rotategray'/'rotatemat709'/'rotatemat601'
-         /'modeaddkeeps'/'modeaddkeepyh')."""
+        ('add'/'rotategray'/'modeaddkeeps'/'modeaddkeepyh')."""
         text = self.ui.comboBox_modeH.currentText()
         return {'ModeAdd': 'add',
                 'RotateOnGray': 'rotategray',
-                'RotateMat709': 'rotatemat709',
-                'RotateMat601': 'rotatemat601',
                 'ModeAddKeepS': 'modeaddkeeps',
                 'ModeAddKeepYH': 'modeaddkeepyh'}.get(text, 'add')
 
     def _s_entry_mode(self, code: str) -> str:
-        """S 模式配置条目键：MixGray 复用 'mul' 的 scale 量程/中性值。"""
-        return code if code in ('add', 'mul') else 'mul'
+        """S 模式配置条目键：MixGray 系（mixgray / mixgray_bt709 / mixgray_bt601）
+        用独立 'mixgray' 量程/中性值；add/mul 用各自条目。"""
+        if code in ('add', 'mul'):
+            return code
+        if code in ('mixgray', 'mixgray_bt709', 'mixgray_bt601'):
+            return 'mixgray'
+        return 'mul'
 
     def _reset_mapped(self, slider: object, spin: object, value: float, scale: float) -> None:
         """Reset a mapped slider-spin pair to ``value`` and re-run."""
@@ -480,8 +484,8 @@ class HsvUiController:
 
     def _apply_c_ui(self, keep_value: bool = False) -> None:
         """按配置设置 Contrast 量程/步长；默认置为配置默认值，keep_value 时保留当前值（clip 到新量程）。"""
-        entry = self._entry('C', self._c_entry_mode())
-        scale = SLIDER_SCALE['C']
+        entry = self._entry('Contrast', self._c_entry_mode())
+        scale = SLIDER_SCALE['Contrast']
         self.ui.spinBox_gainC.setRange(entry["min"], entry["max"])
         self.ui.spinBox_gainC.setSingleStep(entry["step"])
         self.ui.slider_gainC.setRange(int(round(entry["min"] * scale)),
@@ -504,9 +508,9 @@ class HsvUiController:
 
     def _apply_s_mode_ui(self, mode: str, keep_value: bool = False) -> None:
         """按配置设置 S 通道量程/步长；默认置为配置默认值，keep_value 时保留当前值（clip 到新量程）。
-        MixGray 复用 'mul' 的 scale 量程/中性值配置。"""
-        entry = self._entry('S', self._s_entry_mode(mode))
-        scale = SLIDER_SCALE['S']
+        MixGray 用独立 'mixgray' 量程/中性值配置。"""
+        entry = self._entry('Saturation', self._s_entry_mode(mode))
+        scale = SLIDER_SCALE['Saturation']
         self.ui.spinBox_deltaS.setRange(entry["min"], entry["max"])
         self.ui.spinBox_deltaS.setSingleStep(entry["step"])
         self.ui.slider_deltaS.setRange(int(round(entry["min"] * scale)),
@@ -534,8 +538,8 @@ class HsvUiController:
 
     def _apply_b_mode_ui(self, mode: str, keep_value: bool = False) -> None:
         """按配置设置 B 通道量程/步长；默认置为配置默认值，keep_value 时保留当前值（clip 到新量程）。"""
-        entry = self._entry('B', self._b_entry_mode(mode))
-        scale = SLIDER_SCALE['B']
+        entry = self._entry('Brightness', self._b_entry_mode(mode))
+        scale = SLIDER_SCALE['Brightness']
         self.ui.spinBox_deltaB.setRange(entry["min"], entry["max"])
         self.ui.spinBox_deltaB.setSingleStep(entry["step"])
         self.ui.slider_deltaB.setRange(int(round(entry["min"] * scale)),
@@ -566,7 +570,7 @@ class HsvUiController:
         if is_rgb:
             if code not in ('mixgray_bt709', 'mixgray_bt601'):
                 self._set_combo_text(self.ui.comboBox_modeS, 'MixGray_BT709')
-            self._apply_s_mode_ui('mul')          # scale 语义（mul 量程/中性）
+            self._apply_s_mode_ui('mixgray')      # scale 语义（mixgray 量程/中性）
         else:
             if code in ('mixgray_bt709', 'mixgray_bt601'):
                 self._set_combo_text(self.ui.comboBox_modeS, 'ModeMul')
@@ -575,7 +579,7 @@ class HsvUiController:
         h_code = self._h_mode_code()
         field = self._adjust_field()
         h_allowed = (h_code == 'add'
-                     or (field == "RGB" and h_code in ('rotategray', 'rotatemat709', 'rotatemat601'))
+                     or (field == "RGB" and h_code == 'rotategray')
                      or (field == "YCbCr" and h_code in ('modeaddkeeps', 'modeaddkeepyh')))
         if not h_allowed:
             self._set_combo_text(self.ui.comboBox_modeH, 'ModeAdd')
@@ -594,10 +598,23 @@ class HsvUiController:
 
     def _on_y2y_clip_changed(self, *_args) -> None:
         """y2yClipType 切换：非 HardClip 时 NormByPix/NormBySec 互斥回落 OFF
-        （避免 UI 禁用但逻辑仍生效），刷新钳位使能后重跑。"""
+        （避免 UI 禁用但逻辑仍生效），刷新钳位使能与 modeH 项使能后重跑。"""
         del _args
         if self._y2y_clip_type() != 'hardclip' and self._norm_chroma() != 'off':
             self._set_combo_text(self.ui.comboBox_normYuvChroma, 'OFF')
+        self._set_mode_h_items_enabled(self._adjust_field() == "RGB")
+        self._update_clip_enables()
+        self._schedule_auto_run()
+
+    def _on_norm_chroma_changed(self, *_args) -> None:
+        """normYuvChroma 切换：非 OFF 时与 modeH 的 Keep 系列
+        （ModeAddKeepS/ModeAddKeepYH）互斥——NormByPix 下域内几何已保证色域内，
+        Keep 系列恒等短路；NormBySec 语义同样由归一化接管。当前为 Keep 系列时
+        回落 ModeAdd；刷新 modeH 项使能与钳位使能后重跑。"""
+        del _args
+        if self._norm_chroma() != 'off' and self._h_mode_code() in ('modeaddkeeps', 'modeaddkeepyh'):
+            self._set_combo_text(self.ui.comboBox_modeH, 'ModeAdd')
+        self._set_mode_h_items_enabled(self._adjust_field() == "RGB")
         self._update_clip_enables()
         self._schedule_auto_run()
 
@@ -640,8 +657,8 @@ class HsvUiController:
         del _args
         same_target = self.ui.comboBox_goalH.currentIndex() == 1
         self._apply_same_hue_goal_enable(same_target)
-        entry = self._entry('H', 'same_target' if same_target else 'same_offset')
-        scale = SLIDER_SCALE['H']
+        entry = self._entry('Hue', 'same_target' if same_target else 'same_offset')
+        scale = SLIDER_SCALE['Hue']
         self.ui.spinBox_deltaH.setRange(int(round(entry["min"])), int(round(entry["max"])))
         self.ui.spinBox_deltaH.setSingleStep(int(round(entry["step"])))
         self.ui.slider_deltaH.setRange(int(round(entry["min"] * scale)),
@@ -660,24 +677,24 @@ class HsvUiController:
     def _on_reset_c(self) -> None:
         """Reset the Contrast gain to its configured neutral value."""
         self._reset_mapped(self.ui.slider_gainC, self.ui.spinBox_gainC,
-                           self._entry('C', self._c_entry_mode())["default"], SLIDER_SCALE['C'])
+                           self._entry('Contrast', self._c_entry_mode())["default"], SLIDER_SCALE['Contrast'])
 
     def _on_reset_v(self) -> None:
         """Reset the V value to its mode neutral from the config."""
-        neutral = self._entry('B', self._b_entry_mode(self._b_mode_code()))["default"]
+        neutral = self._entry('Brightness', self._b_entry_mode(self._b_mode_code()))["default"]
         self._reset_mapped(self.ui.slider_deltaB, self.ui.spinBox_deltaB,
-                           neutral, SLIDER_SCALE['B'])
+                           neutral, SLIDER_SCALE['Brightness'])
 
     def _on_reset_s(self) -> None:
         """Reset the S value to its mode neutral from the config."""
-        neutral = self._entry('S', self._s_entry_mode(self._s_mode_code()))["default"]
+        neutral = self._entry('Saturation', self._s_entry_mode(self._s_mode_code()))["default"]
         self._reset_mapped(self.ui.slider_deltaS, self.ui.spinBox_deltaS,
-                           neutral, SLIDER_SCALE['S'])
+                           neutral, SLIDER_SCALE['Saturation'])
 
     def _on_reset_h(self) -> None:
         """Reset the Delta H to its mode neutral from the config."""
         same_target = self.ui.comboBox_goalH.currentIndex() == 1
-        entry = self._entry('H', 'same_target' if same_target else 'same_offset')
+        entry = self._entry('Hue', 'same_target' if same_target else 'same_offset')
         neutral = int(round(entry["default"]))
         self._reset_mapped(self.ui.slider_deltaH, self.ui.spinBox_deltaH, neutral, 1.0)
 
@@ -1559,7 +1576,7 @@ class HsvUiController:
         self, rgb: np.ndarray, h_deg: np.ndarray,
     ) -> np.ndarray:
         """RGB 域 BCSH 调整：C/V 逐通道、S 灰阶混合（MixGray_BT709/BT601）、
-        H 按 modeH 生效（ModeAdd 六边形加法 / RotateOnGray 灰轴 / RotateMat* 矩阵）。
+        H 按 modeH 生效（ModeAdd 六边形加法 / RotateOnGray 灰轴）。
 
         SameOffset：angle=dh；SameTarget：angle=progress*shortest_arc（逐像素，
         用 HSV 色相 h_deg 计算弧长）。

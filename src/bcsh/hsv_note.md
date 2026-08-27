@@ -139,14 +139,15 @@ npm run preview    # 本地预览构建产物
 | ---- | ---- | ---- | ---- |
 | ModeAdd | s'=clip(s+ds) | [-1,1] | 0 |
 | ModeMul（默认） | s'=clip(s·gs) | [0,4] | 1 |
-| NegMulPosRat | ds<0：s·(1+ds)；ds>0：s+ds·(1-s) | [-1,1] | 0 |
 
 RGB 域（灰阶混合，仅 `Adjust Field=RGB` 时可选）：
 
 | 模式 | 公式 | 量程 | 中性 |
 | ---- | ---- | ---- | ---- |
-| MixGray_BT709 | out=scale·in+(1-scale)·gray，gray=BT.709(0.2126/0.7152/0.0722) | [0,4] | 1 |
-| MixGray_BT601 | 同上，gray=BT.601(0.299/0.587/0.114) | [0,4] | 1 |
+| MixGray_BT709 | out=scale·in+(1-scale)·gray，gray=BT.709(0.2126/0.7152/0.0722) | [0,2] | 0 |
+| MixGray_BT601 | 同上，gray=BT.601(0.299/0.587/0.114) | [0,2] | 0 |
+
+> MixGray 量程/中性值取配置的独立 `mixgray` 条目（默认 [0,2] 中性 0），非复用 mul。
 
 > `S Tolerance`（0~0.1，默认 0.0025）：S 低于阈值的像素不增色（放大），减色（缩小）始终允许。
 
@@ -163,28 +164,22 @@ RGB 域（灰阶混合，仅 `Adjust Field=RGB` 时可选）：
 | ---- | ---- | ---- |
 | ModeAdd（默认） | 加性色相平移：圆柱域 h'=(h+dh)%360；RGB 域经 HSV 中转（= FastStone 兼容） | 所有域 |
 | RotateOnGray | 绕灰色轴 (1,1,1)/√3 旋转（Rodrigues，严格正交，灰阶不变） | 仅 RGB |
-| RotateMat709 | 3x3 矩阵绕 BT.709 亮度轴旋转（Rodrigues，保持亮度） | 仅 RGB |
-| RotateMat601 | 3x3 矩阵绕 BT.601 亮度轴旋转（Rodrigues，保持亮度） | 仅 RGB |
-| RotateMatMean | 3x3 矩阵绕灰轴旋转（Rodrigues，与 RotateOnGray 等价） | 仅 RGB |
-
-> 修正说明：参考代码（faststone_hue_adjust）对 Mean 权重用 t=√2/3 而非 1/√3，矩阵**非正交**（R·Rᵀ≠I、det≠1，随角度引入缩放/剪切失真、旋转再旋回不恒等）；已按 Rodrigues 公式 R=c·I+(1-c)·n̂·n̂ᵀ+s·[n̂]ₓ 修正为严格正交。Mean 权重轴为 (1,1,1)/√3（灰轴，故与 RotateOnGray 数值等价）；BT.709/BT.601 绕各自亮度轴（纯灰不在 709/601 轴上，会被转出灰轴——与 SVG hue-rotate 同特性）。
 
 **表 4.1-7 参数取值范围（`test_app_hsv_params.json` 可覆盖）**
 
 | 通道 | 模式 | min | max | step | 默认 |
 | ---- | ---- | --- | --- | ---- | ---- |
-| B | add | -1.0 | 1.0 | 0.01 | 0.0 |
-| B | mul | 0.0 | 4.0 | 0.02 | 1.0 |
-| B | negmulposrat | -1.0 | 1.0 | 0.01 | 0.0 |
-| C | gain | 0.0 | 4.0 | 0.1 | 1.0 |
-| C | tanslant | -1.0 | 1.0 | 0.01 | 0.0 |
-| C | faststone | -1.0 | 1.0 | 0.01 | 0.0 |
-| S | add | -1.0 | 1.0 | 0.01 | 0.0 |
-| S | mul | 0.0 | 4.0 | 0.02 | 1.0 |
-| S | negmulposrat | -1.0 | 1.0 | 0.01 | 0.0 |
-| S | MixGray（复用 mul） | 0.0 | 4.0 | 0.02 | 1.0 |
-| H | same_offset | -180.0 | 180.0 | 1.0 | 0.0 |
-| H | same_target | 0.0 | 100.0 | 1.0 | 0.0 |
+| Brightness | add | -1.0 | 1.0 | 0.01 | 0.0 |
+| Brightness | mul | 0.0 | 2.0 | 0.02 | 1.0 |
+| Brightness | negmulposrat | -1.0 | 1.0 | 0.01 | 0.0 |
+| Contrast | gain | 0.0 | 2.0 | 0.01 | 1.0 |
+| Contrast | tanslant | -1.0 | 1.0 | 0.01 | 0.0 |
+| Contrast | faststone | -1.0 | 1.0 | 0.01 | 0.0 |
+| Saturation | add | -1.0 | 1.0 | 0.01 | 0.0 |
+| Saturation | mul | 0.0 | 4.0 | 0.01 | 1.0 |
+| Saturation | mixgray | 0.0 | 2.0 | 0.01 | 0.0 |
+| Hue | same_offset | -180.0 | 180.0 | 1.0 | 0.0 |
+| Hue | same_target | 0.0 | 100.0 | 1.0 | 0.0 |
 
 ### 4.2 C 语言代码与量化实验情况
 

@@ -1,4 +1,4 @@
-"""BCSH 参数取值范围/步长配置（B/C/S/H）。
+"""BCSH 参数取值范围/步长配置（Brightness/Contrast/Saturation/Hue）。
 
 用户可通过 exe 同目录（打包后）或仓库根目录（源码运行）下的 JSON 文件
 ``test_app_hsv_params.json`` 自定义各通道/模式的 min/max/step/default。
@@ -13,29 +13,29 @@ PARAMS_FILE_NAME = "test_app_hsv_params.json"
 
 # 内建默认值（文件缺失/损坏时的兜底）。
 DEFAULT_PARAMS = {
-    "B": {
+    "Brightness": {
         "add": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
-        "mul": {"min": 0.0, "max": 4.0, "step": 0.02, "default": 1.0},
+        "mul": {"min": 0.0, "max": 2.0, "step": 0.02, "default": 1.0},
         "negmulposrat": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
     },
-    "C": {
-        "gain": {"min": 0.0, "max": 4.0, "step": 0.1, "default": 1.0},
+    "Contrast": {
+        "gain": {"min": 0.0, "max": 2.0, "step": 0.01, "default": 1.0},
         "tanslant": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
         "faststone": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
     },
-    "S": {
+    "Saturation": {
         "add": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
-        "mul": {"min": 0.0, "max": 4.0, "step": 0.02, "default": 1.0},
-        "negmulposrat": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
+        "mul": {"min": 0.0, "max": 4.0, "step": 0.01, "default": 1.0},
+        "mixgray": {"min": 0.0, "max": 2.0, "step": 0.01, "default": 0.0},
     },
-    "H": {
+    "Hue": {
         "same_offset": {"min": -180.0, "max": 180.0, "step": 1.0, "default": 0.0},
         "same_target": {"min": 0.0, "max": 100.0, "step": 1.0, "default": 0.0},
     },
 }
 
 # 每通道滑块精度（滑块整数位置/单位），与 _connect_mapped_slider_spin 的 scale 一致。
-SLIDER_SCALE = {"B": 100, "C": 100, "S": 100, "H": 1}
+SLIDER_SCALE = {"Brightness": 100, "Contrast": 100, "Saturation": 100, "Hue": 1}
 
 
 def _is_leaf(entry) -> bool:

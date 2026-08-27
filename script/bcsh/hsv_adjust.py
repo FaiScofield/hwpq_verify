@@ -511,44 +511,6 @@ def _rotate_hue(rgb, angle_deg):
     return np.stack([out0, out1, out2], axis=-1)
 
 
-def _rgb_hue_rotate_mat(rgb, angle_deg, luma):
-    """RGB 域矩阵 hue 旋转：3x3 旋转矩阵乘 (r,g,b)（Rodrigues，严格正交）。
-
-    绕 luma 权重方向 n=(Lr,Lg,Lb) 的归一化轴旋转——旋转保持该轴方向不变：
-    Mean(1/3) 时轴为灰轴 (1,1,1)/√3，与 _rotate_hue 完全等价；BT.709/BT.601
-    时绕各自亮度轴旋转（保持亮度不变，更符合色调旋转语义）。
-
-    修正说明：参考代码（faststone_hue_adjust）对 1/3 权重用 t=sqrt(2)/3 而非
-    1/sqrt(3)，使矩阵非正交（R·Rᵀ≠I、行列式≠1，随角度引入缩放/剪切失真，
-    旋转再旋回不恒等）；此处按 Rodrigues 公式 R=c·I+(1-c)·n̂·n̂ᵀ+s·[n̂]ₓ 修正，
-    保证 R·Rᵀ=I、det=1，往返恒等。
-    """
-    Lr, Lg, Lb = luma
-    th = np.radians(angle_deg)
-    c = np.cos(th)
-    s = np.sin(th)
-    # 归一化旋转轴 n̂ = (Lr,Lg,Lb)/||.||
-    norm = np.sqrt(Lr * Lr + Lg * Lg + Lb * Lb)
-    nx, ny, nz = Lr / norm, Lg / norm, Lb / norm
-    one = 1.0 - c
-    # Rodrigues：R = c·I + (1-c)·n̂·n̂ᵀ + s·[n̂]ₓ
-    m00 = c + one * nx * nx
-    m01 = one * nx * ny - s * nz
-    m02 = one * nx * nz + s * ny
-    m10 = one * ny * nx + s * nz
-    m11 = c + one * ny * ny
-    m12 = one * ny * nz - s * nx
-    m20 = one * nz * nx - s * ny
-    m21 = one * nz * ny + s * nx
-    m22 = c + one * nz * nz
-    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
-    return np.stack([
-        m00 * r + m01 * g + m02 * b,
-        m10 * r + m11 * g + m12 * b,
-        m20 * r + m21 * g + m22 * b,
-    ], axis=-1)
-
-
 def _rgb_hue_add(rgb, angle_deg):
     """RGB 域 ModeAdd：经 HSV 中转做六边形色相加法（h'=(h+angle)%360，S/V 不变）。"""
     h, s, v = rgb_to_hsv(rgb)
@@ -617,10 +579,7 @@ def adjust_rgb(rgb, delta_b=None, delta_s=None, gain_c=1.0, tolerance_s=0.0,
     - H：按 h_mode 生效，angle_deg 由调用方算好（SameOffset 角度或 SameTarget
          进度*弧长，可逐像素数组）：
            'add' 经 HSV 中转做六边形色相加法 h'=(h+angle)%360；
-           'rotategray' 绕灰色轴 (1,1,1)/√3 旋转；
-           'rotatemat709'/'rotatemat601' 用 Rodrigues 3x3 旋转矩阵（绕
-           BT.709/BT.601 luma 权重轴，严格正交；均分权重轴即灰轴、与
-           'rotategray' 等价，故不单独提供）。
+           'rotategray' 绕灰色轴 (1,1,1)/√3 旋转。
     """
     orig = rgb
     arr = np.asarray(rgb, dtype=np.float32)
@@ -648,10 +607,6 @@ def adjust_rgb(rgb, delta_b=None, delta_s=None, gain_c=1.0, tolerance_s=0.0,
         rgb_h = rgb_s
     elif h_mode == 'rotategray':
         rgb_h = _rotate_hue(rgb_s, angle)
-    elif h_mode == 'rotatemat709':
-        rgb_h = _rgb_hue_rotate_mat(rgb_s, angle, (0.2126, 0.7152, 0.0722))
-    elif h_mode == 'rotatemat601':
-        rgb_h = _rgb_hue_rotate_mat(rgb_s, angle, (0.299, 0.587, 0.114))
     else:   # 'add'（默认）：HSV 中转六边形色相加法
         rgb_h = _rgb_hue_add(rgb_s, angle)
     return _wrap(orig, np.clip(rgb_h, 0.0, 1.0))

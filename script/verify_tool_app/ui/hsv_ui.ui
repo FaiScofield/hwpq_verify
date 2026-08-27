@@ -730,16 +730,6 @@
           </item>
           <item>
            <property name="text">
-            <string>RotateMat709</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
-            <string>RotateMat601</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
             <string>ModeAddKeepS</string>
            </property>
           </item>
