@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>857</width>
+    <width>950</width>
     <height>285</height>
    </rect>
   </property>
@@ -96,12 +96,12 @@
      <item>
       <widget class="QLabel" name="label_clip">
        <property name="text">
-        <string>RGB Clip</string>
+        <string>Y2R Clip</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QComboBox" name="comboBox_rgbClipType">
+      <widget class="QComboBox" name="comboBox_y2rClipType">
        <property name="enabled">
         <bool>true</bool>
        </property>
@@ -125,12 +125,12 @@
      <item>
       <widget class="QLabel" name="label_2">
        <property name="text">
-        <string>YUV Clip</string>
+        <string>Y2Y Clip</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QComboBox" name="comboBox_yuvClipType">
+      <widget class="QComboBox" name="comboBox_y2yClipType">
        <property name="enabled">
         <bool>true</bool>
        </property>
@@ -141,17 +141,41 @@
        </item>
        <item>
         <property name="text">
-         <string>ClipInRGB</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
          <string>ClipChroma</string>
         </property>
        </item>
        <item>
         <property name="text">
          <string>ClipChromaSoft</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_normYuv">
+       <property name="text">
+        <string>Norm Chroma</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="comboBox_normYuvChroma">
+       <property name="enabled">
+        <bool>true</bool>
+       </property>
+       <item>
+        <property name="text">
+         <string>OFF</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>NormByPix</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>NormBySec</string>
         </property>
        </item>
       </widget>
@@ -969,8 +993,9 @@
  <tabstops>
   <tabstop>checkBox_enableHsvAdj</tabstop>
   <tabstop>comboBox_adjustField</tabstop>
-  <tabstop>comboBox_rgbClipType</tabstop>
-  <tabstop>comboBox_yuvClipType</tabstop>
+  <tabstop>comboBox_y2rClipType</tabstop>
+  <tabstop>comboBox_y2yClipType</tabstop>
+  <tabstop>comboBox_normYuvChroma</tabstop>
   <tabstop>spinBox_toleranceS</tabstop>
   <tabstop>comboBox_modeC</tabstop>
   <tabstop>slider_gainC</tabstop>

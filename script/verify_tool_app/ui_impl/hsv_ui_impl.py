@@ -34,13 +34,14 @@ comboBox_adjustField 选择处理域（8 选项）：
      RGB 为直接 RGB 域处理：C/V 三通道一致、S 灰阶混合、H 灰色轴旋转。
   YCbCr（YUV 系）：处理域为 yuv444p full-range，uv 去中心 0.5 得 YCbCr；
      Y 通道调 B/C，Cb(x)/Cr(y) 极坐标系调 H(角度)/S(极径)。
-统一流水线（1️⃣~6️⃣）：1️⃣ 原始输入直读 -> 2️⃣ 输入 CSC 到处理域（rgbClipType
-  决定 RGB 数据钳位：HardClip 硬钳 / SoftClip 色相保持软钳 / ConstHue
-  恒定色相等比缩放）-> 3️⃣ 域转换（有钳位）-> 4️⃣ BCSH 调整 -> 5️⃣ 回
-  full-range RGB/YUV（yuvClipType 决定 YUV 数据钳位：HardClip YUV 硬钳 /
-  ClipInRGB RGB 硬钳 / ClipChroma 恒定色相色度压缩 / ClipChromaSoft
-  软拐角）-> 6️⃣ 输出 CSC 到输出格式/色彩空间（YUV 输出直接编码，不经
-  RGB；必钳）。
+统一流水线（1️⃣~6️⃣）：1️⃣ 原始输入直读 -> 2️⃣ 输入 CSC 到处理域（y2rClipType
+  决定 YUV->RGB 转换的钳位：HardClip 硬钳 / SoftClip 色相保持软钳 / ConstHue
+  恒定色相等比缩放；RGB 输入 limited->full 展开直接硬钳）-> 3️⃣ 域转换（有钳位）
+  -> 4️⃣ BCSH 调整 -> 5️⃣ 回 full-range RGB/YUV（y2yClipType 决定 YUV 数据钳位：
+  HardClip YUV 硬钳 / ClipChroma 恒定色相色度压缩 / ClipChromaSoft 软拐角；
+  normYuvChroma 决定 S 归一化：OFF 绝对极径 / NormByPix 按边界半径 /
+  NormBySec 按全局最大）-> 6️⃣ 输出 CSC 到输出格式/色彩空间（YUV 输出直接
+  编码，不经 RGB；必钳）。
 """
 
 from collections.abc import Callable
@@ -102,12 +103,15 @@ def _build_hue_sync_lut(cs: int, n: int = 4096) -> tuple[np.ndarray, np.ndarray]
 _HUE_LUTS = {2: _build_hue_sync_lut(2), 4: _build_hue_sync_lut(4), 6: _build_hue_sync_lut(6)}
 _CHROMA_MAX = {2: _bt_chroma_max(2), 4: _bt_chroma_max(4), 6: _bt_chroma_max(6)} # BY=0.5021, RC=0.5130, GM=0.5957
 
-# 处理域数据钳位方式（档位由 .ui 定义；见 comboBox_rgbClipType / comboBox_yuvClipType）：
-#   RGB 数据（步骤 2️⃣，RGB 系处理域）：HardClip 逐通道硬钳 / SoftClip 色相保持
+# 处理域数据钳位/归一化方式（档位由 .ui 定义；见 comboBox_y2rClipType /
+# comboBox_y2yClipType / comboBox_normYuvChroma）：
+#   y2rClipType（YUV->RGB 转换钳位）：HardClip 逐通道硬钳 / SoftClip 色相保持
 #     软钳（zentone soft_clip）/ ConstHue 恒定色相等比例缩放（负值先钳 0）。
-#   YUV 数据（步骤 5️⃣，YCbCr 处理域）：HardClip YUV 范围硬钳 / ClipInRGB
-#     YUV->RGB 逐通道硬钳->YUV / ClipChroma 恒定色相色度压缩（保 Y+极角，降饱和）/
-#     ClipChromaSoft 软拐角（避免整图色域边界色带）。
+#   y2yClipType（YCbCr 处理域 YUV 数据钳位）：HardClip YUV 范围硬钳 /
+#     ClipChroma 恒定色相色度压缩（保 Y+极角，降饱和）/ ClipChromaSoft 软拐角。
+#   normYuvChroma（YCbCr 域 S 归一化，仅 YCbCr field 启用）：OFF 绝对极径 /
+#     NormByPix 按该像素边界半径 r_max(Y,θ)（S∈[0,1] 保证域内，Y/S/H 解耦）/
+#     NormBySec 按全局最大 _CHROMA_MAX（不保证域内，需钳位）。
 _SOFT_KNEE = 0.8   # ClipChromaSoft 软拐角起点比例 r_soft = knee * r_max
 
 
@@ -285,9 +289,8 @@ class HsvUiController:
         # A checkable QGroupBox defaults to checked=True; the specified-hue
         # adjustment must be OFF by default so the whole image is processed.
         self.ui.groupBox_setHueRange.setChecked(False)
-        # 两个钳位下拉总是启用（档位与默认值已在 .ui 定义）。
-        self.ui.comboBox_rgbClipType.setEnabled(True)
-        self.ui.comboBox_yuvClipType.setEnabled(True)
+        # 钳位/归一化下拉使能随处理域与输入格式更新。
+        self._update_clip_enables()
         # comboBox_modeS 的 MixGray 项仅在 RGB 处理域可选。
         self._set_mode_s_items_enabled(self._adjust_field() == "RGB")
         # comboBox_modeH 的 Rotate 系列仅在 RGB 处理域可选。
@@ -340,8 +343,9 @@ class HsvUiController:
         ui = self.ui
         ui.checkBox_enableHsvAdj.toggled.connect(self._schedule_auto_run)
         ui.comboBox_adjustField.currentIndexChanged.connect(self._on_adjust_field_changed)
-        ui.comboBox_rgbClipType.currentIndexChanged.connect(self._schedule_auto_run)
-        ui.comboBox_yuvClipType.currentIndexChanged.connect(self._schedule_auto_run)
+        ui.comboBox_y2rClipType.currentIndexChanged.connect(self._schedule_auto_run)
+        ui.comboBox_y2yClipType.currentIndexChanged.connect(self._on_y2y_clip_changed)
+        ui.comboBox_normYuvChroma.currentIndexChanged.connect(self._schedule_auto_run)
         ui.comboBox_modeB.currentIndexChanged.connect(self._on_b_mode_changed)
         ui.comboBox_modeS.currentIndexChanged.connect(self._on_s_mode_changed)
         ui.comboBox_goalH.currentIndexChanged.connect(self._on_h_mode_changed)
@@ -581,6 +585,20 @@ class HsvUiController:
         # modeB：ModeAddKeepHS/ModeAddKeepH 仅 YCbCr 域；跨域回落 ModeAdd。
         if field != "YCbCr" and self._b_mode_code() in ('modeaddkeephs', 'modeaddkeeph'):
             self._set_combo_text(self.ui.comboBox_modeB, 'ModeAdd')
+        # normYuvChroma（NormByPix/NormBySec）仅 YCbCr 域；跨域回落 OFF。
+        if field != "YCbCr" and self._norm_chroma() != 'off':
+            self._set_combo_text(self.ui.comboBox_normYuvChroma, 'OFF')
+        # 钳位/归一化下拉使能随处理域与输入格式更新。
+        self._update_clip_enables()
+        self._schedule_auto_run()
+
+    def _on_y2y_clip_changed(self, *_args) -> None:
+        """y2yClipType 切换：非 HardClip 时 NormByPix/NormBySec 互斥回落 OFF
+        （避免 UI 禁用但逻辑仍生效），刷新钳位使能后重跑。"""
+        del _args
+        if self._y2y_clip_type() != 'hardclip' and self._norm_chroma() != 'off':
+            self._set_combo_text(self.ui.comboBox_normYuvChroma, 'OFF')
+        self._update_clip_enables()
         self._schedule_auto_run()
 
     def _on_b_mode_changed(self, *_args) -> None:
@@ -780,6 +798,7 @@ class HsvUiController:
 
         self._last_readout = readout
         self._input_is_rgb = frame.is_rgb
+        self._update_clip_enables()      # 输入格式变化可能影响 y2rClipType 使能
         return out_frame, preview_frame
 
     @staticmethod
@@ -850,12 +869,13 @@ class HsvUiController:
         # ---- 1️⃣ 原始输入 ----
         in_native = self._native_planes(work_frame)
 
-        # ---- 2️⃣ 输入 CSC -> full-range RGB（rgbClipType 决定钳位方式） ----
+        # ---- 2️⃣ 输入 CSC -> full-range RGB（y2rClipType 决定 YUV->RGB 的钳位方式） ----
         if input_is_rgb:
-            rgb_2 = self._rgb_full_from_frame(work_frame)      # limited->full 展开
+            # RGB 输入 limited->full 展开：直接硬钳，不依赖 y2rClipType。
+            rgb_2 = np.clip(self._rgb_full_from_frame(work_frame), 0.0, 1.0)
         else:
-            rgb_2 = self._yuv_to_rgb_full_float(work_frame)    # 输入矩阵，可越界
-        rgb_2 = self._clip_rgb(rgb_2, self._rgb_clip_type())
+            rgb_2 = self._clip_rgb(
+                self._yuv_to_rgb_full_float(work_frame), self._y2r_clip_type())
 
         # ---- 3️⃣ 域转换（有钳位） ----
         domain = np.stack(to_domain(rgb_2), axis=-1)           # (H,W,3)
@@ -905,7 +925,8 @@ class HsvUiController:
         """
         depth = work_frame.depth
         input_is_rgb = work_frame.is_rgb
-        yuv_policy = self._yuv_clip_type()
+        yuv_policy = self._y2y_clip_type()
+        norm_policy = self._norm_chroma()
 
         in_native = self._native_planes(work_frame)
 
@@ -919,14 +940,23 @@ class HsvUiController:
             proc_cs = work_frame.clrspc if work_frame.clrspc in (2, 3, 4, 5, 6, 7) else 5
             yuv = self._yuv_full_from_frame(work_frame)          # 保持输入矩阵
         y_n, cb, cr = yuv[..., 0], yuv[..., 1], yuv[..., 2]
-        # 读数用的步骤 2️⃣ 值：输入 YUV 保持原样（RGB 数据钳位由 rgbClipType
+        # 读数用的步骤 2️⃣ 值：输入 YUV 保持原样（RGB 数据钳位由 y2rClipType
         # 在 RGB 系处理路径负责；此处处理域即 YUV，不做输入钳位）。
         yuv_in = np.stack([y_n, cb, cr], axis=-1)
 
-        # ---- 3️⃣ YCbCr H/S（极坐标，按处理矩阵归一化） ----
-        chroma_max = 1 #np.sqrt(2)/2 #_CHROMA_MAX[_cs_family(proc_cs)]
+        # ---- 3️⃣ YCbCr H/S（极坐标，按 normYuvChroma 归一化） ----
         radius = np.sqrt(cb * cb + cr * cr)
-        s_norm = np.clip(radius / chroma_max, 0.0, 1.0)
+        if norm_policy == 'normbypix':
+            # NormByPix：S = r/r_max(Y,θ) 按该像素色域边界半径归一化，S∈[0,1]
+            # 保证落在 RGB 色域内（Y/S/H 解耦，任意调整不越界、色相不变）。
+            s_norm = self._gamut_s_norm(y_n, cb, cr, proc_cs)
+        elif norm_policy == 'normbysec':
+            # NormBySec：S = r/_CHROMA_MAX（全局最大边界半径归一化，绝对比例）；
+            # 不保证落在色域内（该 (Y,θ) 边界可能远小于全局最大）。
+            s_norm = np.clip(radius / _CHROMA_MAX[_cs_family(proc_cs)], 0.0, 1.0)
+        else:
+            # OFF：S 按绝对极径长度计算，不归一化。
+            s_norm = radius
         angle = (np.degrees(np.arctan2(cr, cb)) + 360.0) % 360.0
         hue_sync = hue_ycbcr_to_hsv(angle, proc_cs)
 
@@ -937,9 +967,18 @@ class HsvUiController:
         angle_a, s_a, y_a = adj[..., 0], adj[..., 1], adj[..., 2]
         hue_sync_a = hue_ycbcr_to_hsv(angle_a, proc_cs)
 
-        # ---- 5️⃣ 回 yuv full-range（yuvClipType 决定钳位方式） ----
+        # ---- 5️⃣ 回 yuv full-range（y2yClipType 决定钳位方式） ----
         w = self._hue_blend_weights_for(hue_sync)
-        radius_a = s_a * chroma_max
+        if norm_policy == 'normbypix':
+            # NormByPix 重建：r' = S'·r_max(Y',θ')，天然在调整后的色域内。
+            r_max_a = self._gamut_r_max(
+                y_a, np.cos(np.radians(angle_a)), np.sin(np.radians(angle_a)), proc_cs)
+            radius_a = s_a * r_max_a
+        elif norm_policy == 'normbysec':
+            # NormBySec 重建：r' = S'·_CHROMA_MAX（全局最大边界半径）。
+            radius_a = s_a * _CHROMA_MAX[_cs_family(proc_cs)]
+        else:
+            radius_a = s_a                     # 绝对极径，不归一化
         cb_a = radius_a * np.cos(np.radians(angle_a))
         cr_a = radius_a * np.sin(np.radians(angle_a))
         # ---- 5a. H 旋转后补偿（modeH=ModeAddKeepS/ModeAddKeepYH，仅 YCbCr 域）：
@@ -958,22 +997,21 @@ class HsvUiController:
         cr_5 = cr * (1.0 - w) + cr_a * w
         y_5 = y_n * (1.0 - w) + y_a * w
         yuv_5_raw = np.stack([y_5, cb_5, cr_5], axis=-1)
-        if yuv_policy in ('clipchroma', 'clipchromasoft'):
+        if norm_policy == 'normbypix':
+            # NormByPix：调整结果与输入按 w 的凸组合均落在 RGB 色域内（凸集），
+            # 无需任何钳位；5a/5b 补偿在域内自动恒等。
+            yuv_5_disp = yuv_5_raw
+        elif yuv_policy in ('clipchroma', 'clipchromasoft'):
             yuv_5_disp = self._gamut_clip_chroma(
                 yuv_5_raw, proc_cs,
                 soft_knee=_SOFT_KNEE if yuv_policy == 'clipchromasoft' else 0.0)
-        elif yuv_policy == 'clipinrgb':
-            # ClipInRGB：唯一需要 RGB 的档（YUV->RGB 逐通道硬钳->YUV），在
-            # 步骤 5️⃣ 就地完成，使步骤 6️⃣ 对 YUV 输出可免 RGB 桥直接编码。
-            r2y, y2r = _get_csc_matrices(proc_cs)
-            yuv_5_disp = np.clip(yuv_5_raw @ y2r.T, 0.0, 1.0) @ r2y.T
-        else:                       # 'hardclip'：YUV 范围普通硬钳
+        else:                       # 'hardclip'（含 NormBySec 的钳位）：YUV 范围普通硬钳
             y_c = np.clip(y_5, 0.0, 1.0)
             cb_c = np.clip(cb_5, -0.5, 0.5)
             cr_c = np.clip(cr_5, -0.5, 0.5)
             yuv_5_disp = np.stack([y_c, cb_c, cr_c], axis=-1)
 
-        # ---- 预览帧（步骤 5️⃣，输出 YUV 帧 -> RGB 显示，按 rgbClipType 钳位） ----
+        # ---- 预览帧（步骤 5️⃣，输出 YUV 帧 -> RGB 显示，按 y2rClipType 钳位） ----
         preview_frame = self._yuv_to_preview_frame(yuv_5_disp, proc_cs, depth)
 
         # ---- 6️⃣ 输出 CSC（必钳位，444 平面帧；格式转换在保存时按全分辨率进行） ----
@@ -982,7 +1020,13 @@ class HsvUiController:
 
         # 读数域值：按实际输出极径更新 S（H/Y 不变）。
         radius_out = np.sqrt(yuv_5_disp[..., 1] ** 2 + yuv_5_disp[..., 2] ** 2)
-        s_out = radius_out / chroma_max
+        if norm_policy == 'normbypix':
+            s_out = self._gamut_s_norm(
+                yuv_5_disp[..., 0], yuv_5_disp[..., 1], yuv_5_disp[..., 2], proc_cs)
+        elif norm_policy == 'normbysec':
+            s_out = np.clip(radius_out / _CHROMA_MAX[_cs_family(proc_cs)], 0.0, 1.0)
+        else:
+            s_out = radius_out
 
         readout = PixelReadoutCache(
             in_native=in_native,
@@ -1059,10 +1103,10 @@ class HsvUiController:
         return yuv[..., 0], yuv[..., 1], yuv[..., 2]
 
     def _yuv_to_preview_frame(self, yuv_norm, proc_cs, depth) -> ImageFrame:
-        """输出 YUV 帧 -> 预览显示帧（YCbCr 域）：YUV->RGB 按 rgbClipType 钳位
+        """输出 YUV 帧 -> 预览显示帧（YCbCr 域）：YUV->RGB 按 y2rClipType 钳位
         （HardClip 硬钳 / SoftClip 软钳 / ConstHue 等比钳）。"""
         _, y2r = _get_csc_matrices(proc_cs)
-        rgb = self._clip_rgb(yuv_norm @ y2r.T, self._rgb_clip_type())
+        rgb = self._clip_rgb(yuv_norm @ y2r.T, self._y2r_clip_type())
         return self._rgb_full_to_frame(rgb, depth)
 
     # ------------------------------------------------------------------ #
@@ -1073,21 +1117,45 @@ class HsvUiController:
         """当前处理色域名（HSV/HSI/HSL/HCY/HSP/Lch/RGB/YCbCr）。"""
         return self.ui.comboBox_adjustField.currentText()
 
-    def _rgb_clip_type(self) -> str:
-        """rgbClipType 钳位方式：'hard'/'soft'/'consthue'（RGB 数据步骤 2️⃣）。"""
-        text = self.ui.comboBox_rgbClipType.currentText()
+    def _update_clip_enables(self) -> None:
+        """按处理域与输入格式更新钳位/归一化控件使能：
+        - comboBox_y2yClipType：仅 YCbCr 处理域启用。
+        - comboBox_normYuvChroma：仅 YCbCr 处理域且 y2yClipType=HardClip 启用
+          （NormByPix/NormBySec 与 ClipChroma/ClipChromaSoft 互斥——NormByPix
+          会短路 y2y 钳位，NormBySec 视为其简化实现，保持相同互斥行为）。
+        - comboBox_y2rClipType：存在 YUV->RGB（y2r）节点时启用——YCbCr 处理域
+          （预览 y2r 恒存在，输出 RGB 桥亦然）或 输入为 YUV 且非 YCbCr
+          （输入 y2r 节点）。
+        """
+        is_ycbcr = self._adjust_field() == "YCbCr"
+        self.ui.comboBox_y2yClipType.setEnabled(is_ycbcr)
+        y2y_hard = self._y2y_clip_type() == 'hardclip'
+        self.ui.comboBox_normYuvChroma.setEnabled(is_ycbcr and y2y_hard)
+        frame = self._input_provider()
+        input_is_yuv = frame is not None and not frame.is_rgb
+        self.ui.comboBox_y2rClipType.setEnabled(is_ycbcr or input_is_yuv)
+
+    def _y2r_clip_type(self) -> str:
+        """y2rClipType 钳位方式：'hard'/'soft'/'consthue'（YUV->RGB 转换）。"""
+        text = self.ui.comboBox_y2rClipType.currentText()
         return {'HardClip': 'hard',
                 'SoftClip': 'soft',
                 'ConstHue': 'consthue'}.get(text, 'hard')
 
-    def _yuv_clip_type(self) -> str:
-        """yuvClipType 钳位方式：'hardclip'/'clipinrgb'/'clipchroma'/'clipchromasoft'
-        （YUV 数据步骤 5️⃣）。"""
-        text = self.ui.comboBox_yuvClipType.currentText()
+    def _y2y_clip_type(self) -> str:
+        """y2yClipType 钳位方式：'hardclip'/'clipchroma'/'clipchromasoft'
+        （YCbCr 处理域 YUV 数据步骤 5️⃣）。"""
+        text = self.ui.comboBox_y2yClipType.currentText()
         return {'HardClip': 'hardclip',
-                'ClipInRGB': 'clipinrgb',
                 'ClipChroma': 'clipchroma',
                 'ClipChromaSoft': 'clipchromasoft'}.get(text, 'hardclip')
+
+    def _norm_chroma(self) -> str:
+        """normYuvChroma S 归一化方式：'off'/'normbypix'/'normbysec'
+        （YCbCr 处理域步骤 3️⃣/5️⃣，仅 YCbCr field 启用）。"""
+        text = self.ui.comboBox_normYuvChroma.currentText()
+        return {'NormByPix': 'normbypix',
+                'NormBySec': 'normbysec'}.get(text, 'off')
 
     def _output_fmt_code(self) -> int:
         """所选输出格式代码（io_ui 提供；默认 YUV444P）。"""
@@ -1353,6 +1421,35 @@ class HsvUiController:
             scale = np.divide(r_new, r, out=np.ones_like(r), where=r > 0)
         return np.stack([y, cb * scale, cr * scale], axis=-1)
 
+    @staticmethod
+    def _gamut_r_max(y, cb, cr, cs) -> np.ndarray:
+        """(Y, cb, cr) 所在极角下的 RGB 色域边界极径 r_max(Y,θ)。
+
+        cb/cr 只提供方向（模长无关，传单位方向亦可）；灰阶 r=0 时返回 1.0
+        （此时 S 取 0 即可，任意 r_max 都成立）。Y 超出 [0,1] 时 r_max 钳到 0。
+        """
+        y = np.asarray(y, dtype=np.float32)
+        cb = np.asarray(cb, dtype=np.float32)
+        cr = np.asarray(cr, dtype=np.float32)
+        r = np.sqrt(cb * cb + cr * cr)
+        _, y2r = _get_csc_matrices(cs)
+        cos_t = np.divide(cb, r, out=np.zeros_like(cb), where=r > 0)
+        sin_t = np.divide(cr, r, out=np.zeros_like(cr), where=r > 0)
+        k = (y2r[:, 1, None, None] * cos_t[None, ...]
+             + y2r[:, 2, None, None] * sin_t[None, ...])             # (3, H, W)
+        up = np.divide(1.0 - y, k, out=np.full_like(k, np.inf), where=k > 0)
+        lo = np.divide(-y, k, out=np.full_like(k, np.inf), where=k < 0)
+        r_max = np.minimum(np.minimum(up, lo).min(axis=0), 1.0)
+        return np.maximum(r_max, 0.0)
+
+    @staticmethod
+    def _gamut_s_norm(y, cb, cr, cs) -> np.ndarray:
+        """NormByPix 色域归一化 S = r / r_max(Y,θ) ∈ [0,1]（灰阶为 0）。"""
+        r = np.sqrt(cb * cb + cr * cr)
+        r_max = HsvUiController._gamut_r_max(y, cb, cr, cs)
+        return np.clip(
+            np.divide(r, r_max, out=np.zeros_like(r), where=r_max > 0), 0.0, 1.0)
+
     def _to_output_frame_yuv(self, yuv_norm: np.ndarray, proc_cs: int, depth: int) -> ImageFrame:
         """步骤 6️⃣（YCbCr 系）：处理域 yuv（proc_cs full）-> 444 平面输出帧（必钳位）。
 
@@ -1365,8 +1462,8 @@ class HsvUiController:
         if not is_rgb_format(out_fmt):
             return self._yuv_norm_to_output_frame(yuv_norm, depth, out_cs)
         _, y2r = _get_csc_matrices(proc_cs)
-        # 临时：YCbCr 处理域转输出 RGB 时同样应用 rgbClipType（Hard/Soft/ConstHue）。
-        rgb = self._clip_rgb(yuv_norm @ y2r.T, self._rgb_clip_type())
+        # YCbCr 处理域转输出 RGB 时应用 y2rClipType（YUV->RGB 转换钳位）。
+        rgb = self._clip_rgb(yuv_norm @ y2r.T, self._y2r_clip_type())
         return self._encode_rgb_frame(rgb, depth, out_cs)
 
     @staticmethod
