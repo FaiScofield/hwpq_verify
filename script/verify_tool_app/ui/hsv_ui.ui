@@ -418,7 +418,7 @@
          </widget>
         </item>
         <item row="1" column="0">
-         <widget class="QLabel" name="label_deltaV">
+         <widget class="QLabel" name="label_deltaB">
           <property name="toolTip">
            <string>V 通道加性偏移（叠加在对比度增益之后）</string>
           </property>
@@ -574,7 +574,7 @@
          </widget>
         </item>
         <item row="1" column="2">
-         <widget class="QSlider" name="slider_deltaV">
+         <widget class="QSlider" name="slider_deltaB">
           <property name="sizePolicy">
            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
             <horstretch>1</horstretch>
@@ -605,7 +605,7 @@
          </widget>
         </item>
         <item row="1" column="1">
-         <widget class="QComboBox" name="comboBox_modeV">
+         <widget class="QComboBox" name="comboBox_modeB">
           <item>
            <property name="text">
             <string>ModeAdd</string>
@@ -644,7 +644,7 @@
          </widget>
         </item>
         <item row="1" column="3">
-         <widget class="QDoubleSpinBox" name="spinBox_deltaV">
+         <widget class="QDoubleSpinBox" name="spinBox_deltaB">
           <property name="toolTip">
            <string>V 加性偏移 dv</string>
           </property>
@@ -976,9 +976,9 @@
   <tabstop>slider_gainC</tabstop>
   <tabstop>spinBox_gainC</tabstop>
   <tabstop>pushButton_resetC</tabstop>
-  <tabstop>comboBox_modeV</tabstop>
-  <tabstop>slider_deltaV</tabstop>
-  <tabstop>spinBox_deltaV</tabstop>
+  <tabstop>comboBox_modeB</tabstop>
+  <tabstop>slider_deltaB</tabstop>
+  <tabstop>spinBox_deltaB</tabstop>
   <tabstop>pushButton_resetV</tabstop>
   <tabstop>comboBox_modeS</tabstop>
   <tabstop>slider_deltaS</tabstop>
