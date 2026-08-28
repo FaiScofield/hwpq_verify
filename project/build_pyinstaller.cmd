@@ -47,7 +47,7 @@ rem （exe 同目录的 test_app_hsv_params.json，load_params 的默认加载�
 set "DEMO_FILE=%REPO_ROOT%\doc\test_app_hsv_params.json.demo"
 set "DIST_DIR=%ARTIFACT_DIR%\dist\%APP_NAME%"
 if exist "%DEMO_FILE%" (
-    copy /y "%DEMO_FILE%" "%DIST_DIR%\test_app_hsv_params.json" >nul
+    copy /y "%DEMO_FILE%" "%DIST_DIR%" >nul
     echo   Copied params template: %DEMO_FILE%
     echo     -^> %DIST_DIR%\test_app_hsv_params.json
 ) else (

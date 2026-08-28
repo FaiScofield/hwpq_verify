@@ -557,8 +557,8 @@ def _rgb_contrast_brightness(rgb, gain_c, db, mode_c, mode_b):
         out = np.clip(out * gv[..., None], 0.0, 1.0)
     elif mode_b == 'negmulposrat':
         d = np.clip(np.asarray(db, np.float32), -1.0, 1.0)
-        comp = out * (1.0 + d[..., None])                       # δB<0：乘法压缩
-        white = out + d[..., None] * (1.0 - out)                # δB>0：向白靠拢
+        comp = out * (1.0 + d[..., None])         # δB<0：乘法压缩
+        white = out + d[..., None] * (1.0 - out)  # δB>0：向白靠拢
         out = np.clip(np.where((d < 0)[..., None], comp, white), 0.0, 1.0)
     else:   # 'add'（默认）：加性
         d = np.clip(np.asarray(db, np.float32), -1.0, 1.0)
