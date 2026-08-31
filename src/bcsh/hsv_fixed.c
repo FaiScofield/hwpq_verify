@@ -50,9 +50,9 @@ static inline const uint32_t *rcp6_tbl_u24_fixed(void)
    （相比 a<<SH × rcp 少 SH 位），适合硬件实现 */
 static inline int32_t rcp_mul_rsh(int32_t a, uint32_t rcp, int rsh)
 {
-    int64_t p = (int64_t)a * rcp;
-    p += (1LL << (rsh - 1)) + (p >> 63); /* 有符号四舍五入到 2^rsh */
-    return (int32_t)(p >> rsh);
+    int32_t p = a * rcp;
+    p += (1LL << (rsh - 1)) + (p >> 31); /* 有符号四舍五入到 2^rsh */
+    return p >> rsh;
 }
 
 /* clamp4h(k) = max(0, min(min(k, 4*FIX_H_ONE - k), FIX_H_ONE))，k ∈ [0, 6*FIX_H_ONE)，Q(FIX_BITS_H)
@@ -125,7 +125,7 @@ void rgb2hsv_v1_no_branch(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uin
     *h14 = h;
 }
 
-/* v2：取消除法（倒数表替代 /C、/6；分支保留） */
+/* v2：取消除法（倒数表替代 /C、/6；分支保留），适合RTL实现 */
 void rgb2hsv_v2_no_division(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10)
 {
     const uint32_t *rcp = rcp_tbl_u21_fixed();
@@ -134,7 +134,7 @@ void rgb2hsv_v2_no_division(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, u
     int32_t m = MIN3(r, g, b);
     int32_t c = M - m;
     *v10 = M;
-    *s11 = (c > 0) ? rcp_mul_rsh(c, rcp[M], RCP_BITS - FIX_BITS_S) : 0; // U24=>U11
+    *s11 = (c > 0) ? rcp_mul_rsh(c, rcp[M], RCP_BITS - FIX_BITS_S) : 0; // U21=>U11
     int32_t h = 0;
     if (c > 0) {
         if (M == r) {
@@ -150,7 +150,7 @@ void rgb2hsv_v2_no_division(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, u
     *h14 = h;
 }
 
-/* v3：取消分支 + 取消除法（优先级掩码 + 双倒数表，硬件友好） */
+/* v3：取消分支 + 取消除法（优先级掩码 + 双倒数表，CPU友好） */
 void rgb2hsv_v3_optimal(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10)
 {
     const uint32_t *rcp = rcp_tbl_u21_fixed();   /* S 表：S=C/V，V(M) 索引，RCP_BITS bit */

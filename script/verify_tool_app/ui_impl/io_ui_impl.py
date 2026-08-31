@@ -159,6 +159,7 @@ class IoUiController:
         parent_window: QMainWindow | None = None,
         on_input_loaded: Callable[[object, str], None] | None = None,
         on_load_config: Callable[[str], None] | None = None,
+        on_output_changed: Callable[[], None] | None = None,
         status_callback: Callable[[str], None] | None = None,
         auto_load_defaults: bool = True,
     ) -> None:
@@ -177,8 +178,11 @@ class IoUiController:
         self.ui = io_widget.ui
         self._on_input_loaded = on_input_loaded
         self._load_config_callback = on_load_config
+        self._on_output_changed = on_output_changed
         self._status_callback = status_callback
         self._input_loaded = False
+        # 参数猜测级联（格式/色彩空间/帧号变化触发重载）期间抑制装载失败弹窗。
+        self._suppress_load_errors = False
         self._init_ui()
         self._connect_signals()
         self._update_swap_controls()
@@ -187,17 +191,17 @@ class IoUiController:
 
     def _init_ui(self) -> None:
         """Populate format/colorspace combo boxes with default selections."""
-        fmt_display = [f"0x{fmt:x} - {FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_OPTIONS]
+        fmt_display = [f"0x{fmt:x}-{FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_OPTIONS]
         self.ui.comboBox_input_format.addItems(fmt_display)
         self.ui.comboBox_output_format.addItems(fmt_display)
 
-        clrspc_display = [f"{clr} - {CLRSPC_NAMES[clr]}" for clr in CLRSPC_OPTIONS]
-        clrspc_rgb = [item for item in clrspc_display if int(item.split(" ")[0]) in (0, 1)]
-        clrspc_yuv = [item for item in clrspc_display if int(item.split(" ")[0]) in range(2, 8)]
+        clrspc_display = [f"{clr}-{CLRSPC_NAMES[clr]}" for clr in CLRSPC_OPTIONS]
+        clrspc_rgb = [item for item in clrspc_display if int(item.split("-")[0]) in (0, 1)]
+        clrspc_yuv = [item for item in clrspc_display if int(item.split("-")[0]) in range(2, 8)]
         self.ui.comboBox_input_colorspace.addItems(clrspc_rgb)
         self.ui.comboBox_output_colorspace.addItems(clrspc_rgb)
 
-        default_yuv_fmt = next((item for item in fmt_display if item.startswith("0x3 ")), "")
+        default_yuv_fmt = next((item for item in fmt_display if item.startswith("0x3-")), "")
         if default_yuv_fmt:
             self.ui.comboBox_input_format.setCurrentText(default_yuv_fmt)
             self.ui.comboBox_output_format.setCurrentText(default_yuv_fmt)
@@ -210,18 +214,20 @@ class IoUiController:
             self.ui.comboBox_input_colorspace.setCurrentText(default_yuv_clrspc)
             self.ui.comboBox_output_colorspace.setCurrentText(default_yuv_clrspc)
 
-        self.ui.comboBox_output_format.setEnabled(False)
-        self.ui.comboBox_output_colorspace.setEnabled(False)
+        # 输出 format/colorspace 由用户选择（不再跟随输入）；按输入家族限制刷新 colorspace 选项。
+        self.ui.comboBox_output_format.setEnabled(True)
+        self.ui.comboBox_output_colorspace.setEnabled(True)
+        self._refresh_output_colorspace_options()
         # Test-pattern controls are active only when the test-pattern radio is checked.
         self.ui.comboBox_useTestPattern.setEnabled(False)
         self.ui.label_valueV.setEnabled(False)
         self.ui.spinBox_valueV.setEnabled(False)
         self.ui.spinBox_valueH.setEnabled(False)
         # Remember per-domain colorspace choices (restored when the format
-        # switches between the RGB and YUV domains).
-        self._last_clrspc_rgb = 0
+        # switches between the RGB and YUV domains). 默认 RGB->1 全量程、YUV->5 BT.709 full。
+        self._last_clrspc_rgb = 1
         clr_str = self.ui.comboBox_input_colorspace.currentText()
-        self._last_clrspc_yuv = int(clr_str.split(" ")[0]) if clr_str else 5
+        self._last_clrspc_yuv = int(clr_str.split("-")[0]) if clr_str else 5
 
     def _connect_signals(self) -> None:
         """Wire I/O widget signals to internal handlers."""
@@ -233,6 +239,8 @@ class IoUiController:
         self.ui.pushButton_load_config.clicked.connect(self._on_load_config)
         self.ui.comboBox_input_format.currentIndexChanged.connect(self._on_input_format_changed)
         self.ui.comboBox_input_colorspace.currentIndexChanged.connect(self._on_input_colorspace_changed)
+        self.ui.comboBox_output_format.currentIndexChanged.connect(self._on_output_format_changed)
+        self.ui.comboBox_output_colorspace.currentIndexChanged.connect(self._on_output_colorspace_changed)
         self.ui.radioButton_useSecColor.toggled.connect(self._on_set_color_toggled)
         self.ui.lineEdit_setColor.returnPressed.connect(self._on_set_color_return_pressed)
         self.ui.radioButton_useTestPattern.toggled.connect(self._on_use_test_pattern_toggled)
@@ -253,12 +261,73 @@ class IoUiController:
     def get_input_fmt_code(self) -> int:
         """Return the currently selected input format integer code."""
         fmt_str = self.ui.comboBox_input_format.currentText()
-        return int(fmt_str.split(" ")[0], 16) if fmt_str else 0
+        return int(fmt_str.split("-")[0], 16) if fmt_str else 0
 
     def get_input_clrspc(self) -> int:
         """Return the currently selected input colorspace integer code."""
         clr_str = self.ui.comboBox_input_colorspace.currentText()
-        return int(clr_str.split(" ")[0]) if clr_str else 0
+        return int(clr_str.split("-")[0]) if clr_str else 0
+
+    def get_output_fmt_code(self) -> int:
+        """Return the currently selected output format integer code."""
+        fmt_str = self.ui.comboBox_output_format.currentText()
+        return int(fmt_str.split("-")[0], 16) if fmt_str else 0x3
+
+    def get_output_clrspc(self) -> int:
+        """Return the currently selected output colorspace integer code."""
+        clr_str = self.ui.comboBox_output_colorspace.currentText()
+        return int(clr_str.split("-")[0]) if clr_str else 5
+
+    def _allowed_output_clrspcs(self) -> list[int]:
+        """按输出 format 域与输入 YUV 家族限制输出 colorspace 选项。
+
+        - 输出 RGB -> {RGB_Limited, RGB_Full}（0/1）
+        - 输出 YUV + 输入 RGB -> {BT601/709/2020 × L/F}（2..7）
+        - 输出 YUV + 输入 YUV 601/709 -> {BT601, BT709}（2..5，不允许与 2020 互转）
+        - 输出 YUV + 输入 YUV 2020 -> {BT2020}（6/7）
+        """
+        if is_rgb_format(self.get_output_fmt_code()):
+            return [0, 1]
+        in_fmt = self.get_input_fmt_code()
+        if is_rgb_format(in_fmt):
+            return list(range(2, 8))
+        if self.get_input_clrspc() in (6, 7):
+            return [6, 7]
+        return [2, 3, 4, 5]
+
+    def _refresh_output_colorspace_options(self, keep_current: bool = True) -> None:
+        """重建输出 colorspace 选项；当前值仍合法时保留，否则按输出 format 域
+        落到默认全量程（RGB->1 RGB_Full，YUV->5 BT.709 full；5 不可用时如输入
+        2020 回落到 7 或列表首个）。
+
+        显示格式与 ``_on_input_format_changed`` 一致（``"{clr}-{name}"``）。
+        """
+        clrspc_display = [f"{clr}-{CLRSPC_NAMES[clr]}" for clr in self._allowed_output_clrspcs()]
+        current = self.ui.comboBox_output_colorspace.currentText()
+        self.ui.comboBox_output_colorspace.clear()
+        self.ui.comboBox_output_colorspace.addItems(clrspc_display)
+        if keep_current and current in clrspc_display:
+            self.ui.comboBox_output_colorspace.setCurrentText(current)
+            return
+        default = 1 if is_rgb_format(self.get_output_fmt_code()) else 5
+        item = self._find_clrspc_item(self.ui.comboBox_output_colorspace, default)
+        if not item:
+            item = self._find_clrspc_item(self.ui.comboBox_output_colorspace, default + 2)
+        if not item:
+            item = clrspc_display[0]
+        self.ui.comboBox_output_colorspace.setCurrentText(item)
+
+    @staticmethod
+    def _find_clrspc_item(combo, code: int) -> str:
+        """在 combo 中按 colorspace 代码查找显示项文本（兼容有无空格格式）。"""
+        for i in range(combo.count()):
+            item = combo.itemText(i)
+            try:
+                if int(item.split("-")[0].strip()) == code:
+                    return item
+            except ValueError:
+                continue
+        return ""
 
     # ------------------------------------------------------------------ #
     # Signal handlers                                                    #
@@ -274,9 +343,19 @@ class IoUiController:
         )
         if path:
             self.ui.lineEdit_input_file.setText(path)
+            was_checked = self.ui.radioButton_useInputFile.isChecked()
             self.ui.radioButton_useInputFile.setChecked(True)
-            self._guess_input_params(path)
-            self._recalc_frame_num()
+            if not was_checked:
+                # 单选按钮切换已触发 _on_use_input_file_toggled -> _on_reload_input
+                # （内部已完成猜测+装载），避免重复装载/重复弹窗。
+                return
+            # 已处于文件模式：参数猜测期间抑制中间失败弹窗，只保留最终一次。
+            self._suppress_load_errors = True
+            try:
+                self._guess_input_params(path)
+                self._recalc_frame_num()
+            finally:
+                self._suppress_load_errors = False
             self._load_input_image()
 
     def _on_reload_input(self) -> None:
@@ -284,8 +363,14 @@ class IoUiController:
         self.ui.radioButton_useInputFile.setChecked(True)
         path = self.ui.lineEdit_input_file.text()
         if path:
-            self._guess_input_params(path)
-            self._recalc_frame_num()
+            # 参数猜测会触发格式/色彩空间/帧号信号导致的中间重载，失败弹窗统一
+            # 抑制，只在最终装载时报一次错。
+            self._suppress_load_errors = True
+            try:
+                self._guess_input_params(path)
+                self._recalc_frame_num()
+            finally:
+                self._suppress_load_errors = False
             self._load_input_image()
 
     def _on_browse_output(self) -> None:
@@ -317,17 +402,17 @@ class IoUiController:
         fmt_str = self.ui.comboBox_input_format.currentText()
         if not fmt_str:
             return
-        fmt_code = int(fmt_str.split(" ")[0], 16)
-        clrspc_display = [f"{clr} - {CLRSPC_NAMES[clr]}" for clr in CLRSPC_OPTIONS]
+        fmt_code = int(fmt_str.split("-")[0], 16)
+        clrspc_display = [f"{clr}-{CLRSPC_NAMES[clr]}" for clr in CLRSPC_OPTIONS]
         is_rgb = (fmt_code & 0xF) <= 0x2
         if is_rgb:
-            options = [item for item in clrspc_display if int(item.split(" ")[0]) in (0, 1)]
+            options = [item for item in clrspc_display if int(item.split("-")[0]) in (0, 1)]
         else:
-            options = [item for item in clrspc_display if int(item.split(" ")[0]) in range(2, 8)]
+            options = [item for item in clrspc_display if int(item.split("-")[0]) in range(2, 8)]
         # Remember the current domain selection before rebuilding the list.
         current_text = self.ui.comboBox_input_colorspace.currentText()
         if current_text:
-            cur_clr = int(current_text.split(" ")[0])
+            cur_clr = int(current_text.split("-")[0])
             if cur_clr in (0, 1):
                 self._last_clrspc_rgb = cur_clr
             else:
@@ -338,34 +423,40 @@ class IoUiController:
             idx = options.index(current_text)
         else:
             fallback = self._last_clrspc_yuv if not is_rgb else self._last_clrspc_rgb
-            fallback_item = next((it for it in options if it.startswith(f"{fallback} ")), "")
+            fallback_item = next((it for it in options if it.startswith(f"{fallback}-")), "")
             idx = options.index(fallback_item) if fallback_item else 0
+        # 重建色彩空间选项期间阻断信号，避免 _on_input_colorspace_changed 再次触发
+        # 重载（一次格式改动只装载/报错一次）；输出 cs 刷新与本函数末尾的装载覆盖之。
+        self.ui.comboBox_input_colorspace.blockSignals(True)
         self.ui.comboBox_input_colorspace.clear()
         self.ui.comboBox_input_colorspace.addItems(options)
         self.ui.comboBox_input_colorspace.setCurrentIndex(idx)
-        # 输出格式/色彩空间保持禁用，但强制与输入保持一致。
-        # 输出色彩空间的选项列表也跟随输入重建，确保禁用状态下同步显示值始终匹配。
-        self.ui.comboBox_output_format.setCurrentText(fmt_str)
-        self.ui.comboBox_output_colorspace.clear()
-        self.ui.comboBox_output_colorspace.addItems(options)
-        self.ui.comboBox_output_colorspace.setCurrentText(
-            self.ui.comboBox_input_colorspace.currentText())
+        self.ui.comboBox_input_colorspace.blockSignals(False)
+        # 输出 format 独立于输入；仅按输入 YUV 家族限制刷新输出 colorspace 选项。
+        self._refresh_output_colorspace_options()
         self._update_swap_controls()
         self._recalc_frame_num()
         self._load_input_image()
 
     def _on_input_colorspace_changed(self, index: int) -> None:
-        """Keep the disabled output colorspace in sync with the input, and
-        reload the input since reading uses the selected colorspace."""
+        """Reload the input since reading uses the selected colorspace, and
+        refresh the output colorspace options (YUV family restriction)."""
         del index
-        clr = self.ui.comboBox_input_colorspace.currentText()
-        out_box = self.ui.comboBox_output_colorspace
-        if out_box.findText(clr) < 0:
-            out_box.clear()
-            out_box.addItems([self.ui.comboBox_input_colorspace.itemText(i)
-                              for i in range(self.ui.comboBox_input_colorspace.count())])
-        out_box.setCurrentText(clr)
+        self._refresh_output_colorspace_options()
         self._load_input_image()
+
+    def _on_output_format_changed(self, index: int) -> None:
+        """Output format changed: refresh colorspace options and re-run pipeline."""
+        del index
+        self._refresh_output_colorspace_options()
+        if self._on_output_changed is not None:
+            self._on_output_changed()
+
+    def _on_output_colorspace_changed(self, index: int) -> None:
+        """Output colorspace changed: re-run pipeline."""
+        del index
+        if self._on_output_changed is not None:
+            self._on_output_changed()
 
     # ------------------------------------------------------------------ #
     # Input channel swap (R/B for RGB, U/V for YUV)                      #
@@ -380,7 +471,7 @@ class IoUiController:
         """
         is_file = self.ui.radioButton_useInputFile.isChecked()
         fmt_str = self.ui.comboBox_input_format.currentText()
-        fmt_code = int(fmt_str.split(" ")[0], 16) if fmt_str else 0
+        fmt_code = int(fmt_str.split("-")[0], 16) if fmt_str else 0
         is_rgb = is_rgb_format(fmt_code)
 
         if not is_file:
@@ -471,14 +562,12 @@ class IoUiController:
         """
         fmt_items = [self.ui.comboBox_input_format.itemText(i)
                      for i in range(self.ui.comboBox_input_format.count())]
-        fmt_item = next((it for it in fmt_items if it.startswith("0x0 ")), "")
+        fmt_item = next((it for it in fmt_items if it.startswith("0x0-")), "")
         changed = False
         if fmt_item and self.ui.comboBox_input_format.currentText() != fmt_item:
             self.ui.comboBox_input_format.setCurrentText(fmt_item)
             changed = True
-        clrspc_items = [self.ui.comboBox_input_colorspace.itemText(i)
-                        for i in range(self.ui.comboBox_input_colorspace.count())]
-        clrspc_item = next((it for it in clrspc_items if it.startswith("1 - ")), "")
+        clrspc_item = self._find_clrspc_item(self.ui.comboBox_input_colorspace, 1)
         if clrspc_item:
             self.ui.comboBox_input_colorspace.setCurrentText(clrspc_item)
         return changed
@@ -557,7 +646,7 @@ class IoUiController:
         handler (which reloads the input) never runs with stale width/height.
         """
         basename = os.path.basename(filepath).lower()
-        ext = os.path.splitext(basename)[1]
+        ext = os.path.splitext(basename)[-1]
 
         # --- Resolution first ---
         if ext in STB_IMAGE_EXTENSIONS:
@@ -574,7 +663,7 @@ class IoUiController:
             self.ui.spinBox_height.setValue(int(match.group(2)))
 
         # --- Format after ---
-        fmt_display = [f"0x{fmt:x} - {FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_OPTIONS]
+        fmt_display = [f"0x{fmt:x}-{FORMAT_NAMES.get(fmt, 'Unknown')}" for fmt in FMT_OPTIONS]
         if ext in STB_IMAGE_EXTENSIONS:
             fmt_code = 0x0
         elif ext == ".yuv":
@@ -590,7 +679,7 @@ class IoUiController:
                     if f"_{token}" in basename),
                 0x0,   # default RGB888 when no token matches
             )
-        elif ext == ".bin":
+        else:
             # raw .bin：先匹配 YUV token，再匹配 RGB token，默认 RGB888(0x0)。
             fmt_code = next(
                 (code for token, code in _YUV_SUFFIX_FMT.items()
@@ -601,12 +690,27 @@ class IoUiController:
                     0x0,
                 ),
             )
-        else:
-            return
+
+        # 猜测格式后的默认色彩空间：RGB -> RGB_Full(1)，YUV -> BT709_Full(5)。
+        default_cs = 1 if is_rgb_format(fmt_code) else 5
+
         fmt_item = next(
-            (item for item in fmt_display if item.startswith(f"0x{fmt_code:x} ")), None)
+            (item for item in fmt_display if item.startswith(f"0x{fmt_code:x}")), None)
         if fmt_item:
             self.ui.comboBox_input_format.setCurrentText(fmt_item)
+
+        # 输入色彩空间默认 1（RGB）/ 5（YUV）。
+        in_item = self._find_clrspc_item(self.ui.comboBox_input_colorspace, default_cs)
+        if in_item:
+            self.ui.comboBox_input_colorspace.setCurrentText(in_item)
+
+        # 猜测格式后，输出格式/色彩空间默认跟随输入（用户之后仍可手动修改）。
+        # 先同步输出 format（触发输出 cs 选项按新域/家族刷新），再按代码匹配设置输出 cs。
+        self.ui.comboBox_output_format.setCurrentText(self.ui.comboBox_input_format.currentText())
+        self._refresh_output_colorspace_options()
+        out_item = self._find_clrspc_item(self.ui.comboBox_output_colorspace, default_cs)
+        if out_item:
+            self.ui.comboBox_output_colorspace.setCurrentText(out_item)
 
     def _recalc_frame_num(self) -> None:
         """Recalculate frame count from the selected file and format."""
@@ -623,7 +727,7 @@ class IoUiController:
         fmt_str = self.ui.comboBox_input_format.currentText()
         if not fmt_str:
             return
-        fmt_code = int(fmt_str.split(" ")[0], 16)
+        fmt_code = int(fmt_str.split("-")[0], 16)
         width = self.ui.spinBox_width.value()
         height = self.ui.spinBox_height.value()
         frame_size = get_frame_size(width, height, fmt_code)
@@ -676,7 +780,7 @@ class IoUiController:
         fmt_str = self.ui.comboBox_input_format.currentText()
         if not fmt_str:
             return
-        fmt_code = int(fmt_str.split(" ")[0], 16)
+        fmt_code = int(fmt_str.split("-")[0], 16)
         clrspc = self.get_input_clrspc()
         depth = get_pixel_depth(fmt_code)
         limited = is_limited_range(clrspc)
@@ -774,7 +878,7 @@ class IoUiController:
         fmt_str = self.ui.comboBox_input_format.currentText()
         if not fmt_str:
             return
-        fmt_code = int(fmt_str.split(" ")[0], 16)
+        fmt_code = int(fmt_str.split("-")[0], 16)
         width = self.ui.spinBox_width.value()
         height = self.ui.spinBox_height.value()
         frame_idx = self.ui.spinBox_frame_idx.value()
@@ -793,4 +897,6 @@ class IoUiController:
                 frame, f"Input loaded: {frame.width}x{frame.height}, idx={frame_idx}")
             self._input_loaded = True
         except Exception as exc:
+            if self._suppress_load_errors:
+                return
             QMessageBox.critical(None, "Error", f"Failed to load image: {exc}")

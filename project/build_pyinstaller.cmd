@@ -41,7 +41,19 @@ if errorlevel 1 (
     echo [ERROR] PyInstaller build failed.
     exit /b 1
 )
+
+rem 把参数配置模板（doc\test_app_hsv_params.json.demo）复制到发布目录
+rem （exe 同目录的 test_app_hsv_params.json，load_params 的默认加载位置）。
+set "DEMO_FILE=%REPO_ROOT%\doc\test_app_hsv_params.json.demo"
+set "DIST_DIR=%ARTIFACT_DIR%\dist\%APP_NAME%"
+if exist "%DEMO_FILE%" (
+    copy /y "%DEMO_FILE%" "%DIST_DIR%" >nul
+    echo   Copied params template: %DEMO_FILE%
+    echo     -^> %DIST_DIR%\test_app_hsv_params.json
+) else (
+    echo   [WARN] Params template not found: %DEMO_FILE%
+)
 echo.
-echo Build complete: %ARTIFACT_DIR%\dist\%APP_NAME%\
-echo Run: %ARTIFACT_DIR%\dist\%APP_NAME%\%APP_NAME%.exe
+echo Build complete: %DIST_DIR%\
+echo Run: %DIST_DIR%\%APP_NAME%.exe
 exit /b 0
