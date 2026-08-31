@@ -94,7 +94,7 @@
       </widget>
      </item>
      <item>
-      <widget class="QLabel" name="label_clip">
+      <widget class="QLabel" name="label_y2rClip">
        <property name="text">
         <string>Y2R Clip</string>
        </property>
@@ -123,7 +123,7 @@
       </widget>
      </item>
      <item>
-      <widget class="QLabel" name="label_2">
+      <widget class="QLabel" name="label_y2yClip">
        <property name="text">
         <string>Y2Y Clip</string>
        </property>

@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 
+HSV_APP_TARGET = "Sonnoc"
 HSV_APP_VERSION = "v3.0"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
@@ -48,13 +49,7 @@ def _ensure_generated_ui_modules():
     if not os.path.isfile(cmd_path):
         raise RuntimeError(f"Missing UI generator script: {cmd_path}")
 
-    result = subprocess.run(
-        ["cmd", "/c", cmd_path],
-        cwd=CURRENT_DIR,
-        capture_output=True,
-        text=True,
-        shell=False,
-    )
+    result = subprocess.run(["cmd", "/c", cmd_path], cwd=CURRENT_DIR, capture_output=True, text=True, shell=False)
     if result.returncode != 0:
         output = "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part).strip()
         raise RuntimeError(f"Failed to generate UI files via uic.cmd\n{output}")
@@ -86,22 +81,53 @@ class HsvTestAppWindow(QMainWindow):
         self.ui.setupUi(self)
         self.setWindowTitle(f"HSV Test App {HSV_APP_VERSION}")
         # The host window .ui is shared across apps; set the HSV tab label here.
-        self.ui.tabWidget_main.setTabText(
-            self.ui.tabWidget_main.indexOf(self.ui.tab_module_host), "BCSH Config")
+        self.ui.tabWidget_main.setTabText(self.ui.tabWidget_main.indexOf(self.ui.tab_module_host), "BCSH Config")
         self._syncing_preview_action = False
 
         self.io_widget = IoUiWidget(self)
         self.hsv_widget = HsvUiWidget(self)
         self.preview_widget = PreviewUiWidget(self)
 
+        # 隐藏不开放给客户使用的控件
+        if HSV_APP_TARGET == "Sonnoc":
+            # 不包含 clipType 相关
+            for _w in (
+                self.hsv_widget.ui.label_y2rClip,
+                self.hsv_widget.ui.label_y2yClip,
+                self.hsv_widget.ui.label_normYuv,
+                self.hsv_widget.ui.comboBox_y2rClipType,
+                self.hsv_widget.ui.comboBox_y2yClipType,
+                self.hsv_widget.ui.comboBox_normYuvChroma,
+            ):
+                _w.setVisible(False)
+
+            # 不包含 HSI/HSP/Lch 处理域
+            for name in ("HSI", "HSP", "Lch"):
+                idx = self.hsv_widget.ui.comboBox_adjustField.findText(name)
+                if idx >= 0:
+                    self.hsv_widget.ui.comboBox_adjustField.removeItem(idx)
+
+            # 不包含 YCbCr 域相关Mode
+            for name in ("ModeAddKeepHS", "ModeAddKeepH"):
+                idx = self.hsv_widget.ui.comboBox_modeB.findText(name)
+                if idx >= 0:
+                    self.hsv_widget.ui.comboBox_modeB.removeItem(idx)
+            for name in ("ModeAddKeepS", "ModeAddKeepYH"):
+                idx = self.hsv_widget.ui.comboBox_modeH.findText(name)
+                if idx >= 0:
+                    self.hsv_widget.ui.comboBox_modeH.removeItem(idx)
+
+            # 不包含配置文件相关控件
+            for _w in (
+                self.io_widget.ui.label_config_file,
+                self.io_widget.ui.lineEdit_config_file,
+                self.io_widget.ui.pushButton_browse_config,
+                self.io_widget.ui.pushButton_load_config,
+            ):
+                _w.setVisible(False)
+
         self._mount_host_page(self.ui.tab_io_host, self.io_widget, use_scroll_area=True)
         self._mount_host_page(self.ui.tab_module_host, self.hsv_widget, use_scroll_area=True)
-        # 本程序不使用配置文件，隐藏 I/O 页的配置文件行（共享 UI 中未被用到的部分）。
-        for _w in (self.io_widget.ui.label_config_file,
-                   self.io_widget.ui.lineEdit_config_file,
-                   self.io_widget.ui.pushButton_browse_config,
-                   self.io_widget.ui.pushButton_load_config):
-            _w.setVisible(False)
 
         self.preview_ctrl = PreviewUiController(
             self.preview_widget,
