@@ -10,8 +10,8 @@ import os
 import subprocess
 import sys
 
-HSV_APP_TARGET = "Sonnoc"
-HSV_APP_VERSION = "v3.0"
+HSV_APP_TARGET = "RK"
+HSV_APP_VERSION = "v3.1.rc1"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
 
@@ -94,10 +94,8 @@ class HsvTestAppWindow(QMainWindow):
             for _w in (
                 self.hsv_widget.ui.label_y2rClip,
                 self.hsv_widget.ui.label_y2yClip,
-                self.hsv_widget.ui.label_normYuv,
                 self.hsv_widget.ui.comboBox_y2rClipType,
                 self.hsv_widget.ui.comboBox_y2yClipType,
-                self.hsv_widget.ui.comboBox_normYuvChroma,
             ):
                 _w.setVisible(False)
 
@@ -106,16 +104,6 @@ class HsvTestAppWindow(QMainWindow):
                 idx = self.hsv_widget.ui.comboBox_adjustField.findText(name)
                 if idx >= 0:
                     self.hsv_widget.ui.comboBox_adjustField.removeItem(idx)
-
-            # 不包含 YCbCr 域相关Mode
-            for name in ("ModeAddKeepHS", "ModeAddKeepH"):
-                idx = self.hsv_widget.ui.comboBox_modeB.findText(name)
-                if idx >= 0:
-                    self.hsv_widget.ui.comboBox_modeB.removeItem(idx)
-            for name in ("ModeAddKeepS", "ModeAddKeepYH"):
-                idx = self.hsv_widget.ui.comboBox_modeH.findText(name)
-                if idx >= 0:
-                    self.hsv_widget.ui.comboBox_modeH.removeItem(idx)
 
             # 不包含配置文件相关控件
             for _w in (

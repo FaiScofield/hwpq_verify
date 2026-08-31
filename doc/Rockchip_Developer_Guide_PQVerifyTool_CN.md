@@ -311,8 +311,7 @@ PQVerifyTool 是瑞芯微 PQ 算法测试工具，用于验证 PQ 算法的原�
 | 控件 | 语义 | 档位 |
 | ---- | ---- | ---- |
 | `y2rClipType` | YUV→RGB 转换钳位（RGB 系输入 YUV→RGB、YCbCr 预览、YCbCr→RGB 输出桥） | HardClip / SoftClip / ConstHue |
-| `y2yClipType` | YCbCr 处理域步骤 5️⃣ 的 YUV 数据钳位 | HardClip / ClipChroma / ClipChromaSoft |
-| `normYuvChroma` | YCbCr 域 S 归一化方式（仅 YCbCr 域 **且 y2yClipType=HardClip** 时可选） | OFF / NormByPix / NormBySec |
+| `y2yClipType` | YCbCr 处理域统一色域处理策略（步骤 3️⃣/5️⃣） | HardClip / ClipChroma / ScaleChromaPix / ScaleChromaSec / CompLumaOnly / CompLumaFirst |
 
 #### `y2rClipType` 档位详解（YUV→RGB 转换钳位，`_clip_rgb`）
 
@@ -331,27 +330,21 @@ PQVerifyTool 是瑞芯微 PQ 算法测试工具，用于验证 PQ 算法的原�
 
   - **同样存在低侧不对称**：负通道先硬钳 0（缩放前后钳位等价，因为 $\max(RGB,0)\cdot s=\max(RGB\cdot s,0)$，$s>0$）——高侧（$\max_i RGB_i>1$）等比缩放保色相；低侧（$\min_i RGB_i<0$）负通道被硬钳 0，欠饱和越界像素通道比例被破坏、可能色相偏移。低侧要保色相需用灰轴压缩（`ClipChroma`），代价是低侧降饱和。
 
-#### `y2yClipType` 档位详解（YCbCr 处理域步骤 5️⃣ 的 YUV 数据钳位，`_gamut_clip_chroma`）
+#### `y2yClipType` 档位详解（YCbCr 域统一色域处理策略，步骤 3️⃣/5️⃣）
 
-作用节点：YCbCr 处理域重建后的 $(Y,Cb,Cr)$（NormBySec/OFF 下可能越界）。记 $r=\sqrt{Cb^2+Cr^2}$、$\theta=\mathrm{atan2}(Cr,Cb)$，$k_i=a_i\cos\theta+b_i\sin\theta$（$a_i,b_i$ 为 $\mathbf{Y2R}$ 矩阵的 $Cb/Cr$ 列系数），该 $(Y,\theta)$ 下 RGB 色域边界极径：
+合并了原 `y2yClipType`、modeH 的 Comp* 与 modeB 的 Keep*。记 $r=\sqrt{Cb^2+Cr^2}$、$\theta=\mathrm{atan2}(Cr,Cb)$，$k_i=a_i\cos\theta+b_i\sin\theta$（$a_i,b_i$ 为 $\mathbf{Y2R}$ 矩阵的 $Cb/Cr$ 列系数），该 $(Y,\theta)$ 下 RGB 色域边界极径：
 $$r_{\max}(Y,\theta)=\min\!\Big(\min_{k_i>0}\tfrac{1-Y}{k_i},\ \min_{k_i<0}\tfrac{-Y}{k_i}\Big)$$
 
 - **HardClip**（YUV 范围硬钳）：$Y'=\mathrm{clip}(Y,0,1)$，$Cb'=\mathrm{clip}(Cb,-0.5,0.5)$，$Cr'=\mathrm{clip}(Cr,-0.5,0.5)$——逐分量独立硬钳，不保色相。
-- **ClipChroma**（恒定色相色度压缩）：保持 $Y$ 与极角 $\theta$ 不变，把色度极径缩到色域边界（$r>r_{\max}$ 时）：
+- **ClipChroma**（恒定色相色度压缩，= 原 `ModeAddCompS`）：保持 $Y$ 与极角 $\theta$ 不变，把色度极径缩到色域边界（$r>r_{\max}$ 时，`_gamut_clip_chroma`）：
   $$r'=\min(r,\,r_{\max}),\qquad (Cb',Cr')=\frac{r'}{r}\,(Cb,Cr)$$
-  极角不变 ⇒ 色相保持（YCbCr 极角 / hue_sync 意义），代价是越界像素降饱和。
-- **ClipChromaSoft**（软拐角版）：保留 $[0,\ r_{\mathrm{soft}}]$ 不变，其后 $C^1$ 连续平滑收敛到 $r_{\max}$（$knee=0.8$，避免整图在色域边界出现硬切色带）：
-  $$r_{\mathrm{soft}}=0.8\,r_{\max},\qquad t=\frac{\max(r-r_{\mathrm{soft}},0)}{r_{\max}-r_{\mathrm{soft}}},\qquad r'=r_{\mathrm{soft}}+(r_{\max}-r_{\mathrm{soft}})\,\frac{t}{1+t}$$
+  极角不变 ⇒ 色相保持，代价是越界像素降饱和。
+- **ScaleChromaPix**（原 `NormByPix`）：$S$ 按像素边界归一化 $s=\dfrac{r}{r_{\max}(Y,\theta)}$（`_gamut_s_norm`）。$s\in[0,1]$ 保证落在 RGB 色域内 ⇒ **Y/S/H 三参数解耦**，任意调整不越界、色相不变；重建 $r'=s'\cdot r_{\max}(Y',\theta')$ 天然域内，硬钳恒等。
+- **ScaleChromaSec**（原 `NormBySec`）：$S$ 按全局最大归一化 $s=\dfrac{r}{\text{\_CHROMA\_MAX}}$（$\text{\_CHROMA\_MAX}=\max_{6\text{ 纯色}}\lVert(Cb,Cr)\rVert$，`_bt_chroma_max`；BT.709=0.5957，在 G/M 方向）。绝对比例，**不保证域内**；重建 $r'=s'\cdot\text{\_CHROMA\_MAX}$ 可能越界，越界像素按 `HardClip` 兜底。
+- **CompLumaOnly**（原 `ModeAddCompY`，保 S 调 Y）：见「YCbCr 处理域」§3 亮度补偿。
+- **CompLumaFirst**（原 `ModeAddCompYS`，Y 优先、S 兜底）：见「YCbCr 处理域」§3 亮度补偿。
 
-#### `normYuvChroma` 档位详解（YCbCr 域 S 归一化，步骤 3️⃣/5️⃣）
-
-$S$ 的归一化方式（仅 YCbCr 域 **且 y2yClipType=HardClip** 时可选，`_gamut_s_norm`）：
-
-- **OFF**：$s=r=\sqrt{Cb^2+Cr^2}$（绝对极径，不归一化）。$s$ 即实际色度大小，$S$ 调整直接作用于极径，重建 $r'=s'$ 可能越界，需 `y2yClipType` 兜底。
-- **NormByPix**：$s=\dfrac{r}{r_{\max}(Y,\theta)}$（$r_{\max}$ 同上式）。$s\in[0,1]$ 保证落在 RGB 色域内 ⇒ **Y/S/H 三参数解耦**，任意调整不越界、色相不变；重建 $r'=s'\cdot r_{\max}(Y',\theta')$ 天然域内，短路 y2y 钳位。
-- **NormBySec**：$s=\dfrac{r}{\text{\_CHROMA\_MAX}}$，其中 $\text{\_CHROMA\_MAX}=\max_{6\text{ 纯色}}\lVert(Cb,Cr)\rVert$（`_bt_chroma_max`；BT.709=0.5957，在 G/M 方向）。绝对比例，**不保证域内**；此为**NormByPix**实现的优化版本。
-
-> 三者的详细重建/钳位推导与 NormByPix 的色域边界极径 $r_{\max}$ 计算见「YCbCr 处理域」§1/§3。
+> 已删除：`ClipChromaSoft`（软拐角档）、`ModeAddKeepHS`（可行时与 `CompLumaOnly` 等价）、`ModeAddKeepH`（双机制 + RGB 往返，实现最复杂）。
 
 ### 步骤 4️⃣ BCSH 调整公式（ModeB/C/S/H）
 
@@ -382,7 +375,6 @@ $\delta B\in[-1,1]$ 中性 0；ModeMul $g_v\in[0,4]$ 中性 1。在 modeC 输出
 | ModeAdd（默认） | $x'=\mathrm{clip}(x+\delta B)$ | 所有域 |
 | ModeMul | $x'=\mathrm{clip}(x\,g_v)$ | 所有域 |
 | NegMulPosRat | $\delta B<0$：$x'=\mathrm{clip}(x(1+\delta B))$；$\delta B>0$：$x'=\mathrm{clip}(x+\delta B(1-x))$ | 所有域 |
-| ModeAddKeepHS / ModeAddKeepH | $\delta B$ 先按 ModeAdd 加性生效，随后步骤 5b 亮度超界处理 | 仅 YCbCr 域（见 YCbCr §3） |
 
 #### S（Saturation，modeS）
 
@@ -416,7 +408,6 @@ S Tolerance 门控（所有 S 模式）：$s<\mathrm{tolerance\_s}$（默认 0.0
 | ---- | ---- | ---- |
 | ModeAdd（默认） | 圆柱色域：$h'=(h+\mathrm{angle})\bmod 360$（S/V 不变）；RGB 域：经 HSV 中转六边形加法（$RGB\to HSV\to h'=(h+\mathrm{angle})\bmod 360\to RGB$，S/V 不变）；YCbCr 域：直接旋转极角 $\theta'=(\theta+\mathrm{angle})\bmod 360$ | 所有域 |
 | RotateOnGray | 绕灰色轴 $(1,1,1)/\sqrt3$ Rodrigues 旋转（严格正交，灰阶不变，往返无累积误差） | 仅 RGB 域 |
-| ModeAddKeepS / ModeAddKeepYH | 旋转后色域补偿（保 S 调 Y / 保 Y 调 S） | 仅 YCbCr 域（见 YCbCr §3 5a） |
 
 ### RGB 系处理域（简述）
 
@@ -432,13 +423,13 @@ S Tolerance 门控（所有 S 模式）：$s<\mathrm{tolerance\_s}$（默认 0.0
 
 $$\text{radius} = \sqrt{Cb^2+Cr^2},\qquad \theta = \text{atan2}(Cr, Cb)\ \text{（度，[0,360)）}$$
 
-S 按 `normYuvChroma` 归一化：
+S 按 `y2yClipType` 的 S 语义归一化（`ScaleChromaPix`/`ScaleChromaSec` 之外为绝对极径）：
 
-- **OFF**：$s = \text{radius}$（绝对极径，不归一化）。
-- **NormByPix**：$s = \dfrac{\text{radius}}{r_{\max}(Y,\theta)}$，其中该 $(Y,\theta)$ 下的 RGB 色域边界极径为
+- **默认（HardClip/ClipChroma/CompLumaOnly/CompLumaFirst）**：$s = \text{radius}$（绝对极径，不归一化）。
+- **ScaleChromaPix**：$s = \dfrac{\text{radius}}{r_{\max}(Y,\theta)}$，其中该 $(Y,\theta)$ 下的 RGB 色域边界极径为
   $$r_{\max}(Y,\theta)=\min\!\Big(\min_{k_i>0}\tfrac{1-Y}{k_i},\ \min_{k_i<0}\tfrac{-Y}{k_i}\Big),\qquad k_i=a_i\cos\theta+b_i\sin\theta$$
   $s\in[0,1]$ 保证落在色域内 ⇒ **Y/S/H 三参数解耦**，任意调整不越界、色相不变（`_gamut_r_max`/`_gamut_s_norm`）。
-- **NormBySec**：$s = \text{radius}/\text{\_CHROMA\_MAX}$，其中 $\text{\_CHROMA\_MAX}=\max_{6\text{ 纯色}}\lVert(Cb,Cr)\rVert$（`_bt_chroma_max`；BT.709=0.5957，在 G/M 方向）。绝对比例，**不保证域内**。
+- **ScaleChromaSec**：$s = \text{radius}/\text{\_CHROMA\_MAX}$，其中 $\text{\_CHROMA\_MAX}=\max_{6\text{ 纯色}}\lVert(Cb,Cr)\rVert$（`_bt_chroma_max`；BT.709=0.5957，在 G/M 方向）。绝对比例，**不保证域内**。
 
 #### 2. BCSH 调整（步骤 4️⃣）
 
@@ -449,31 +440,24 @@ S 按 `normYuvChroma` 归一化：
 
 #### 3. 重建与钳位（步骤 5️⃣）
 
-$$\text{radius}_a = \begin{cases} s_a\cdot r_{\max}(Y_a,\theta_a) & \text{NormByPix}\\ s_a\cdot\text{\_CHROMA\_MAX} & \text{NormBySec}\\ s_a & \text{OFF}\end{cases},\qquad (Cb_a,Cr_a)=\text{radius}_a(\cos\theta_a,\ \sin\theta_a)$$
+$$\text{radius}_a = \begin{cases} s_a\cdot r_{\max}(Y_a,\theta_a) & \text{ScaleChromaPix}\\ s_a\cdot\text{\_CHROMA\_MAX} & \text{ScaleChromaSec}\\ s_a & \text{其余}\end{cases},\qquad (Cb_a,Cr_a)=\text{radius}_a(\cos\theta_a,\ \sin\theta_a)$$
 
-- **NormByPix**：重建天然在域内 ⇒ `yuv_5_disp = yuv_5_raw` 短路（调整结果与输入按 w 的凸组合仍落在 RGB 色域内——RGB 色域为凸集，无需钳位）；5a/5b 补偿在域内自动恒等。
-- **NormBySec/OFF**：重建可能越界 ⇒ 由 `y2yClipType` 兜底（`HardClip` YUV 范围硬钳 / `ClipChroma` 色度压缩保色相 / `ClipChromaSoft` 软拐角）。
+随后按 `y2yClipType` 统一策略处理（步骤 5️⃣，`_apply_y2y_strategy`）：
 
-**5a. H 旋转后补偿（modeH，仅 YCbCr 域）**：
+- **ScaleChromaPix**：重建天然在域内 ⇒ 硬钳恒等（调整结果与输入按 w 的凸组合仍落在 RGB 色域内——RGB 色域为凸集）。
+- **ScaleChromaSec**：重建可能越界 ⇒ 越界像素按 `HardClip` 兜底。
+- **ClipChroma**：保 Y、沿色相把极径缩到 $r_{\max}(Y,\theta)$（`_gamut_clip_chroma`）。
+- **CompLumaOnly / CompLumaFirst**：见下方「亮度补偿」。
 
-- `ModeAddKeepS`（保 S 调 Y）：色度不变，按 Y2R 通道钳位量补 $\Delta Y$ = 缺量 − 超量（只补回实际被钳掉的部分，不直接顶到可行区间边界）：
+**亮度补偿（y2yClipType=CompLumaOnly / CompLumaFirst）**：
+
+- `CompLumaOnly`（保 S 调 Y，原 `ModeAddCompY`）：色度不变，按 Y2R 通道钳位量补 $\Delta Y$ = 缺量 − 超量（只补回实际被钳掉的部分，不直接顶到可行区间边界）：
   $$\Delta Y=\max(0,-\min_i RGB_i)-\max(0,\max_i RGB_i-1),\qquad Y'=\mathrm{clip}(Y_a+\Delta Y,0,1)$$
-- `ModeAddKeepYH`（保 Y 调 S）：Y 不变，把色度极径缩到该 $(Y,\theta)$ 下的色域边界（`_gamut_clip_chroma`），保极角/色相、向灰压缩。
+- `CompLumaFirst`（Y 优先、S 兜底，原 `ModeAddCompYS`）：先只调 Y——把 $Y$ 钳到该 $(\theta,r)$ 下的可行区间 $[Y_{lo},Y_{hi}]$（$Y_{lo}=\max_i(-k_i)$，$Y_{hi}=\min_i(1-k_i)$，可行时与 `CompLumaOnly` 一致）；若 $r>r^*=\frac{1}{A+B}$（$A=\max_i(-k_i)$，$B=\max_i k_i$，可行区间为空、Y 单独调不够），再调 S：
+  $$(Cb',Cr')\leftarrow(Cb,Cr)\cdot\frac{r^*}{r},\qquad Y'=Y^*=\frac{A}{A+B}$$
+  此时 $\max_i RGB_i=1$、$\min_i RGB_i=0$——落在色域边界（$V=1$、$S_{hex}=1$ 全饱和），色相严格保持、无残留越界；取舍：Y 优先、S 只缩到恰好够（最小损失），但 $r>r^*$ 时结果必然全饱和。
 
-**5b. 亮度超界处理（modeB，仅 YCbCr 域）**：
-
-拉大 δB 抬高亮度后，一旦某通道顶到色域边界（$\max_i RGB_i>1$，如蓝色像素 B 顶满 255），继续增大 δB 的多余亮度只能分给其他通道（等于加白），色相会偏移。`ModeAddKeepHS` 与 `ModeAddKeepH` 在该场景自动保持色相：
-
-- **`ModeAddKeepHS`（Y 双向封顶，保饱和保色相）**：把 Y 钳到该色度下的色域可行区间，色度 $(Cb_a, Cr_a)$ 不变：
-  $$Y_{lo}=\max_i(-k_i),\qquad Y_{hi}=\min_i(1-k_i),\qquad Y'=\mathrm{clip}(Y_a,\ Y_{lo},\ Y_{hi})$$
-  $Y_a\in[Y_{lo},Y_{hi}]$ 时不处理；高侧 $Y_a>Y_{hi}$ 时封顶（如蓝色 B=255 处，不再变亮），低侧 $Y_a<Y_{lo}$ 时封底（如蓝色 G 触 0 处，不再变暗）。色度不变 ⇒ YCbCr 极角不变、RGB 通道差值不变 ⇒ **色相恒定**，结果停留在色域边界（最饱和），代价是越过边界后继续拉大/拉小 δB 亮度不再变化。
-
-- **`ModeAddKeepH`（等比缩回，双向保色相）**：
-  - 高侧（$\max_i RGB_i>1$，即 $Y_a>Y_{hi}$）：负值先钳 0，再按 $\max_i RGB_i$ 等比缩放使最大通道回到 1（等价 ConstHue），随后转回 YUV：
-    $$RGB'_i=t\cdot\max(RGB_i,0),\qquad t=\min\!\Big(1,\tfrac{1}{\max_i RGB_i}\Big),\qquad (Y',Cb',Cr')=R2Y\cdot RGB'$$
-    通道比例不变 ⇒ **色相恒定**；δB 越大 $t$ 越小、颜色向白去饱和，代价是亮度继续上升但饱和度下降。
-  - 低侧（$\min_i RGB_i<0$，即 $Y_a<Y_{lo}$）：保持 $Y_a$，把色度按 $s=\min\!\big(1,\tfrac{Y_a}{Y_{lo}},\tfrac{1-Y_a}{1-Y_{hi}}\big)$ 向 0 缩放使最小通道回到 0，色相恒定、向黑去饱和：
-    $$(Y',Cb',Cr')=(Y_a,\ s\cdot Cb_a,\ s\cdot Cr_a)$$
+> 原 modeB 的 `ModeAddKeepHS`/`ModeAddKeepH`（5b 亮度超界处理）已删除：`ModeAddKeepHS` 可行时与 `CompLumaOnly` 等价、不可行时比 `CompLumaFirst` 粗糙；`ModeAddKeepH` 需双向矩阵 + RGB 往返、双机制，实现最复杂。亮度越界统一由 `y2yClipType` 策略处理。
 
 #### 4. 预览与输出
 

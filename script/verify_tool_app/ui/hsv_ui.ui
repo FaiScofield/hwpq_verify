@@ -146,36 +146,22 @@
        </item>
        <item>
         <property name="text">
-         <string>ClipChromaSoft</string>
-        </property>
-       </item>
-      </widget>
-     </item>
-     <item>
-      <widget class="QLabel" name="label_normYuv">
-       <property name="text">
-        <string>Norm Chroma</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QComboBox" name="comboBox_normYuvChroma">
-       <property name="enabled">
-        <bool>true</bool>
-       </property>
-       <item>
-        <property name="text">
-         <string>OFF</string>
+         <string>ScaleChromaPix</string>
         </property>
        </item>
        <item>
         <property name="text">
-         <string>NormByPix</string>
+         <string>ScaleChromaSec</string>
         </property>
        </item>
        <item>
         <property name="text">
-         <string>NormBySec</string>
+         <string>CompLumaOnly</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>CompLumaFirst</string>
         </property>
        </item>
       </widget>
@@ -645,16 +631,6 @@
             <string>NegMulPosRat</string>
            </property>
           </item>
-          <item>
-           <property name="text">
-            <string>ModeAddKeepHS</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
-            <string>ModeAddKeepH</string>
-           </property>
-          </item>
          </widget>
         </item>
         <item row="0" column="0">
@@ -726,16 +702,6 @@
           <item>
            <property name="text">
             <string>RotateOnGray</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
-            <string>ModeAddKeepS</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
-            <string>ModeAddKeepYH</string>
            </property>
           </item>
          </widget>
@@ -985,7 +951,6 @@
   <tabstop>comboBox_adjustField</tabstop>
   <tabstop>comboBox_y2rClipType</tabstop>
   <tabstop>comboBox_y2yClipType</tabstop>
-  <tabstop>comboBox_normYuvChroma</tabstop>
   <tabstop>spinBox_toleranceS</tabstop>
   <tabstop>comboBox_modeC</tabstop>
   <tabstop>slider_gainC</tabstop>
