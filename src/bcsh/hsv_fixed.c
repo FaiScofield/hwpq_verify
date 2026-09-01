@@ -180,7 +180,58 @@ void rgb2hsv_v3_optimal(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint1
     }
     *h14 = h;
 }
+/* 除以 6 的移位多项式（立即数除法优化，替代 /6），全程 int32：
+   round(n/6) = floor((n+3)/6)，n∈[0,114688]。
+   两步精确降规模（单乘定点在 int32 内不可行：k≥17 时 coef≥21845 使 n·coef 溢出）：
+   1) floor(u/6) = floor((u>>1)/3)：u=2v 或 2v+1 时 floor(v/3 + r/6)=floor(v/3)
+      （v/3 余数 f∈{0,1/3,2/3}，f+r/6 ≤ 5/6 < 1）→ v=(n+3)>>1 ≤ 57345；
+   2) floor(v/3) 拆分 v=256·hi+lo（256=3·85+1）：= 85·hi + floor((hi+lo)/3)，
+      仅对 w=hi+lo ≤ 479 做定点乘：43691=round(2^17/3) 偏大 2.5e-6，w·2.5e-6≤0.0012，
+      任意 f 下 floor(w·43691>>17)=floor(w/3) 精确（w·43691 ≤ 2.1e7，int32 安全）。
+   与 int64 版等价（round(n/6) 逐 n 精确），但省 64 位中间量。 */
+static inline int32_t adj_div6(int32_t n)
+{
+    int32_t v = (n + 3) >> 1; /* (n+3)/2 ≤ 57345 */
+    int32_t hi = v >> 8;      /* v/256 ≤ 224 */
+    int32_t lo = v & 255;
+    return hi * 85 + ((hi + lo) * 43691 >> 17);
+}
 
+/* v4：只用 rcp 表（S 表），省掉 rcp6 表；H 的 /6 用移位多项式（立即数除法）。
+   与 v3 的区别：
+   - A = round(diff*2^14/C) 用 rcp[C]（RCP_BITS=21）一级乘法（右移 RCP_BITS-14=7 位
+     Q21=>Q14），不再用 rcp6[C]（RCP6_BITS=24）直接得 Q14 的 diff/(6C)；
+   - H = round((A + base*F)/6) 的 /6 用 adj_div6 移位多项式（左移/右移+加法，无除法、
+     无第二张倒数表）。
+   代价：rcp[C] 为 21bit 量化（vs rcp6 24bit）+ adj_div6 定点舍入（≤0.05 LSB），H 精度略低于 v3。 */
+void rgb2hsv_v4_optimal(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10)
+{
+    const uint32_t *rcp = rcp_tbl_u21_fixed();   /* S 表：S=C/V，V(M) 索引，RCP_BITS bit */
+    int32_t M = MAX3(r, g, b);                   /* U10: [0, 1023] */
+    int32_t m = MIN3(r, g, b);                   /* U10: [0, 1023] */
+    int32_t C = M - m;                           /* U10: [0, 1023], chroma */
+    *v10 = M;
+    *s11 = (C > 0) ? rcp_mul_rsh(C, rcp[M], RCP_BITS - FIX_BITS_S) : 0; // S 表 RCP_BITS(U21)=>U11
+    int32_t h = 0;
+    if (C > 0) {
+        /* A = round(diff*2^14/C)，Q14（rcp 表 RCP_BITS=21 => Q14，右移 7 位） */
+        int32_t aR = rcp_mul_rsh(g - b, rcp[C], RCP_BITS - FIX_BITS_H);
+        int32_t aG = rcp_mul_rsh(b - r, rcp[C], RCP_BITS - FIX_BITS_H);
+        int32_t aB = rcp_mul_rsh(r - g, rcp[C], RCP_BITS - FIX_BITS_H);
+        /* base*F 常量（F=2^14）：base=6→98304、2→32768、4→65536；adj_div6 内部已四舍五入 */
+        int32_t hR = adj_div6(aR + (6 << FIX_BITS_H)) & (FIX_H_ONE - 1);
+        int32_t hG = adj_div6(aG + (2 << FIX_BITS_H));
+        int32_t hB = adj_div6(aB + (4 << FIX_BITS_H));
+        uint32_t mR = (uint32_t)(M == r);
+        uint32_t mG = (uint32_t)(M == g) & ~mR;
+        uint32_t mB = (uint32_t)(M == b) & ~(mR | mG);
+        int32_t selR = (int32_t)(0u - mR);
+        int32_t selG = (int32_t)(0u - mG);
+        int32_t selB = (int32_t)(0u - mB);
+        h = (hR & selR) | (hG & selG) | (hB & selB);
+    }
+    *h14 = h;
+}
 /* ---------------- HSV -> RGB(maxv)（Q14/Q11 参考族） ---------------- */
 /* v0：经典 C/X/m 模型，switch 分支 + 除法；
    改进：C11=V*S 提前量化到 2^FIX_BITS_S 对齐（低 11bit 清零），末步舍入因此

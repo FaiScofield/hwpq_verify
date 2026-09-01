@@ -86,15 +86,18 @@ int main(int argc, char **argv)
 
     /* ---------------- Q14/Q11 文档参考族：精度 + 性能 ---------------- */
     if (1) {
-        static const rgb2hsv_fn rfn[4] = {rgb2hsv_v0_classic, rgb2hsv_v1_no_branch, rgb2hsv_v2_no_division, rgb2hsv_v3_optimal};
-        static const hsv2rgb_fn hfn[4] = {hsv2rgb_v0_classic, hsv2rgb_v1_no_branch, hsv2rgb_v2_no_division, hsv2rgb_v3_optimal};
-        static const char *nm[4] = {"v0_classic", "v1_no_branch", "v2_no_division", "v3_optimal"};
+        static const rgb2hsv_fn rfn[] = {
+            /* rgb2hsv_v0_classic, rgb2hsv_v1_no_branch, rgb2hsv_v2_no_division, rgb2hsv_v3_optimal, */ rgb2hsv_v4_optimal};
+        static const hsv2rgb_fn hfn[] = {
+            /* hsv2rgb_v0_classic, hsv2rgb_v1_no_branch, hsv2rgb_v2_no_division, hsv2rgb_v3_optimal, */ hsv2rgb_v4_hexwalk};
+        static const char *nm[] = {/* "v0_classic", "v1_no_branch", "v2_no_division", "v3_optimal",  */"v4_optimal"};
+        const int nscen = sizeof(rfn) / sizeof(rfn[0]);
 
         printf("\n== Q%d/Q%d 文档参考族（v0/v1/v2/v3）精度与性能 ==\n", FIX_BITS_H, FIX_BITS_S);
 
         /* [a] rgb2hsv 精度：对比 float 参考（H 量化 Q14、S 量化 Q11），u8 全遍历 + u10 抽样 */
         printf("\n[a] rgb2hsv 精度（max|Δ| vs float 参考，Q%d/Q%d LSB, step_u10=%d）：\n", FIX_BITS_H, FIX_BITS_S, step1);
-        for (int fi = 0; fi < 4; fi++) {
+        for (int fi = 0; fi < nscen; fi++) {
             int mH8 = 0, mS8 = 0, mH10 = 0, mS10 = 0;
             for (int r = 0; r <= 255; r++) {
                 for (int g = 0; g <= 255; g++) {
@@ -143,7 +146,7 @@ int main(int argc, char **argv)
 
         /* [b] hsv2rgb 精度：对比 float 参考，u8 全遍历 + u10 抽样/全遍历 */
         printf("\n[b] hsv2rgb 精度（max|Δ| vs float 参考，u8/u10 LSB）：\n");
-        for (int fi = 0; fi < 4; fi++) {
+        for (int fi = 0; fi < nscen; fi++) {
             int mE8 = 0, mE10 = 0;
             for (int H = 0; H < FIX_H_ONE; H += FIX_H_ONE / 128) {
                 for (int S = 0; S <= FIX_S_ONE; S += FIX_S_ONE / 64) {
@@ -190,7 +193,7 @@ int main(int argc, char **argv)
 
         /* [c] 往返精度：rgb2hsv_vx -> hsv2rgb_vx，u8 全遍历 + u10 抽样/全遍历 */
         printf("\n[c] 往返精度（同版本配对，u8 全遍历 + u10 %s）：\n", step2 > 1 ? "抽样" : "全遍历");
-        for (int fi = 0; fi < 4; fi++) {
+        for (int fi = 0; fi < nscen; fi++) {
             int mE8 = 0, mE10 = 0;
             for (int r = 0; r <= 255; r++) {
                 for (int g = 0; g <= 255; g++) {
@@ -242,9 +245,9 @@ int main(int argc, char **argv)
                 pz[i] = (int32_t)((sd >> 8) & 255u);
                 qx[i] = (int32_t)((sd >> 16) & (uint32_t)(FIX_H_ONE - 1)); /* H Q(FIX_BITS_H) */
                 qy[i] = (int32_t)((sd >> 8) & (uint32_t)(FIX_S_ONE - 1));  /* S Q(FIX_BITS_S) */
-                qz[i] = (int32_t)(sd & 255u);                          /* V */
+                qz[i] = (int32_t)(sd & 255u);                              /* V */
             }
-            for (int fi = 0; fi < 4; fi++) {
+            for (int fi = 0; fi < nscen; fi++) {
                 uint16_t h, s, v;
                 int32_t acc = 0;
                 double t0 = now_s();
@@ -255,7 +258,7 @@ int main(int argc, char **argv)
                 double t1 = now_s();
                 printf("  rgb2hsv_%-20s %9.2f ns/px\n", nm[fi], (t1 - t0) * 1e9 / NPERF);
             }
-            for (int fi = 0; fi < 4; fi++) {
+            for (int fi = 0; fi < nscen; fi++) {
                 uint16_t R, G, B;
                 int32_t acc = 0;
                 double t0 = now_s();
@@ -271,7 +274,7 @@ int main(int argc, char **argv)
     }
 
     /* ---------------- v4_hexwalk：正确性专项 ---------------- */
-    if (1) {
+    if (0) {
         printf("\n== hsv2rgb_v4_hexwalk 正确性专项 ==\n");
 
         /* [e1] hsv2rgb 精度 vs float 参考（抽样同 [b]） */
@@ -350,7 +353,110 @@ int main(int argc, char **argv)
                             mE10 = e;
                     }
             printf("  [e2] v3->v4 往返: \t\tu8 max|Δ|=%2d LSB | u10%s max|Δ|=%2d LSB\n", mE8,
-                   step2 > 1 ? "抽样" : "全遍历", mE10);
+                step2 > 1 ? "抽样" : "全遍历", mE10);
+        }
+
+        /* [e5] rgb2hsv_v4 vs v3：H/S 精度对比（v4 仅用 rcp 表 + 移位多项式 /6；u8 全遍历 + u10 抽样） */
+        {
+            int mH8 = 0, mS8 = 0, mH10 = 0, mS10 = 0;
+            for (int r = 0; r <= 255; r++)
+                for (int g = 0; g <= 255; g++)
+                    for (int b = 0; b <= 255; b++) {
+                        uint16_t h3, s3, v3, h4, s4, v4;
+                        rgb2hsv_v3_optimal(r, g, b, &h3, &s3, &v3);
+                        rgb2hsv_v4_optimal(r, g, b, &h4, &s4, &v4);
+                        int dH = abs(h3 - h4);
+                        if (dH > FIX_H_ONE / 2)
+                            dH = FIX_H_ONE - dH; /* 圆环距离 */
+                        int dS = abs(s3 - s4);
+                        if (dH > mH8)
+                            mH8 = dH;
+                        if (dS > mS8)
+                            mS8 = dS;
+                    }
+            for (int r = 0; r <= 1023; r += step2)
+                for (int g = 0; g <= 1023; g += step2)
+                    for (int b = 0; b <= 1023; b += step2) {
+                        uint16_t h3, s3, v3, h4, s4, v4;
+                        rgb2hsv_v3_optimal(r, g, b, &h3, &s3, &v3);
+                        rgb2hsv_v4_optimal(r, g, b, &h4, &s4, &v4);
+                        int dH = abs(h3 - h4);
+                        if (dH > FIX_H_ONE / 2)
+                            dH = FIX_H_ONE - dH;
+                        int dS = abs(s3 - s4);
+                        if (dH > mH10)
+                            mH10 = dH;
+                        if (dS > mS10)
+                            mS10 = dS;
+                    }
+            printf("  [e5] rgb2hsv v4 vs v3: \tu8 H=%2d S=%2d | u10%s H=%2d S=%2d (Q14/Q11 LSB)\n", mH8, mS8,
+                step2 > 1 ? "抽样" : "全遍历", mH10, mS10);
+        }
+
+        /* [e6] 往返重建（hsv2rgb_v4_hexwalk）：v3 往返 vs v4 往返 vs 两者输出差（u8 全遍历 + u10 抽样） */
+        {
+            int m3 = 0, m4 = 0, m34 = 0, m3_10 = 0, m4_10 = 0, m34_10 = 0;
+            for (int r = 0; r <= 255; r++)
+                for (int g = 0; g <= 255; g++)
+                    for (int b = 0; b <= 255; b++) {
+                        uint16_t h3, s3, v3, h4, s4, v4, R3, G3, B3, R4, G4, B4;
+                        rgb2hsv_v3_optimal(r, g, b, &h3, &s3, &v3);
+                        hsv2rgb_v4_hexwalk(h3, s3, v3, 255, &R3, &G3, &B3);
+                        rgb2hsv_v4_optimal(r, g, b, &h4, &s4, &v4);
+                        hsv2rgb_v4_hexwalk(h4, s4, v4, 255, &R4, &G4, &B4);
+                        int e3 = abs(R3 - r), e4 = abs(R4 - r);
+                        if (abs(G3 - g) > e3)
+                            e3 = abs(G3 - g);
+                        if (abs(B3 - b) > e3)
+                            e3 = abs(B3 - b);
+                        if (abs(G4 - g) > e4)
+                            e4 = abs(G4 - g);
+                        if (abs(B4 - b) > e4)
+                            e4 = abs(B4 - b);
+                        int d34 = abs(R3 - R4);
+                        if (abs(G3 - G4) > d34)
+                            d34 = abs(G3 - G4);
+                        if (abs(B3 - B4) > d34)
+                            d34 = abs(B3 - B4);
+                        if (e3 > m3)
+                            m3 = e3;
+                        if (e4 > m4)
+                            m4 = e4;
+                        if (d34 > m34)
+                            m34 = d34;
+                    }
+            for (int r = 0; r <= 1023; r += step2)
+                for (int g = 0; g <= 1023; g += step2)
+                    for (int b = 0; b <= 1023; b += step2) {
+                        uint16_t h3, s3, v3, h4, s4, v4, R3, G3, B3, R4, G4, B4;
+                        rgb2hsv_v3_optimal(r, g, b, &h3, &s3, &v3);
+                        hsv2rgb_v4_hexwalk(h3, s3, v3, 1023, &R3, &G3, &B3);
+                        rgb2hsv_v4_optimal(r, g, b, &h4, &s4, &v4);
+                        hsv2rgb_v4_hexwalk(h4, s4, v4, 1023, &R4, &G4, &B4);
+                        int e3 = abs(R3 - r), e4 = abs(R4 - r);
+                        if (abs(G3 - g) > e3)
+                            e3 = abs(G3 - g);
+                        if (abs(B3 - b) > e3)
+                            e3 = abs(B3 - b);
+                        if (abs(G4 - g) > e4)
+                            e4 = abs(G4 - g);
+                        if (abs(B4 - b) > e4)
+                            e4 = abs(B4 - b);
+                        int d34 = abs(R3 - R4);
+                        if (abs(G3 - G4) > d34)
+                            d34 = abs(G3 - G4);
+                        if (abs(B3 - B4) > d34)
+                            d34 = abs(B3 - B4);
+                        if (e3 > m3_10)
+                            m3_10 = e3;
+                        if (e4 > m4_10)
+                            m4_10 = e4;
+                        if (d34 > m34_10)
+                            m34_10 = d34;
+                    }
+            printf(
+                "  [e6] 往返重建(v4_hexwalk): \tu8 v3=%2d v4=%2d v3-vs-v4=%2d | u10%s v3=%2d v4=%2d v3-vs-v4=%2d LSB\n",
+                m3, m4, m34, step2 > 1 ? "抽样" : "全遍历", m3_10, m4_10, m34_10);
         }
 
         /* [e3] 与 hsv2rgb_v3 输出一致性（同输入 max diff） */
@@ -396,7 +502,7 @@ int main(int argc, char **argv)
                 sd = sd * 1664525u + 1013904223u;
                 qx[i] = (int32_t)((sd >> 16) & (uint32_t)(FIX_H_ONE - 1)); /* H Q(FIX_BITS_H) */
                 qy[i] = (int32_t)((sd >> 8) & (uint32_t)(FIX_S_ONE - 1));  /* S Q(FIX_BITS_S) */
-                qz[i] = (int32_t)(sd & 255u);                          /* V */
+                qz[i] = (int32_t)(sd & 255u);                              /* V */
             }
             uint16_t R, G, B;
             int32_t acc = 0;
