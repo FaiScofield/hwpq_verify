@@ -143,10 +143,11 @@ Rockchip Electronics Co., Ltd.
 - **Brightness（B）**：亮度调整，整体加亮/加暗，由 `ModeB` 决定生效方式：
   - `ModeAdd`（默认）：加性偏移，取值范围 `[-1.0, 1.0]`，默认 `0.0`
   - `ModeMul`：乘性缩放，取值范围 `[0.0, 4.0]`，默认 `1.0`
-  - `NegMulPosRat`：负值乘性压缩、正值向纯白靠拢，取值范围 `[-1.0, 1.0]`，默认 `0.0`
+  - `Rate2Limit`：取值 `[0.0, 2.0]`、默认 `1.0`；小于 `1.0` 向纯黑靠拢、大于 `1.0` 向纯白靠拢
 - **Saturation（S）**：饱和度，由 `ModeS` 决定生效方式：
   - `ModeAdd`：加性，取值范围 `[-1.0, 1.0]`，默认 `0.0`
   - `ModeMul`（默认）：乘性，取值范围 `[0.0, 4.0]`，默认 `1.0`——尺度统一，**推荐**
+  - `Rate2Limit`：取值 `[0.0, 2.0]`、默认 `1.0`；小于 `1.0` 向灰度靠拢、大于 `1.0` 向全饱和靠拢
   - RGB 处理域专用（灰阶混合，RGB 域 S 恒为灰阶混合）：
     - `MixGray_BT709`: 以 BT.709 系数计算灰度
     - `MixGray_BT601`: 以 BT.601 系数计算灰度 （**FastStone Image Viewer** 软件做法）
@@ -207,8 +208,8 @@ Rockchip Electronics Co., Ltd.
 
 | 模拟对象 \ 调色参数选择 | `Adjust Field` | `Contrast` | `Brightness` | `Saturation` | `Hue` |
 | ------ | ----- | ---- | ---- | ---- | ---- |
-| GIMP软件 **色相-饱和度** 工具 | `HSL` | - | `NegMulPosRat` | `ModeMul` | `ModeAdd` |
-| GIMP软件 **亮度-对比度** 工具 | `RGB` | `TanSlant` | `NegMulPosRat` | - | - |
+| GIMP软件 **色相-饱和度** 工具 | `HSL` | - | `Rate2Limit` | `ModeMul` | `ModeAdd` |
+| GIMP软件 **亮度-对比度** 工具 | `RGB` | `TanSlant` | `Rate2Limit` | - | - |
 | GIMP软件 **饱和度** 工具 | `RGB` | - | - | - | `MixGray_BT601` |
 | FastStone软件 **调整色彩** 工具 | `RGB` | `FastStone` | `ModeAdd` | `MixGray_BT601` | `ModeAdd` |
 | dlib 图像处理算法库 | `HSI/HSL` | - | `ModeMul` | `ModeAdd` | `ModeAdd` |
@@ -249,25 +250,25 @@ Rockchip Electronics Co., Ltd.
 | ^ | ^ | `CompLumaFirst` | 保H、Y优先、S兜底：Y单独调不够时缩色度到r*并顶Y，色相严格保持、无残留越界，**推荐或可选实现**  |
 | RGB | `Brightness` | `ModeAdd` | 加性，可以调到纯黑/纯白，但通道饱和后色相开始偏移 |
 | ^ | ^ | `ModeMul` | 乘性，无法调到纯白，调大时色相会偏移，调小时不偏移 |
-| ^ | ^ | `NegMulPosRat` | 乘性，可以调到纯黑/纯白，**色相不偏移，推荐** |
+| ^ | ^ | `Rate2Limit` | 乘性，可以调到纯黑/纯白，**色相不偏移，推荐** |
 | ^ | `Saturation` | `MixGray` | **尺度统一，严格不发生色相偏移，推荐** |
 | ^ | `Hue` | `ModeAdd` | 转到HSV圆锥色相模型修改H，**色相不偏移，推荐** |
 | ^ | ^ | `RotateOnGray` | 绕灰轴旋转，会色相偏移 |
 | HSV | `Brightness` | `ModeAdd` | 可以调到纯黑，除黑色外无法变纯白，**推荐** |
 | ^ | ^ | `ModeMul` | 可以调到纯黑，无法调到纯白 |
-| ^ | ^ | `NegMulPosRat` | 可以调到纯黑，除黑色外无法变纯白 |
+| ^ | ^ | `Rate2Limit` | 可以调到纯黑，除黑色外无法变纯白 |
 | HSL | `Brightness` | `ModeAdd` | 可以调到纯黑或纯白；L接近黑/白时S会被病态放大（HSL 处理域的 S Tolerance 已按色度 $C=M-m$ 保护并对输出色度封顶） |
 | ^ | ^ | `ModeMul` | 可以调到纯黑，无法调到纯白 |
-| ^ | ^ | `NegMulPosRat` | 可以调到纯黑或纯白 |
+| ^ | ^ | `Rate2Limit` | 可以调到纯黑或纯白 |
 | HSI | `Brightness` | `ModeAdd` | 可以调到纯黑，无法调到纯白；I接近黑/白时会发生色相偏移 |
 | ^ | ^ | `ModeMul` | 可以调到纯黑，无法调到纯白；I接近白色时会发生色相偏移 |
-| ^ | ^ | `NegMulPosRat` | ^ |
+| ^ | ^ | `Rate2Limit` | ^ |
 | HCY | `Brightness` | `ModeAdd` | 可以调到纯黑和纯白；Y接近黑/白时会发生色相偏移，**推荐** |
 | ^ | ^ | `ModeMul` | 可以调到纯黑，无法调到纯白；Y接近白色时会发生色相偏移 |
-| ^ | ^ | `NegMulPosRat` | 可以调到纯黑和纯白 |
+| ^ | ^ | `Rate2Limit` | 可以调到纯黑和纯白 |
 | HSP | `Brightness` | `ModeAdd` | 可以调到纯黑，无法调到纯白；P接近黑/白时会发生色相偏移 |
 | ^ | ^ | `ModeMul` | ^ |
-| ^ | ^ | `NegMulPosRat` | ^ |
+| ^ | ^ | `Rate2Limit` | ^ |
 | HSV/HSL/HSI/HCY/HSP | `Saturation` | `ModeAdd` | 尺度不统一，容易偏色，容易出现色块 |
 | ^ | ^ | `ModeMul` | 尺度统一，但无法让所有颜色调满（也不建议调大倍率太大），**推荐** |
 | ^ | `Hue` | `ModeAdd` | 标准HSV圆锥色相调整模型，**推荐** |

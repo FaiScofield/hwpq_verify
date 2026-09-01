@@ -127,7 +127,7 @@ npm run preview    # 本地预览构建产物
 | ---- | ---- | ---- | ---- |
 | ModeAdd（默认） | x'=clip(x+dv) | [-1,1] | 0 |
 | ModeMul | x'=clip(x·gv) | [0,4] | 1 |
-| NegMulPosRat | dv<0：x·(1+dv)；dv>0：x+dv·(1-x) | [-1,1] | 0 |
+| Rate2Limit | dv<1：x·dv 向黑；dv>1：x+(dv-1)·(1-x) 向白 | [0,2] | 1 |
 
 > 算法库另支持 `mulKeepMin`（保底乘性：调小时 V 不低过旧最小通道 m、S 不变），UI 未开放。
 
@@ -139,15 +139,17 @@ npm run preview    # 本地预览构建产物
 | ---- | ---- | ---- | ---- |
 | ModeAdd | s'=clip(s+ds) | [-1,1] | 0 |
 | ModeMul（默认） | s'=clip(s·gs) | [0,4] | 1 |
+| Rate2Limit | ds<1：s·ds 向灰度；ds>1：s+(ds-1)·(1-s) 向全饱和 | [0,2] | 1 |
 
 RGB 域（灰阶混合，仅 `Adjust Field=RGB` 时可选）：
 
 | 模式 | 公式 | 量程 | 中性 |
 | ---- | ---- | ---- | ---- |
-| MixGray_BT709 | out=scale·in+(1-scale)·gray，gray=BT.709(0.2126/0.7152/0.0722) | [0,2] | 0 |
-| MixGray_BT601 | 同上，gray=BT.601(0.299/0.587/0.114) | [0,2] | 0 |
+| MixGray_BT709 | out=scale·in+(1-scale)·gray，gray=BT.709(0.2126/0.7152/0.0722) | [0,2] | 1 |
+| MixGray_BT601 | 同上，gray=BT.601(0.299/0.587/0.114) | [0,2] | 1 |
 
-> MixGray 量程/中性值取配置的独立 `mixgray` 条目（默认 [0,2] 中性 0），非复用 mul。
+> MixGray 量程/中性值取配置的独立 `mixgray` 条目（默认 [0,2] 中性 1），非复用 mul。
+> 实现原理等价于 `Rate2Limit` 选项
 
 > `S Tolerance`（0~0.1，默认 0.0025）：S 低于阈值的像素不增色（放大），减色（缩小）始终允许。
 
@@ -171,13 +173,14 @@ RGB 域（灰阶混合，仅 `Adjust Field=RGB` 时可选）：
 | ---- | ---- | --- | --- | ---- | ---- |
 | Brightness | add | -1.0 | 1.0 | 0.01 | 0.0 |
 | Brightness | mul | 0.0 | 2.0 | 0.02 | 1.0 |
-| Brightness | negmulposrat | -1.0 | 1.0 | 0.01 | 0.0 |
+| Brightness | rate2limit | 0.0 | 2.0 | 0.01 | 1.0 |
 | Contrast | gain | 0.0 | 2.0 | 0.01 | 1.0 |
 | Contrast | tanslant | -1.0 | 1.0 | 0.01 | 0.0 |
 | Contrast | faststone | -1.0 | 1.0 | 0.01 | 0.0 |
 | Saturation | add | -1.0 | 1.0 | 0.01 | 0.0 |
 | Saturation | mul | 0.0 | 4.0 | 0.01 | 1.0 |
-| Saturation | mixgray | 0.0 | 2.0 | 0.01 | 0.0 |
+| Saturation | rate2limit | 0.0 | 2.0 | 0.01 | 1.0 |
+| Saturation | mixgray | 0.0 | 2.0 | 0.01 | 1.0 |
 | Hue | same_offset | -180.0 | 180.0 | 1.0 | 0.0 |
 | Hue | same_target | 0.0 | 100.0 | 1.0 | 0.0 |
 

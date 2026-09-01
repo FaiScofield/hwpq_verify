@@ -15,17 +15,18 @@ PARAMS_FILE_NAME = "test_app_hsv_params.json"
 DEFAULT_PARAMS = {
     "Brightness": {
         "add": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
-        "mul": {"min": 0.0, "max": 2.0, "step": 0.02, "default": 1.0},
-        "negmulposrat": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
+        "mul": {"min": 0.0, "max": 4.0, "step": 0.02, "default": 1.0},
+        "rate2limit": {"min": 0.0, "max": 2.0, "step": 0.01, "default": 1.0},
     },
     "Contrast": {
-        "gain": {"min": 0.0, "max": 2.0, "step": 0.01, "default": 1.0},
+        "gain": {"min": 0.0, "max": 4.0, "step": 0.01, "default": 1.0},
         "tanslant": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
         "faststone": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
     },
     "Saturation": {
         "add": {"min": -1.0, "max": 1.0, "step": 0.01, "default": 0.0},
         "mul": {"min": 0.0, "max": 4.0, "step": 0.01, "default": 1.0},
+        "rate2limit": {"min": 0.0, "max": 2.0, "step": 0.01, "default": 1.0},
         "mixgray": {"min": 0.0, "max": 2.0, "step": 0.01, "default": 1.0},
     },
     "Hue": {

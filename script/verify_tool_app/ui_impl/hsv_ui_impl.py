@@ -356,7 +356,7 @@ class HsvUiController:
 
     def _set_mode_s_items_enabled(self, rgb_only: bool) -> None:
         """按处理域启用/禁用 comboBox_modeS 的选项：RGB 域只留 MixGray（灰阶混合），
-        圆柱色域只留 ModeAdd/ModeMul。"""
+        圆柱色域只留 ModeAdd/ModeMul/Rate2Limit。"""
         combo = self.ui.comboBox_modeS
         for i in range(combo.count()):
             combo.model().item(i).setEnabled(
@@ -385,8 +385,8 @@ class HsvUiController:
 
     def _s_entry_mode(self, code: str) -> str:
         """S 模式配置条目键：MixGray 系（mixgray / mixgray_bt709 / mixgray_bt601）
-        用独立 'mixgray' 量程/中性值；add/mul 用各自条目。"""
-        if code in ('add', 'mul'):
+        用独立 'mixgray' 量程/中性值；add/mul/rate2limit 用各自条目。"""
+        if code in ('add', 'mul', 'rate2limit'):
             return code
         if code in ('mixgray', 'mixgray_bt709', 'mixgray_bt601'):
             return 'mixgray'
@@ -429,10 +429,11 @@ class HsvUiController:
 
     def _s_mode_code(self) -> str:
         """Map comboBox_modeS text to S mode code
-        ('add'/'mul'/'mixgray_bt709'/'mixgray_bt601')."""
+        ('add'/'mul'/'rate2limit'/'mixgray_bt709'/'mixgray_bt601')."""
         text = self.ui.comboBox_modeS.currentText()
         return {'ModeAdd': 'add',
                 'ModeMul': 'mul',
+                'Rate2Limit': 'rate2limit',
                 'MixGray_BT709': 'mixgray_bt709',
                 'MixGray_BT601': 'mixgray_bt601'}.get(text, 'mul')
 
@@ -454,14 +455,14 @@ class HsvUiController:
 
     def _b_mode_code(self) -> str:
         """Map comboBox_modeB text to adjust_hsv mode_b code
-        ('add'/'mul'/'negmulposrat')."""
+        ('add'/'mul'/'rate2limit')."""
         text = self.ui.comboBox_modeB.currentText()
         return {'ModeAdd': 'add',
                 'ModeMul': 'mul',
-                'NegMulPosRat': 'negmulposrat'}.get(text, 'add')
+                'Rate2Limit': 'rate2limit'}.get(text, 'add')
 
     def _b_entry_mode(self, code: str) -> str:
-        """B 模式配置条目键：add/mul/negmulposrat 各自条目。"""
+        """B 模式配置条目键：add/mul/rate2limit 各自条目。"""
         return code
 
     def _apply_b_mode_ui(self, mode: str, keep_value: bool = False) -> None:
@@ -487,7 +488,7 @@ class HsvUiController:
 
     def _on_adjust_field_changed(self, *_args) -> None:
         """adjustField 切换：RGB 域只允许 MixGray_BT709/BT601（灰阶混合），
-        圆柱色域只允许 ModeAdd/ModeMul；modeC 的 FastStone 仅 RGB 域。"""
+        圆柱色域只允许 ModeAdd/ModeMul/Rate2Limit；modeC 的 FastStone 仅 RGB 域。"""
         del _args
         is_rgb = self._adjust_field() == "RGB"
         self._set_mode_s_items_enabled(is_rgb)
@@ -523,7 +524,7 @@ class HsvUiController:
         """B 通道模式切换：量程随模式变化；保留当前值（clip 到新量程），不重置默认。
 
         The deltaB spin/slider range changes with the mode (add: [-1, 1],
-        mul: [0, 4], negmulposrat: [-1, 1]); the current value is kept and
+        mul: [0, 4], rate2limit: [0, 2]); the current value is kept and
         clipped to the new range instead of resetting to the mode default.
         Initial state and redundant signals are no-ops.
         """
@@ -539,7 +540,7 @@ class HsvUiController:
         """S 通道模式切换（add/mul）：量程随模式变化；保留当前值（clip 到新量程）。
 
         Only the S channel is affected: the deltaS spin/slider range changes
-        with the mode (add: [-1, 1], mul: [0, 4]); the
+        with the mode (add: [-1, 1], mul: [0, 4], rate2limit: [0, 2]); the
         current value is kept and clipped to the new range.  The V/H/Contrast
         controls keep their values.  Initial state and redundant signals are
         no-ops.

@@ -378,13 +378,13 @@ $g_c\in[0,4]$ 中性 1；TanSlant/FastStone 参数 $c\in[-1,1]$ 中性 0。
 
 #### B（Brightness，modeB）
 
-$\delta B\in[-1,1]$ 中性 0；ModeMul $g_v\in[0,4]$ 中性 1。在 modeC 输出上施加。
+$\delta B\in[-1,1]$ 中性 0（ModeAdd）；ModeMul $g_v\in[0,4]$ 中性 1；Rate2Limit $\delta B\in[0,2]$ 中性 1。在 modeC 输出上施加。
 
 | 模式 | 公式 | 适用域 |
 | ---- | ---- | ---- |
 | ModeAdd（默认） | $x'=\mathrm{clip}(x+\delta B)$ | 所有域 |
 | ModeMul | $x'=\mathrm{clip}(x\,g_v)$ | 所有域 |
-| NegMulPosRat | $\delta B<0$：$x'=\mathrm{clip}(x(1+\delta B))$；$\delta B>0$：$x'=\mathrm{clip}(x+\delta B(1-x))$ | 所有域 |
+| Rate2Limit | $\delta B<1$：$x'=\mathrm{clip}(x\,\delta B)$；$\delta B>1$：$x'=\mathrm{clip}(x+(\delta B-1)(1-x))$ | 所有域 |
 
 #### S（Saturation，modeS）
 
@@ -394,13 +394,13 @@ $\delta B\in[-1,1]$ 中性 0；ModeMul $g_v\in[0,4]$ 中性 1。在 modeC 输出
 | ---- | ---- | ---- |
 | ModeAdd | $s'=\mathrm{clip}(s+\delta S)$ | $[-1,1]$ / 0 |
 | ModeMul（默认） | $s'=\mathrm{clip}(s\,g_s)$ | $[0,4]$ / 1 |
-| NegMulPosRat（算法库支持，UI 未开放） | $\delta S<0$：$s'=\mathrm{clip}(s(1+\delta S))$；$\delta S>0$：$s'=\mathrm{clip}(s+\delta S(1-s))$ | $[-1,1]$ / 0 |
+| Rate2Limit | $\delta S<1$：$s'=\mathrm{clip}(s\,\delta S)$；$\delta S>1$：$s'=\mathrm{clip}(s+(\delta S-1)(1-s))$ | $[0,2]$ / 1 |
 
 RGB 域灰阶混合（仅 RGB 处理域，S 恒为灰阶混合）：
 
 $$x'=\mathrm{clip}\big(\mathrm{scale}\cdot x+(1-\mathrm{scale})\,g\big),\qquad g=\begin{cases}0.2126R+0.7152G+0.0722B&\text{BT.709}\\0.299R+0.587G+0.114B&\text{BT.601}\end{cases}$$
 
-- `MixGray_BT709` / `MixGray_BT601`，$\mathrm{scale}=\delta S\in[0,2]$ 中性 0
+- `MixGray_BT709` / `MixGray_BT601`，$\mathrm{scale}=\delta S\in[0,2]$ 中性 1
 - 等价 $g+\mathrm{scale}\,(x-g)$：绕灰轴径向缩放，线性域严格保色相；$\mathrm{scale}>1$ 放大越界后逐通道硬钳可能色相偏移
 
 S Tolerance 门控（所有 S 模式）：$s<\mathrm{tolerance\_s}$（默认 0.0025）的像素不做增色（放大），减色/中性始终允许——即 $\delta S>0$、$g_s>1$、$\mathrm{scale}>1$ 时受保护像素保持原样。**HSL 处理域**下改为对色度 $C=M-m$ 判断（$C<\mathrm{tolerance\_s}$ 即 8bit 的 $(M-m)<\mathrm{tolerance\_s}\times255$），且对受保护像素做**输出色度封顶** $C'=S'\cdot(1-|2L'-1|)\le\mathrm{tolerance\_s}$——规避 L 近黑/白时 HSL 的 $S$ 病态放大在亮度/对比度变动下被“变现”成颜色爆炸（如近白像素变黄）。
@@ -444,8 +444,8 @@ S 按 `y2yClipType` 的 S 语义归一化（`ScaleChromaPix`/`ScaleChromaSec` �
 #### 2. BCSH 调整（步骤 4️⃣）
 
 - **H**：直接旋转极角 $\theta_a=(\theta+\delta H)\%360$（`adjust_hsv` 的 dh 即极角加性旋转，不再经 HSV 色相中转）；`hue_sync` 经 LUT（`hue_ycbcr_to_hsv`/`hue_hsv_to_ycbcr`）仅作读数显示（H/H'SY）与指定色相 range。
-- **S**：`adjust_hsv` 对 $s$ 做加性/乘性（`ModeAdd` $s'=\mathrm{clip}(s+ds)$ / `ModeMul` $s'=\mathrm{clip}(s\cdot ds)$）。
-- **B/C**：Y 通道——Contrast 乘性 + δB（`mode_b`：`ModeAdd` 加性 / `ModeMul` 乘性 / `NegMulPosRat` 负压正白）。
+- **S**：`adjust_hsv` 对 $s$ 做加性/乘性/按比例靠拢（`ModeAdd` $s'=\mathrm{clip}(s+ds)$ / `ModeMul` $s'=\mathrm{clip}(s\cdot ds)$ / `Rate2Limit` $\delta S<1$ 向灰度、$\delta S>1$ 向全饱和）。
+- **B/C**：Y 通道——Contrast 乘性 + δB（`mode_b`：`ModeAdd` 加性 / `ModeMul` 乘性 / `Rate2Limit` δB<1 压黑、δB>1 向白）。
 - 各 ModeB/C/S/H 的完整计算公式见「步骤 4️⃣ BCSH 调整公式」。
 
 #### 3. 重建与钳位（步骤 5️⃣）

@@ -282,6 +282,11 @@
           </item>
           <item>
            <property name="text">
+            <string>Rate2Limit</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
             <string>MixGray_BT709</string>
            </property>
           </item>
@@ -628,7 +633,7 @@
           </item>
           <item>
            <property name="text">
-            <string>NegMulPosRat</string>
+            <string>Rate2Limit</string>
            </property>
           </item>
          </widget>
