@@ -222,6 +222,16 @@ PQVerifyTool 是瑞芯微 PQ 算法测试工具，用于验证 PQ 算法的原�
 - $S=(M-m)/(1-|2L-1|)$（$L=0$ 或 $1$ 时 $S=0$）
 - $H$ 与 HSV 相同的六边形扇区公式
 
+**S 的 min/max 展开与病态放大**（把 $C=M-m$、$L=(M+m)/2$ 代入 $S$）：
+
+$$S=\frac{M-m}{1-|M+m-1|}=\begin{cases}\dfrac{M-m}{M+m}, & M+m\le1\ (L\le0.5)\ \text{下半锥}\\[6pt] \dfrac{M-m}{2-(M+m)}, & M+m\ge1\ (L\ge0.5)\ \text{上半锥}\end{cases}$$
+
+- 上半锥（$L\ge0.5$）：$S=1\iff M=1$——**只要最大通道满白（$M=1$），$S$ 恒等于 1**，与色度 $C=M-m$ 大小无关；如 (255,255,253) 的 $C=2/255$ 但 $S=1$。
+- 下半锥（$L\le0.5$）：$S=1\iff m=0$——**只要最小通道全黑（$m=0$），$S$ 恒等于 1**；如 (2,0,1) 的 $C=2/255$ 但 $S=1$。
+- 两锥顶点（纯白 $(1,1,1)$ / 纯黑 $(0,0,0)$）为 $0/0$，约定 $S=0$。
+
+即"病态放大"（$C$ 极小却 $S=1$）只出现在 $M=1$（近白）或 $m=0$（近黑）的像素。**这正是 HSL 域 S Tolerance 改用色度 $C$ 门控（而非 $S$）的原因**——这两类像素 $S$ 恒为 1，按 $S$ 判断永远高于阈值、保护失效。
+
 **HSL→RGB：**
 - $C=(1-|2L-1|)\cdot S$，$H'=H/60$，$X=C\cdot(1-|H'\bmod 2-1|)$，$m=L-C/2$；
 - 按扇区取基值（$0:(C,X,0)$、$1:(X,C,0)$、$2:(0,C,X)$、$3:(0,X,C)$、$4:(X,0,C)$、$5:(C,0,X)$）赋给 (R,G,B)，最后各通道 $+m$。
@@ -393,7 +403,7 @@ $$x'=\mathrm{clip}\big(\mathrm{scale}\cdot x+(1-\mathrm{scale})\,g\big),\qquad g
 - `MixGray_BT709` / `MixGray_BT601`，$\mathrm{scale}=\delta S\in[0,2]$ 中性 0
 - 等价 $g+\mathrm{scale}\,(x-g)$：绕灰轴径向缩放，线性域严格保色相；$\mathrm{scale}>1$ 放大越界后逐通道硬钳可能色相偏移
 
-S Tolerance 门控（所有 S 模式）：$s<\mathrm{tolerance\_s}$（默认 0.0025）的像素不做增色（放大），减色/中性始终允许——即 $\delta S>0$、$g_s>1$、$\mathrm{scale}>1$ 时受保护像素保持原样。
+S Tolerance 门控（所有 S 模式）：$s<\mathrm{tolerance\_s}$（默认 0.0025）的像素不做增色（放大），减色/中性始终允许——即 $\delta S>0$、$g_s>1$、$\mathrm{scale}>1$ 时受保护像素保持原样。**HSL 处理域**下改为对色度 $C=M-m$ 判断（$C<\mathrm{tolerance\_s}$ 即 8bit 的 $(M-m)<\mathrm{tolerance\_s}\times255$），且对受保护像素做**输出色度封顶** $C'=S'\cdot(1-|2L'-1|)\le\mathrm{tolerance\_s}$——规避 L 近黑/白时 HSL 的 $S$ 病态放大在亮度/对比度变动下被“变现”成颜色爆炸（如近白像素变黄）。
 
 #### H（Hue，modeH）
 

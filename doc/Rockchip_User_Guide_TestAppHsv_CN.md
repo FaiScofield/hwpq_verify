@@ -6,9 +6,9 @@
 
 文件标识：--
 
-发布版本：v1.3
+发布版本：v1.4
 
-日期：2026-xx-xx
+日期：2026-09-xx
 
 文件密级：□绝密   □秘密   □内部资料   ■公开
 
@@ -55,7 +55,7 @@ Rockchip Electronics Co., Ltd.
 | v1.0 | v1.0 | Vance Wu | - | 2026-08-17 | 初始版本 |
 | v1.1 | v2.0 | Vance Wu | - | 2026-08-19 | 适配新版 UI，新增处理域选择（RGB/YUV）等 |
 | v1.2 | v3.0 | Vance Wu | - | 2026-08-28 | 新增 6 个处理域（HSI/HSL/HCY/HSP/Lch/RGB）以及多个参数的处理模式说明 |
-| v1.3 | v3.1 | Vance Wu | - | 2026-xx-xx | YUV 域处理模式调整 |
+| v1.3 | v3.1 | Vance Wu | - | 2026-08-31 | YUV 域处理模式调整 |
 
 **读者对象**
 
@@ -244,9 +244,9 @@ Rockchip Electronics Co., Ltd.
 | ^ | `Saturation` | `ModeAdd` | 尺度不统一，容易偏色，容易出现色块 |
 | ^ | ^ | `ModeMul` | 尺度统一，但无法让所有颜色调满（也不建议调大倍率太大），**推荐** |
 | ^ | `Hue` | `ModeAdd` | 标准做法，但从圆锥色相模型的角度来看比较容易发生色相偏移 |
-| ^ | ^ | Y2Y=`ClipChroma` | 保持色相(H)和亮度(Y)恒定，缩放Cb/Cr对应的极径（即原 `ModeAddCompS`） |
-| ^ | ^ | Y2Y=`CompLumaOnly` | 保持色相(H)和色度(S)恒定（仍会因为y2r的钳位造成轻微偏色），但需要对亮度Y做补偿，**推荐或可选实现** |
-| ^ | ^ | Y2Y=`CompLumaFirst` | 保H、Y优先、S兜底：可行时只调Y（同CompLumaOnly），Y单独不够时缩色度到r*并顶Y，色相严格保持、无残留越界 |
+| ^ | `Y2Y Clip` | `ClipChroma` | 保持色相(H)和亮度(Y)恒定，缩放Cb/Cr对应的极径 |
+| ^ | ^ | `CompLumaOnly` | 保持色相(H)和色度(S)恒定（仍会因为y2r的钳位造成轻微偏色），但需要对亮度Y做补偿|
+| ^ | ^ | `CompLumaFirst` | 保H、Y优先、S兜底：Y单独调不够时缩色度到r*并顶Y，色相严格保持、无残留越界，**推荐或可选实现**  |
 | RGB | `Brightness` | `ModeAdd` | 加性，可以调到纯黑/纯白，但通道饱和后色相开始偏移 |
 | ^ | ^ | `ModeMul` | 乘性，无法调到纯白，调大时色相会偏移，调小时不偏移 |
 | ^ | ^ | `NegMulPosRat` | 乘性，可以调到纯黑/纯白，**色相不偏移，推荐** |
@@ -256,7 +256,7 @@ Rockchip Electronics Co., Ltd.
 | HSV | `Brightness` | `ModeAdd` | 可以调到纯黑，除黑色外无法变纯白，**推荐** |
 | ^ | ^ | `ModeMul` | 可以调到纯黑，无法调到纯白 |
 | ^ | ^ | `NegMulPosRat` | 可以调到纯黑，除黑色外无法变纯白 |
-| HSL | `Brightness` | `ModeAdd` | 可以调到纯黑或纯白；L接近黑/白时S会被病态放大（本例未引入色度阈值保护） |
+| HSL | `Brightness` | `ModeAdd` | 可以调到纯黑或纯白；L接近黑/白时S会被病态放大（HSL 处理域的 S Tolerance 已按色度 $C=M-m$ 保护并对输出色度封顶） |
 | ^ | ^ | `ModeMul` | 可以调到纯黑，无法调到纯白 |
 | ^ | ^ | `NegMulPosRat` | 可以调到纯黑或纯白 |
 | HSI | `Brightness` | `ModeAdd` | 可以调到纯黑，无法调到纯白；I接近黑/白时会发生色相偏移 |

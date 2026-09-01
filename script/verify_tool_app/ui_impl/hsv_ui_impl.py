@@ -1,41 +1,5 @@
 """
 HSV tab controller — encapsulates all HSV-related UI behavior and state.
-
-调整语义（对应 script/bcsh/hsv_adjust.py）：
-  B：Contrast 乘性 + delta_b（加性/乘性由 comboBox_modeB 选择），
-     增益参考点由 comboBox_modeC 选择：GainAtMid（v=0.5 中点）/ GainAtZero
-     （过 v=0 原点）/ GainAtBoth（按 gc<1 或 >1 自动选择）/ TanSlant
-     （c∈[-1,1]，增益=tan((c+1)π/4)）/ FastStone（仅 RGB 域，C∈[-1,1]，
-     归一化到 [-100,100] 做逐通道 Levels 拉伸 out=clip(k·in+b)）
-     modeB: ModeAdd 加性偏移 / ModeMul 乘性增益 / NegMulPosRat（δV∈[-1,1]：
-     负值乘性压缩、正值按进度向白靠拢，极值纯黑/纯白）
-  S：comboBox_modeS 切换加性/乘性  s'=clip(s+ds) / s'=clip(s*ds)；
-     RGB 域禁用 ModeS，恒为 scale 灰阶混合 out=scale*in+(1-scale)*gray(in)
-  H：comboBox_goalH 选择目标——SameOffset 恒为加性偏移（默认）；SameTarget 向指定
-     目标色调旋转（激活 Same Hue Goal 行控件）；comboBox_modeH 选择生效方式——
-     ModeAdd 加性色相平移（所有域；RGB 域即 FastStone 兼容的六边形 HSV 加法）；
-     RotateOnGray（绕灰轴）仅 RGB 域
-指定色调（groupBox_setHueRange 勾选）：仅色调落在 [hs, he] 附近的像素被处理，
-通过 Tail（向内）/ Pad（向外）的 alpha blending 过渡。
-
-comboBox_adjustField 选择处理域（8 选项）：
-  HSV/HSI/HSL/HCY/HSP/Lch/RGB（RGB 系）：full-range RGB <-> 对应域，域内 BCSH 调整。
-     Lch 为 sRGB D65 -> CIELAB 柱坐标，s=C/Cmax 归一化、l=L/100 归一化。
-     HCY 为 Hue/Chroma/Luma（Rec.601 luma，六边形色相），c/y 归一化 [0,1]，
-     同 Y 亮度一致。
-     HSP 为 Hue/Saturation/Perceived brightness（感知亮度 sqrt(ΣW·c²)，
-     与 HSV 相同的饱和度），s/p 归一化 [0,1]，同 P 亮度一致。
-     RGB 为直接 RGB 域处理：C/V 三通道一致、S 灰阶混合、H 灰色轴旋转。
-  YCbCr（YUV 系）：处理域为 yuv444p full-range，uv 去中心 0.5 得 YCbCr；
-     Y 通道调 B/C，Cb(x)/Cr(y) 极坐标系调 H(角度)/S(极径)。
-统一流水线（1️⃣~6️⃣）：1️⃣ 原始输入直读 -> 2️⃣ 输入 CSC 到处理域（y2rClipType
-  决定 YUV->RGB 转换的钳位：HardClip 硬钳 / SoftClip 色相保持软钳 / ConstHue
-  恒定色相等比缩放；RGB 输入 limited->full 展开直接硬钳）-> 3️⃣ 域转换（有钳位）
-  -> 4️⃣ BCSH 调整 -> 5️⃣ 回 full-range RGB/YUV（y2yClipType 统一色域处理策略：
-  HardClip YUV 硬钳 / ClipChroma 保 Y、沿色相缩色度 / ScaleChromaPix 按像素边界
-  归一化 S（域内免钳）/ ScaleChromaSec 按全局最大归一化（越界走 HardClip）/
-  CompLumaOnly 保色度调亮度 / CompLumaFirst 调亮度优先、不足缩色度兜底）
-  -> 6️⃣ 输出 CSC 到输出格式/色彩空间（YUV 输出直接编码，不经 RGB；必钳）。
 """
 
 from collections.abc import Callable
@@ -843,7 +807,13 @@ class HsvUiController:
         if field == "RGB":
             adj = self._compute_adjusted_rgb(rgb_2, h_deg)
         else:
-            adj = self._compute_adjusted_hsv(domain, h_deg)
+            # HSL 域的 S Tolerance 改为对色度 C=M-m 的阈值判断：`C<st*255` 的
+            # 低色度像素不增色（保护肤色/灰暗；规避 L 近黑/白时 HSL 的 S 病态放大）。
+            hsl_chroma = None
+            if field == "HSL":
+                hsl_chroma = np.max(rgb_2, axis=-1) - np.min(rgb_2, axis=-1)
+            adj = self._compute_adjusted_hsv(
+                domain, h_deg, hsl_chroma=hsl_chroma)
 
         # ---- 5️⃣ 回 full-range RGB（域往返本身有钳位 -> 恒 [0,1]） ----
         rgb_5 = from_domain(adj)
@@ -1437,18 +1407,21 @@ class HsvUiController:
 
     def _compute_adjusted_hsv(
         self, hsv: np.ndarray, h_deg: np.ndarray, proc_cs: int | None = None,
+        hsl_chroma: np.ndarray | None = None,
     ) -> np.ndarray:
         """Compute the fully-adjusted HSV array from the current controls.
 
         ``proc_cs`` 为 YCbCr 处理域矩阵代码时，h 通道为 YCbCr 极角（dh 直接旋转
         极角）；SameTarget 的目标色相按 HSV 色相输入并换算到极角。None 时为
         HSV 色相域（RGB 系处理域，默认）。
+        ``hsl_chroma`` 非 None（HSL 域，C=M-m）时，S Tolerance 改为对色度
+        判断（`C<st*255` 低色度像素不增色），否则默认对 S 判断。
         """
         db = float(self.ui.spinBox_deltaB.value())
         gc = float(self.ui.spinBox_gainC.value())
         ds = float(self.ui.spinBox_deltaS.value())
         dh_deg = float(self.ui.spinBox_deltaH.value())
-        mode = self._s_mode_code()
+        mode_s = self._s_mode_code()
         mode_b = self._b_mode_code()
         # S Tolerance：控件已是归一化浮点 [0, 0.1]，直接传给 adjust_hsv。
         tolerance_s = float(self.ui.spinBox_toleranceS.value())
@@ -1456,7 +1429,8 @@ class HsvUiController:
         # SameTarget 下 Delta H 表示向目标旋转的进度，不作为加性偏移传入 adjust_hsv。
         adj_hsv = adjust_hsv(hsv, delta_b=db, delta_s=ds,
                              delta_h=0.0 if same_target else dh_deg / 360.0,
-                             gain_c=gc, mode=mode, tolerance_s=tolerance_s,
+                             gain_c=gc, mode_s=mode_s, tolerance_s=tolerance_s,
+                             hsl_chroma=hsl_chroma,
                              mode_c=self._mode_c_code(), mode_b=mode_b)
         if same_target:
             target = float(self.ui.spinBox_sameHueGoal.value())
