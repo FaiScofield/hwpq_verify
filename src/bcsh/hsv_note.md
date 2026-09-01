@@ -302,7 +302,28 @@ void hsv2rgb_v3_optimal(uint16_t h14, uint16_t s11, uint16_t v10, uint16_t maxv,
 | `hsv2rgb_v3_optimal` | 98 | CPU 单线程 |
 | `hsv2rgb + acm + rgb2hsv` | 9.5 | OpenCL + float版 |
 
+##### 4.2.9 BCSH 调整：adjust_rgb_fix（RGB 域直接）vs adjust_hsv_fix（HSV 域往返）计算量对比
 
+> 对比前提（2026-09-01）：modeV=ModeAdd（V 步最简加性）、modeS=Rate2Limit、忽略 modeC（mode_c 恒等）、H 恒为 ModeAdd。两者均实现于 [hsv_fixed.h](hsv_fixed.h)/[hsv_fixed.c](hsv_fixed.c)：`adjust_rgb_fix`（RGB 域直接，V/S 逐通道、H 内联取六边形色相后 TAB 重排）与 `adjust_hsv_fix`（rgb2hsv_v3_optimal → HSV 域调整 V/S/H → hsv2rgb_v4_hexwalk 重建）。
+
+**功能差异先行**：`adjust_rgb_fix` 的 S 步是 MixGray（灰阶混合 `out=scale·in+(1-scale)·gray`），其 rate2limit 语义仅**减色**方向（scale<1 向灰度）与之相近；**增色（scale>1）虽也能增饱和**（通道围绕 gray 发散），但会**同步抬高 V**（$M'=\text{gray}+s(M-\text{gray})$，亮部易 clamp 丢高光、灰像素天然恒等），与 rate2limit 增色（保 V、S 沿轴向向全饱和插值、低饱和需门控保护）本质不同。`adjust_hsv_fix` 的 S 步在 HSV 域直接操作 S，可精确复现 rate2limit 全语义（减色+增色+门控）。故：**rate2limit 的精确语义（保 V + S 门控）只有 HSV 域（adjust_hsv_fix）能复现**。
+
+**每像素运算量**（modeV=add，modeS=rate2limit，modeC 忽略）：
+
+| 资源 | adjust_hsv_fix（HSV 往返） | adjust_rgb_fix（RGB 直接，S 用 MixGray） |
+| --- | --- | --- |
+| 乘法器 | **8**（rgb2hsv 4 + S 步 1 + hsv2rgb 3） | 14（MixGray 9 + H 步 5） |
+| 加/减 | ~10 | ~16 |
+| 比较/选择 | ~9 | ~12 |
+| 查表 ROM | 2 张（rcp 1024×21b + rcp6 1024×24b ≈ 46Kb） | 1 张（rcp6 1024×24b ≈ 24Kb） |
+| 流水深度 | 3 级（rgb2hsv→调整→hsv2rgb） | 2 级（V/S→H） |
+| 通道并行 | 单通道（S/V/H 各处理 1 次） | 3 通道并行（V/S 逐通道） |
+| rate2limit 覆盖 | 完整（减色+增色+门控） | 仅减色方向（增色动 V，语义不同） |
+
+**结论（RTL 评估）**：
+- 需要 rate2limit（向全饱和靠拢）→ **只能选 adjust_hsv_fix**：8 乘法 + 46Kb ROM，把 `C→rcp6[C]→乘` 查表依赖放进流水级即可，算力最省。
+- S 只需乘性减色（MixGray）→ **adjust_rgb_fix 更优**：无大 ROM、常数乘（luma 权重/scale）可移位+加展开、2 级流水、3 通道并行吞吐高，RTL 面积/时序更可控。
+- 若需求"乘性为主、偶尔增色"，可混合：RGB 域做 V/S 减色、增色分支旁路进 HSV 域——但引入双数据通路，工程上不如直接用 adjust_hsv_fix。
 
 ## FastStone Image Viewer
 

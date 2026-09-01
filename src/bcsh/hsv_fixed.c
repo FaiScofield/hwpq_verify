@@ -773,3 +773,62 @@ void adjust_rgb_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t g
     *go = (uint16_t)g_v;
     *bo = (uint16_t)b_v;
 }
+
+/* HSV 域 BCSH 调整（单像素），见 hsv_fixed.h 说明。
+   与 adjust_rgb_fix 对应，但走 HSV 域往返：rgb2hsv_v3_optimal 取 H/S/V，在 HSV
+   域调整 V/S/H，再用 hsv2rgb_v4_hexwalk 重建。V 步复用 adj_apply_v（Q11 像素域，
+   mid/tanslant + mul/rate2limit 同 adjust_rgb_fix）；S 步按 mode_s：mul 乘性
+   scale（delta_s Q11，中性 1.0）或 rate2limit 按比例向灰度/全饱和靠拢（含
+   tolerance_s S 门控）；H 步为 ModeAdd（h'=(h+angle) mod 360）。
+   gray_coef 为保留参数位（HSV 域 S 步无需 luma）。 */
+void adjust_hsv_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t gain_c, int32_t delta_b, int32_t delta_s,
+    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, int mode_s, uint16_t *ro, uint16_t *go,
+    uint16_t *bo)
+{
+    (void)gray_coef; /* 保留参数位，HSV 域 S 步无需 luma */
+
+    /* ---- mode_c 增益（Q11）：mid 取 [0,4]；tanslant 经 tan((c+1)π/4) 查表映射 ---- */
+    int32_t gc;
+    if (mode_c == ADJ_RGB_MODE_C_TANSLANT) {
+        int32_t th = CLIP(gain_c, -FIX_S_ONE, FIX_S_ONE) + FIX_S_ONE; /* (c+1)π/4 ∈ [0,π/2]，Q14 */
+        gc = g_adj_tan_q11[th];                                       /* th=4096（c=+1）已截断为 ADJ_TAN_CAP */
+    }
+    else {
+        gc = CLIP(gain_c, 0, 4 * FIX_S_ONE);
+    }
+
+    /* ---- delta_b 预处理（同 adjust_rgb_fix，供 V 步） ---- */
+    int32_t gv_q11 = CLIP(delta_b, 0, 4 * FIX_S_ONE);            /* mul 增益，中性 1.0 */
+    int32_t d_q11 = CLIP(delta_b, 0, 2 * FIX_S_ONE) - FIX_S_ONE; /* rate2limit 的 db-1（Q11，中性 0） */
+
+    /* ---- RGB -> HSV（v3：无分支无除法） ---- */
+    uint16_t H, S, V; // U14, U11, U10
+    rgb2hsv_v3_optimal(r, g, b, &H, &S, &V);
+
+    /* ---- V：单通道 contrast + brightness（Q11 像素域） ---- */
+    int32_t v_q = adj_apply_v((int32_t)V << FIX_BITS_S, maxv, gc, gv_q11, d_q11, mode_b);
+    int32_t vn = CLIP((v_q + (FIX_S_ONE >> 1)) >> FIX_BITS_S, 0, maxv); /* 舍入回像素域 */
+
+    /* ---- S：mode_s 生效方式（Q11） ---- */
+    int32_t sn;
+    if (mode_s == ADJ_RGB_MODE_S_RATE2LIMIT) {
+        /* ds∈[0,2]，中性 1（d=ds-1∈[-1,1]）：d<0 向灰度靠拢 s'=s*ds、d>0 向全饱和
+           靠拢 s'=s+d*(1-s)；ds=0 灰、ds=2 全饱和。增色（d>0）时 S<tolerance_s
+           的像素保持原样（S 门控，与 Python adjust_hsv 一致） */
+        int32_t ds_q11 = CLIP(delta_s, 0, 2 * FIX_S_ONE) - FIX_S_ONE;                  /* ds-1（Q11，中性 0） */
+        int32_t s_comp = adj_mul_q((int32_t)S, FIX_S_ONE + ds_q11, FIX_BITS_S);        /* ds<1：向灰度靠拢 */
+        int32_t s_sat = (int32_t)S + adj_mul_q(ds_q11, FIX_S_ONE - (int32_t)S, FIX_BITS_S); /* ds>1：向全饱和靠拢 */
+        int32_t s_apply = CLIP((ds_q11 < 0) ? s_comp : s_sat, 0, FIX_S_ONE);
+        sn = ((ds_q11 <= 0) || ((int32_t)S >= tolerance_s)) ? s_apply : (int32_t)S;
+    }
+    else { /* ADJ_RGB_MODE_S_MUL：乘性缩放（中性 1.0；scale>1 增色、scale<1 减色） */
+        int32_t scale_q11 = CLIP(delta_s, 0, 4 * FIX_S_ONE);
+        sn = CLIP(adj_mul_q((int32_t)S, scale_q11, FIX_BITS_S), 0, FIX_S_ONE);
+    }
+
+    /* ---- H：ModeAdd，h'=(h+angle) mod 360 ---- */
+    int32_t hn = ((int32_t)H + angle_q14) & (FIX_H_ONE - 1);
+
+    /* ---- HSV -> RGB（v4：六边形走表模型，无分支无除法） ---- */
+    hsv2rgb_v4_hexwalk((uint16_t)hn, (uint16_t)sn, (uint16_t)vn, maxv, ro, go, bo);
+}

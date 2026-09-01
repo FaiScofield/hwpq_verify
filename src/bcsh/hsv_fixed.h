@@ -104,6 +104,11 @@ typedef enum {
 } adj_rgb_mode_b_t;
 
 typedef enum {
+    ADJ_RGB_MODE_S_MUL = 0,      /* 乘性 scale */
+    ADJ_RGB_MODE_S_RATE2LIMIT, /* 按比例向灰度/全饱和靠拢 */
+} adj_rgb_mode_s_t;
+
+typedef enum {
     ADJ_RGB_GRAY_BT709 = 0, /* luma BT.709 */
     ADJ_RGB_GRAY_BT601,     /* luma BT.601 */
     ADJ_RGB_GRAY_BT2020,    /* luma BT.2020 */
@@ -113,6 +118,19 @@ typedef enum {
    参数定点格式见上；mode 参数用 adj_rgb_* 枚举。H 恒为 ModeAdd（六边形色相加法）。 */
 void adjust_rgb_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t gain_c, int32_t delta_b, int32_t delta_s,
     int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, uint16_t *ro, uint16_t *go, uint16_t *bo);
+
+/* 单像素 HSV 域 BCSH 调整核心（像素域 [0,maxv]，maxv=255(u8)/1023(u10)）。
+   与 adjust_rgb_fix 参数/模式完全一致，但走 HSV 域往返：
+   rgb2hsv_v3_optimal 取 H/S/V，在 HSV 域调整 V（contrast+brightness）、
+   S（mode_s：mul 乘性 scale 或 rate2limit 按比例向灰度/全饱和靠拢）、
+   H（ModeAdd 平移），再用 hsv2rgb_v4_hexwalk 重建 RGB。
+   对应 script/bcsh/hsv_adjust.py 的 adjust_hsv。
+   mode_s='rate2limit'：delta_s∈[0,2]，中性 1（d=ds-1∈[-1,1]）；d<0 向灰度靠拢
+   s'=s*ds、d>0 向全饱和靠拢 s'=s+d*(1-s)；增色（d>0）时 S<tolerance_s 的像素
+   保持原样（S 门控，与 Python 一致）。 */
+void adjust_hsv_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t gain_c, int32_t delta_b, int32_t delta_s,
+    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, int mode_s, uint16_t *ro, uint16_t *go,
+    uint16_t *bo);
 
 /* u8 缓冲接口（整帧统一参数） */
 static inline void adjust_rgb_fix_u8(const uint8_t *rgb, int n, int32_t gain_c, int32_t delta_b, int32_t delta_s,
@@ -136,6 +154,34 @@ static inline void adjust_rgb_fix_u10(const uint16_t *rgb, int n, int32_t gain_c
         uint16_t r1, g1, b1;
         adjust_rgb_fix(rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2], 1023, gain_c, delta_b, delta_s, tolerance_s,
             angle_q14, gray_coef, mode_c, mode_b, &r1, &g1, &b1);
+        out[3 * i] = r1;
+        out[3 * i + 1] = g1;
+        out[3 * i + 2] = b1;
+    }
+}
+
+/* u8 缓冲接口（整帧统一参数） */
+static inline void adjust_hsv_fix_u8(const uint8_t *rgb, int n, int32_t gain_c, int32_t delta_b, int32_t delta_s,
+    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, int mode_s, uint8_t *out)
+{
+    for (int i = 0; i < n; i++) {
+        uint16_t r1, g1, b1;
+        adjust_hsv_fix(rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2], 255, gain_c, delta_b, delta_s, tolerance_s,
+            angle_q14, gray_coef, mode_c, mode_b, mode_s, &r1, &g1, &b1);
+        out[3 * i] = (uint8_t)r1;
+        out[3 * i + 1] = (uint8_t)g1;
+        out[3 * i + 2] = (uint8_t)b1;
+    }
+}
+
+/* u10 缓冲接口（整帧统一参数） */
+static inline void adjust_hsv_fix_u10(const uint16_t *rgb, int n, int32_t gain_c, int32_t delta_b, int32_t delta_s,
+    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, int mode_s, uint16_t *out)
+{
+    for (int i = 0; i < n; i++) {
+        uint16_t r1, g1, b1;
+        adjust_hsv_fix(rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2], 1023, gain_c, delta_b, delta_s, tolerance_s,
+            angle_q14, gray_coef, mode_c, mode_b, mode_s, &r1, &g1, &b1);
         out[3 * i] = r1;
         out[3 * i + 1] = g1;
         out[3 * i + 2] = b1;

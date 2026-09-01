@@ -593,15 +593,15 @@ def adjust_rgb(rgb, delta_b=None, delta_s=None, gain_c=1.0, tolerance_s=0.0,
     rgb_v = _rgb_contrast_brightness(rgb_in, gain_c, delta_b,
                                      str(mode_c).lower(), str(mode_b).lower())
     # ---- S：灰阶混合（scale 语义，始终生效） ----
-    scale = np.asarray(
+    scale_s = np.asarray(
         1.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), 0.0, 4.0),
         np.float32)
     gray = _rgb_luma(rgb_v, gray_coef)
     sat = _rgb_saturation(rgb_v)
-    apply = (sat >= tolerance_s) | (scale <= 1.0)
+    apply = (sat >= tolerance_s) | (scale_s <= 1.0)
     rgb_s = np.where(
         apply[..., None],
-        scale[..., None] * rgb_v + (1.0 - scale)[..., None] * gray[..., None],
+        scale_s[..., None] * rgb_v + (1.0 - scale_s)[..., None] * gray[..., None],
         rgb_v)
     # ---- H：按 modeH 生效方式 ----
     angle = np.asarray(angle_deg, dtype=np.float32)
