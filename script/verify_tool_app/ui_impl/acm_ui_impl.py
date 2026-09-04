@@ -4,6 +4,7 @@ ACM tab controller — encapsulates all ACM-related UI behavior and state.
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import logging
 import os
 import time
 
@@ -58,6 +59,25 @@ except ImportError:
         _csc_range_params, _get_csc_matrices, is_limited_range, is_rgb_format,
         rgb_to_yuv, yuv_to_rgb,
     )
+
+try:
+    from ...script.utils import clamp
+except ImportError:
+    from script.utils import clamp
+
+try:
+    from ..config_actions import (
+        ask_reload, ask_save_mode, build_own_root, config_section_key,
+        pick_save_as_path, write_config_section,
+    )
+except ImportError:
+    from script.verify_tool_app.ui_impl.com_impl import (
+        ask_reload, ask_save_mode, build_own_root, config_section_key,
+        pick_save_as_path, write_config_section,
+    )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -256,7 +276,7 @@ class SingleCurveChartWidget(QWidget):
         x_pos = self.padding
         if n > 1 and 0 <= index < len(self.sample_positions):
             ratio = self.sample_positions[index] / (n - 1)
-            x_pos = self.padding + chart_width * max(0.0, min(1.0, ratio))
+            x_pos = self.padding + chart_width * clamp(ratio, 0.0, 1.0)
         y_value = self.sample_values[index] if 0 <= index < len(self.sample_values) else 0.0
         return x_pos, self._value_to_y(y_value)
 
@@ -266,7 +286,7 @@ class SingleCurveChartWidget(QWidget):
             return None
         chart_width = self.width() - 2 * self.padding
         ratio = self.reference_h_index / max(1, len(self.values) - 1)
-        ratio = max(0.0, min(1.0, ratio))
+        ratio = clamp(ratio, 0.0, 1.0)
         return self.padding + chart_width * ratio
 
     def _reference_x_position_out(self) -> float | None:
@@ -275,7 +295,7 @@ class SingleCurveChartWidget(QWidget):
             return None
         chart_width = self.width() - 2 * self.padding
         ratio = self.reference_h_index_out / max(1, len(self.values) - 1)
-        ratio = max(0.0, min(1.0, ratio))
+        ratio = clamp(ratio, 0.0, 1.0)
         return self.padding + chart_width * ratio
 
     def paintEvent(self, event: object) -> None:
@@ -422,8 +442,8 @@ class SingleCurveChartWidget(QWidget):
 
     def _clamp_text_rect(self, rect: QRect) -> QRect:
         """Clamp annotation rectangles to the widget bounds so edge labels stay visible."""
-        x_pos = max(0, min(rect.x(), self.width() - rect.width()))
-        y_pos = max(0, min(rect.y(), self.height() - rect.height()))
+        x_pos = clamp(rect.x(), 0, self.width() - rect.width())
+        y_pos = clamp(rect.y(), 0, self.height() - rect.height())
         return QRect(x_pos, y_pos, rect.width(), rect.height())
 
     def mousePressEvent(self, event: object) -> None:
@@ -444,7 +464,7 @@ class SingleCurveChartWidget(QWidget):
         if self.dragging_sample is not None:
             chart_height = self.height() - 2 * self.padding
             ratio = 1 - (y_pos - self.padding) / chart_height
-            ratio = max(0.0, min(1.0, ratio))
+            ratio = clamp(ratio, 0.0, 1.0)
             value_min, value_max = self.value_range
             new_value = int(round(value_min + ratio * (value_max - value_min)))
             self.sample_values[self.dragging_sample] = new_value
@@ -1768,7 +1788,7 @@ class AcmUiController:
             self._preview_time_callback(elapsed_ms)
             self._status_callback(f"Processing completed in {elapsed_ms:.2f} ms")
         except Exception as exc:
-            print("ACM processing failed:", exc)
+            logger.warning("ACM processing failed: %s", exc)
             self._status_callback(f"Processing failed: {exc}")
 
     def get_full_res_output(self) -> ImageFrame | None:
@@ -1810,7 +1830,15 @@ class AcmUiController:
             self._apply_full_delta_to_acm()
             out_frame, _preview = self._process_frame(src_frame)
             out_fmt = int(io_info.get("out_fmt", self._output_fmt_code()))
-            return True, self._apply_output_format(out_frame, out_fmt)
+            result = self._apply_output_format(out_frame, out_fmt)
+            # 链式宿主下 ACM 处理走 process_frame（不经 _do_auto_run），
+            # 处理完成后同步 _do_auto_run 的只读 UI 刷新：冻结像素读数 /
+            # 预览 H marker / LUT Result（对应窗口/像素缺失时内部直接返回）。
+            self._refresh_frozen_readout()
+            if self._frozen_pixel_x is not None and self._frozen_pixel_y is not None:
+                self.update_preview_h_marker(self._frozen_pixel_x, self._frozen_pixel_y)
+            self._update_lut_result()
+            return True, result
         except Exception as exc:
             return False, str(exc)
 
@@ -2412,6 +2440,7 @@ class AcmUiController:
             self.ui.label_offset_wb,
             self.ui.slider_offset_wb,
             self.ui.spinBox_offset_wb,
+            self.ui.button_reset_offset,
         ):
             widget.setEnabled(is_hsv)
         self._sync_algo_options_enabled()
@@ -2460,7 +2489,7 @@ class AcmUiController:
                 from script.acm.acm_impl_base import bicubic_resize_array_2d
                 resampled = bicubic_resize_array_2d(src, dst.shape[0], dst.shape[1])
                 dst[:] = resampled
-                print(f"[ACM] resampled gain_{name_2d}: {src.shape} => {dst.shape}")
+                logger.info("resampled gain_%s: %s => %s", name_2d, src.shape, dst.shape)
         # Sync active tables back to default tables, so the gain data survives
         # future LUT length changes (set_len / set_step).
         new_acm.sync_to_default()
@@ -2604,27 +2633,53 @@ class AcmUiController:
             QMessageBox.critical(None, "Error", f"Failed to load config: {exc}")
             return False
 
+    def _dump_config_to(self, path: str) -> None:
+        """Write the current ACM LUTs to ``path`` as a full config file."""
+        acm = self._get_current_acm()
+        acm.sync_to_default()
+        acm.dump_json(path)
+
     def _on_save_config(self) -> None:
-        """Save the current ACM configuration to a JSON file."""
+        """Save ACM config: Yes=直接更新 I/O Config File / No=另存 / Cancel=取消。
+
+        写文件采用“节合并”：只更新目标 json 的 pq_tuning_param.acm 子树，
+        保留文件中其它模块/字段的数据。
+        """
         acm = self._get_current_acm()
         if not acm.b_lut_ready:
             QMessageBox.warning(None, "Warning", "No LUT data to save")
             return
-        path, _ = QFileDialog.getSaveFileName(None, "Save Config", "", "JSON Files (*.json)")
-        if path:
-            if not path.endswith(".json"):
-                path += ".json"
-            acm.sync_to_default()
-            acm.dump_json(path)
-            self._status_callback(f"Config saved: {path}")
+        mode = ask_save_mode("ACM")
+        if mode == "cancel":
+            return
+        if mode == "overwrite":
+            target = self._config_path_getter()
+            if not target:
+                self._status_callback("I/O page has no config file path set")
+                return
+        else:
+            target = pick_save_as_path(
+                self._config_path_getter(), "Save ACM Config As")
+            if not target:
+                return
+        own_root = build_own_root(self._dump_config_to)
+        if own_root is None:
+            self._status_callback("ACM save config failed")
+            return
+        if write_config_section(own_root, config_section_key("ACM"), target):
+            self._status_callback(f"ACM config saved to {target}")
+        else:
+            self._status_callback(f"ACM save config failed: {target}")
 
     def _on_read_config(self) -> None:
-        """Browse and load an ACM configuration from the ACM editor tab."""
-        current_path = self._config_path_getter()
-        start_dir = os.path.dirname(current_path) if current_path else ""
-        path, _ = QFileDialog.getOpenFileName(None, "Read Config", start_dir, "JSON Files (*.json)")
-        if path:
-            self.load_current_config(path)
+        """Reload the ACM config from the I/O Config File (with confirm)."""
+        if not ask_reload("ACM"):
+            return
+        path = self._config_path_getter()
+        if not path or not os.path.isfile(path):
+            self._status_callback(f"No config file to reload: {path}")
+            return
+        self.load_current_config(path)
 
     def _on_lut_visualization_toggled(self, checked: bool) -> None:
         """Show or close the standalone LUT overview window."""

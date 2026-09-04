@@ -4,6 +4,7 @@ Preview controller — encapsulates the image preview dock and pixel inspection 
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import logging
 import os
 
 import numpy as np
@@ -28,6 +29,9 @@ try:
     from ..ui_gen.preview_ui import Ui_PreviewUiWidget
 except ImportError:
     from ui_gen.preview_ui import Ui_PreviewUiWidget
+
+
+logger = logging.getLogger(__name__)
 
 
 class PreviewUiWidget(QWidget):
@@ -673,6 +677,7 @@ class PreviewUiController(QObject):
                 return
             img_path = f"{base_path}{chosen_ext}"
             if not qimage.save(img_path):
+                logger.warning("Failed to save image: %s", img_path)
                 QMessageBox.warning(None, "Warning", f"Failed to save image: {img_path}")
                 self._status_callback(f"Save failed: {img_path}")
                 return

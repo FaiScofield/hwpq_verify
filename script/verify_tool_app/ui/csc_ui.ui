@@ -157,7 +157,7 @@
      <item>
       <widget class="QPushButton" name="btn_readCfg">
        <property name="text">
-        <string>Read Config</string>
+        <string>Reload Config</string>
        </property>
       </widget>
      </item>

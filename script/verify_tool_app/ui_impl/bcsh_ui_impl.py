@@ -4,6 +4,7 @@ HSV tab controller — encapsulates all HSV-related UI behavior and state.
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import logging
 import time
 
 import numpy as np
@@ -31,6 +32,9 @@ try:
     from ..ui_gen.bcsh_ui import Ui_HsvUiWidget
 except ImportError:
     from ui_gen.bcsh_ui import Ui_HsvUiWidget
+
+
+logger = logging.getLogger(__name__)
 
 
 def _bt_chroma_max(cs: int) -> float:
@@ -662,7 +666,7 @@ class HsvUiController:
             if self._time_cost_callback is not None:
                 self._time_cost_callback(elapsed_ms)
         except Exception as exc:
-            print("HSV processing failed:", exc)
+            logger.warning("HSV processing failed: %s", exc)
             self._status_callback(f"Processing failed: {exc}")
 
     def get_full_res_output(self) -> ImageFrame | None:

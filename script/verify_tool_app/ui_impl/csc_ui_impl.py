@@ -13,6 +13,8 @@ UI 定义在 ui/csc_ui.ui（Qt Designer），由 uic 生成 ui_gen/csc_ui.py
 """
 
 from collections.abc import Callable
+import logging
+import os
 
 import numpy as np
 from PySide6.QtCore import QObject, Qt, Signal
@@ -36,6 +38,19 @@ try:
     from ..ui_gen.csc_ui import Ui_CscUiWidget
 except ImportError:
     from ui_gen.csc_ui import Ui_CscUiWidget
+
+try:
+    from ..config_actions import (
+        ask_reload, ask_save_mode, build_own_root, config_section_key,
+        pick_save_as_path, write_config_section,
+    )
+except ImportError:
+    from script.verify_tool_app.ui_impl.com_impl import (
+        ask_reload, ask_save_mode, build_own_root, config_section_key,
+        pick_save_as_path, write_config_section,
+    )
+
+logger = logging.getLogger(__name__)
 
 # BCSH 参数键（与 ui/csc_ui.ui 中 slider_<key>/spin_<key>/norm_<key> 对应）
 BCSH_KEYS = ("bright", "contrast", "sat", "hue",
@@ -173,6 +188,7 @@ class CscUiController(QObject):
                 runtime_precision, table_index=1)
             return True, dst
         except Exception as exc:
+            logger.warning("CSC process failed: %s", exc)
             return False, str(exc)
 
     # ------------------------------------------------------------------ #
@@ -274,9 +290,10 @@ class CscUiController(QObject):
         """Refresh all normalized BCSH display labels for the current algo."""
         algo_type = self.get_algo_type()
         for key in BCSH_KEYS:
-            self.ui.norms[key].setText(
-                get_bcsh_norm_value(key, int(self.ui.sliders[key].value()),
-                                    algo_type))
+            norm_val = get_bcsh_norm_value(
+                key, int(self.ui.sliders[key].value()), algo_type)
+            self.ui.norms[key].setText(norm_val)
+
 
     # ------------------------------------------------------------------ #
     # Signal wiring / handlers                                           #
@@ -361,37 +378,55 @@ class CscUiController(QObject):
         self._status_callback(f"CSC BCSH reset to {self.get_algo_type()} defaults")
         self.paramsChanged.emit()
 
-    def _on_save_config(self) -> None:
-        """Save the current CSC UI params to a JSON config (save-as dialog)."""
-        path, _ = QFileDialog.getSaveFileName(
-            None, "Save CSC Config As", "", "JSON Files (*.json)")
-        if not path:
-            return
+    def _dump_config_to(self, path: str) -> None:
+        """Write the current CSC/BCSH UI params to ``path`` as a full config file."""
+        from config_def.module_config_csc import CscConfig
+        cfg = CscConfig()
+        for ui_key, attr in _CSC_UI_KEY_TO_ATTR.items():
+            setattr(cfg, attr, int(self.ui.sliders[ui_key].value()))
+        import script.csc.get_csc_coefs as csc_core
+        for index, key in enumerate(csc_core.g_supported_standard_convert_modes.keys()):
+            if csc_core.g_supported_standard_convert_modes[key] == self.get_algo_type():
+                cfg.cscConvertMode = index
+                break
         try:
-            from config_def.module_config_csc import CscConfig
-            cfg = CscConfig()
-            for ui_key, attr in _CSC_UI_KEY_TO_ATTR.items():
-                setattr(cfg, attr, int(self.ui.sliders[ui_key].value()))
-            import script.csc.get_csc_coefs as csc_core
-            for index, key in enumerate(csc_core.g_supported_standard_convert_modes.keys()):
-                if csc_core.g_supported_standard_convert_modes[key] == self.get_algo_type():
-                    cfg.cscConvertMode = index
-                    break
-            try:
-                cfg.cscCoefPrecision = int(self.ui.comboBox_precision.currentText())
-            except ValueError:
-                cfg.cscCoefPrecision = 10
-            cfg.update_csc_coefs()
-            cfg.dump(path)
-            self._status_callback(f"CSC config saved to {path}")
-        except Exception as exc:
-            self._status_callback(f"CSC save config failed: {exc}")
+            cfg.cscCoefPrecision = int(self.ui.comboBox_precision.currentText())
+        except ValueError:
+            cfg.cscCoefPrecision = 10
+        cfg.update_csc_coefs()
+        cfg.dump(path)
+
+    def _on_save_config(self) -> None:
+        """Save CSC config: Yes=直接更新 I/O Config File / No=另存 / Cancel=取消。"""
+        mode = ask_save_mode("CSC")
+        if mode == "cancel":
+            return
+        if mode == "overwrite":
+            target = self._config_path_getter()
+            if not target:
+                self._status_callback("I/O page has no config file path set")
+                return
+        else:
+            target = pick_save_as_path(
+                self._config_path_getter(), "Save CSC Config As")
+            if not target:
+                return
+        own_root = build_own_root(self._dump_config_to)
+        if own_root is None:
+            self._status_callback("CSC save config failed")
+            return
+        if write_config_section(own_root, config_section_key("CSC"), target):
+            self._status_callback(f"CSC config saved to {target}")
+        else:
+            self._status_callback(f"CSC save config failed: {target}")
 
     def _on_read_config(self) -> None:
-        """Read a CscConfig json and apply its BCSH/algo/precision to the UI."""
-        path, _ = QFileDialog.getOpenFileName(
-            None, "Read CSC Config", "", "JSON Files (*.json)")
-        if not path:
+        """Reload the CSC config from the I/O Config File and apply to the UI."""
+        if not ask_reload("CSC"):
+            return
+        path = self._config_path_getter()
+        if not path or not os.path.isfile(path):
+            self._status_callback(f"No config file to reload: {path}")
             return
         try:
             from config_def.module_config_csc import CscConfig
@@ -431,9 +466,10 @@ class CscUiController(QObject):
             ui.label_baseTypeInfo.setText(f"CSC Base Type: {algo}")
             self._prev_algo = self.get_algo_type()
             self._sync_norms()
-            self._status_callback(f"CSC config read: {path}")
+            self._status_callback(f"CSC config reloaded: {path}")
             self.paramsChanged.emit()
         except Exception as exc:
+            logger.warning("CSC read config failed: %s", exc)
             self._status_callback(f"CSC read config failed: {exc}")
 
     def _on_param_changed(self, *_args) -> None:

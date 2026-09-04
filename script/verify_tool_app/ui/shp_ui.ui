@@ -78,7 +78,7 @@
         <string>保存配置参数到 json 配置文件</string>
        </property>
        <property name="text">
-        <string>Read Config</string>
+        <string>Reload Config</string>
        </property>
       </widget>
      </item>

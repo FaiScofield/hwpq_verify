@@ -3,6 +3,7 @@ I/O tab controller — encapsulates all IO-related behavior for reuse.
 """
 
 from collections.abc import Callable
+import logging
 import os
 import re
 
@@ -31,6 +32,32 @@ try:
     from ..ui_gen.io_ui import Ui_IoUiWidget
 except ImportError:
     from ui_gen.io_ui import Ui_IoUiWidget
+
+
+logger = logging.getLogger(__name__)
+
+# Browse 对话框默认目录：LineEdit 文本无效时回退到仓库 data/（若存在）。
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_DATA_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(_CURRENT_DIR))), "data")
+
+
+def _browse_start_dir(text: str) -> str:
+    """计算 Browse 对话框起始路径。
+
+    LineEdit 文本有效（文件/目录存在）→ 直接定位到它（文件则预选）；
+    否则回退到其父目录，再回退到仓库默认 data/ 目录。
+    """
+    text = (text or "").strip()
+    if text:
+        if os.path.isfile(text) or os.path.isdir(text):
+            return text
+        parent = os.path.dirname(text)
+        if parent and os.path.isdir(parent):
+            return parent
+    if os.path.isdir(_DATA_DIR):
+        return _DATA_DIR
+    return ""
 
 
 # ------------------------------------------------------------------ #
@@ -509,7 +536,7 @@ class IoUiController:
         path, _ = QFileDialog.getOpenFileName(
             None,
             "Select Input File",
-            "",
+            _browse_start_dir(self.ui.lineEdit_input_file.text()),
             "All Files (*.*);;YUV Files (*.yuv);;RGB Files (*.rgb);;Image Files (*.png *.jpg *.bmp)",
         )
         if path:
@@ -546,7 +573,9 @@ class IoUiController:
 
     def _on_browse_output(self) -> None:
         """Browse for an output directory."""
-        path = QFileDialog.getExistingDirectory(None, "Select Output Directory")
+        path = QFileDialog.getExistingDirectory(
+            None, "Select Output Directory",
+            _browse_start_dir(self.ui.lineEdit_output_dir.text()))
         if path:
             self.ui.lineEdit_output_dir.setText(path)
 
@@ -558,7 +587,10 @@ class IoUiController:
 
     def _on_browse_config(self) -> None:
         """Browse for an ACM config file."""
-        path, _ = QFileDialog.getOpenFileName(None, "Select Config File", "", "JSON Files (*.json)")
+        path, _ = QFileDialog.getOpenFileName(
+            None, "Select Config File",
+            _browse_start_dir(self.ui.lineEdit_config_file.text()),
+            "JSON Files (*.json)")
         if path:
             self.ui.lineEdit_config_file.setText(path)
 
@@ -765,6 +797,7 @@ class IoUiController:
         try:
             r, g, b = build_test_pattern_rgb(kind, width, height, value_v, value_h)
         except Exception as exc:
+            logger.error("Failed to generate test pattern: %s", exc)
             QMessageBox.critical(None, "Error", f"Failed to generate test pattern: {exc}")
             return
         frame = ImageFrame(r, g, b, _PLANAR_RGB_8, 1)
@@ -1071,4 +1104,5 @@ class IoUiController:
         except Exception as exc:
             if self._suppress_load_errors:
                 return
+            logger.error("Failed to load image: %s", exc)
             QMessageBox.critical(None, "Error", f"Failed to load image: {exc}")

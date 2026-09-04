@@ -167,31 +167,31 @@ def get_bcsh_norm_value(param_key, raw_value, algo_type):
             norm = raw_value / 64.0
         else:
             norm = raw_value / 256.0
-        return f"{norm:.2f}"
+        return f"{norm: 4.2f}"
     elif param_key in ("r_offset", "g_offset", "b_offset"):
         if is_evideo:
             norm = (raw_value - 256) / 256.0
         else:
             norm = (raw_value - 256) / 2048.0
-        return f"{norm:.2f}"
+        return f"{norm: 4.2f}"
     elif param_key == "bright":
         if is_evideo:
             norm = (raw_value - 256) / 256.0
         else:
             norm = (raw_value - 256) / 1024.0
-        return f"{norm:.2f}"
+        return f"{norm: 4.2f}"
     elif param_key == "contrast":
         norm = raw_value / 256.0
-        return f"{norm:.2f}"
+        return f"{norm: 4.2f}"
     elif param_key == "sat":
         norm = raw_value / 256.0
-        return f"{norm:.2f}"
+        return f"{norm: 4.2f}"
     elif param_key == "hue":
         if is_evideo:
             norm = (raw_value - 256) * 180.0 / 256.0
         else:
             norm = (raw_value - 256) * 30.0 / 256.0
-        return f"{norm:.2f}"
+        return f"{norm: 4.2f}"
     return ""
 
 

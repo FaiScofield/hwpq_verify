@@ -19,6 +19,7 @@ exe 耗时，由宿主决定何时重跑流水线）。
 """
 
 from collections.abc import Callable
+import logging
 import os
 import subprocess
 import tempfile
@@ -31,7 +32,25 @@ try:
 except ImportError:
     from ui_gen.shp_ui import Ui_ShpUiWidget
 
+try:
+    from ...script.utils import clamp
+except ImportError:
+    from script.utils import clamp
+
 from script.img_io import ImageFrame
+
+try:
+    from ..config_actions import (
+        ask_reload, ask_save_mode, build_own_root, config_section_key,
+        pick_save_as_path, write_config_section,
+    )
+except ImportError:
+    from script.verify_tool_app.ui_impl.com_impl import (
+        ask_reload, ask_save_mode, build_own_root, config_section_key,
+        pick_save_as_path, write_config_section,
+    )
+
+logger = logging.getLogger(__name__)
 
 
 class ShpUiWidget(QWidget):
@@ -90,7 +109,7 @@ class ShpUiController(QObject):
 
     def _band_index(self) -> int:
         """Return the selected band index [0, 7] from comboBox_BandIndex."""
-        return max(0, min(self.ui.comboBox_BandIndex.currentIndex(), len(self._BAND_NAMES) - 1))
+        return clamp(self.ui.comboBox_BandIndex.currentIndex(), 0, len(self._BAND_NAMES) - 1)
 
     # ------------------------------------------------------------------ #
     # Public param accessors / module protocol                           #
@@ -189,8 +208,10 @@ class ShpUiController(QObject):
                                    output_fmt, output_clrspc)
             return True, dst_frame
         except subprocess.TimeoutExpired:
+            logger.warning("Sharpen runner timeout")
             return False, "Sharpen timeout"
         except Exception as exc:
+            logger.warning("SHP process failed: %s", exc)
             return False, str(exc)
 
     # ------------------------------------------------------------------ #
@@ -376,6 +397,8 @@ class ShpUiController(QObject):
         ui.btn_browseExe.clicked.connect(self._on_browse_exe)
         ui.btn_openDir.clicked.connect(self._on_open_exe_dir)
         ui.btn_saveConfig.clicked.connect(self._on_save_config)
+        if hasattr(ui, "btn_readConfig"):
+            ui.btn_readConfig.clicked.connect(self._on_reload_config)
         ui.pushButton_resetPeaking.clicked.connect(self._on_reset_peaking)
         ui.pushButton_resetShootCtrl.clicked.connect(self._on_reset_shoot_ctrl)
 
@@ -417,7 +440,45 @@ class ShpUiController(QObject):
             return
         os.startfile(exe_dir)
 
+    def _dump_config_to(self, path: str) -> None:
+        """Write the current SHP UI params to ``path`` as a full config file."""
+        cfg = self._new_cfg()
+        self._apply_ui_to_cfg(cfg)
+        cfg.dump(path)
+
     def _on_save_config(self) -> None:
-        """Save the current SHP configuration to the I/O config path."""
-        ok, message = self.save_config()
+        """Save SHP config: Yes=直接更新 I/O Config File / No=另存 / Cancel=取消。"""
+        mode = ask_save_mode("SHP")
+        if mode == "cancel":
+            return
+        if mode == "overwrite":
+            target = self._config_path_getter()
+            if not target:
+                self._status_callback("I/O page has no config file path set")
+                return
+        else:
+            target = pick_save_as_path(
+                self._config_path_getter(), "Save SHP Config As")
+            if not target:
+                return
+        own_root = build_own_root(self._dump_config_to)
+        if own_root is None:
+            self._status_callback("SHP save config failed")
+            return
+        if write_config_section(own_root, config_section_key("SHP"), target):
+            self._status_callback(f"SHP config saved to {target}")
+        else:
+            self._status_callback(f"SHP save config failed: {target}")
+
+    def _on_reload_config(self) -> None:
+        """Reload the SHP config from the I/O Config File (with confirm)."""
+        if not ask_reload("SHP"):
+            return
+        path = self._config_path_getter()
+        if not path or not os.path.isfile(path):
+            self._status_callback(f"No config file to reload: {path}")
+            return
+        ok, message = self.load_config(path)
         self._status_callback(message)
+        if ok:
+            self.paramsChanged.emit()

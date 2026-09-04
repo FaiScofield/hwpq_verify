@@ -6,6 +6,7 @@ Date        : 2026-06-13
 Description : ACM test application host window with reusable widget composition
 """
 
+import logging
 import os
 import subprocess
 import sys
@@ -16,6 +17,16 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
 
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
+
+# 复用 script/utils.py 的 setup_logger（不再自定义 _setup_logging）：
+# utils 顶部 basicConfig 已给 root 配好控制台 handler（g_plain_formatter 格式），
+# 这里仅把 root level 置为 INFO，各模块 logger propagate 到 root 统一输出。
+from script.utils import setup_logger
+
+setup_logger(name=None, output=None, loglevel="INFO")
+
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_generated_ui_modules():
@@ -37,7 +48,7 @@ def _ensure_generated_ui_modules():
     if not needs_regen:
         return
 
-    print("run auto uic to generate ui_gen modules...")
+    logger.info("run auto uic to generate ui_gen modules...")
     cmd_path = os.path.join(CURRENT_DIR, "uic.cmd")
     if not os.path.isfile(cmd_path):
         raise RuntimeError(f"Missing UI generator script: {cmd_path}")
@@ -63,12 +74,12 @@ if __package__:
     from .ui_impl.io_ui_impl import IoUiController, IoUiWidget
     from .ui_impl.acm_ui_impl import AcmUiController, AcmUiWidget
     from .ui_impl.preview_ui_impl import PreviewUiController, PreviewUiWidget
-    from .ui_gen.app_mainwindow import Ui_AcmTestAppWindow
+    from .ui_gen.app_mainwindow import Ui_TestAppWindow
 else:
     from ui_impl.io_ui_impl import IoUiController, IoUiWidget
     from ui_impl.acm_ui_impl import AcmUiController, AcmUiWidget
     from script.verify_tool_app.ui_impl.preview_ui_impl import PreviewUiController, PreviewUiWidget
-    from ui_gen.app_mainwindow import Ui_AcmTestAppWindow
+    from ui_gen.app_mainwindow import Ui_TestAppWindow
 
 
 class AcmTestAppWindow(QMainWindow):
@@ -76,7 +87,7 @@ class AcmTestAppWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.ui = Ui_AcmTestAppWindow()
+        self.ui = Ui_TestAppWindow()
         self.ui.setupUi(self)
         self.setWindowTitle(f"ACM Test App {ACM_APP_VERSION}")
         # The host window .ui is shared across apps; set the ACM tab label here.

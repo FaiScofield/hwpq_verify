@@ -17,6 +17,7 @@ UI 定义在 ui/dci_ui.ui（Qt Designer，用户手工调整），本模块为�
 """
 
 from collections.abc import Callable
+import logging
 import os
 import subprocess
 import tempfile
@@ -36,6 +37,19 @@ try:
     from ..ui_gen.dci_ui import Ui_DciUiWidget
 except ImportError:
     from ui_gen.dci_ui import Ui_DciUiWidget
+
+try:
+    from ..config_actions import (
+        ask_reload, ask_save_mode, build_own_root, config_section_key,
+        pick_save_as_path, write_config_section,
+    )
+except ImportError:
+    from script.verify_tool_app.ui_impl.com_impl import (
+        ask_reload, ask_save_mode, build_own_root, config_section_key,
+        pick_save_as_path, write_config_section,
+    )
+
+logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------ #
 # Parameter / group tables (object names follow the hand-edited .ui) #
@@ -363,8 +377,10 @@ class DciUiController(QObject):
             self._load_cf_result_curve()
             return True, dst
         except subprocess.TimeoutExpired:
+            logger.warning("DCI runner timeout")
             return False, "DCI runner timeout"
         except Exception as exc:
+            logger.warning("DCI process failed: %s", exc)
             return False, str(exc)
 
     # ------------------------------------------------------------------ #
@@ -444,35 +460,56 @@ class DciUiController(QObject):
     # Config persistence (buttons)                                       #
     # ------------------------------------------------------------------ #
 
+    def _dump_config_to(self, path: str) -> None:
+        """Write the current DCI UI params to ``path`` as a full config file."""
+        from config_def.module_config_dci import DciUserConfig
+        cfg = DciUserConfig()
+        self.write_config(cfg)
+        cfg.dump(path)
+
     def _on_save_config(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(
-            None, "Save DCI Config As", "", "JSON Files (*.json)")
-        if not path:
+        """Save DCI config: Yes=直接更新 I/O Config File / No=另存 / Cancel=取消。"""
+        mode = ask_save_mode("DCI")
+        if mode == "cancel":
             return
-        try:
-            from config_def.module_config_dci import DciUserConfig
-            cfg = DciUserConfig()
-            self.write_config(cfg)
-            cfg.dump(path)
-            self._status_callback(f"DCI config saved to {path}")
-        except Exception as exc:
-            self._status_callback(f"DCI save config failed: {exc}")
+        if mode == "overwrite":
+            target = self._config_path_getter()
+            if not target:
+                self._status_callback("I/O page has no config file path set")
+                return
+        else:
+            target = pick_save_as_path(
+                self._config_path_getter(), "Save DCI Config As")
+            if not target:
+                return
+        own_root = build_own_root(self._dump_config_to)
+        if own_root is None:
+            self._status_callback("DCI save config failed")
+            return
+        if write_config_section(own_root, config_section_key("DCI"), target):
+            self._status_callback(f"DCI config saved to {target}")
+        else:
+            self._status_callback(f"DCI save config failed: {target}")
 
     def _on_read_config(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            None, "Read DCI Config", "", "JSON Files (*.json)")
-        if not path:
+        """Reload the DCI config from the I/O Config File and apply to the UI."""
+        if not ask_reload("DCI"):
+            return
+        path = self._config_path_getter()
+        if not path or not os.path.isfile(path):
+            self._status_callback(f"No config file to reload: {path}")
             return
         try:
             from config_def.module_config_dci import DciUserConfig
             cfg = DciUserConfig()
             if not cfg.load(path):
-                self._status_callback(f"Failed to read DCI config: {path}")
+                self._status_callback(f"Failed to reload DCI config: {path}")
                 return
             self.load_config_into_ui(cfg)
-            self._status_callback(f"DCI config read: {path}")
+            self._status_callback(f"DCI config reloaded: {path}")
             self.paramsChanged.emit()
         except Exception as exc:
+            logger.warning("DCI reload config failed: %s", exc)
             self._status_callback(f"DCI read config failed: {exc}")
 
     def _on_browse_exe(self) -> None:

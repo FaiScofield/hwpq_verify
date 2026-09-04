@@ -2,9 +2,11 @@
 PQ Verify Tool (PySide6 pilot) — 链式流水线宿主窗口。
 """
 
+import logging
 import os
 import subprocess
 import sys
+import time
 
 PQ_APP_VERSION = "v0.1"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,6 +18,44 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 for _path in (PROJECT_ROOT, SCRIPT_DIR):
     if _path not in sys.path:
         sys.path.insert(0, _path)
+
+# 默认日志文件（Help -> App Log 菜单直接打开它）。
+DEFAULT_LOG_FILE = os.path.join(PROJECT_ROOT, "output", "pq_verify_tool.log")
+
+
+def _git_short_hash() -> str:
+    """Return the repository HEAD short hash (or 'unknown')."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", PROJECT_ROOT, "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5)
+        return result.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _build_date_str() -> str:
+    """Return the source-file modification time as the build date."""
+    try:
+        import datetime
+        stamp = os.path.getmtime(os.path.abspath(__file__))
+        return datetime.datetime.fromtimestamp(stamp).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return "unknown"
+
+
+GIT_SHORT_HASH = _git_short_hash()
+BUILD_DATE = _build_date_str()
+
+# 复用 script/utils.py 的 setup_logger（不再自定义 _setup_logging）：
+# utils 顶部 basicConfig 已给 root 配好控制台 handler（g_plain_formatter 格式），
+# 这里把 root level 置为 INFO 并挂上默认日志文件；各模块 logger propagate 到 root。
+from script.utils import setup_logger
+
+setup_logger(name=None, output=DEFAULT_LOG_FILE, loglevel="DEBUG")
+
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_generated_ui_modules():
@@ -41,7 +81,7 @@ def _ensure_generated_ui_modules():
     if not needs_regen:
         return
 
-    print("run auto uic to generate ui_gen modules...")
+    logger.info("run auto uic to generate ui_gen modules...")
     cmd_path = os.path.join(CURRENT_DIR, "uic.cmd")
     if not os.path.isfile(cmd_path):
         raise RuntimeError(f"Missing UI generator script: {cmd_path}")
@@ -73,7 +113,7 @@ if __package__:
     from .ui_impl.dci_ui_impl import DciUiController, DciUiWidget
     from .ui_impl.shp_ui_impl import ShpUiController, ShpUiWidget
     from .ui_impl.preview_ui_impl import PreviewUiController, PreviewUiWidget
-    from .ui_gen.app_mainwindow import Ui_AcmTestAppWindow
+    from .ui_gen.app_mainwindow import Ui_TestAppWindow
 else:
     from ui_impl.io_ui_impl import IoUiController, IoUiWidget
     from ui_impl.csc_ui_impl import CscUiController, CscUiWidget
@@ -82,7 +122,7 @@ else:
     from ui_impl.dci_ui_impl import DciUiController, DciUiWidget
     from ui_impl.shp_ui_impl import ShpUiController, ShpUiWidget
     from script.verify_tool_app.ui_impl.preview_ui_impl import PreviewUiController, PreviewUiWidget
-    from ui_gen.app_mainwindow import Ui_AcmTestAppWindow
+    from ui_gen.app_mainwindow import Ui_TestAppWindow
 
 
 class PqVerifyAppWindow(QMainWindow):
@@ -90,7 +130,7 @@ class PqVerifyAppWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.ui = Ui_AcmTestAppWindow()
+        self.ui = Ui_TestAppWindow()
         self.ui.setupUi(self)
         self.setWindowTitle(f"PQ Verify Tool {PQ_APP_VERSION}")
         # tab 顺序：I/O, CSC, BCSH, ACM, DCI, SHP。
@@ -208,6 +248,7 @@ class PqVerifyAppWindow(QMainWindow):
 
         self._init_auto_run_timer()
         self._install_view_menu()
+        self._install_help_actions()
         self.preview_ctrl.preview_dock.visibilityChanged.connect(
             self._on_preview_dock_visibility_changed)
         # 接管 BCSH/ACM 内部防抖定时器：其 UI 编辑触发的自动运行改由宿主整链
@@ -237,6 +278,7 @@ class PqVerifyAppWindow(QMainWindow):
         if src is None:
             self.ui.statusbar.showMessage("No input loaded")
             return
+        start_time = time.perf_counter()
         io_info = {
             "out_fmt": self.io_ctrl.get_output_fmt_code(),
             "out_clrspc": self.io_ctrl.get_output_clrspc(),
@@ -249,7 +291,9 @@ class PqVerifyAppWindow(QMainWindow):
             # 无启用模块：输入直通为最终输出。
             self._latest_chain_frame = src
             self.preview_ctrl.set_output_image(src)
-            self.ui.statusbar.showMessage("No pipeline stage enabled - pass-through")
+            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            self.ui.statusbar.showMessage(
+                f"No pipeline stage enabled - pass-through ({elapsed_ms:.1f} ms)")
             return
         current = src
         total = len(tags)
@@ -259,13 +303,16 @@ class PqVerifyAppWindow(QMainWindow):
             self.ui.statusbar.showMessage(f"Running {label}... {index}/{total}")
             ok, result = stage.process_frame(current, io_info)
             if not ok:
-                self.ui.statusbar.showMessage(f"{label} failed: {result}")
+                elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+                self.ui.statusbar.showMessage(
+                    f"{label} failed: {result} ({elapsed_ms:.1f} ms)")
                 return
             current = result
         self._latest_chain_frame = current
         self.preview_ctrl.set_output_image(current)
+        elapsed_ms = (time.perf_counter() - start_time) * 1000.0
         self.ui.statusbar.showMessage(
-            f"Pipeline finished ({total} stage{'s' if total > 1 else ''})")
+            f"Pipeline finished ({total} stage{'s' if total > 1 else ''}) in {elapsed_ms:.1f} ms")
 
     def _on_params_changed(self) -> None:
         """Module params changed: re-run the whole chain (debounced)."""
@@ -323,6 +370,29 @@ class PqVerifyAppWindow(QMainWindow):
     def _install_view_menu(self) -> None:
         """Wire the Preview action to toggle the preview dock visibility."""
         self.ui.actionPreview.toggled.connect(self._on_preview_action_toggled)
+
+    def _install_help_actions(self) -> None:
+        """Wire the Help-menu actions (About / App Log)."""
+        if hasattr(self.ui, "actionAbout_This_App"):
+            self.ui.actionAbout_This_App.triggered.connect(self._on_about)
+        if hasattr(self.ui, "actionAPP_LOG"):
+            self.ui.actionAPP_LOG.triggered.connect(self._on_open_log)
+
+    def _on_about(self) -> None:
+        """Show the About dialog (version / git hash / build date)."""
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.about(
+            self, "About PQ Verify Tool",
+            f"<b>PQ Verify Tool</b> {PQ_APP_VERSION}<br/><br/>"
+            f"Git commit: {GIT_SHORT_HASH}<br/>"
+            f"Compiled date: {BUILD_DATE}")
+
+    def _on_open_log(self) -> None:
+        """Open the default log file with the system handler."""
+        if os.path.isfile(DEFAULT_LOG_FILE):
+            os.startfile(DEFAULT_LOG_FILE)
+        else:
+            self.ui.statusbar.showMessage(f"Log file not found: {DEFAULT_LOG_FILE}")
 
     def _on_preview_action_toggled(self, checked: bool) -> None:
         """Show or hide the preview dock."""

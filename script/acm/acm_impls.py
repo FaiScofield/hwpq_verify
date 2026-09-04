@@ -497,6 +497,9 @@ class AcmImplSwVariant(AcmImplBase):
         delta_y = np.clip(delta_y * gain_yy * gain_ys * g_y, -dr_y, dr_y)
         delta_s = np.clip(delta_s * gain_sy * gain_ss * g_s, 0.0, 2.0)
         delta_h = np.clip(delta_h * gain_hy * gain_hs * g_h, -dr_h, dr_h)
+        self._final_delta_y = delta_y.copy()
+        self._final_delta_s = delta_s.copy()
+        self._final_delta_h = delta_h.copy()
 
         # ---- 10. 应用到 HSV ----
         h_new = np.mod(h + delta_h, 360.0)
@@ -610,6 +613,9 @@ class AcmImplSwVariant(AcmImplBase):
         delta_y = np.clip(delta_y * gain_yy * gain_ys * g_y, -dr_y, dr_y)
         delta_s = np.clip(delta_s * gain_sy * gain_ss * g_s, 0, 2)  # [0, 2]
         delta_h = np.clip(delta_h * gain_hy * gain_hs * g_h, -dr_h, dr_h)
+        self._final_delta_y = delta_y.copy()
+        self._final_delta_s = delta_s.copy()
+        self._final_delta_h = delta_h.copy()
 
         # ---- 7. Apply to normalised values ----
         h_deg_new = np.mod(h_deg + delta_h, 360.0) # [0, 360]
