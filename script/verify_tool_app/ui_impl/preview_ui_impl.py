@@ -25,9 +25,9 @@ from script.img_io import (
 )
 
 try:
-    from ..ui_gen.io_preview_ui import Ui_PreviewUiWidget
+    from ..ui_gen.preview_ui import Ui_PreviewUiWidget
 except ImportError:
-    from ui_gen.io_preview_ui import Ui_PreviewUiWidget
+    from ui_gen.preview_ui import Ui_PreviewUiWidget
 
 
 class PreviewUiWidget(QWidget):

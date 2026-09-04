@@ -2043,7 +2043,7 @@ class AcmUiController:
         return np.mod(h * 60.0, 360.0)
 
     # ------------------------------------------------------------------ #
-    # Frozen pixel readout（预览像素显示，参考 hsv_ui_impl）               #
+    # Frozen pixel readout（预览像素显示，参考 bcsh_ui_impl）               #
     # ------------------------------------------------------------------ #
 
     def _refresh_frozen_readout(self) -> None:

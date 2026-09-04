@@ -543,6 +543,7 @@ class IoUiController:
         """Enable the test-pattern controls and load the selected pattern as input."""
         self.ui.comboBox_useTestPattern.setEnabled(enabled)
         self.ui.label_valueV.setEnabled(enabled)
+        self.ui.label_valueH.setEnabled(enabled)
         self.ui.spinBox_valueV.setEnabled(enabled)
         self.ui.spinBox_valueH.setEnabled(enabled)
         self._update_swap_controls()

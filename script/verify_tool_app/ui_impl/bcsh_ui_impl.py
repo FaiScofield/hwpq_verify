@@ -28,9 +28,9 @@ except ImportError:
     from params_config import SLIDER_SCALE, load_params, param_entry
 
 try:
-    from ..ui_gen.hsv_ui import Ui_HsvUiWidget
+    from ..ui_gen.bcsh_ui import Ui_HsvUiWidget
 except ImportError:
-    from ui_gen.hsv_ui import Ui_HsvUiWidget
+    from ui_gen.bcsh_ui import Ui_HsvUiWidget
 
 
 def _bt_chroma_max(cs: int) -> float:

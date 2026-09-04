@@ -28,10 +28,10 @@ def _ensure_generated_ui_modules():
     if getattr(sys, "frozen", False):
         return
     ui_pairs = (
-        ("ui\\module_app_mainwindow.ui", "ui_gen\\module_app_mainwindow.py"),
-        ("ui\\io_preview_ui.ui", "ui_gen\\io_preview_ui.py"),
+        ("ui\\app_mainwindow.ui", "ui_gen\\app_mainwindow.py"),
+        ("ui\\preview_ui.ui", "ui_gen\\preview_ui.py"),
         ("ui\\io_ui.ui", "ui_gen\\io_ui.py"),
-        ("ui\\hsv_ui.ui", "ui_gen\\hsv_ui.py"),
+        ("ui\\bcsh_ui.ui", "ui_gen\\bcsh_ui.py"),
     )
     needs_regen = False
     for src_rel, gen_rel in ui_pairs:
@@ -62,14 +62,14 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QScrollArea, QVBoxLayou
 
 if __package__:
     from .ui_impl.io_ui_impl import IoUiController, IoUiWidget
-    from .ui_impl.hsv_ui_impl import HsvUiController, HsvUiWidget
-    from .ui_impl.io_preview_ui_impl import PreviewUiController, PreviewUiWidget
-    from .ui_gen.module_app_mainwindow import Ui_AcmTestAppWindow
+    from .ui_impl.bcsh_ui_impl import HsvUiController, HsvUiWidget
+    from .ui_impl.preview_ui_impl import PreviewUiController, PreviewUiWidget
+    from .ui_gen.app_mainwindow import Ui_AcmTestAppWindow
 else:
     from ui_impl.io_ui_impl import IoUiController, IoUiWidget
-    from ui_impl.hsv_ui_impl import HsvUiController, HsvUiWidget
-    from ui_impl.io_preview_ui_impl import PreviewUiController, PreviewUiWidget
-    from ui_gen.module_app_mainwindow import Ui_AcmTestAppWindow
+    from ui_impl.bcsh_ui_impl import HsvUiController, HsvUiWidget
+    from script.verify_tool_app.ui_impl.preview_ui_impl import PreviewUiController, PreviewUiWidget
+    from ui_gen.app_mainwindow import Ui_AcmTestAppWindow
 
 
 class HsvTestAppWindow(QMainWindow):
@@ -158,7 +158,7 @@ class HsvTestAppWindow(QMainWindow):
     def _install_view_menu(self) -> None:
         """Wire the Preview action to toggle the preview dock visibility.
 
-        The action is defined in module_app_mainwindow.ui as checkable /
+        The action is defined in app_mainwindow.ui as checkable /
         checked-by-default.  Toggling it shows or hides the preview dock.
         """
         action = self.ui.actionPreview

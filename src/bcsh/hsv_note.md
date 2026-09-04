@@ -96,7 +96,7 @@ npm run preview    # 本地预览构建产物
 
 ### 4.1 Python 计算代码
 
-**BCSH 调整与处理域转换由 `script/bcsh/hsv_adjust.py` 统一实现**：RGB 系圆柱色域走 `adjust_hsv`（域内按 V→S→H 顺序调整），RGB 域走 `adjust_rgb`（逐通道直接调整）；处理域选择与 YCbCr 极坐标在 `script/verify_tool_app/ui_impl/hsv_ui_impl.py` 中完成。所有通道归一化 `[0,1]`（YCbCr 色度 `[-0.5,0.5]`）并 clamp。
+**BCSH 调整与处理域转换由 `script/bcsh/hsv_adjust.py` 统一实现**：RGB 系圆柱色域走 `adjust_hsv`（域内按 V→S→H 顺序调整），RGB 域走 `adjust_rgb`（逐通道直接调整）；处理域选择与 YCbCr 极坐标在 `script/verify_tool_app/ui_impl/bcsh_ui_impl.py` 中完成。所有通道归一化 `[0,1]`（YCbCr 色度 `[-0.5,0.5]`）并 clamp。
 
 **表 4.1-1 处理域转换（Adjust Field，8 项；域值 (H, S, X)）**
 
