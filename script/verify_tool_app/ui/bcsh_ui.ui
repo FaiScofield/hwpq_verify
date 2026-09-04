@@ -22,7 +22,7 @@
         <string>启用 HSV 调整处理</string>
        </property>
        <property name="text">
-        <string>Enable BCSH Adjust</string>
+        <string>Enable BCSH</string>
        </property>
        <property name="checked">
         <bool>true</bool>

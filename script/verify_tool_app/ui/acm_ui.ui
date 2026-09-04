@@ -19,7 +19,7 @@
      <item>
       <widget class="QCheckBox" name="checkBox_enable_acm">
        <property name="text">
-        <string>EnableACM</string>
+        <string>Enable ACM</string>
        </property>
       </widget>
      </item>

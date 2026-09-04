@@ -61,6 +61,8 @@ call :run_uic "%UI_DIR%\preview_ui.ui" "%OUT_DIR%\preview_ui.py"
 call :run_uic "%UI_DIR%\app_mainwindow.ui" "%OUT_DIR%\app_mainwindow.py"
 call :run_uic "%UI_DIR%\bcsh_ui.ui" "%OUT_DIR%\bcsh_ui.py"
 call :run_uic "%UI_DIR%\shp_ui.ui" "%OUT_DIR%\shp_ui.py"
+call :run_uic "%UI_DIR%\csc_ui.ui" "%OUT_DIR%\csc_ui.py"
+call :run_uic "%UI_DIR%\dci_ui.ui" "%OUT_DIR%\dci_ui.py"
 
 if not exist "%OUT_DIR%\__init__.py" (
     > "%OUT_DIR%\__init__.py" echo """Generated UI package for verify_tool_app."""

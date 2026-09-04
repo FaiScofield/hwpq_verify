@@ -262,28 +262,31 @@ class IoUiController:
     # Pipeline control bar (groupBox_pipeline)                           #
     # ------------------------------------------------------------------ #
     #
-    # 对应 PySimpleGUI 版 sg.Frame("Pipeline") 的控件语义：每个流水线模块
-    # 一行 = 启用勾选框 + ▲/▼（上移/下移）顺序按钮。groupBox_pipeline 默认
-    # 隐藏；宿主（如 test_app_pq）需要时调用 set_pipeline_visible(True) 并
-    # 用 configure_pipeline() 注册模块。勾选/顺序变化经 on_pipeline_changed
-    # 回调通知宿主重跑。
+    # 对应 PySimpleGUI 版 sg.Frame("Pipeline") 的控件语义：流水线模块水平
+    # 排列（左右移动），每个模块 = 启用勾选框 + ◀/▶（左移/右移）按钮。
+    # groupBox_pipeline 默认隐藏；宿主（如 test_app_pq）需要时调用
+    # set_pipeline_visible(True) 并 configure_pipeline() 注册模块。模块勾选
+    # 默认全部不选中，并与各模块 tab 页的 "Enable xxx" 总开关联动（宿主
+    # 经 set_pipeline_stage_enabled() 同步）。勾选/顺序变化经回调通知宿主。
 
     def _init_pipeline_group(self) -> None:
         """初始化 groupBox_pipeline 内的流水线控制栏并默认隐藏。"""
         self._pipeline_stages: list[tuple[str, str]] = []   # 有序 [(tag, label)]
         self._pipeline_enabled: set[str] = set()
+        self._pipeline_checkboxes: dict[str, QCheckBox] = {}
         self._on_pipeline_changed: Callable[[], None] | None = None
         self._pipeline_layout: QVBoxLayout | None = None
-        self.ui.groupBox_pipeline.setVisible(False)         # 默认隐藏
+        self._pipeline_box = self.ui.groupBox_pipeline
+        self._pipeline_box.setVisible(False)                # 默认隐藏
 
     def configure_pipeline(
-        self, stages: list[tuple[str, str]], default_enabled: bool = True,
+        self, stages: list[tuple[str, str]], default_enabled: bool = False,
     ) -> None:
-        """注册流水线模块并构建每行的启用勾选 + ▲/▼ 控件。
+        """注册流水线模块并构建水平排列的启用勾选 + ◀/▶ 控件。
 
         Args:
             stages: 有序的 (tag, label) 列表（初始执行顺序）。
-            default_enabled: 初始是否全部勾选启用。
+            default_enabled: 初始是否全部勾选启用（默认全不选中）。
         """
         self._pipeline_stages = list(stages)
         self._pipeline_enabled = (
@@ -292,13 +295,31 @@ class IoUiController:
 
     def set_pipeline_visible(self, visible: bool) -> None:
         """显示/隐藏 groupBox_pipeline（默认隐藏）。"""
-        self.ui.groupBox_pipeline.setVisible(visible)
+        self._pipeline_box.setVisible(visible)
 
     def set_pipeline_changed_callback(
         self, callback: Callable[[], None] | None,
     ) -> None:
         """设置流水线启用/顺序变化时的回调（宿主据此重跑流水线）。"""
         self._on_pipeline_changed = callback
+
+    def set_pipeline_stage_enabled(self, tag: str, checked: bool) -> None:
+        """同步某模块的启用勾选状态（宿主联动模块 "Enable xxx" 总开关时调用）。
+
+        值未变化时不做任何事（避免信号回流）；变化则更新勾选框并通知回调。
+        """
+        if checked:
+            if tag in self._pipeline_enabled:
+                return
+            self._pipeline_enabled.add(tag)
+        else:
+            if tag not in self._pipeline_enabled:
+                return
+            self._pipeline_enabled.discard(tag)
+        checkbox = self._pipeline_checkboxes.get(tag)
+        if checkbox is not None and checkbox.isChecked() != checked:
+            checkbox.setChecked(checked)
+        self._emit_pipeline_changed()
 
     def get_pipeline_order(self) -> list[str]:
         """返回当前模块执行顺序（含未启用的）。"""
@@ -310,15 +331,19 @@ class IoUiController:
                 if tag in self._pipeline_enabled]
 
     def _ensure_pipeline_layout(self) -> QVBoxLayout:
-        """返回 groupBox_pipeline 的纵向布局（首次创建）。"""
+        """返回 groupBox_pipeline 的布局（首次创建）。"""
         if self._pipeline_layout is None:
-            self._pipeline_layout = QVBoxLayout(self.ui.groupBox_pipeline)
+            self._pipeline_layout = QVBoxLayout(self._pipeline_box)
             self._pipeline_layout.setContentsMargins(6, 6, 6, 6)
             self._pipeline_layout.setSpacing(2)
         return self._pipeline_layout
 
     def _rebuild_pipeline_rows(self) -> None:
-        """按当前顺序重建行（勾选 + ▲/▼）；首行 ▲、末行 ▼ 禁用。"""
+        """按当前顺序重建水平排列的行（勾选 + ◀/▶）。
+
+        每个模块是一个紧凑 cell（勾选 + 左移/右移按钮），全部水平排成一行；
+        最左 cell 的 ◀ 与最右 cell 的 ▶ 禁用。
+        """
         layout = self._ensure_pipeline_layout()
         while layout.count():
             item = layout.takeAt(0)
@@ -326,45 +351,64 @@ class IoUiController:
             if w is not None:
                 w.setParent(None)
                 w.deleteLater()
+        self._pipeline_checkboxes = {}
         count = len(self._pipeline_stages)
+        if count == 0:
+            return
+        strip = QWidget(self._pipeline_box)
+        strip_layout = QHBoxLayout(strip)
+        strip_layout.setContentsMargins(0, 0, 0, 0)
+        strip_layout.setSpacing(6)
         for index, (tag, label) in enumerate(self._pipeline_stages):
-            row = QWidget(self.ui.groupBox_pipeline)
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setSpacing(4)
-            checkbox = QCheckBox(label, row)
+            cell = QWidget(strip)
+            cell_layout = QHBoxLayout(cell)
+            cell_layout.setContentsMargins(0, 0, 0, 0)
+            cell_layout.setSpacing(2)
+            checkbox = QCheckBox(label, cell)
             checkbox.setChecked(tag in self._pipeline_enabled)
-            checkbox.setToolTip(f"启用/禁用 {label} 处理模块")
+            checkbox.setToolTip(f"启用/禁用 {label}（与模块页 Enable 总开关联动）")
             checkbox.toggled.connect(
                 lambda checked, t=tag: self._on_pipeline_toggle(t, checked))
-            up_btn = QPushButton("▲", row)
-            down_btn = QPushButton("▼", row)
-            up_btn.setFixedWidth(26)
-            down_btn.setFixedWidth(26)
-            up_btn.setToolTip(f"上移 {label}（调整执行顺序）")
-            down_btn.setToolTip(f"下移 {label}（调整执行顺序）")
-            up_btn.setEnabled(index > 0)
-            down_btn.setEnabled(index < count - 1)
-            up_btn.clicked.connect(
+            left_btn = QPushButton("◀", cell)
+            right_btn = QPushButton("▶", cell)
+            for btn in (left_btn, right_btn):
+                btn.setFixedWidth(24)
+                btn.setFixedHeight(22)
+            left_btn.setToolTip(f"左移 {label}（调整执行顺序）")
+            right_btn.setToolTip(f"右移 {label}（调整执行顺序）")
+            left_btn.setEnabled(index > 0)
+            right_btn.setEnabled(index < count - 1)
+            left_btn.clicked.connect(
                 lambda _=False, t=tag: self._move_pipeline_stage(t, -1))
-            down_btn.clicked.connect(
+            right_btn.clicked.connect(
                 lambda _=False, t=tag: self._move_pipeline_stage(t, 1))
-            row_layout.addWidget(checkbox)
-            row_layout.addStretch(1)
-            row_layout.addWidget(up_btn)
-            row_layout.addWidget(down_btn)
-            layout.addWidget(row)
+            cell_layout.addWidget(checkbox)
+            cell_layout.addWidget(left_btn)
+            cell_layout.addWidget(right_btn)
+            self._pipeline_checkboxes[tag] = checkbox
+            strip_layout.addWidget(cell)
+            if index < count - 1:
+                sep = QWidget(strip)
+                sep.setFixedWidth(1)
+                sep.setStyleSheet("background:#808080;")
+                strip_layout.addWidget(sep)
+        strip_layout.addStretch(1)
+        layout.addWidget(strip)
 
     def _on_pipeline_toggle(self, tag: str, checked: bool) -> None:
         """勾选/取消勾选某模块的启用状态。"""
         if checked:
+            if tag in self._pipeline_enabled:
+                return
             self._pipeline_enabled.add(tag)
         else:
+            if tag not in self._pipeline_enabled:
+                return
             self._pipeline_enabled.discard(tag)
         self._emit_pipeline_changed()
 
     def _move_pipeline_stage(self, tag: str, delta: int) -> None:
-        """把 tag 上移(-1)/下移(+1)；越界忽略，移动后重建行。"""
+        """把 tag 左移(-1)/右移(+1)；越界忽略，移动后重建行。"""
         index = next(
             (i for i, (t, _) in enumerate(self._pipeline_stages) if t == tag), -1)
         target = index + delta

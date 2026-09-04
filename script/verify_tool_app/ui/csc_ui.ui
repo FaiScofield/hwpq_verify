@@ -1,0 +1,835 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>CscUiWidget</class>
+ <widget class="QWidget" name="CscUiWidget">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>757</width>
+    <height>620</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>CSC Config</string>
+  </property>
+  <layout class="QVBoxLayout" name="rootLayout">
+   <item>
+    <layout class="QHBoxLayout" name="topLayout">
+     <item>
+      <widget class="QCheckBox" name="checkBox_enableCsc">
+       <property name="toolTip">
+        <string>CSC 模块总开关（与流水线勾选联动）</string>
+       </property>
+       <property name="text">
+        <string>Enable CSC</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="Line" name="line">
+       <property name="orientation">
+        <enum>Qt::Orientation::Vertical</enum>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_algoType">
+       <property name="text">
+        <string>Algo Type</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="comboBox_algoType">
+       <property name="toolTip">
+        <string>CSC算法实现方法</string>
+       </property>
+       <item>
+        <property name="text">
+         <string>RK HW CSC</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>RK SW CSC</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>eVideo CSC</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>eVideo CSC Plan A</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>eVideo CSC Plan B</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>eVideo CSC Plan C</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_precision">
+       <property name="text">
+        <string>Precision</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="comboBox_precision">
+       <property name="toolTip">
+        <string>CSC计算精度</string>
+       </property>
+       <item>
+        <property name="text">
+         <string>0</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>8</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>9</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>10</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>11</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>12</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>13</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>14</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>15</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>16</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <spacer name="topSpacer">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_readCfg">
+       <property name="text">
+        <string>Read Config</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_saveCfg">
+       <property name="toolTip">
+        <string>保存CSC参数到json配置文件</string>
+       </property>
+       <property name="text">
+        <string>Save Config</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout">
+     <property name="topMargin">
+      <number>0</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="label_midFmt">
+       <property name="text">
+        <string>Mid Format</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="cmbox_midFmt"/>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_midClrspc">
+       <property name="text">
+        <string>Mid Colorspace</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="cmbox_midClrspc">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="toolTip">
+        <string>输出帧色彩空间</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_baseTypeInfo">
+       <property name="text">
+        <string>CSC Base Type: Unknown</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_resetBcsh">
+       <property name="toolTip">
+        <string>将所有BCSH参数重置为当前算法默认值</string>
+       </property>
+       <property name="text">
+        <string>Reset BCSH</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_bcsh">
+     <property name="title">
+      <string>BCSH Params</string>
+     </property>
+     <layout class="QGridLayout" name="bcshGrid">
+      <item row="1" column="3">
+       <widget class="QLabel" name="norm_sat">
+        <property name="text">
+         <string>1.0</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="8">
+       <widget class="QLabel" name="norm_contrast">
+        <property name="text">
+         <string>1.0</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="8">
+       <widget class="QLabel" name="norm_r_offset">
+        <property name="text">
+         <string>0.0</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="7">
+       <widget class="QSpinBox" name="spin_contrast">
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="7">
+       <widget class="QSpinBox" name="spin_g_offset">
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="3">
+       <widget class="QLabel" name="norm_g_gain">
+        <property name="text">
+         <string>1.0</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="0">
+       <widget class="QLabel" name="label_bright">
+        <property name="text">
+         <string>Brightness</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="2">
+       <widget class="QSpinBox" name="spin_sat">
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="3">
+       <widget class="QLabel" name="norm_r_gain">
+        <property name="text">
+         <string>1.0</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="6">
+       <widget class="QSlider" name="slider_hue">
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="7">
+       <widget class="QSpinBox" name="spin_r_offset">
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="7">
+       <widget class="QSpinBox" name="spin_hue">
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="8">
+       <widget class="QLabel" name="norm_hue">
+        <property name="text">
+         <string>0.0</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QSlider" name="slider_bright">
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="3">
+       <widget class="QLabel" name="norm_b_gain">
+        <property name="text">
+         <string>1.0</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="6">
+       <widget class="QSlider" name="slider_r_offset">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="2">
+       <widget class="QSpinBox" name="spin_g_gain">
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="8">
+       <widget class="QLabel" name="norm_b_offset">
+        <property name="text">
+         <string>0.0</string>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="6">
+       <widget class="QSlider" name="slider_b_offset">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="2">
+       <widget class="QSpinBox" name="spin_r_gain">
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="3">
+       <widget class="QLabel" name="norm_bright">
+        <property name="text">
+         <string>0.0</string>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="2">
+       <widget class="QSpinBox" name="spin_b_gain">
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="5">
+       <widget class="QLabel" name="label_b_offset">
+        <property name="text">
+         <string>B Offset</string>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="7">
+       <widget class="QSpinBox" name="spin_b_offset">
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="5">
+       <widget class="QLabel" name="label_hue">
+        <property name="text">
+         <string>Hue</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="5">
+       <widget class="QLabel" name="label_g_offset">
+        <property name="text">
+         <string>G Offset</string>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="1">
+       <widget class="QSlider" name="slider_b_gain">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QSlider" name="slider_r_gain">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="label_sat">
+        <property name="text">
+         <string>Saturation</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="0">
+       <widget class="QLabel" name="label_g_gain">
+        <property name="text">
+         <string>G Gain</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QSlider" name="slider_sat">
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="0">
+       <widget class="QLabel" name="label_b_gain">
+        <property name="text">
+         <string>B Gain</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="5">
+       <widget class="QLabel" name="label_contrast">
+        <property name="text">
+         <string>Contrast</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="6">
+       <widget class="QSlider" name="slider_contrast">
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="6">
+       <widget class="QSlider" name="slider_g_offset">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="8">
+       <widget class="QLabel" name="norm_g_offset">
+        <property name="text">
+         <string>0.0</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="5">
+       <widget class="QLabel" name="label_r_offset">
+        <property name="text">
+         <string>R Offset</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="label_r_gain">
+        <property name="text">
+         <string>R Gain</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1">
+       <widget class="QSlider" name="slider_g_gain">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="2">
+       <widget class="QSpinBox" name="spin_bright">
+        <property name="minimum">
+         <number>0</number>
+        </property>
+        <property name="maximum">
+         <number>511</number>
+        </property>
+        <property name="value">
+         <number>256</number>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="4">
+       <widget class="QLabel" name="label">
+        <property name="minimumSize">
+         <size>
+          <width>5</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="text">
+         <string/>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_coef">
+     <property name="title">
+      <string>CSC Coef Info</string>
+     </property>
+     <layout class="QGridLayout" name="coefGrid">
+      <item row="0" column="2">
+       <widget class="QComboBox" name="cmbox_channelSwap">
+        <property name="toolTip">
+         <string>VOP通道交换模式</string>
+        </property>
+        <item>
+         <property name="text">
+          <string>None</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>V1_SWAP</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>V2_Y2R_R2R</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>V2_R2Y_R2R</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>V2_Y2R_Y2Y</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="0" column="0">
+       <widget class="QLabel" name="label_channelSwap">
+        <property name="text">
+         <string>Channel Swap (VOP)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="2">
+       <widget class="QTableWidget" name="table_coefStep2"/>
+      </item>
+      <item row="1" column="0">
+       <widget class="QTableWidget" name="table_coefStep1"/>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="verticalSpacer">
+     <property name="orientation">
+      <enum>Qt::Orientation::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>40</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <tabstops>
+  <tabstop>checkBox_enableCsc</tabstop>
+  <tabstop>comboBox_algoType</tabstop>
+  <tabstop>comboBox_precision</tabstop>
+  <tabstop>btn_readCfg</tabstop>
+  <tabstop>btn_saveCfg</tabstop>
+  <tabstop>cmbox_midFmt</tabstop>
+  <tabstop>cmbox_midClrspc</tabstop>
+  <tabstop>btn_resetBcsh</tabstop>
+  <tabstop>slider_bright</tabstop>
+  <tabstop>spin_bright</tabstop>
+  <tabstop>slider_contrast</tabstop>
+  <tabstop>spin_contrast</tabstop>
+  <tabstop>slider_sat</tabstop>
+  <tabstop>spin_sat</tabstop>
+  <tabstop>slider_hue</tabstop>
+  <tabstop>spin_hue</tabstop>
+  <tabstop>slider_r_gain</tabstop>
+  <tabstop>spin_r_gain</tabstop>
+  <tabstop>slider_r_offset</tabstop>
+  <tabstop>spin_r_offset</tabstop>
+  <tabstop>slider_g_gain</tabstop>
+  <tabstop>spin_g_gain</tabstop>
+  <tabstop>slider_g_offset</tabstop>
+  <tabstop>spin_g_offset</tabstop>
+  <tabstop>slider_b_gain</tabstop>
+  <tabstop>spin_b_gain</tabstop>
+  <tabstop>slider_b_offset</tabstop>
+  <tabstop>spin_b_offset</tabstop>
+  <tabstop>cmbox_channelSwap</tabstop>
+  <tabstop>table_coefStep1</tabstop>
+  <tabstop>table_coefStep2</tabstop>
+ </tabstops>
+ <resources/>
+ <connections/>
+</ui>
