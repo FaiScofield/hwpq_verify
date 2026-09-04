@@ -24,11 +24,13 @@ if __package__:
         ACM_DELTA_Y_MAX,
         ACM_DELTA_S_MAX,
         ACM_DELTA_H_MAX,
+        ACM_HSV_GRAY_THRESHOLD_S,
         linear_resize_array_1d,
         linear_resize_array_2d,
         bicubic_resize_array_1d,
         bicubic_resize_array_2d,
     )
+    from ..bcsh.hsv_adjust import rgb_to_hsv, hsv_to_rgb
     from . import cordic
     from .. import utils as utl
 else:
@@ -38,11 +40,13 @@ else:
         ACM_DELTA_Y_MAX,
         ACM_DELTA_S_MAX,
         ACM_DELTA_H_MAX,
+        ACM_HSV_GRAY_THRESHOLD_S,
         linear_resize_array_1d,
         linear_resize_array_2d,
         bicubic_resize_array_1d,
         bicubic_resize_array_2d,
     )
+    from bcsh.hsv_adjust import rgb_to_hsv, hsv_to_rgb
     import cordic
     import utils as utl
 
@@ -385,17 +389,133 @@ class AcmImplSwVariant(AcmImplBase):
 
     def do_acm_u8(self, planar_data: np.ndarray, isRgb=False, use_cordic=None):
         if isRgb:
-            return super().do_acm_u8(planar_data, isRgb=True)
+            return self._do_acm_rgb_variant(planar_data, rng=256)
         if use_cordic is None:
             use_cordic = self.use_cordic
         return self._do_acm_yuv_variant(planar_data, depth=8, use_cordic=use_cordic)
 
     def do_acm_u10(self, planar_data: np.ndarray, isRgb=False, use_cordic=None):
         if isRgb:
-            return super().do_acm_u10(planar_data, isRgb=True)
+            return self._do_acm_rgb_variant(planar_data, rng=1024)
         if use_cordic is None:
             use_cordic = self.use_cordic
         return self._do_acm_yuv_variant(planar_data, depth=10, use_cordic=use_cordic)
+
+    def _do_acm_rgb_variant(self, planar_data: np.ndarray, rng: int) -> np.ndarray:
+        """Variant ACM on full-range RGB via the HSV path（RGB/HSV 处理域）。
+
+        与 :meth:`_do_acm_yuv_variant` 语义一致：gain 后置（不在 LUT 归一化时
+        乘入）、delta_s 乘性（LUT 归一化到 [0,2]，S'=S·delta_s）、delta_y/h
+        按 delta_range 钳位；域转换用 hsv_adjust.py 的 rgb_to_hsv / hsv_to_rgb
+        （六边形 HSV，与 BCSH 工具一致的参考实现）。灰阶像素旁路 LUT，直接
+        施加 RGB offset（wr/wg/wb，256 为中性）。
+        输入 [H,W,3] full-range 整数；返回 [C,H,W]。
+        """
+        import cv2
+        y_max = float(rng - 1)
+        dr_y, _dr_s, dr_h = self.delta_range  # delta_s 为乘性，不使用 dr_s 缩放
+
+        # ---- 1. normalize [0,1] ----
+        rgb_f = planar_data.astype(np.float32) / y_max
+        r = rgb_f[..., 0]
+        g = rgb_f[..., 1]
+        b = rgb_f[..., 2]
+        v0 = np.max(rgb_f, axis=-1)
+        m0 = np.min(rgb_f, axis=-1)
+        delta_val = v0 - m0
+
+        # ---- 2. gray bypass：LUT 旁路，直接施加 RGB offset ----
+        is_gray = delta_val < ACM_HSV_GRAY_THRESHOLD_S
+        rgb_offset = np.array(
+            [(self.offset_wr - 256) / 512.0,
+             (self.offset_wg - 256) / 512.0,
+             (self.offset_wb - 256) / 512.0], dtype=np.float32)
+        rgb_gray = np.clip(rgb_f + rgb_offset[None, None, :], 0.0, 1.0)
+
+        # ---- 3. RGB -> HSV（hsv_adjust 六边形 HSV：h∈[0,360), s/v∈[0,1]） ----
+        h, s, v = rgb_to_hsv(rgb_f)          # h/s/v 均为 (H,W)
+        h = np.where(is_gray, 0.0, h)
+        s = np.where(is_gray, 0.0, s)
+
+        # ---- 4. 归一化 LUT（gain 后置；delta_s 乘性） ----
+        lut_dy = np.clip(self.lut_delta_ybyh.astype(np.float32) / ACM_DELTA_Y_MAX * dr_y, -dr_y, dr_y)
+        lut_ds = np.clip(self.lut_delta_sbyh.astype(np.float32) / ACM_DELTA_S_MAX + 1.0, 0.0, 2.0)
+        lut_dh = np.clip(self.lut_delta_hbyh.astype(np.float32) / ACM_DELTA_H_MAX * dr_h, -dr_h, dr_h)
+        lut_gy_y = self.lut_gain_ybyy.astype(np.float32) / 127.0
+        lut_gs_y = self.lut_gain_sbyy.astype(np.float32) / 127.0
+        lut_gh_y = self.lut_gain_hbyy.astype(np.float32) / 127.0
+        lut_gy_s = self.lut_gain_ybys.astype(np.float32) / 127.0
+        lut_gs_s = self.lut_gain_sbys.astype(np.float32) / 127.0
+        lut_gh_s = self.lut_gain_hbys.astype(np.float32) / 127.0
+
+        # ---- 5. LUT 索引：h 用 hp=(h+180)%360 对齐 YUV 域 LUT 的 H 轴 ----
+        hp_deg = np.mod(h + 180.0, 360.0)
+        idx_h = (hp_deg / 360.0 * (self.len_h - 1)).astype(np.float32)      # delta 1D（len_h）
+        idx_hd = (hp_deg / 360.0 * (self.len_hd - 1)).astype(np.float32)    # gain 2D 第二轴（len_hd）
+        idx_v = (v * (self.len_y - 1)).astype(np.float32)
+        idx_s = (s * (self.len_s - 1)).astype(np.float32)
+        idx_zeros = np.zeros_like(idx_h)
+
+        # ---- 6. 采样 delta 表（1D，按 H） ----
+        _kw = dict(interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        delta_y = cv2.remap(lut_dy.reshape(1, -1), idx_h, idx_zeros, **_kw)
+        delta_s = cv2.remap(lut_ds.reshape(1, -1), idx_h, idx_zeros, **_kw)
+        delta_h = cv2.remap(lut_dh.reshape(1, -1), idx_h, idx_zeros, **_kw)
+
+        # ---- 7. 采样 gain 表（2D，按 (V/S, HD)） ----
+        if self.ignore_gain_luts:
+            gain_yy = np.ones_like(delta_y, dtype=np.float32)
+            gain_ys = np.ones_like(delta_y, dtype=np.float32)
+            gain_hy = np.ones_like(delta_y, dtype=np.float32)
+            gain_sy = np.ones_like(delta_y, dtype=np.float32)
+            gain_ss = np.ones_like(delta_y, dtype=np.float32)
+            gain_hs = np.ones_like(delta_y, dtype=np.float32)
+        else:
+            gain_yy = cv2.remap(lut_gy_y, idx_hd, idx_v, **_kw)   # ybyy 按 (V, HD)
+            gain_ys = cv2.remap(lut_gs_y, idx_hd, idx_v, **_kw)   # sbyy 按 (V, HD)
+            gain_hy = cv2.remap(lut_gh_y, idx_hd, idx_v, **_kw)   # hbyy 按 (V, HD)
+            gain_sy = cv2.remap(lut_gy_s, idx_hd, idx_s, **_kw)   # ybys 按 (S, HD)
+            gain_ss = cv2.remap(lut_gs_s, idx_hd, idx_s, **_kw)   # sbys 按 (S, HD)
+            gain_hs = cv2.remap(lut_gh_s, idx_hd, idx_s, **_kw)   # hbys 按 (S, HD)
+
+        # ---- 8. 中间值缓存（UI 标注 get_pixel_intermediates） ----
+        self._last_delta_y_raw = delta_y.copy()
+        self._last_delta_s_raw = delta_s.copy()
+        self._last_delta_h_raw = delta_h.copy()
+        self._last_gain_yy = gain_yy.copy()
+        self._last_gain_ys = gain_ys.copy()
+        self._last_gain_sy = gain_sy.copy()
+        self._last_gain_ss = gain_ss.copy()
+        self._last_gain_hy = gain_hy.copy()
+        self._last_gain_hs = gain_hs.copy()
+        self._last_intermediate_shape = delta_y.shape
+
+        # ---- 9. 合并 delta（gain 后置） ----
+        g_y = self.gain_y / 256.0
+        g_s = self.gain_s / 256.0
+        g_h = self.gain_h / 256.0
+        delta_y = np.clip(delta_y * gain_yy * gain_ys * g_y, -dr_y, dr_y)
+        delta_s = np.clip(delta_s * gain_sy * gain_ss * g_s, 0.0, 2.0)
+        delta_h = np.clip(delta_h * gain_hy * gain_hs * g_h, -dr_h, dr_h)
+
+        # ---- 10. 应用到 HSV ----
+        h_new = np.mod(h + delta_h, 360.0)
+        s_new = np.clip(s * delta_s, 0.0, 1.0)
+        v_new = np.clip(v + delta_y, 0.0, 1.0)
+
+        # ---- 11. HSV -> RGB（hsv_adjust 纯 numpy） ----
+        rgb_new = hsv_to_rgb(np.stack([h_new, s_new, v_new], axis=-1))
+
+        # ---- 12. 灰阶合并 ----
+        rgb_out_f = np.where(is_gray[..., None], rgb_gray, rgb_new)
+
+        # ---- 13. 量化回整数 [C,H,W] ----
+        rgb_q = np.clip(np.rint(rgb_out_f * y_max), 0.0, y_max)
+        dtype = np.uint16 if rng > 256 else np.uint8
+        rgb_out = np.empty((3, rgb_f.shape[0], rgb_f.shape[1]), dtype=dtype)
+        for ch in range(3):
+            rgb_out[ch] = rgb_q[..., ch].astype(dtype)
+        return rgb_out
 
     def _do_acm_yuv_variant(self, planar_data: np.ndarray, depth: int, use_cordic: bool):
         """Variant ACM pipeline: gains applied late, delta_s multiplicative."""

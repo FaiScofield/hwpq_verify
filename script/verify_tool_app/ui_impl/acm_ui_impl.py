@@ -3,6 +3,7 @@ ACM tab controller — encapsulates all ACM-related UI behavior and state.
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass
 import os
 import time
 
@@ -12,6 +13,7 @@ from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPen, QPixm
 from PySide6.QtWidgets import (
     QFileDialog,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QSizePolicy,
@@ -45,9 +47,40 @@ except ImportError:
     )
 
 try:
-    from ...script.img_io import ImageFrame, _PLANAR_YUV_8, rgb_to_yuv, yuv_to_rgb
+    from ...script.img_io import (
+        ImageFrame, _PLANAR_YUV_8, _PLANAR_YUV_10, _PLANAR_RGB_8, _PLANAR_RGB_10,
+        _csc_range_params, _get_csc_matrices, is_limited_range, is_rgb_format,
+        rgb_to_yuv, yuv_to_rgb,
+    )
 except ImportError:
-    from script.img_io import ImageFrame, _PLANAR_YUV_8, rgb_to_yuv, yuv_to_rgb
+    from script.img_io import (
+        ImageFrame, _PLANAR_YUV_8, _PLANAR_YUV_10, _PLANAR_RGB_8, _PLANAR_RGB_10,
+        _csc_range_params, _get_csc_matrices, is_limited_range, is_rgb_format,
+        rgb_to_yuv, yuv_to_rgb,
+    )
+
+
+@dataclass
+class AcmPixelReadoutCache:
+    """ACM 处理读数缓存（全分辨率，float full-range / 原生整数）。
+
+    输入侧：in_native(1️⃣) / in_full_yuv·in_full_rgb(2️⃣, 视处理域) / in_domain(3️⃣)。
+    输出侧：out_native(6️⃣) / out_full_yuv·out_full_rgb(5️⃣) / out_domain(4️⃣)。
+    域值 in/out_domain 为 (name, h, s, y)：
+      YHS 处理域：h=YCbCr 极角度 [-180,180]，s=原始极径，y=Y 原生尺度。
+      HSV 处理域：h=六边形色相度 [0,360)，s=S∈[0,1]，y=V∈[0,1]。
+    """
+
+    in_native: tuple                       # (kind, (planes), depth)，kind='rgb'/'yuv'
+    in_full_yuv: np.ndarray | None         # (H,W,3) float (Y, cb, cr)（YHS 处理域）
+    in_full_rgb: np.ndarray | None         # (H,W,3) float full-range RGB（HSV 处理域）
+    in_yuv_cs: int
+    in_domain: tuple                       # (name, h, s, y)
+    out_native: tuple
+    out_full_yuv: np.ndarray | None
+    out_full_rgb: np.ndarray | None
+    out_yuv_cs: int
+    out_domain: tuple
 
 
 class AcmUiWidget(QWidget):
@@ -456,12 +489,15 @@ class AcmUiController:
     _SUPPORTED_CLIP_TYPES: tuple[str, ...] = ("easy_clip", "radial_clip", "luma_clip")
     _ALGO_KEYS: tuple[str, ...] = ("VOP_VP_ACM", "SW_ACM", "EVIDEO_ACM", "SW_ACM_VARIANT")
     _ALGO_DISPLAY_TEXTS: tuple[str, ...] = (
-        "HW_ACM(VOP) (9,13,65,17)",
-        "SW_ACM (9,13,65,65)",
-        "EVIDEO_ACM (9,13,65,65)",
-        "SW_ACM_VARIANT (custom)",
+        "HW_VOP (9,13,65,17)",
+        "SW_RK (9,13,65,65)",
+        "SW_Sonnoc (9,13,65,65)",
+        "ACM_LITE (custom)",
     )
     _HW_ALGO_KEY = "VOP_VP_ACM"
+    # 支持 RGB/HSV 处理路径的算法（do_acm 尊重 isRgb：SW_RK/SW_Sonnoc 走基类
+    # _do_acm_rgb，ACM_LITE 走自身 _do_acm_rgb_variant；HW_VOP 恒走 YUV）。
+    _RGB_PATH_ALGOS: tuple[str, ...] = ("SW_ACM", "EVIDEO_ACM", "SW_ACM_VARIANT")
 
     # ------------------------------------------------------------------ #
     # Initialization                                                     #
@@ -477,6 +513,11 @@ class AcmUiController:
         status_callback: Callable[[str], None] | None = None,
         config_path_getter: Callable[[], str] | None = None,
         config_path_setter: Callable[[str], None] | None = None,
+        work_size_provider: Callable[[int, int], tuple[int, int]] | None = None,
+        input_pixel_edit: QLineEdit | None = None,
+        output_pixel_edit: QLineEdit | None = None,
+        output_fmt_provider: Callable[[], int] | None = None,
+        output_clrspc_provider: Callable[[], int] | None = None,
         dock_host: QMainWindow | None = None,
     ) -> None:
         """Bind to an AcmUiWidget instance and explicit host callbacks.
@@ -484,12 +525,19 @@ class AcmUiController:
         Args:
             acm_widget: An AcmUiWidget whose ``.ui`` provides ACM controls.
             parent_window: Optional host window kept for QObject parenting.
-            input_provider: Optional callback returning the current input YUV444 buffer.
-            output_callback: Optional callback receiving the processed output YUV444.
+            input_provider: Optional callback returning the current input frame.
+            output_callback: Optional callback receiving the processed preview frame.
             preview_time_callback: Optional callback receiving elapsed milliseconds.
             status_callback: Optional callback receiving status-bar text.
             config_path_getter: Optional callback returning the current config path string.
             config_path_setter: Optional callback receiving a config path string.
+            work_size_provider: Optional callback returning the processing size
+                (w, h) for a source size (w, h) — used to downsample the preview
+                pass for responsiveness.
+            input_pixel_edit / output_pixel_edit: preview readout QLineEdits that
+                show the frozen pixel's native/full-range/domain values.
+            output_fmt_provider / output_clrspc_provider: output format / colorspace
+                from the I/O controller (used by step 6️⃣).
             dock_host: Unused legacy parameter kept for compatibility.
         """
         del dock_host
@@ -502,8 +550,17 @@ class AcmUiController:
         self._status_callback = status_callback or (lambda message: None)
         self._config_path_getter = config_path_getter or (lambda: "")
         self._config_path_setter = config_path_setter or (lambda path: None)
+        self._work_size_provider = work_size_provider
+        self._input_pixel_edit = input_pixel_edit
+        self._output_pixel_edit = output_pixel_edit
+        self._output_fmt_provider = output_fmt_provider
+        self._output_clrspc_provider = output_clrspc_provider
         self._last_input_key: tuple | None = None
         self._latest_output_frame: ImageFrame | None = None
+        self._latest_preview_frame: ImageFrame | None = None
+        self._last_readout: AcmPixelReadoutCache | None = None
+        self._work_size: tuple[int, int] | None = None
+        self._input_is_rgb = True
         self._frozen_pixel_x: int | None = None
         self._frozen_pixel_y: int | None = None
         self._colorspace_user_override = False
@@ -569,9 +626,9 @@ class AcmUiController:
     def _init_state(self) -> None:
         """Perform initial state sync after all widgets are ready."""
         if hasattr(self.ui, "radioButton_colorspace_hsv"):
-            self.ui.radioButton_colorspace_hsv.setEnabled(False)
             self.ui.radioButton_colorspace_hsv.setToolTip(
-                "HSV ACM path is not implemented yet. Please use YHS."
+                "HSV mode binds isLut4Rgb=1 (RGB/HSV LUT path); loading a config "
+                "with isLut4Rgb reflects back to this selection. HW_VOP is YUV-only."
             )
         self._sync_clip_type_ui_state()
         self._on_acm_colorspace_changed()
@@ -737,12 +794,26 @@ class AcmUiController:
         is_supported = self.current_algo != self._HW_ALGO_KEY
         tooltip = ""
         if not is_supported:
-            tooltip = "clip_type is only supported by software ACM paths; HW_ACM(VOP) ignores this setting."
+            tooltip = "clip_type is only supported by software ACM paths; HW_VOP ignores this setting."
         self.ui.comboBox_clip_type.setEnabled(is_supported)
         self.ui.comboBox_clip_type.setToolTip(tooltip)
         if hasattr(self.ui, "label_clip_type"):
             self.ui.label_clip_type.setEnabled(is_supported)
             self.ui.label_clip_type.setToolTip(tooltip)
+
+    def _sync_algo_options_enabled(self) -> None:
+        """Enable algorithm options based on the ACM colorspace selection.
+
+        All algorithms are available under YHS; only the last two software
+        paths (SW_Sonnoc / ACM_LITE) are available under HSV. If the current
+        selection is not allowed under HSV, fall back to the first allowed one.
+        """
+        combo = self.ui.comboBox_algo_type
+        is_hsv = self.ui.radioButton_colorspace_hsv.isChecked()
+        for index in range(combo.count()):
+            combo.model().item(index).setEnabled(not is_hsv or index >= 2)
+        if is_hsv and combo.currentIndex() < 2:
+            combo.setCurrentIndex(2)
 
     def clear_preview_h_marker(self) -> None:
         """Remove all preview-linked H markers and value markers from all delta charts."""
@@ -815,56 +886,63 @@ class AcmUiController:
         return y_norm, s_norm
 
     def _h_deg_to_index(self, h_deg: float) -> float:
-        """Convert hue in degrees [-180, 180] to the current ACM H index."""
+        """Convert hue to the current ACM H index.
+
+        YHS 处理域：H 为 YCbCr 极角 [-180, 180]；HSV 处理域：H 为六边形色相
+        [0, 360)。两者都线性映射到 [0, len_h-1]。
+        """
         acm = self._get_current_acm()
-        h_f = (h_deg + 180.0) / 360.0
+        if self._is_hsv_colorspace():
+            h_f = (float(h_deg) % 360.0) / 360.0
+        else:
+            h_f = (float(h_deg) + 180.0) / 360.0
         return float(h_f * (acm.len_h - 1))
 
     def update_preview_h_marker(self, x_pos: int, y_pos: int) -> None:
         """Compute the ACM H-domain markers for one pixel and update all charts.
 
-        Reads the raw pixel from the input frame and the processed pixel from
-        the latest output frame, then places black × markers on the H_in line
-        and white × markers on the H_out line for the delta_y and delta_s charts.
+        Reads the input/output domain values from the last processing readout
+        cache (步骤 3️⃣/4️⃣)，then places black × markers on the H_in line and
+        white × markers on the H_out line for the delta_y and delta_s charts.
         """
         # Cache frozen pixel coordinates so markers can be refreshed after processing.
         self._frozen_pixel_x = x_pos
         self._frozen_pixel_y = y_pos
 
-        in_frame = self._input_provider()
-        out_frame = self._latest_output_frame
-        if in_frame is None:
+        rc = self._last_readout
+        if rc is None:
+            self.clear_preview_h_marker()
+            return
+        _, h_in_arr, s_in_arr, y_in_arr = rc.in_domain
+        if y_pos < 0 or x_pos < 0 or y_pos >= s_in_arr.shape[0] or x_pos >= s_in_arr.shape[1]:
             self.clear_preview_h_marker()
             return
 
-        # Determine depth / s_max once from the input frame.
-        in_depth = 10 if in_frame.pyr.dtype == np.uint16 else 8
+        # Determine depth / s_max for chart normalisation.
+        in_depth = 10 if rc.in_native[2] >= 10 else 8
         clip_type = getattr(self._get_current_acm(), 'clip_type', 'easy_clip')
         if in_depth >= 10:
             s_max = 511 if clip_type in ('radial_clip', 'luma_clip') else 724
         else:
             s_max = 127 if clip_type in ('radial_clip', 'luma_clip') else 181
 
-        # Input pixel
-        in_ysh = self._get_pixel_yhs(in_frame, x_pos, y_pos)
-        if in_ysh is None:
-            self.clear_preview_h_marker()
-            return
-        y_in, s_in, h_in = in_ysh
-        h_idx_in = self._h_deg_to_index(h_in)
-        y_in_norm, s_in_norm = self._norm_ys_to_chart(y_in, s_in, in_depth, s_max)
+        # Input pixel domain values
+        h_idx_in = self._h_deg_to_index(float(h_in_arr[y_pos, x_pos]))
+        # Output pixel domain values
+        _, h_out_arr, s_out_arr, y_out_arr = rc.out_domain
+        h_idx_out = self._h_deg_to_index(float(h_out_arr[y_pos, x_pos]))
 
-        # Output pixel (if available)
-        if out_frame is not None:
-            out_ysh = self._get_pixel_yhs(out_frame, x_pos, y_pos)
-            if out_ysh is not None:
-                y_out, s_out, h_out = out_ysh
-                h_idx_out = self._h_deg_to_index(h_out)
-                y_out_norm, s_out_norm = self._norm_ys_to_chart(y_out, s_out, in_depth, s_max)
-            else:
-                h_idx_out, y_out_norm, s_out_norm = None, None, None
+        if self._is_hsv_colorspace():
+            # HSV 处理域：S/V ∈ [0,1]，映射到 [0,255] 显示。
+            y_in_norm = float(y_in_arr[y_pos, x_pos]) * 255.0
+            s_in_norm = float(s_in_arr[y_pos, x_pos]) * 255.0
+            y_out_norm = float(y_out_arr[y_pos, x_pos]) * 255.0
+            s_out_norm = float(s_out_arr[y_pos, x_pos]) * 255.0
         else:
-            h_idx_out, y_out_norm, s_out_norm = None, None, None
+            y_in_norm, s_in_norm = self._norm_ys_to_chart(
+                float(y_in_arr[y_pos, x_pos]), float(s_in_arr[y_pos, x_pos]), in_depth, s_max)
+            y_out_norm, s_out_norm = self._norm_ys_to_chart(
+                float(y_out_arr[y_pos, x_pos]), float(s_out_arr[y_pos, x_pos]), in_depth, s_max)
 
         # Update charts
         # --- fetch intermediate ACM delta/gain values for annotation ---
@@ -894,6 +972,7 @@ class AcmUiController:
                                          input_label=s_in, output_label=s_out)
         self.delta_chart_h.set_h_markers(h_idx_in, h_idx_out, None, None,
                                          input_label=h_in, output_label=h_out)
+        self._refresh_frozen_readout()
 
     def _apply_lut_lengths(self) -> None:
         """Apply the current spinBox LUT lengths to the active ACM instance.
@@ -1655,62 +1734,610 @@ class AcmUiController:
         self.auto_run_timer.start(300)
 
     def _do_auto_run(self) -> None:
-        """Run ACM processing and notify parent to refresh output preview."""
+        """Run ACM processing at the preview work resolution and refresh.
+
+        统一流水线（步骤 1️⃣~6️⃣）：YHS → yuv full-range 处理域；HSV → RGB
+        full-range 处理域。预览显示步骤 5️⃣ 的处理域结果（full-range RGB 帧）。
+        """
         input_frame = self._input_provider()
         if input_frame is None:
             return
         if not self._is_acm_enabled():
             self._status_callback("ACM disabled")
             return
-
-        want_hsv = bool(self.ui.radioButton_colorspace_hsv.isChecked())
-        input_is_rgb = bool(input_frame.is_rgb)
-
-        if want_hsv:
-            del input_is_rgb
-            self._status_callback("HSV ACM path is not implemented yet. Please use YHS.")
-            return
-
-        if input_is_rgb:
-            y, u, v = rgb_to_yuv(input_frame.pyr, input_frame.pug, input_frame.pvb,
-                                 input_cs=input_frame.clrspc if input_frame.clrspc in (0, 1) else 1,
-                                 output_cs=5)
-            input_planar = np.stack([y, u, v], axis=0)  # [C, H, W]
-            input_cs = 5
-        else:
-            input_planar = np.stack([input_frame.pyr, input_frame.pug, input_frame.pvb], axis=0)
-            input_cs = input_frame.clrspc
-        input_depth = input_frame.depth
         self._update_acm_gains()
         self._update_acm_offsets()
         self._update_ignore_gain_luts()
         self._apply_delta_range_to_acm()
         self._apply_full_delta_to_acm()
-        acm = self._get_current_acm()
         start_time = time.time()
         try:
-            if input_depth >= 10 and input_planar.dtype == np.uint16:
-                output = acm.do_acm_u10(input_planar)
-            else:
-                if input_planar.dtype != np.uint8:
-                    input_planar = ((input_planar + 2) >> 2).astype(np.uint8)
-                output = acm.do_acm_u8(input_planar)
-            elapsed_ms = (time.time() - start_time) * 1000.0
-            out_fmt = 0x13 if (input_depth >= 10 and output.dtype == np.uint16) else _PLANAR_YUV_8
-            out_frame = ImageFrame(
-                output[0], output[1], output[2],  # planar [C,H,W]
-                out_fmt, input_cs,
-            )
-            self._output_callback(out_frame)
+            src_w, src_h = input_frame.width, input_frame.height
+            work_w, work_h = self._resolve_work_size(src_w, src_h)
+            self._work_size = (work_w, work_h)
+            out_frame, preview_frame = self._process_frame(input_frame, (work_w, work_h))
             self._latest_output_frame = out_frame
+            self._latest_preview_frame = preview_frame
+            # 预览显示步骤 5️⃣ 的处理域结果（full-range RGB 帧）。
+            self._output_callback(preview_frame)
+            elapsed_ms = (time.time() - start_time) * 1000.0
+            self._refresh_frozen_readout()
             if self._frozen_pixel_x is not None and self._frozen_pixel_y is not None:
                 self.update_preview_h_marker(self._frozen_pixel_x, self._frozen_pixel_y)
             self._update_lut_result()
             self._preview_time_callback(elapsed_ms)
             self._status_callback(f"Processing completed in {elapsed_ms:.2f} ms")
         except Exception as exc:
-            print("processing failed:", exc)
+            print("ACM processing failed:", exc)
             self._status_callback(f"Processing failed: {exc}")
+
+    def get_full_res_output(self) -> ImageFrame | None:
+        """Return a full-resolution output frame（步骤 6️⃣）for saving.
+
+        若最近一次预览处理已在源分辨率进行，直接复用缓存帧；否则按源分辨率
+        重算一次。返回前按所选输出 format 转换（子采样/打包），保证保存的
+        文件与所选格式一致。
+        """
+        input_frame = self._input_provider()
+        if input_frame is None:
+            return None
+        src_w, src_h = input_frame.width, input_frame.height
+        if self._work_size == (src_w, src_h) and self._latest_output_frame is not None:
+            out_444 = self._latest_output_frame
+        else:
+            out_444, _preview = self._process_frame(input_frame)
+            self._latest_output_frame = out_444
+            self._work_size = (src_w, src_h)
+        return self._apply_output_format(out_444, self._output_fmt_code())
+
+    def _resolve_work_size(self, src_w: int, src_h: int) -> tuple[int, int]:
+        """Return the processing resolution: min(source, preview target)."""
+        if self._work_size_provider is not None:
+            return self._work_size_provider(src_w, src_h)
+        return src_w, src_h
+
+    # ------------------------------------------------------------------ #
+    # 统一流水线（步骤 1️⃣~6️⃣）                                            #
+    # ------------------------------------------------------------------ #
+
+    def _is_hsv_colorspace(self) -> bool:
+        """True when the ACM colorspace is HSV（RGB 处理域）。"""
+        return bool(self.ui.radioButton_colorspace_hsv.isChecked())
+
+    def _apply_lut4rgb_binding(self) -> None:
+        """将 is_lut4rgb 与 colorspace_hsv 绑定。
+
+        colorspace_hsv=ON → is_lut4rgb=True（RGB/HSV 处理域，do_acm(isRgb=True)
+        路由到 _do_acm_rgb）；colorspace_yhs=ON → is_lut4rgb=False（YUV 处理域）。
+        colorspace 单选是 is_lut4rgb 的唯一权威；配置文件的 isLut4Rgb 字段
+        加载后仍会被本绑定覆盖。
+        """
+        is_hsv = bool(self.ui.radioButton_colorspace_hsv.isChecked())
+        for acm in self.acm_instances.values():
+            acm.is_lut4rgb = is_hsv
+
+    def _process_frame(
+        self, frame: ImageFrame, work_wh: tuple[int, int] | None = None,
+    ) -> tuple[ImageFrame, ImageFrame]:
+        """统一流水线处理一帧（可选降采样）→ (输出帧 6️⃣, 预览帧 5️⃣)。
+
+        按 colorspace 分派：YHS → yuv444p full-range 处理域；HSV → full-range
+        RGB 处理域。降采样处理完成后升采样回源分辨率，保证预览/读数与输入
+        对齐（预览显示逻辑无需感知降采样）。
+        """
+        src_w, src_h = frame.width, frame.height
+        work_frame = frame
+        if work_wh is not None and (work_wh[0] < src_w or work_wh[1] < src_h):
+            work_frame = self._downsample_frame(frame, work_wh[0], work_wh[1])
+
+        if self._is_hsv_colorspace():
+            out_frame, preview_frame, readout = self._process_frame_hsv(work_frame)
+        else:
+            out_frame, preview_frame, readout = self._process_frame_yhs(work_frame)
+
+        if work_frame is not frame:
+            out_frame = self._upsample_frame(out_frame, src_h, src_w)
+            preview_frame = self._upsample_frame(preview_frame, src_h, src_w)
+            readout = self._upsample_readout(readout, src_h, src_w)
+
+        self._last_readout = readout
+        self._input_is_rgb = frame.is_rgb
+        return out_frame, preview_frame
+
+    @staticmethod
+    def _upsample_readout(readout: "AcmPixelReadoutCache", out_h: int, out_w: int) -> "AcmPixelReadoutCache":
+        """最近邻把读数缓存的各 (H,W) 数组升采样到 (out_h, out_w)。"""
+        def _up_native(native):
+            kind, planes, depth = native
+            planar = np.stack(planes, axis=0)
+            up = AcmUiController._upsample_planar(planar, out_h, out_w)
+            return (kind, (up[0], up[1], up[2]), depth)
+
+        def _up_arr(arr):
+            if arr is None:
+                return None
+            return AcmUiController._upsample_planar(
+                arr.transpose(2, 0, 1), out_h, out_w).transpose(1, 2, 0)
+
+        def _up_dom(dom):
+            name, h, s, y = dom
+            up2d = lambda a: AcmUiController._upsample_planar(a[None, ...], out_h, out_w)[0]
+            return (name, up2d(h), up2d(s), up2d(y))
+
+        return AcmPixelReadoutCache(
+            in_native=_up_native(readout.in_native),
+            in_full_yuv=_up_arr(readout.in_full_yuv),
+            in_full_rgb=_up_arr(readout.in_full_rgb),
+            in_yuv_cs=readout.in_yuv_cs,
+            in_domain=_up_dom(readout.in_domain),
+            out_native=_up_native(readout.out_native),
+            out_full_yuv=_up_arr(readout.out_full_yuv),
+            out_full_rgb=_up_arr(readout.out_full_rgb),
+            out_yuv_cs=readout.out_yuv_cs,
+            out_domain=_up_dom(readout.out_domain),
+        )
+
+    def _process_frame_yhs(
+        self, work_frame: ImageFrame,
+    ) -> tuple[ImageFrame, ImageFrame, AcmPixelReadoutCache]:
+        """YHS 处理：步骤 1️⃣~6️⃣。处理域 = yuv444p full-range。
+
+        输入 RGB 用 BT.709 系数转 YUV；输入 YUV 保持输入矩阵（limited→full
+        展开）。量化到 full-range 整数 YUV444 后交给 ACM do_acm（步骤 3️⃣/4️⃣
+        的 YUV→YHS 转换与 LUT 应用在算法内部完成），输出回 full-range float
+        后按输出格式/色彩空间编码（步骤 6️⃣）。
+        Returns (输出帧 6️⃣, 预览帧 5️⃣, 读数缓存).
+        """
+        depth = work_frame.depth
+        input_is_rgb = work_frame.is_rgb
+        max_val = (1 << depth) - 1
+        rp = _csc_range_params(depth)
+        uv_center = rp["uv_center"]
+
+        # ---- 1️⃣ 原始输入 ----
+        in_native = self._native_planes(work_frame)
+
+        # ---- 2️⃣ 输入 CSC -> yuv full-range（YHS 处理域） ----
+        if input_is_rgb:
+            proc_cs = 5                                          # BT.709
+            rgb = self._rgb_full_from_frame(work_frame)
+            r2y, _ = _get_csc_matrices(proc_cs)
+            yuv = rgb @ r2y.T                                    # (Y, cb, cr)
+        else:
+            proc_cs = work_frame.clrspc if work_frame.clrspc in (2, 3, 4, 5, 6, 7) else 5
+            yuv = self._yuv_full_from_frame(work_frame)
+        yuv_in = yuv.copy()
+
+        # ---- 量化到 full-range 整数 YUV444，供 ACM do_acm（步骤 4️⃣） ----
+        dtype = np.uint16 if depth >= 10 else np.uint8
+        y_u = np.clip(np.rint(yuv[..., 0] * max_val), 0, max_val).astype(dtype)
+        u_u = np.clip(np.rint(yuv[..., 1] * max_val + uv_center), 0, max_val).astype(dtype)
+        v_u = np.clip(np.rint(yuv[..., 2] * max_val + uv_center), 0, max_val).astype(dtype)
+        input_planar = np.stack([y_u, u_u, v_u], axis=0)         # [C,H,W]
+
+        # ---- 4️⃣ ACM 处理（YUV 路径） ----
+        acm = self._get_current_acm()
+        if depth >= 10:
+            output = acm.do_acm_u10(input_planar)
+        else:
+            output = acm.do_acm_u8(input_planar)
+
+        # ---- 5️⃣ 回 yuv full-range float ----
+        y_5 = output[0].astype(np.float32) / max_val
+        cb_5 = (output[1].astype(np.float32) - uv_center) / max_val
+        cr_5 = (output[2].astype(np.float32) - uv_center) / max_val
+        yuv_5 = np.stack([y_5, cb_5, cr_5], axis=-1)
+
+        # ---- 域值（YHS：Y 原生尺度 / H 极角 / S 原始极径，H ∈ [-180, 180]） ----
+        s_5 = np.sqrt(cb_5 * cb_5 + cr_5 * cr_5) * max_val
+        h_5 = np.degrees(np.arctan2(cr_5, cb_5))
+        y_5_dom = y_5 * max_val
+        cb_i, cr_i = yuv_in[..., 1], yuv_in[..., 2]
+        s_in = np.sqrt(cb_i * cb_i + cr_i * cr_i) * max_val
+        h_in = np.degrees(np.arctan2(cr_i, cb_i))
+        y_in_dom = yuv_in[..., 0] * max_val
+
+        # ---- 预览帧（步骤 5️⃣，YUV -> RGB 显示帧） ----
+        preview_frame = self._yuv_to_preview_frame(yuv_5, proc_cs, depth)
+
+        # ---- 6️⃣ 输出 CSC（必钳位，444 平面帧；格式转换在保存时进行） ----
+        out_frame = self._to_output_frame_yuv(yuv_5, proc_cs, depth)
+        out_native = self._native_planes(out_frame)
+
+        readout = AcmPixelReadoutCache(
+            in_native=in_native,
+            in_full_yuv=yuv_in, in_full_rgb=None, in_yuv_cs=proc_cs,
+            in_domain=("YHS", h_in, s_in, y_in_dom),
+            out_native=out_native,
+            out_full_yuv=yuv_5, out_full_rgb=None, out_yuv_cs=proc_cs,
+            out_domain=("YHS", h_5, s_5, y_5_dom),
+        )
+        return out_frame, preview_frame, readout
+
+    def _process_frame_hsv(
+        self, work_frame: ImageFrame,
+    ) -> tuple[ImageFrame, ImageFrame, AcmPixelReadoutCache]:
+        """HSV 处理：步骤 1️⃣~6️⃣。处理域 = full-range RGB。
+
+        输入 RGB limited→full 展开（直接硬钳）；输入 YUV 经输入矩阵转 RGB。
+        量化到 full-range 整数 RGB [H,W,3] 后交给 ACM do_acm(isRgb=True)
+        （步骤 3️⃣/4️⃣ 的 RGB→HSV 转换与 LUT 应用在算法内部完成，需
+        is_lut4rgb），输出回 full-range float 后按输出格式/色彩空间编码。
+        Returns (输出帧 6️⃣, 预览帧 5️⃣, 读数缓存).
+        """
+        depth = work_frame.depth
+        input_is_rgb = work_frame.is_rgb
+        max_val = (1 << depth) - 1
+
+        # ---- 1️⃣ 原始输入 ----
+        in_native = self._native_planes(work_frame)
+
+        # ---- 2️⃣ 输入 CSC -> full-range RGB（HSV 处理域） ----
+        if input_is_rgb:
+            rgb_2 = np.clip(self._rgb_full_from_frame(work_frame), 0.0, 1.0)
+        else:
+            rgb_2 = np.clip(self._yuv_to_rgb_full_float(work_frame), 0.0, 1.0)
+
+        # ---- 量化到 full-range 整数 RGB [H,W,3]，供 ACM do_acm(isRgb=True) ----
+        rgb_u = np.clip(np.rint(rgb_2 * max_val), 0, max_val).astype(
+            np.uint16 if depth >= 10 else np.uint8)              # [H,W,3]
+
+        # ---- 4️⃣ ACM 处理（RGB/HSV 路径） ----
+        # is_lut4rgb 已与 colorspace_hsv 绑定（HSV=ON 恒为 True），do_acm(isRgb=True)
+        # 对走基类 do_acm 的算法（SW_RK/SW_Sonnoc）路由到 _do_acm_rgb。
+        # HW_VOP/ACM_LITE 的 do_acm 忽略 isRgb 恒走 YUV（HWC RGB 会被误读成
+        # CHW YUV 产生错误结果），故在此给出明确提示。
+        acm = self._get_current_acm()
+        self._apply_lut4rgb_binding()
+        if self.current_algo not in self._RGB_PATH_ALGOS:
+            raise RuntimeError(
+                f"{self.current_algo} does not support the HSV/RGB processing "
+                "path (its do_acm always runs the YUV path); "
+                "please use SW_RK or SW_Sonnoc.")
+        if depth >= 10:
+            output = acm.do_acm_u10(rgb_u, isRgb=True)           # -> [C,H,W]
+        else:
+            output = acm.do_acm_u8(rgb_u, isRgb=True)            # -> [C,H,W]
+
+        # ---- 5️⃣ 回 full-range RGB float [H,W,3] ----
+        rgb_5 = np.stack([output[0], output[1], output[2]], axis=-1).astype(np.float32) / max_val
+
+        # ---- 域值（HSV：H 色相 / S / V） ----
+        v_5 = np.max(rgb_5, axis=-1)
+        m_5 = np.min(rgb_5, axis=-1)
+        delta_5 = v_5 - m_5
+        s_5 = np.where(v_5 > 0.0, np.divide(delta_5, np.maximum(v_5, 1e-6)), 0.0)
+        h_5 = self._rgb_to_hue_deg(rgb_5, v_5, m_5, delta_5)
+        v_in = np.max(rgb_2, axis=-1)
+        m_in = np.min(rgb_2, axis=-1)
+        delta_in = v_in - m_in
+        s_in = np.where(v_in > 0.0, np.divide(delta_in, np.maximum(v_in, 1e-6)), 0.0)
+        h_in = self._rgb_to_hue_deg(rgb_2, v_in, m_in, delta_in)
+
+        # ---- 预览帧（步骤 5️⃣，full-range RGB 显示帧） ----
+        preview_frame = self._rgb_full_to_frame(rgb_5, depth)
+
+        # ---- 6️⃣ 输出 CSC（必钳位，444 平面帧；格式转换在保存时进行） ----
+        out_frame = self._to_output_frame_rgb(rgb_5, depth)
+        out_native = self._native_planes(out_frame)
+
+        readout = AcmPixelReadoutCache(
+            in_native=in_native,
+            in_full_yuv=None, in_full_rgb=rgb_2, in_yuv_cs=5,
+            in_domain=("HSV", h_in, s_in, v_in),
+            out_native=out_native,
+            out_full_yuv=None, out_full_rgb=rgb_5, out_yuv_cs=5,
+            out_domain=("HSV", h_5, s_5, v_5),
+        )
+        return out_frame, preview_frame, readout
+
+    @staticmethod
+    def _rgb_to_hue_deg(rgb, v, m, delta) -> np.ndarray:
+        """full-range RGB -> 六边形 HSV 色相度 [0, 360)（灰阶为 0）。"""
+        r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+        delta_safe = np.where(delta > 0, delta, 1.0)
+        h = np.where(delta > 0,
+                     np.where(v == r, (g - b) / delta_safe,
+                     np.where(v == g, (b - r) / delta_safe + 2.0,
+                                        (r - g) / delta_safe + 4.0)), 0.0)
+        return np.mod(h * 60.0, 360.0)
+
+    # ------------------------------------------------------------------ #
+    # Frozen pixel readout（预览像素显示，参考 hsv_ui_impl）               #
+    # ------------------------------------------------------------------ #
+
+    def _refresh_frozen_readout(self) -> None:
+        """Write the pixel readout chain of the frozen pixel into the preview readouts."""
+        if self._frozen_pixel_x is None or self._frozen_pixel_y is None:
+            return
+        x_pos, y_pos = self._frozen_pixel_x, self._frozen_pixel_y
+        if self._input_pixel_edit is not None:
+            self._input_pixel_edit.setText(self.readout_text(x_pos, y_pos, "input"))
+        if self._output_pixel_edit is not None:
+            self._output_pixel_edit.setText(self.readout_text(x_pos, y_pos, "output"))
+
+    def readout_text(self, x_pos: int, y_pos: int, role: str) -> str:
+        """按当前处理域拼装 (x,y) 像素读数；role='input'/'output'。
+
+        输入侧：native(1️⃣), 处理域 full(2️⃣), 域值(3️⃣)
+        输出侧：native(6️⃣), 处理域 full(5️⃣), 域值(4️⃣)
+        """
+        if self._last_readout is None:
+            return ""
+        rc = self._last_readout
+        if role == "input":
+            native = rc.in_native
+            full = rc.in_full_yuv if rc.in_full_yuv is not None else rc.in_full_rgb
+            full_kind = 'yuv' if rc.in_full_yuv is not None else 'rgb'
+            dom = rc.in_domain
+        else:
+            native = rc.out_native
+            full = rc.out_full_yuv if rc.out_full_yuv is not None else rc.out_full_rgb
+            full_kind = 'yuv' if rc.out_full_yuv is not None else 'rgb'
+            dom = rc.out_domain
+        return self._format_chain(native, full, full_kind, dom, x_pos, y_pos)
+
+    @staticmethod
+    def _format_chain(native, full, full_kind: str, dom, x_pos: int, y_pos: int) -> str:
+        """拼装 `原生(整数), YUVF/RGBF(整数), 域(H/S/Y 浮点)` 读数链。
+
+        YUVF 按帧位深缩放为整数显示（U=cb+0.5、V=cr+0.5 去中心）。域值：
+        YHS 显示 YHS(Y, H, S)（Y 原生尺度 / H 度 / S 原始极径）；
+        HSV 显示 HSV(H, S, V)（H 度 / S / V）。
+        """
+        kind, (p0, p1, p2), depth = native
+        if y_pos < 0 or x_pos < 0 or y_pos >= p0.shape[0] or x_pos >= p0.shape[1]:
+            return ""
+        max_val = (1 << depth) - 1
+        parts = ["{}({}, {}, {})".format(
+            'RGB' if kind == 'rgb' else 'YUV',
+            int(p0[y_pos, x_pos]), int(p1[y_pos, x_pos]), int(p2[y_pos, x_pos]))]
+        if full is not None:
+            f0 = float(full[y_pos, x_pos, 0]) * max_val
+            f1 = float(full[y_pos, x_pos, 1]) * max_val
+            f2 = float(full[y_pos, x_pos, 2]) * max_val
+            if full_kind == 'yuv':
+                f1 += 128/255 * max_val   # cb -> U
+                f2 += 128/255 * max_val   # cr -> V
+            parts.append("{}({}, {}, {})".format(
+                'YUVF' if full_kind == 'yuv' else 'RGBF',
+                int(round(f0)), int(round(f1)), int(round(f2))))
+        name, dh, ds, dx = dom
+        if name == "HSV":
+            parts.append("HSV({:.1f}, {:.3f}, {:.3f})".format(
+                float(dh[y_pos, x_pos]), float(ds[y_pos, x_pos]), float(dx[y_pos, x_pos])))
+        else:  # YHS：Y/S 为原生尺度，H 为度
+            parts.append("YHS({:.1f}, {:.1f}, {:.1f})".format(
+                float(dx[y_pos, x_pos]), float(dh[y_pos, x_pos]), float(ds[y_pos, x_pos])))
+        return ", ".join(parts)
+
+    # ------------------------------------------------------------------ #
+    # 统一流水线辅助（步骤 2️⃣/5️⃣/6️⃣ 的 CSC 与帧封装）                    #
+    # ------------------------------------------------------------------ #
+
+    def _output_fmt_code(self) -> int:
+        """所选输出格式代码（io_ui 提供；默认 YUV444P）。"""
+        if self._output_fmt_provider is not None:
+            return self._output_fmt_provider()
+        return _PLANAR_YUV_8
+
+    def _output_clrspc(self) -> int:
+        """所选输出色彩空间代码（io_ui 提供；默认 BT.709 full）。"""
+        if self._output_clrspc_provider is not None:
+            return self._output_clrspc_provider()
+        return 5
+
+    @staticmethod
+    def _native_planes(frame: ImageFrame) -> tuple:
+        """步骤 1️⃣/6️⃣ 原始（native 量化）数据：(kind, (p0,p1,p2), depth)。"""
+        kind = 'rgb' if frame.is_rgb else 'yuv'
+        return (kind, (frame.pyr, frame.pug, frame.pvb), frame.depth)
+
+    @staticmethod
+    def _rgb_full_from_frame(frame: ImageFrame) -> np.ndarray:
+        """RGB 帧 -> full-range RGB float (H,W,3)；limited 展开 full。"""
+        depth = frame.depth
+        max_val = (1 << depth) - 1
+        r, g, b = (frame.pyr.astype(np.float32), frame.pug.astype(np.float32),
+                   frame.pvb.astype(np.float32))
+        if frame.clrspc == 0:  # limited RGB -> full 展开
+            rp = _csc_range_params(depth)
+            lo = rp["yr_lo_l"]
+            scale = max_val / (rp["yr_hi_l"] - lo)
+            r = (r - lo) * scale
+            g = (g - lo) * scale
+            b = (b - lo) * scale
+        return np.stack([r, g, b], axis=-1) / max_val
+
+    @staticmethod
+    def _yuv_to_rgb_full_float(frame: ImageFrame) -> np.ndarray:
+        """YUV 帧 -> full-range RGB float (H,W,3)；用输入矩阵，不钳位（可越界）。"""
+        depth = frame.depth
+        max_val = (1 << depth) - 1
+        input_cs = frame.clrspc if frame.clrspc in (2, 3, 4, 5, 6, 7) else 5
+        rp = _csc_range_params(depth)
+        uv_center = rp["uv_center"]
+        y = frame.pyr.astype(np.float32)
+        u = frame.pug.astype(np.float32)
+        v = frame.pvb.astype(np.float32)
+        if is_limited_range(input_cs):
+            scale_y = max_val / (rp["yr_hi_l"] - rp["yr_lo_l"])
+            scale_c = max_val / (rp["uv_hi_l"] - rp["uv_lo_l"])
+            y_f = (y - rp["yr_lo_l"]) * scale_y / max_val
+            u_f = (u - uv_center) * scale_c / max_val
+            v_f = (v - uv_center) * scale_c / max_val
+        else:
+            y_f = y / max_val
+            u_f = (u - uv_center) / max_val
+            v_f = (v - uv_center) / max_val
+        _, y2r = _get_csc_matrices(input_cs)
+        return np.stack([y_f, u_f, v_f], axis=-1) @ y2r.T
+
+    @staticmethod
+    def _yuv_full_from_frame(frame: ImageFrame) -> np.ndarray:
+        """YUV 帧 -> full-range 归一化 (Y, cb, cr) (H,W,3)；保持输入矩阵、去中心。"""
+        depth = frame.depth
+        max_val = (1 << depth) - 1
+        rp = _csc_range_params(depth)
+        uv_center = rp["uv_center"]
+        y = frame.pyr.astype(np.float32)
+        u = frame.pug.astype(np.float32)
+        v = frame.pvb.astype(np.float32)
+        if is_limited_range(frame.clrspc):
+            scale_y = max_val / (rp["yr_hi_l"] - rp["yr_lo_l"])
+            scale_c = max_val / (rp["uv_hi_l"] - rp["uv_lo_l"])
+            y_f = (y - rp["yr_lo_l"]) * scale_y / max_val
+            cb = (u - uv_center) * scale_c / max_val
+            cr = (v - uv_center) * scale_c / max_val
+        else:
+            y_f = y / max_val
+            cb = (u - uv_center) / max_val
+            cr = (v - uv_center) / max_val
+        return np.stack([y_f, cb, cr], axis=-1)
+
+    @staticmethod
+    def _rgb_full_to_frame(rgb_norm: np.ndarray, depth: int) -> ImageFrame:
+        """full-range RGB float -> RGB planar 帧（clrspc=1 full，必钳位量化）。"""
+        max_val = (1 << depth) - 1
+        rgb = np.clip(np.rint(rgb_norm * max_val), 0, max_val)
+        planar = rgb.transpose(2, 0, 1)
+        dtype = np.uint16 if depth >= 10 else np.uint8
+        out_fmt = _PLANAR_RGB_10 if depth >= 10 else _PLANAR_RGB_8
+        return ImageFrame(planar[0].astype(dtype), planar[1].astype(dtype),
+                          planar[2].astype(dtype), out_fmt, 1)
+
+    @staticmethod
+    def _yuv_norm_to_output_frame(yuv_norm: np.ndarray, depth: int, cs: int) -> ImageFrame:
+        """归一化 (Y, cb, cr) -> yuv444p 输出帧（按 cs 编码 full/limited，必钳位量化）。
+
+        YCbCr 处理域的直接输出编码（步骤 6️⃣，不经过 RGB）；cs 为输出色彩空间。
+        """
+        max_val = (1 << depth) - 1
+        rp = _csc_range_params(depth)
+        uv_center = rp["uv_center"]
+        if is_limited_range(cs):
+            sy = (rp["yr_hi_l"] - rp["yr_lo_l"]) / max_val
+            sc = (rp["uv_hi_l"] - rp["uv_lo_l"]) / max_val
+            y = np.clip(np.rint(yuv_norm[..., 0] * max_val * sy + rp["yr_lo_l"]), 0, max_val)
+            u = np.clip(np.rint(yuv_norm[..., 1] * max_val * sc + uv_center), 0, max_val)
+            v = np.clip(np.rint(yuv_norm[..., 2] * max_val * sc + uv_center), 0, max_val)
+            clrspc = cs
+        else:
+            y = np.clip(np.rint(yuv_norm[..., 0] * max_val), 0, max_val)
+            u = np.clip(np.rint(yuv_norm[..., 1] * max_val + uv_center), 0, max_val)
+            v = np.clip(np.rint(yuv_norm[..., 2] * max_val + uv_center), 0, max_val)
+            clrspc = (cs | 1) if cs in (2, 3, 4, 5, 6, 7) else 5    # limited -> full 同族
+        dtype = np.uint16 if depth >= 10 else np.uint8
+        out_fmt = _PLANAR_YUV_10 if depth >= 10 else _PLANAR_YUV_8
+        return ImageFrame(y.astype(dtype), u.astype(dtype), v.astype(dtype), out_fmt, clrspc)
+
+    @staticmethod
+    def _rgb_float_to_uint(rgb_norm: np.ndarray, depth: int) -> np.ndarray:
+        """full-range RGB float -> uint 量化（钳位 [0,1]，按 depth）。"""
+        max_val = (1 << depth) - 1
+        q = np.clip(np.rint(rgb_norm * max_val), 0, max_val)
+        dtype = np.uint16 if depth >= 10 else np.uint8
+        return q.astype(dtype)
+
+    @staticmethod
+    def _encode_rgb_frame(rgb_norm: np.ndarray, depth: int, out_cs: int) -> ImageFrame:
+        """full-range RGB float -> 输出 RGB 444 平面帧（按 out_cs 编码，必钳位）。"""
+        max_val = (1 << depth) - 1
+        if out_cs == 0:  # limited RGB
+            rp = _csc_range_params(depth)
+            lo = rp["yr_lo_l"]
+            scale = (rp["yr_hi_l"] - lo) / max_val
+            r = np.clip(np.rint(rgb_norm[..., 0] * max_val * scale + lo), 0, max_val)
+            g = np.clip(np.rint(rgb_norm[..., 1] * max_val * scale + lo), 0, max_val)
+            b = np.clip(np.rint(rgb_norm[..., 2] * max_val * scale + lo), 0, max_val)
+        else:  # full RGB
+            r = np.clip(np.rint(rgb_norm[..., 0] * max_val), 0, max_val)
+            g = np.clip(np.rint(rgb_norm[..., 1] * max_val), 0, max_val)
+            b = np.clip(np.rint(rgb_norm[..., 2] * max_val), 0, max_val)
+        dtype = np.uint16 if depth >= 10 else np.uint8
+        fmt = _PLANAR_RGB_10 if depth >= 10 else _PLANAR_RGB_8
+        return ImageFrame(r.astype(dtype), g.astype(dtype), b.astype(dtype), fmt, out_cs)
+
+    @staticmethod
+    def _apply_output_format(frame: ImageFrame, fmt: int) -> ImageFrame:
+        """把 planar 输出帧转到所选输出格式（子采样/深度；交错在写出时进行）。"""
+        if frame.fmt == fmt:
+            return frame
+        return frame.copy().to_format(fmt)
+
+    def _to_output_frame_rgb(self, rgb_norm: np.ndarray, depth: int) -> ImageFrame:
+        """步骤 6️⃣（HSV/RGB 系）：full-range RGB -> 444 平面输出帧（必钳位）。"""
+        out_cs = self._output_clrspc()
+        out_fmt = self._output_fmt_code()
+        if is_rgb_format(out_fmt):
+            return self._encode_rgb_frame(rgb_norm, depth, out_cs)
+        # YUV 输出：RGB uint -> YUV（out_cs 编码，rgb_to_yuv 内部钳位量化）
+        rgb_u = self._rgb_float_to_uint(rgb_norm, depth)
+        y, u, v = rgb_to_yuv(rgb_u[..., 0], rgb_u[..., 1], rgb_u[..., 2],
+                             input_cs=1, output_cs=out_cs)
+        fmt = _PLANAR_YUV_10 if depth >= 10 else _PLANAR_YUV_8
+        return ImageFrame(y, u, v, fmt, out_cs)
+
+    def _to_output_frame_yuv(self, yuv_norm: np.ndarray, proc_cs: int, depth: int) -> ImageFrame:
+        """步骤 6️⃣（YHS 系）：处理域 yuv（proc_cs full）-> 444 平面输出帧（必钳位）。
+
+        YUV 输出直接编码处理域 YUV（步骤 5️⃣ 已完成色域处理）；仅 RGB 输出仍
+        需 full-RGB 桥（y2r -> rgb 钳位 -> 输出编码）。
+        """
+        out_cs = self._output_clrspc()
+        out_fmt = self._output_fmt_code()
+        if not is_rgb_format(out_fmt):
+            return self._yuv_norm_to_output_frame(yuv_norm, depth, out_cs)
+        _, y2r = _get_csc_matrices(proc_cs)
+        rgb = np.clip(yuv_norm @ y2r.T, 0.0, 1.0)
+        return self._encode_rgb_frame(rgb, depth, out_cs)
+
+    def _yuv_to_preview_frame(self, yuv_norm, proc_cs, depth) -> ImageFrame:
+        """输出 YUV 帧 -> 预览显示帧（YHS 域）：YUV->RGB 硬钳显示。"""
+        _, y2r = _get_csc_matrices(proc_cs)
+        rgb = np.clip(yuv_norm @ y2r.T, 0.0, 1.0)
+        return self._rgb_full_to_frame(rgb, depth)
+
+    @staticmethod
+    def _upsample_frame(frame: ImageFrame, out_h: int, out_w: int) -> ImageFrame:
+        """最近邻把 444 帧（RGB 或 YUV444p）升采样到 (out_h, out_w)。"""
+        planar = np.stack([frame.pyr, frame.pug, frame.pvb], axis=0)
+        up = AcmUiController._upsample_planar(planar, out_h, out_w)
+        return ImageFrame(up[0], up[1], up[2], frame.fmt, frame.clrspc)
+
+    @staticmethod
+    def _downsample_frame(frame: ImageFrame, work_w: int, work_h: int) -> ImageFrame:
+        """最近邻降采样到目标尺寸，保持 YUV 子采样比例。"""
+        if frame.width <= work_w and frame.height <= work_h:
+            return frame
+        work_w, work_h = max(1, work_w), max(1, work_h)
+
+        def _sample(plane, tw, th):
+            h, w = plane.shape
+            if h <= th and w <= tw:
+                return plane
+            yi = np.minimum((np.arange(th) * h / max(1, th)).astype(int), h - 1)
+            xi = np.minimum((np.arange(tw) * w / max(1, tw)).astype(int), w - 1)
+            return plane[yi][:, xi]
+
+        uv_scale_h = frame.pug.shape[0] / max(1, frame.height)
+        uv_scale_w = frame.pug.shape[1] / max(1, frame.width)
+        pyr = _sample(frame.pyr, work_w, work_h)
+        pug = _sample(frame.pug, max(1, int(round(work_w * uv_scale_w))),
+                      max(1, int(round(work_h * uv_scale_h))))
+        pvb = _sample(frame.pvb, max(1, int(round(work_w * uv_scale_w))),
+                      max(1, int(round(work_h * uv_scale_h))))
+        return ImageFrame(pyr, pug, pvb, frame.fmt, frame.clrspc)
+
+    @staticmethod
+    def _upsample_planar(planar: np.ndarray, out_h: int, out_w: int) -> np.ndarray:
+        """最近邻把 (3, H, W) 平面放大到 (3, out_h, out_w)。"""
+        h, w = planar.shape[1], planar.shape[2]
+        if h == out_h and w == out_w:
+            return planar
+        yi = np.minimum((np.arange(out_h) * h / max(1, out_h)).astype(int), h - 1)
+        xi = np.minimum((np.arange(out_w) * w / max(1, out_w)).astype(int), w - 1)
+        return planar[:, yi][:, :, xi]
 
     # ------------------------------------------------------------------ #
     # UI signal handlers                                                 #
@@ -1763,6 +2390,8 @@ class AcmUiController:
             self.ui.spinBox_offset_wb,
         ):
             widget.setEnabled(is_hsv)
+        self._sync_algo_options_enabled()
+        self._apply_lut4rgb_binding()
         self._schedule_auto_run()
 
     def _on_algo_changed(self, index: int) -> None:
@@ -1820,6 +2449,8 @@ class AcmUiController:
         new_acm.offset_wg = old_acm.offset_wg
         new_acm.offset_wb = old_acm.offset_wb
         new_acm.ignore_gain_luts = old_acm.ignore_gain_luts
+        # 保留 RGB/HSV LUT 能力（HSV 处理域依赖 is_lut4rgb）。
+        new_acm.is_lut4rgb = old_acm.is_lut4rgb
         # new_acm.delta_range = old_acm.delta_range
         new_acm.clip_type = old_acm.clip_type if old_acm.clip_type in self._SUPPORTED_CLIP_TYPES else "easy_clip"
 
@@ -1932,8 +2563,16 @@ class AcmUiController:
 
         try:
             self._get_current_acm().load_json(path)
-            self._config_path_setter(path)
+            # 先把配置同步到 UI/LUT 编辑器，再让 colorspace 单选跟随配置：
+            # isLut4Rgb 是配置声明的默认处理域（=1 -> HSV，=0 -> YHS），
+            # setChecked 会触发绑定使全实例 is_lut4rgb 与单选一致。
             self._refresh_acm_ui_from_current_acm()
+            wants_hsv = bool(getattr(self._get_current_acm(), "is_lut4rgb", False))
+            if wants_hsv:
+                self.ui.radioButton_colorspace_hsv.setChecked(True)
+            else:
+                self.ui.radioButton_colorspace_yhs.setChecked(True)
+            self._config_path_setter(path)
             self._schedule_auto_run()
             self._status_callback(f"Config loaded: {path}")
             return True

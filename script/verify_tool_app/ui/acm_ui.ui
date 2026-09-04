@@ -50,7 +50,7 @@
      <item>
       <widget class="QRadioButton" name="radioButton_colorspace_hsv">
        <property name="enabled">
-        <bool>false</bool>
+        <bool>true</bool>
        </property>
        <property name="text">
         <string>HSV(RGB)</string>
@@ -75,22 +75,22 @@
       <widget class="QComboBox" name="comboBox_algo_type">
        <item>
         <property name="text">
-         <string>VOP_VP_ACM (9,13,65,17)</string>
+         <string>HW_VOP (9,13,65,17)</string>
         </property>
        </item>
        <item>
         <property name="text">
-         <string>SW_ACM (9,13,65,65)</string>
+         <string>SW_RK (9,13,65,65)</string>
         </property>
        </item>
        <item>
         <property name="text">
-         <string>EVIDEO_ACM (9,13,65,65)</string>
+         <string>SW_Sonnoc (9,13,65,65)</string>
         </property>
        </item>
        <item>
         <property name="text">
-         <string>SW_ACM_VARIANT (custom)</string>
+         <string>ACM_LITE (custom)</string>
         </property>
        </item>
       </widget>
@@ -651,7 +651,7 @@
          </size>
         </property>
         <property name="currentIndex">
-         <number>2</number>
+         <number>0</number>
         </property>
         <widget class="QWidget" name="tab_delta_y">
          <attribute name="title">
@@ -1019,6 +1019,56 @@
    </item>
   </layout>
  </widget>
+ <tabstops>
+  <tabstop>checkBox_enable_acm</tabstop>
+  <tabstop>radioButton_colorspace_yhs</tabstop>
+  <tabstop>radioButton_colorspace_hsv</tabstop>
+  <tabstop>comboBox_algo_type</tabstop>
+  <tabstop>pushButton_read_config</tabstop>
+  <tabstop>pushButton_save_config</tabstop>
+  <tabstop>groupBox_lut_lengths</tabstop>
+  <tabstop>slider_len_y</tabstop>
+  <tabstop>spinBox_len_y</tabstop>
+  <tabstop>slider_len_s</tabstop>
+  <tabstop>spinBox_len_s</tabstop>
+  <tabstop>slider_len_h</tabstop>
+  <tabstop>spinBox_len_h</tabstop>
+  <tabstop>slider_len_h2</tabstop>
+  <tabstop>spinBox_len_h2</tabstop>
+  <tabstop>slider_max_delta_y</tabstop>
+  <tabstop>spinBox_max_delta_y</tabstop>
+  <tabstop>slider_max_delta_s</tabstop>
+  <tabstop>spinBox_max_delta_s</tabstop>
+  <tabstop>slider_max_delta_h</tabstop>
+  <tabstop>spinBox_max_delta_h</tabstop>
+  <tabstop>button_reset_max_delta</tabstop>
+  <tabstop>button_reset_lut_length</tabstop>
+  <tabstop>slider_ctrl_points</tabstop>
+  <tabstop>comboBox_clip_type</tabstop>
+  <tabstop>button_reset_curr</tabstop>
+  <tabstop>button_reset_all</tabstop>
+  <tabstop>checkBox_ignore_gain_luts</tabstop>
+  <tabstop>checkBox_lut_config</tabstop>
+  <tabstop>checkBox_lut_result</tabstop>
+  <tabstop>comboBox_interp_method</tabstop>
+  <tabstop>button_smooth_curr</tabstop>
+  <tabstop>button_smooth_all</tabstop>
+  <tabstop>slider_gain_y</tabstop>
+  <tabstop>spinBox_gain_y</tabstop>
+  <tabstop>tabWidget_delta</tabstop>
+  <tabstop>slider_gain_s</tabstop>
+  <tabstop>spinBox_gain_s</tabstop>
+  <tabstop>slider_gain_h</tabstop>
+  <tabstop>spinBox_gain_h</tabstop>
+  <tabstop>button_reset_gain</tabstop>
+  <tabstop>slider_offset_wr</tabstop>
+  <tabstop>spinBox_offset_wr</tabstop>
+  <tabstop>slider_offset_wg</tabstop>
+  <tabstop>spinBox_offset_wg</tabstop>
+  <tabstop>slider_offset_wb</tabstop>
+  <tabstop>spinBox_offset_wb</tabstop>
+  <tabstop>button_reset_offset</tabstop>
+ </tabstops>
  <resources/>
  <connections/>
 </ui>

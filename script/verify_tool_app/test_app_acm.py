@@ -95,12 +95,14 @@ class AcmTestAppWindow(QMainWindow):
             self.preview_widget,
             parent_window=self,
             status_callback=self.ui.statusbar.showMessage,
+            pixel_readout_provider=self._pixel_readout,
         )
         self.io_ctrl = IoUiController(
             self.io_widget,
             parent_window=self,
             on_input_loaded=self._on_input_loaded,
             on_load_config=lambda path: self.acm_ctrl.load_current_config(path),
+            on_output_changed=self._on_output_config_changed,
             status_callback=self.ui.statusbar.showMessage,
             auto_load_defaults=False,
         )
@@ -113,8 +115,14 @@ class AcmTestAppWindow(QMainWindow):
             status_callback=self.ui.statusbar.showMessage,
             config_path_getter=self.io_ctrl.get_config_path,
             config_path_setter=self.io_ctrl.set_config_path,
+            work_size_provider=self.preview_ctrl.get_work_size,
+            input_pixel_edit=self.preview_widget.ui.lineEdit_input_pixel,
+            output_pixel_edit=self.preview_widget.ui.lineEdit_output_pixel,
+            output_fmt_provider=self.io_ctrl.get_output_fmt_code,
+            output_clrspc_provider=self.io_ctrl.get_output_clrspc,
             dock_host=self,
         )
+        self.preview_ctrl.set_full_res_output_provider(self.acm_ctrl.get_full_res_output)
         self.preview_ctrl.set_pixel_selection_callback(self._on_preview_pixel_selection_changed)
         self._install_view_menu()
         # Propagate ACM enabled state to preview for BothInLeft mode.
@@ -169,6 +177,14 @@ class AcmTestAppWindow(QMainWindow):
             layout.addWidget(scroll_area)
             return
         layout.addWidget(child_widget)
+
+    def _pixel_readout(self, x_pos: int, y_pos: int, role: str) -> str:
+        """Delegate preview pixel readout to the ACM processing caches (步骤 1~6)."""
+        return self.acm_ctrl.readout_text(x_pos, y_pos, role)
+
+    def _on_output_config_changed(self) -> None:
+        """Re-run ACM processing when the output format/colorspace changes."""
+        self.acm_ctrl.request_auto_run()
 
     def _on_input_loaded(self, frame, status_message):
         """Forward loaded input data to the preview and ACM controllers."""
