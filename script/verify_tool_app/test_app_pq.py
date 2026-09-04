@@ -24,6 +24,8 @@ def _ensure_generated_ui_modules():
         ("ui\\app_mainwindow.ui", "ui_gen\\app_mainwindow.py"),
         ("ui\\preview_ui.ui", "ui_gen\\preview_ui.py"),
         ("ui\\io_ui.ui", "ui_gen\\io_ui.py"),
+        ("ui\\acm_ui.ui", "ui_gen\\acm_ui.py"),
+        ("ui\\bcsh_ui.ui", "ui_gen\\bcsh_ui.py"),
         ("ui\\shp_ui.ui", "ui_gen\\shp_ui.py"),
     )
     needs_regen = False
@@ -58,17 +60,21 @@ _ensure_generated_ui_modules()
 
 from PySide6.QtCore import QSignalBlocker, Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import QApplication, QMainWindow, QScrollArea, QVBoxLayout
+from PySide6.QtWidgets import QApplication, QMainWindow, QScrollArea, QVBoxLayout, QWidget
 
 from script.img_io import ImageFrame
 
 if __package__:
     from .ui_impl.io_ui_impl import IoUiController, IoUiWidget
+    from .ui_impl.bcsh_ui_impl import HsvUiController, HsvUiWidget
+    from .ui_impl.acm_ui_impl import AcmUiController, AcmUiWidget
     from .ui_impl.shp_ui_impl import ShpUiController, ShpUiWidget
     from .ui_impl.preview_ui_impl import PreviewUiController, PreviewUiWidget
     from .ui_gen.app_mainwindow import Ui_AcmTestAppWindow
 else:
     from ui_impl.io_ui_impl import IoUiController, IoUiWidget
+    from ui_impl.bcsh_ui_impl import HsvUiController, HsvUiWidget
+    from ui_impl.acm_ui_impl import AcmUiController, AcmUiWidget
     from ui_impl.shp_ui_impl import ShpUiController, ShpUiWidget
     from script.verify_tool_app.ui_impl.preview_ui_impl import PreviewUiController, PreviewUiWidget
     from ui_gen.app_mainwindow import Ui_AcmTestAppWindow
@@ -82,6 +88,7 @@ class PqVerifyAppWindow(QMainWindow):
         self.ui = Ui_AcmTestAppWindow()
         self.ui.setupUi(self)
         self.setWindowTitle(f"PQ Verify Tool {PQ_APP_VERSION}")
+        # tab 顺序：I/O, BCSH, ACM, SHP。
         self.ui.tabWidget_main.setTabText(
             self.ui.tabWidget_main.indexOf(self.ui.tab_io_host), "I/O")
         self.ui.tabWidget_main.setTabText(
@@ -90,11 +97,16 @@ class PqVerifyAppWindow(QMainWindow):
         self._latest_chain_frame: ImageFrame | None = None
 
         self.io_widget = IoUiWidget(self)
+        self.bcsh_widget = HsvUiWidget(self)
+        self.acm_widget = AcmUiWidget(self)
         self.shp_widget = ShpUiWidget(self)
         self.preview_widget = PreviewUiWidget(self)
 
+        # SHP 复用 module_host tab；BCSH/ACM 新建 tab 插到 I/O 之后。
         self._mount_host_page(self.ui.tab_io_host, self.io_widget, use_scroll_area=True)
         self._mount_host_page(self.ui.tab_module_host, self.shp_widget, use_scroll_area=True)
+        self._insert_module_tab("BCSH", self.bcsh_widget, index=1)
+        self._insert_module_tab("ACM", self.acm_widget, index=2)
 
         self.preview_ctrl = PreviewUiController(
             self.preview_widget,
@@ -106,11 +118,38 @@ class PqVerifyAppWindow(QMainWindow):
             self.io_widget,
             parent_window=self,
             on_input_loaded=self._on_input_loaded,
+            on_load_config=lambda path: self.acm_ctrl.load_current_config(path),
             on_output_changed=self._on_output_config_changed,
             status_callback=self.ui.statusbar.showMessage,
             auto_load_defaults=False,
         )
         self.preview_ctrl.set_output_dir_getter(self.io_ctrl.get_output_dir)
+        # 链式宿主：模块不再自行处理/展示预览，交由宿主按 pipeline 顺序串行
+        # process_frame。仍注入 input_provider/work_size_provider 让其 UI 联动
+        # 与防抖逻辑正常，但其内部 _do_auto_run 与宿主整链重跑冲突，故在下方
+        # 断开其防抖定时器并改由宿主接管（编辑 -> 整链重跑）。
+        self.bcsh_ctrl = HsvUiController(
+            self.bcsh_widget,
+            parent_window=self,
+            input_provider=lambda: self.preview_ctrl.input_frame,
+            output_callback=lambda frame: None,
+            status_callback=self.ui.statusbar.showMessage,
+            work_size_provider=self.preview_ctrl.get_work_size,
+            output_fmt_provider=self.io_ctrl.get_output_fmt_code,
+            output_clrspc_provider=self.io_ctrl.get_output_clrspc,
+        )
+        self.acm_ctrl = AcmUiController(
+            self.acm_widget,
+            parent_window=self,
+            input_provider=lambda: self.preview_ctrl.input_frame,
+            output_callback=lambda frame: None,
+            status_callback=self.ui.statusbar.showMessage,
+            config_path_getter=self.io_ctrl.get_config_path,
+            config_path_setter=self.io_ctrl.set_config_path,
+            work_size_provider=self.preview_ctrl.get_work_size,
+            output_fmt_provider=self.io_ctrl.get_output_fmt_code,
+            output_clrspc_provider=self.io_ctrl.get_output_clrspc,
+        )
         self.shp_ctrl = ShpUiController(
             self.shp_widget,
             parent_window=self,
@@ -118,17 +157,37 @@ class PqVerifyAppWindow(QMainWindow):
             config_path_getter=self.io_ctrl.get_config_path,
         )
         self.preview_ctrl.set_full_res_output_provider(lambda: self._latest_chain_frame)
-        # 链式流水线级（后续 CSC/DCI 依序插入，各暴露 process_frame(frame, io_info)）。
-        self._stages = [
-            ("SHP", self.shp_ctrl),
-        ]
+
+        # 串行链级注册表 + I/O 页 groupBox_pipeline（默认隐藏，这里显示并允许
+        # 调整执行顺序/启用集合）。
+        self._stage_controllers: dict = {
+            "bcsh": self.bcsh_ctrl,
+            "acm": self.acm_ctrl,
+            "shp": self.shp_ctrl,
+        }
+        self._stage_labels = {"bcsh": "BCSH", "acm": "ACM", "shp": "SHP"}
+        self.io_ctrl.configure_pipeline(
+            [("bcsh", "BCSH"), ("acm", "ACM"), ("shp", "SHP")])
+        self.io_ctrl.set_pipeline_visible(True)
+        self.io_ctrl.set_pipeline_changed_callback(self._on_pipeline_changed)
 
         self._install_run_action()
         self._install_view_menu()
-        self.preview_ctrl.preview_dock.visibilityChanged.connect(self._on_preview_dock_visibility_changed)
-        # 参数变化不自动重跑（SHP 走外部 exe）：提示用户按 Ctrl+R 重跑。
+        self.preview_ctrl.preview_dock.visibilityChanged.connect(
+            self._on_preview_dock_visibility_changed)
+        # 接管 BCSH/ACM 内部防抖定时器：其 UI 编辑触发的自动运行改由宿主整链
+        # 重跑（断开其 _do_auto_run，改连 _schedule_chain_run）。
+        for ctrl in (self.bcsh_ctrl, self.acm_ctrl):
+            ctrl.auto_run_timer.timeout.disconnect()
+            ctrl.auto_run_timer.timeout.connect(self._schedule_chain_run)
+        # 模块参数/使能变化：防抖整链自动重跑（状态栏显示 Running 进度）。
+        self.bcsh_ctrl.ui.checkBox_enableHsvAdj.toggled.connect(
+            self._on_module_enable_changed)
+        self.acm_ctrl.ui.checkBox_enable_acm.toggled.connect(
+            self._on_module_enable_changed)
         self.shp_ctrl.paramsChanged.connect(self._on_params_changed)
         self.io_ctrl.auto_load_defaults()
+        self.ui.tabWidget_main.setCurrentIndex(0)
         self.ui.statusbar.showMessage("Ready")
 
     # ------------------------------------------------------------------ #
@@ -136,7 +195,12 @@ class PqVerifyAppWindow(QMainWindow):
     # ------------------------------------------------------------------ #
 
     def _run_chain(self) -> None:
-        """Run the enabled pipeline stages in order over the current input frame."""
+        """Run the enabled pipeline stages serially over the current input frame.
+
+        前一模块的输出作为下一模块的输入（串行数据链）；顺序与启用集合由
+        I/O 页 groupBox_pipeline 控制（io_ctrl.get_pipeline_enabled()）。
+        状态栏显示正在运行的模块（如 "Running BCSH... 1/3"）。
+        """
         src = self.preview_ctrl.input_frame
         if src is None:
             self.ui.statusbar.showMessage("No input loaded")
@@ -148,27 +212,37 @@ class PqVerifyAppWindow(QMainWindow):
             "width": src.width,
             "height": src.height,
         }
+        tags = self.io_ctrl.get_pipeline_enabled()
+        if not tags:
+            # 无启用模块：输入直通为最终输出。
+            self._latest_chain_frame = src
+            self.preview_ctrl.set_output_image(src)
+            self.ui.statusbar.showMessage("No pipeline stage enabled - pass-through")
+            return
         current = src
-        for tag, stage in self._stages:
-            self.ui.statusbar.showMessage(f"{tag}: processing ...")
+        total = len(tags)
+        for index, tag in enumerate(tags, start=1):
+            stage = self._stage_controllers[tag]
+            label = self._stage_labels.get(tag, tag)
+            self.ui.statusbar.showMessage(f"Running {label}... {index}/{total}")
             ok, result = stage.process_frame(current, io_info)
             if not ok:
-                self.ui.statusbar.showMessage(f"{tag}: {result}")
+                self.ui.statusbar.showMessage(f"{label} failed: {result}")
                 return
             current = result
         self._latest_chain_frame = current
         self.preview_ctrl.set_output_image(current)
-        self.ui.statusbar.showMessage("Pipeline finished")
+        self.ui.statusbar.showMessage(
+            f"Pipeline finished ({total} stage{'s' if total > 1 else ''})")
 
     def _on_params_changed(self) -> None:
-        """SHP 参数变化：提示手动重跑（避免每次滑动都调外部 exe）。"""
-        self.ui.statusbar.showMessage("SHP params changed — press Ctrl+R / Run to re-run")
+        """Module params changed: re-run the whole chain (debounced)."""
+        self.ui.statusbar.showMessage("Params changed - re-running pipeline...")
+        self._schedule_chain_run()
 
     def _on_output_config_changed(self) -> None:
         """Output format/colorspace changed: re-run the chain (debounced)."""
-        if self.preview_ctrl.input_frame is None:
-            return
-        self.auto_run_timer.start(300)
+        self._schedule_chain_run()
 
     def _install_run_action(self) -> None:
         """Install a Run action (Ctrl+R) to re-run the pipeline manually."""
@@ -245,13 +319,39 @@ class PqVerifyAppWindow(QMainWindow):
             return
         layout.addWidget(child_widget)
 
+    def _insert_module_tab(self, title: str, child_widget, index: int) -> QWidget:
+        """Insert a new module tab page at index and mount the child widget."""
+        page = QWidget(self)
+        self.ui.tabWidget_main.insertTab(index, page, title)
+        self._mount_host_page(page, child_widget, use_scroll_area=True)
+        return page
+
+    def _schedule_chain_run(self, *_args) -> None:
+        """Debounced full-chain re-run after module/pipeline changes."""
+        if self.preview_ctrl.input_frame is None:
+            return
+        self.auto_run_timer.start(300)
+
+    def _on_pipeline_changed(self) -> None:
+        """Pipeline enable/order changed: notify and re-run the chain."""
+        self.ui.statusbar.showMessage("Pipeline changed - re-running...")
+        self._schedule_chain_run()
+
+    def _on_module_enable_changed(self, *_args) -> None:
+        """Module-level enable toggled: re-run the chain (debounced)."""
+        self._schedule_chain_run()
+
     def _on_input_loaded(self, frame, status_message):
         """Forward loaded input data to the preview and run the chain."""
         self.preview_ctrl.set_input_image(frame)
         self.preview_ctrl.set_output_image(None)
         self._latest_chain_frame = None
         self.ui.statusbar.showMessage(status_message)
-        self._run_chain()
+        # 新输入：让 ACM 为新输入自动选择 colorspace；随后统一调度整链重跑。
+        # （模块内部 request 只走其防抖定时器，而定时器已被宿主接管 -> 整链重跑）
+        self.bcsh_ctrl.request_auto_run()
+        self.acm_ctrl.request_auto_run()
+        self._schedule_chain_run()
 
     def keyPressEvent(self, event):
         """Delegate preview hotkeys before falling back to the base window handler."""

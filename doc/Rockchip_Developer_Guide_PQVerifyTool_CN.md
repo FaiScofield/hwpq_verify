@@ -111,7 +111,7 @@ PQVerifyTool 是瑞芯微 PQ 算法测试工具，用于验证 PQ 算法的原�
 
 ## 2. Preview 预览页面
 
-`PreviewUiController`（`ui_impl/io_preview_ui_impl.py`）控制 Image Preview dock：双 `QGraphicsScene` 视图、像素读数与冻结、图像保存、预览缩放。挂载为可移动/浮动/关闭的 `QDockWidget`（默认底部，`View → Preview` 显示/隐藏）。
+`PreviewUiController`（`ui_impl/preview_ui_impl.py`）控制 Image Preview dock：双 `QGraphicsScene` 视图、像素读数与冻结、图像保存、预览缩放。挂载为可移动/浮动/关闭的 `QDockWidget`（默认底部，`View → Preview` 显示/隐藏）。
 
 ### 预览类型
 

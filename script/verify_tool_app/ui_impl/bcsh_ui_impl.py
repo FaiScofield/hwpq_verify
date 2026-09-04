@@ -684,6 +684,24 @@ class HsvUiController:
             self._work_size = (src_w, src_h)
         return self._apply_output_format(out_444, self._output_fmt_code())
 
+    def process_frame(self, src_frame: ImageFrame, io_info: dict) -> tuple:
+        """串行链式适配器：以 src_frame 为输入按当前 UI 参数全分辨率处理。
+
+        供多模块宿主（test_app_pq）以 ``process_frame(frame, io_info)`` 契约
+        调用；与模块自身的自动预览处理互不影响。模块内使能（checkBox_enableHsvAdj）
+        关闭时直通返回原帧。
+        Returns (ok, dst_frame | 错误消息)。dst_frame 按 io_info 的输出
+        format/colorspace 编码（缺省用绑定到 io 的 provider）。
+        """
+        try:
+            if not self.ui.checkBox_enableHsvAdj.isChecked():
+                return True, src_frame
+            out_frame, _preview = self._process_frame(src_frame)
+            out_fmt = int(io_info.get("out_fmt", self._output_fmt_code()))
+            return True, self._apply_output_format(out_frame, out_fmt)
+        except Exception as exc:
+            return False, str(exc)
+
     def _resolve_work_size(self, src_w: int, src_h: int) -> tuple[int, int]:
         """Return the processing resolution: min(source, preview target)."""
         if self._work_size_provider is not None:

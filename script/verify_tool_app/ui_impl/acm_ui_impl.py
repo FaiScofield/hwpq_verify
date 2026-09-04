@@ -1790,6 +1790,30 @@ class AcmUiController:
             self._work_size = (src_w, src_h)
         return self._apply_output_format(out_444, self._output_fmt_code())
 
+    def process_frame(self, src_frame: ImageFrame, io_info: dict) -> tuple:
+        """串行链式适配器：以 src_frame 为输入按当前 ACM 配置全分辨率处理。
+
+        供多模块宿主（test_app_pq）以 ``process_frame(frame, io_info)`` 契约
+        调用。处理前把 UI 上的 gain/offset/ignore-gain-luts/delta 同步到当前
+        ACM 实例（与 _do_auto_run 相同的步骤）；模块内使能
+        （checkBox_enable_acm）关闭时直通返回原帧。
+        Returns (ok, dst_frame | 错误消息)。dst_frame 按 io_info 的输出
+        format/colorspace 编码（缺省用绑定到 io 的 provider）。
+        """
+        try:
+            if not self._is_acm_enabled():
+                return True, src_frame
+            self._update_acm_gains()
+            self._update_acm_offsets()
+            self._update_ignore_gain_luts()
+            self._apply_delta_range_to_acm()
+            self._apply_full_delta_to_acm()
+            out_frame, _preview = self._process_frame(src_frame)
+            out_fmt = int(io_info.get("out_fmt", self._output_fmt_code()))
+            return True, self._apply_output_format(out_frame, out_fmt)
+        except Exception as exc:
+            return False, str(exc)
+
     def _resolve_work_size(self, src_w: int, src_h: int) -> tuple[int, int]:
         """Return the processing resolution: min(source, preview target)."""
         if self._work_size_provider is not None:

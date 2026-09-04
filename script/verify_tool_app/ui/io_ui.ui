@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>751</width>
-    <height>276</height>
+    <height>366</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -567,6 +567,13 @@
       </widget>
      </item>
     </layout>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_pipeline">
+     <property name="title">
+      <string>Pipeline</string>
+     </property>
+    </widget>
    </item>
    <item>
     <spacer name="verticalSpacer">

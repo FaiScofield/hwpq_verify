@@ -8,7 +8,10 @@ import re
 
 import numpy as np
 from PIL import Image
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox, QFileDialog, QHBoxLayout, QMainWindow, QMessageBox,
+    QPushButton, QVBoxLayout, QWidget,
+)
 
 from script.csc.run_csc import (
     CLRSPC_NAMES,
@@ -185,6 +188,7 @@ class IoUiController:
         self._suppress_load_errors = False
         self._init_ui()
         self._connect_signals()
+        self._init_pipeline_group()
         self._update_swap_controls()
         if auto_load_defaults:
             self._auto_load_defaults()
@@ -253,6 +257,129 @@ class IoUiController:
         self.ui.spinBox_frame_idx.valueChanged.connect(self._on_frame_idx_changed)
         self.ui.checkBox_swapRB.toggled.connect(self._on_swap_toggled)
         self.ui.checkBox_swapUV.toggled.connect(self._on_swap_toggled)
+
+    # ------------------------------------------------------------------ #
+    # Pipeline control bar (groupBox_pipeline)                           #
+    # ------------------------------------------------------------------ #
+    #
+    # 对应 PySimpleGUI 版 sg.Frame("Pipeline") 的控件语义：每个流水线模块
+    # 一行 = 启用勾选框 + ▲/▼（上移/下移）顺序按钮。groupBox_pipeline 默认
+    # 隐藏；宿主（如 test_app_pq）需要时调用 set_pipeline_visible(True) 并
+    # 用 configure_pipeline() 注册模块。勾选/顺序变化经 on_pipeline_changed
+    # 回调通知宿主重跑。
+
+    def _init_pipeline_group(self) -> None:
+        """初始化 groupBox_pipeline 内的流水线控制栏并默认隐藏。"""
+        self._pipeline_stages: list[tuple[str, str]] = []   # 有序 [(tag, label)]
+        self._pipeline_enabled: set[str] = set()
+        self._on_pipeline_changed: Callable[[], None] | None = None
+        self._pipeline_layout: QVBoxLayout | None = None
+        self.ui.groupBox_pipeline.setVisible(False)         # 默认隐藏
+
+    def configure_pipeline(
+        self, stages: list[tuple[str, str]], default_enabled: bool = True,
+    ) -> None:
+        """注册流水线模块并构建每行的启用勾选 + ▲/▼ 控件。
+
+        Args:
+            stages: 有序的 (tag, label) 列表（初始执行顺序）。
+            default_enabled: 初始是否全部勾选启用。
+        """
+        self._pipeline_stages = list(stages)
+        self._pipeline_enabled = (
+            {tag for tag, _ in self._pipeline_stages} if default_enabled else set())
+        self._rebuild_pipeline_rows()
+
+    def set_pipeline_visible(self, visible: bool) -> None:
+        """显示/隐藏 groupBox_pipeline（默认隐藏）。"""
+        self.ui.groupBox_pipeline.setVisible(visible)
+
+    def set_pipeline_changed_callback(
+        self, callback: Callable[[], None] | None,
+    ) -> None:
+        """设置流水线启用/顺序变化时的回调（宿主据此重跑流水线）。"""
+        self._on_pipeline_changed = callback
+
+    def get_pipeline_order(self) -> list[str]:
+        """返回当前模块执行顺序（含未启用的）。"""
+        return [tag for tag, _ in self._pipeline_stages]
+
+    def get_pipeline_enabled(self) -> list[str]:
+        """返回当前启用（勾选）模块，保持执行顺序。"""
+        return [tag for tag, _ in self._pipeline_stages
+                if tag in self._pipeline_enabled]
+
+    def _ensure_pipeline_layout(self) -> QVBoxLayout:
+        """返回 groupBox_pipeline 的纵向布局（首次创建）。"""
+        if self._pipeline_layout is None:
+            self._pipeline_layout = QVBoxLayout(self.ui.groupBox_pipeline)
+            self._pipeline_layout.setContentsMargins(6, 6, 6, 6)
+            self._pipeline_layout.setSpacing(2)
+        return self._pipeline_layout
+
+    def _rebuild_pipeline_rows(self) -> None:
+        """按当前顺序重建行（勾选 + ▲/▼）；首行 ▲、末行 ▼ 禁用。"""
+        layout = self._ensure_pipeline_layout()
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+        count = len(self._pipeline_stages)
+        for index, (tag, label) in enumerate(self._pipeline_stages):
+            row = QWidget(self.ui.groupBox_pipeline)
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(4)
+            checkbox = QCheckBox(label, row)
+            checkbox.setChecked(tag in self._pipeline_enabled)
+            checkbox.setToolTip(f"启用/禁用 {label} 处理模块")
+            checkbox.toggled.connect(
+                lambda checked, t=tag: self._on_pipeline_toggle(t, checked))
+            up_btn = QPushButton("▲", row)
+            down_btn = QPushButton("▼", row)
+            up_btn.setFixedWidth(26)
+            down_btn.setFixedWidth(26)
+            up_btn.setToolTip(f"上移 {label}（调整执行顺序）")
+            down_btn.setToolTip(f"下移 {label}（调整执行顺序）")
+            up_btn.setEnabled(index > 0)
+            down_btn.setEnabled(index < count - 1)
+            up_btn.clicked.connect(
+                lambda _=False, t=tag: self._move_pipeline_stage(t, -1))
+            down_btn.clicked.connect(
+                lambda _=False, t=tag: self._move_pipeline_stage(t, 1))
+            row_layout.addWidget(checkbox)
+            row_layout.addStretch(1)
+            row_layout.addWidget(up_btn)
+            row_layout.addWidget(down_btn)
+            layout.addWidget(row)
+
+    def _on_pipeline_toggle(self, tag: str, checked: bool) -> None:
+        """勾选/取消勾选某模块的启用状态。"""
+        if checked:
+            self._pipeline_enabled.add(tag)
+        else:
+            self._pipeline_enabled.discard(tag)
+        self._emit_pipeline_changed()
+
+    def _move_pipeline_stage(self, tag: str, delta: int) -> None:
+        """把 tag 上移(-1)/下移(+1)；越界忽略，移动后重建行。"""
+        index = next(
+            (i for i, (t, _) in enumerate(self._pipeline_stages) if t == tag), -1)
+        target = index + delta
+        if index < 0 or not (0 <= target < len(self._pipeline_stages)):
+            return
+        stages = list(self._pipeline_stages)
+        stages[index], stages[target] = stages[target], stages[index]
+        self._pipeline_stages = stages
+        self._rebuild_pipeline_rows()
+        self._emit_pipeline_changed()
+
+    def _emit_pipeline_changed(self) -> None:
+        """通知宿主：流水线启用集合/顺序已变化。"""
+        if self._on_pipeline_changed is not None:
+            self._on_pipeline_changed()
 
     # ------------------------------------------------------------------ #
     # Public queries                                                     #
