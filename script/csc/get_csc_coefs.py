@@ -49,10 +49,10 @@ class CscCoefConfig:
 
 
 class CscBcshConfig:
-    hue = 256  # range: [0, 511], default: 256
-    saturation = 256  # range: [0, 511], default: 256
-    contrast = 256  # range: [0, 511], default: 256
     brightness = 256  # range: [0, 511], default: 256
+    contrast = 256  # range: [0, 511], default: 256
+    saturation = 256  # range: [0, 511], default: 256
+    hue = 256  # range: [0, 511], default: 256
     r_gain = 256  # range: [0, 511], default: 256
     g_gain = 256  # range: [0, 511], default: 256
     b_gain = 256  # range: [0, 511], default: 256
@@ -541,6 +541,13 @@ if __name__ == '__main__':
     parser.add_argument("-D", "--depth", type=int, default=10, help="the pixel depth bits [8, 16]")
     parser.add_argument("-r", "--reg_type", type=int, default=0, help="dump register values, type range: [0, 2]")
     parser.add_argument("-C", "--color", type=float, nargs=3, help="do color conversion with out coefs")
+    parser.add_argument(
+        "--bcsh",
+        type=int,
+        nargs="+",
+        help="BCSH params (max 10), order: brightness/contrast/saturation/hue/"
+        "Rgain/Ggain/Bgain/Rofs/Gofs/Bofs; missing ones default to 256",
+    )
     parser.print_usage()
     args, _ = parser.parse_known_args()
 
@@ -575,17 +582,18 @@ if __name__ == '__main__':
     csc_config.tune_fix_coefs = args.fix_check
     csc_config.platform = args.platform.lower()  # RK3576/RK3572/RK3538
 
-    bcsh = CscBcshConfig()
-    # bcsh.hue = 256
-    # bcsh.saturation = 299
-    # bcsh.contrast = 311
-    # bcsh.brightness = 212
-    # bcsh.r_gain = 288
-    # bcsh.g_gain = 288
-    # bcsh.b_gain = 288
-    # bcsh.r_offset = 253
-    # bcsh.g_offset = 251
-    # bcsh.b_offset = 249
+    bcsh = CscBcshConfig()  # 默认全部 256
+    bcsh_names = ["brightness", "contrast", "saturation", "hue",
+                  "r_gain", "g_gain", "b_gain",
+                  "r_offset", "g_offset", "b_offset"]
+    if args.bcsh is not None:
+        if len(args.bcsh) > len(bcsh_names):
+            print(f"Error: too many bcsh params({len(args.bcsh)}), max is {len(bcsh_names)}! "
+                  f"order: brightness/contrast/saturation/hue/"
+                  f"r_gain/g_gain/b_gain/r_offset/g_offset/b_offset")
+            exit(-1)
+        for name, val in zip(bcsh_names, args.bcsh):
+            setattr(bcsh, name, val)
 
     np.set_printoptions(linewidth=120)
     float_fmt = {'float_kind': lambda x: f"{x:.6f}"}  # fsor float data format-string
@@ -618,18 +626,19 @@ if __name__ == '__main__':
             print(f"\t- offset: {np.array2string(offset.flatten(), separator=', ', formatter=float_fmt)}")
             if precision > 0 and reg_type > 0:
                 regs = [0] * 8
+                mat_u32 = mat.astype(np.uint32)  # 保留有符号 mat 供后续 -C 转换使用
                 if reg_type == 2:
-                    regs[0] = 0x1 | (0x1 << 1) | ((mat[0, 0] & 0xFFFF) << 16)
-                    regs[1] = (mat[0, 1] & 0xFFFF) | ((mat[0, 2] & 0xFFFF) << 16)
-                    regs[2] = (mat[1, 0] & 0xFFFF) | ((mat[1, 1] & 0xFFFF) << 16)
-                    regs[3] = (mat[1, 2] & 0xFFFF) | ((mat[2, 0] & 0xFFFF) << 16)
-                    regs[4] = (mat[2, 1] & 0xFFFF) | ((mat[2, 2] & 0xFFFF) << 16)
+                    regs[0] = 0x1 | (0x1 << 1) | ((mat_u32[0, 0] & 0xFFFF) << 16)
+                    regs[1] = (mat_u32[0, 1] & 0xFFFF) | ((mat_u32[0, 2] & 0xFFFF) << 16)
+                    regs[2] = (mat_u32[1, 0] & 0xFFFF) | ((mat_u32[1, 1] & 0xFFFF) << 16)
+                    regs[3] = (mat_u32[1, 2] & 0xFFFF) | ((mat_u32[2, 0] & 0xFFFF) << 16)
+                    regs[4] = (mat_u32[2, 1] & 0xFFFF) | ((mat_u32[2, 2] & 0xFFFF) << 16)
                 else:
-                    regs[0] = (mat[0, 0] & 0xFFFF) | ((mat[0, 1] & 0xFFFF) << 16)
-                    regs[1] = (mat[0, 2] & 0xFFFF) | ((mat[1, 0] & 0xFFFF) << 16)
-                    regs[2] = (mat[1, 1] & 0xFFFF) | ((mat[1, 2] & 0xFFFF) << 16)
-                    regs[3] = (mat[2, 0] & 0xFFFF) | ((mat[2, 1] & 0xFFFF) << 16)
-                    regs[4] = mat[2, 2] & 0xFFFF
+                    regs[0] = (mat_u32[0, 0] & 0xFFFF) | ((mat_u32[0, 1] & 0xFFFF) << 16)
+                    regs[1] = (mat_u32[0, 2] & 0xFFFF) | ((mat_u32[1, 0] & 0xFFFF) << 16)
+                    regs[2] = (mat_u32[1, 1] & 0xFFFF) | ((mat_u32[1, 2] & 0xFFFF) << 16)
+                    regs[3] = (mat_u32[2, 0] & 0xFFFF) | ((mat_u32[2, 1] & 0xFFFF) << 16)
+                    regs[4] = mat_u32[2, 2] & 0xFFFF
                 regs[5] = offset[0].astype(np.uint32)
                 regs[6] = offset[1].astype(np.uint32)
                 regs[7] = offset[2].astype(np.uint32)
