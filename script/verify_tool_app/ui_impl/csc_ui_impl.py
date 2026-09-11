@@ -18,6 +18,7 @@ import os
 
 import numpy as np
 from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QCheckBox, QFileDialog, QHeaderView, QMainWindow, QTableWidget,
     QTableWidgetItem, QWidget,
@@ -28,6 +29,7 @@ from script.csc.csc_ui import (
     RGB_GAIN_KEYS, get_bcsh_norm_value, remap_rgb_gain_value_for_algo_switch,
 )
 from script.csc.run_csc import (
+    CLRSPC_NAMES, CLRSPC_OPTIONS,
     _get_step_output_domains, build_bcsh_config_from_dict,
     get_default_bcsh_raw_values, get_pixel_depth, get_runtime_coef_precision,
     is_rgb_format, run_selected_algo,
@@ -64,6 +66,23 @@ _CSC_UI_KEY_TO_ATTR = {
     "b_gain": "cscBGain", "b_offset": "cscBOffset",
 }
 
+# 色彩空间码 -> CSC mode 字符串片段（如 4 -> "709L"），用于 "709L_to_RGBF" 显示。
+_CLRSPC_MODE_TAGS = {
+    0: "RGBL", 1: "RGBF",
+    2: "601L", 3: "601F",
+    4: "709L", 5: "709F",
+    6: "2020L", 7: "2020F",
+}
+
+
+def build_csc_mode_display(input_clrspc: int, output_clrspc: int) -> str:
+    """把输入/输出色彩空间码格式化为可读的基础 CSC mode（如 709L_to_RGBF）。"""
+    in_tag = _CLRSPC_MODE_TAGS.get(int(input_clrspc))
+    out_tag = _CLRSPC_MODE_TAGS.get(int(output_clrspc))
+    if in_tag is None or out_tag is None:
+        return "Unknown"
+    return f"{in_tag}_to_{out_tag}"
+
 
 class CscUiWidget(QWidget):
     """Reusable CSC configuration widget (loads ui_gen/csc_ui.Ui_CscUiWidget)."""
@@ -78,6 +97,29 @@ class CscUiWidget(QWidget):
         self.ui.sliders = {k: getattr(self.ui, f"slider_{k}") for k in BCSH_KEYS}
         self.ui.spins = {k: getattr(self.ui, f"spin_{k}") for k in BCSH_KEYS}
         self.ui.norms = {k: getattr(self.ui, f"norm_{k}") for k in BCSH_KEYS}
+        self._lock_norm_label_widths()
+
+    def _lock_norm_label_widths(self) -> None:
+        """固定 norm_* 读数标签宽度，避免数值长度变化时抖动并推动网格列宽。
+
+        归一化文本长度随数值变化（如 "2.00" / "-1.00" / "-180.00"），标签若按
+        内容自适应，会在滑动 slider 时不断改变自身宽度、连带改变 bcshGrid 列宽。
+        这里按"所有算法 x 取值极值"量取最宽文本，再对每个标签 setFixedWidth。
+        """
+        algos = [self.ui.comboBox_algoType.itemText(i)
+                 for i in range(self.ui.comboBox_algoType.count())]
+        metrics = QFontMetrics(self.ui.norms[BCSH_KEYS[0]].font())
+        widest = 0
+        for key in BCSH_KEYS:
+            slider = self.ui.sliders[key]
+            for algo in algos:
+                # 取极值（含中性 256）：绝对值最大处文本最长
+                for raw in (slider.minimum(), slider.maximum(), 256):
+                    text = get_bcsh_norm_value(key, raw, algo)
+                    widest = max(widest, metrics.horizontalAdvance(text))
+        width = widest + 4   # 余量：不同字体 hinting 下避免裁字
+        for key in BCSH_KEYS:
+            self.ui.norms[key].setFixedWidth(width)
 
 
 class CscUiController(QObject):
@@ -100,6 +142,9 @@ class CscUiController(QObject):
         self._status_callback = status_callback or (lambda message: None)
         self._config_path_getter = config_path_getter or (lambda: "")
         self._prev_algo = self.get_algo_type()
+        self._mid_output_locked = False
+        self._last_input_clrspc = -1   # 进入 CSC 的帧色彩空间，未知时为 -1
+        self._init_mid_output_controls()
         self._setup_coef_tables()
         self._sync_norms()
         self._connect_signals()
@@ -134,16 +179,27 @@ class CscUiController(QObject):
     def process_frame(self, src_frame: ImageFrame, io_info: dict) -> tuple:
         """链式流水线适配：以 src_frame 为输入按当前 CSC/BCSH 参数处理。
 
-        Enable 关闭 -> 原帧直通。返回 (ok, dst_frame | 错误消息)，输出按
-        io_info 的 out_fmt/out_clrspc 编码，并更新底部 Coef Info。
+        Enable 关闭 -> 原帧直通。输出格式/色彩空间取 Mid 输出行（末级时该行由
+        宿主同步为 I/O 页输出），返回 (ok, dst_frame | 错误消息)，并更新底部
+        Coef Info 与基础 mode 显示。
         """
         try:
-            if not self.ui.checkBox_enableCsc.isChecked():
-                return True, src_frame
             input_fmt = src_frame.fmt
             input_clrspc = src_frame.clrspc
-            output_fmt = int(io_info.get("out_fmt", input_fmt))
-            output_clrspc = int(io_info.get("out_clrspc", input_clrspc))
+            # Mid 输出行即本级的输出格式/色彩空间；CSC 为流水线末级时该行已被
+            # 宿主禁用并同步为 I/O 页输出（见 set_mid_output_locked），故统一读该
+            # 行，仅在选项未初始化时回退到 io_info 的目标输出。
+            mid_fmt = self.get_mid_fmt_code()
+            mid_clrspc = self.get_mid_clrspc()
+            output_fmt = (int(io_info.get("out_fmt", input_fmt))
+                          if mid_fmt is None else mid_fmt)
+            output_clrspc = (int(io_info.get("out_clrspc", input_clrspc))
+                             if mid_clrspc is None else mid_clrspc)
+            # 基础 mode 显示跟随实际输入色彩空间。
+            self._last_input_clrspc = input_clrspc
+            self._update_base_type_info()
+            if not self.ui.checkBox_enableCsc.isChecked():
+                return True, src_frame
             params = self.get_params()
             pixel_depth = max(get_pixel_depth(input_fmt),
                               get_pixel_depth(output_fmt))
@@ -192,6 +248,148 @@ class CscUiController(QObject):
             return False, str(exc)
 
     # ------------------------------------------------------------------ #
+    # Mid output row (cmbox_midFmt / cmbox_midClrspc)                    #
+    # ------------------------------------------------------------------ #
+    #
+    # 该行描述 CSC 作为流水线中间级时的输出格式/色彩空间：CSC 不是末级时由用户
+    # 选择；CSC 是末级时被禁用并跟随 I/O 页的输出格式/色彩空间（宿主
+    # test_app_pq 通过 set_mid_output_locked() 同步）。Mid Colorspace 选项随
+    # Mid Format 的域（RGB / YUV）变化，显示格式与 I/O 页输入色彩空间一致。
+
+    def _init_mid_output_controls(self) -> None:
+        """初始化 Mid Colorspace 选项（Mid Format 选项固定在 .ui 中）。"""
+        self._refresh_mid_clrspc_options(keep_current=False)
+
+    def get_mid_fmt_code(self) -> int | None:
+        """返回 Mid Format 的格式码；未选择时返回 None。"""
+        text = self.ui.cmbox_midFmt.currentText()
+        return int(text.split("-")[0], 16) if text else None
+
+    def get_mid_clrspc(self) -> int | None:
+        """返回 Mid Colorspace 的色彩空间码；未选择时返回 None。"""
+        text = self.ui.cmbox_midClrspc.currentText()
+        return int(text.split("-")[0]) if text else None
+
+    @staticmethod
+    def _find_clrspc_item(combo, code: int) -> str:
+        """在 combo 中按色彩空间码查找显示项文本（找不到返回空串）。"""
+        for i in range(combo.count()):
+            try:
+                if int(combo.itemText(i).split("-")[0].strip()) == code:
+                    return combo.itemText(i)
+            except ValueError:
+                continue
+        return ""
+
+    def _refresh_mid_clrspc_options(self, keep_current: bool = True) -> None:
+        """按 Mid Format 的域重建 Mid Colorspace 选项。
+
+        RGB 格式 -> {RGB_Limited, RGB_Full}（0/1）；YUV 格式 -> BT601/709/2020
+        x L/F（2..7）。当前值仍合法时保留，否则落到该域默认全量程
+        （RGB->1 RGB_Full，YUV->5 BT709_Full）。
+        """
+        ui = self.ui
+        fmt_code = self.get_mid_fmt_code()
+        is_rgb = is_rgb_format(fmt_code) if fmt_code is not None else True
+        clrspc_display = [f"{clr}-{CLRSPC_NAMES[clr]}" for clr in CLRSPC_OPTIONS]
+        items = ([item for item in clrspc_display
+                  if int(item.split("-")[0]) in (0, 1)] if is_rgb else
+                 [item for item in clrspc_display
+                  if int(item.split("-")[0]) in range(2, 8)])
+        if not items:
+            return
+        current = ui.cmbox_midClrspc.currentText()
+        ui.cmbox_midClrspc.blockSignals(True)
+        ui.cmbox_midClrspc.clear()
+        ui.cmbox_midClrspc.addItems(items)
+        if keep_current and current in items:
+            ui.cmbox_midClrspc.setCurrentText(current)
+        else:
+            default = 1 if is_rgb else 5
+            ui.cmbox_midClrspc.setCurrentText(
+                self._find_clrspc_item(ui.cmbox_midClrspc, default) or items[0])
+        ui.cmbox_midClrspc.blockSignals(False)
+
+    def _select_mid_fmt(self, fmt_code: int | None) -> None:
+        """在 Mid Format 中选中与给定格式码最匹配的项（先同码，再同域同深度）。
+
+        Mid Format 选项（.ui）只覆盖常见的平面 RGB/YUV444 格式，I/O 页输出可能
+        是其它格式（如 NV12），此时退化为同域、同深度的首个选项。
+        """
+        combo = self.ui.cmbox_midFmt
+        if fmt_code is None or combo.count() == 0:
+            return
+        item = next((combo.itemText(i) for i in range(combo.count())
+                     if combo.itemText(i).startswith(f"0x{fmt_code:x}-")), "")
+        if not item:
+            want_rgb = is_rgb_format(fmt_code)
+            want_10bit = get_pixel_depth(fmt_code) >= 10
+            same_domain = [combo.itemText(i) for i in range(combo.count())
+                           if is_rgb_format(int(combo.itemText(i).split("-")[0], 16))
+                           == want_rgb]
+            same_depth = [text for text in same_domain
+                          if (get_pixel_depth(int(text.split("-")[0], 16)) >= 10)
+                          == want_10bit]
+            item = (same_depth or same_domain or [combo.itemText(0)])[0]
+        combo.blockSignals(True)
+        combo.setCurrentText(item)
+        combo.blockSignals(False)
+
+    def _select_mid_clrspc(self, clrspc: int | None) -> None:
+        """在 Mid Colorspace 中选中给定色彩空间码（不存在则保持原值）。"""
+        combo = self.ui.cmbox_midClrspc
+        if clrspc is None:
+            return
+        item = self._find_clrspc_item(combo, clrspc)
+        if not item:
+            return
+        combo.blockSignals(True)
+        combo.setCurrentText(item)
+        combo.blockSignals(False)
+
+    def set_mid_output_locked(
+        self, locked: bool, out_fmt: int | None = None,
+        out_clrspc: int | None = None,
+    ) -> None:
+        """设置 Mid 输出行状态（宿主按 CSC 是否为流水线末级调用）。
+
+        locked=True（CSC 为末级）：禁用两个下拉，并把值同步为 I/O 页的输出
+        格式/色彩空间；locked=False（CSC 非末级）：使能该行，由用户选择中间输出。
+        """
+        self._mid_output_locked = bool(locked)
+        if locked:
+            self._select_mid_fmt(out_fmt)
+            self._refresh_mid_clrspc_options(keep_current=False)
+            self._select_mid_clrspc(out_clrspc)
+        self.ui.cmbox_midFmt.setEnabled(not locked)
+        self.ui.cmbox_midClrspc.setEnabled(not locked)
+        self._update_base_type_info()
+
+    def _on_mid_fmt_changed(self, *_args) -> None:
+        """Mid Format 变化：按新的域重建 Mid Colorspace 选项并重跑链。"""
+        self._refresh_mid_clrspc_options()
+        self._update_base_type_info()
+        self.paramsChanged.emit()
+
+    def _on_mid_clrspc_changed(self, *_args) -> None:
+        """Mid Colorspace 变化：刷新基础 mode 显示并重跑链。"""
+        self._update_base_type_info()
+        self.paramsChanged.emit()
+
+    def get_base_type_str(self) -> str:
+        """返回基础 CSC mode 字符串（进入 CSC 的输入色彩空间 -> Mid 输出色彩空间）。"""
+        in_clrspc = self._last_input_clrspc
+        out_clrspc = self.get_mid_clrspc()
+        if in_clrspc < 0 or out_clrspc is None:
+            return "Unknown"
+        return build_csc_mode_display(in_clrspc, out_clrspc)
+
+    def _update_base_type_info(self) -> None:
+        """刷新 label_baseTypeInfo：显示基础 CSC mode（如 709L_to_RGBF）。"""
+        self.ui.label_baseTypeInfo.setText(
+            f"CSC Base Type: {self.get_base_type_str()}")
+
+    # ------------------------------------------------------------------ #
     # Coef tables (table_coefStep1 / table_coefStep2)                    #
     # ------------------------------------------------------------------ #
     #
@@ -238,6 +436,12 @@ class CscUiController(QObject):
     ) -> None:
         """填充单个表格：Fixed 段（3 行）+ 空行 + Floating 段（3 行）。"""
         table.clearContents()
+        # clearContents() 不会移除 span：上一轮 N/A 占位设的 3x9 合并单元格会残留，
+        # 使随后写入的真实系数单元格被 span 遮住（整表看起来空的），故先重置 span。
+        for row in range(table.rowCount()):
+            for col in range(table.columnCount()):
+                if table.rowSpan(row, col) > 1 or table.columnSpan(row, col) > 1:
+                    table.setSpan(row, col, 1, 1)
         out_labels = ("R", "G", "B") if out_is_rgb else ("Y", "U", "V")
         in_labels = ("R", "G", "B") if in_is_rgb else ("Y", "U", "V")
         scale = 1 << precision if precision > 0 else 1.0
@@ -305,6 +509,8 @@ class CscUiController(QObject):
         ui.comboBox_precision.currentIndexChanged.connect(self._on_param_changed)
         ui.cmbox_channelSwap.currentIndexChanged.connect(self._on_param_changed)
         ui.comboBox_algoType.currentIndexChanged.connect(self._on_algo_changed)
+        ui.cmbox_midFmt.currentIndexChanged.connect(self._on_mid_fmt_changed)
+        ui.cmbox_midClrspc.currentIndexChanged.connect(self._on_mid_clrspc_changed)
         for key in BCSH_KEYS:
             ui.sliders[key].valueChanged.connect(
                 lambda _v, k=key: self._on_slider_changed(k))
@@ -463,8 +669,8 @@ class CscUiController(QObject):
                     str(int(getattr(cfg, "cscCoefPrecision", 10))))
             except Exception:
                 pass
-            ui.label_baseTypeInfo.setText(f"CSC Base Type: {algo}")
             self._prev_algo = self.get_algo_type()
+            self._update_base_type_info()
             self._sync_norms()
             self._status_callback(f"CSC config reloaded: {path}")
             self.paramsChanged.emit()

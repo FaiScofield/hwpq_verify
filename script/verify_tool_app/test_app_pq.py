@@ -245,6 +245,8 @@ class PqVerifyAppWindow(QMainWindow):
              ("dci", "DCI"), ("shp", "SHP")])
         self.io_ctrl.set_pipeline_visible(True)
         self.io_ctrl.set_pipeline_changed_callback(self._on_pipeline_changed)
+        # CSC 页 Mid 输出行的初值：默认 pipeline 无勾选 -> CSC 非末级 -> 使能。
+        self._update_csc_mid_row()
 
         self._init_auto_run_timer()
         self._install_view_menu()
@@ -321,6 +323,7 @@ class PqVerifyAppWindow(QMainWindow):
 
     def _on_output_config_changed(self) -> None:
         """Output format/colorspace changed: re-run the chain (debounced)."""
+        self._update_csc_mid_row()
         self._schedule_chain_run()
 
     def _init_auto_run_timer(self) -> None:
@@ -450,8 +453,22 @@ class PqVerifyAppWindow(QMainWindow):
             target = tag in enabled
             if box.isChecked() != target:
                 box.setChecked(target)
+        self._update_csc_mid_row()
         self.ui.statusbar.showMessage("Pipeline changed - re-running...")
         self._schedule_chain_run()
+
+    def _update_csc_mid_row(self) -> None:
+        """按 CSC 是否为流水线末级同步 CSC 页的 Mid 输出行。
+
+        CSC 非末级：Mid Format/Colorspace 由用户选择（使能该行）。
+        CSC 为末级：禁用这两个下拉，并把值同步为 I/O 页的输出格式/色彩空间。
+        """
+        tags = self.io_ctrl.get_pipeline_enabled()
+        is_last = bool(tags) and tags[-1] == "csc"
+        self.csc_ctrl.set_mid_output_locked(
+            is_last,
+            self.io_ctrl.get_output_fmt_code(),
+            self.io_ctrl.get_output_clrspc())
 
     def _on_module_enable_changed(self, tag: str, checked: bool) -> None:
         """模块 Enable 总开关切换：同步 pipeline 勾选并重跑链。"""
