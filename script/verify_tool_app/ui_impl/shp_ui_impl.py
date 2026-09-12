@@ -167,8 +167,10 @@ class ShpUiController(QObject):
                 return False, "Sharpen exe not found"
 
             input_fmt = src_frame.fmt
-            output_fmt = io_info.get("out_fmt", input_fmt)
-            output_clrspc = io_info.get("out_clrspc", src_frame.clrspc)
+            # 输出保持输入帧的格式/色彩空间：流水线中间各级不改变链路格式，
+            # 与 I/O 输出设置的对齐由宿主在最后一级之后静默完成。
+            output_fmt = input_fmt
+            output_clrspc = src_frame.clrspc
             output_dir = io_info.get("output_dir") or tempfile.gettempdir()
             width = io_info.get("width") or src_frame.width
             height = io_info.get("height") or src_frame.height

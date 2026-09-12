@@ -142,12 +142,13 @@ class CscUiController(QObject):
         self._status_callback = status_callback or (lambda message: None)
         self._config_path_getter = config_path_getter or (lambda: "")
         self._prev_algo = self.get_algo_type()
-        self._mid_output_locked = False
-        self._last_input_clrspc = -1   # 进入 CSC 的帧色彩空间，未知时为 -1
+        self._last_input_clrspc = -1   # 最近一次进入 CSC 的帧色彩空间，未知为 -1
         self._init_mid_output_controls()
         self._setup_coef_tables()
         self._sync_norms()
         self._connect_signals()
+        # 构造即刷新基础 mode 标签（尚无输入进入 CSC -> "Unknown (No Input)"）。
+        self._update_base_type_info()
 
     # ------------------------------------------------------------------ #
     # Public helpers / module protocol                                   #
@@ -186,9 +187,8 @@ class CscUiController(QObject):
         try:
             input_fmt = src_frame.fmt
             input_clrspc = src_frame.clrspc
-            # Mid 输出行即本级的输出格式/色彩空间；CSC 为流水线末级时该行已被
-            # 宿主禁用并同步为 I/O 页输出（见 set_mid_output_locked），故统一读该
-            # 行，仅在选项未初始化时回退到 io_info 的目标输出。
+            # Mid 行即本级的输出格式/色彩空间（无论 CSC 是否为流水线末级）；
+            # 与 I/O 输出设置不同时由宿主在最后一级之后静默转换。
             mid_fmt = self.get_mid_fmt_code()
             mid_clrspc = self.get_mid_clrspc()
             output_fmt = (int(io_info.get("out_fmt", input_fmt))
@@ -251,10 +251,11 @@ class CscUiController(QObject):
     # Mid output row (cmbox_midFmt / cmbox_midClrspc)                    #
     # ------------------------------------------------------------------ #
     #
-    # 该行描述 CSC 作为流水线中间级时的输出格式/色彩空间：CSC 不是末级时由用户
-    # 选择；CSC 是末级时被禁用并跟随 I/O 页的输出格式/色彩空间（宿主
-    # test_app_pq 通过 set_mid_output_locked() 同步）。Mid Colorspace 选项随
-    # Mid Format 的域（RGB / YUV）变化，显示格式与 I/O 页输入色彩空间一致。
+    # 该行是 CSC 的输出格式/色彩空间：**始终由用户选择并生效**（CSC 是流水线
+    # 中唯一改变格式的模块，无论它是否为末级）。若它与 I/O 页的输出格式不同，
+    # 由宿主在最后一级之后做一次静默转换对齐（见 test_app_pq 的输出对齐）。
+    # Mid Colorspace 选项随 Mid Format 的域（RGB / YUV）变化，显示格式与 I/O
+    # 页输入色彩空间一致。
 
     def _init_mid_output_controls(self) -> None:
         """初始化 Mid Colorspace 选项（Mid Format 选项固定在 .ui 中）。"""
@@ -310,61 +311,6 @@ class CscUiController(QObject):
                 self._find_clrspc_item(ui.cmbox_midClrspc, default) or items[0])
         ui.cmbox_midClrspc.blockSignals(False)
 
-    def _select_mid_fmt(self, fmt_code: int | None) -> None:
-        """在 Mid Format 中选中与给定格式码最匹配的项（先同码，再同域同深度）。
-
-        Mid Format 选项（.ui）只覆盖常见的平面 RGB/YUV444 格式，I/O 页输出可能
-        是其它格式（如 NV12），此时退化为同域、同深度的首个选项。
-        """
-        combo = self.ui.cmbox_midFmt
-        if fmt_code is None or combo.count() == 0:
-            return
-        item = next((combo.itemText(i) for i in range(combo.count())
-                     if combo.itemText(i).startswith(f"0x{fmt_code:x}-")), "")
-        if not item:
-            want_rgb = is_rgb_format(fmt_code)
-            want_10bit = get_pixel_depth(fmt_code) >= 10
-            same_domain = [combo.itemText(i) for i in range(combo.count())
-                           if is_rgb_format(int(combo.itemText(i).split("-")[0], 16))
-                           == want_rgb]
-            same_depth = [text for text in same_domain
-                          if (get_pixel_depth(int(text.split("-")[0], 16)) >= 10)
-                          == want_10bit]
-            item = (same_depth or same_domain or [combo.itemText(0)])[0]
-        combo.blockSignals(True)
-        combo.setCurrentText(item)
-        combo.blockSignals(False)
-
-    def _select_mid_clrspc(self, clrspc: int | None) -> None:
-        """在 Mid Colorspace 中选中给定色彩空间码（不存在则保持原值）。"""
-        combo = self.ui.cmbox_midClrspc
-        if clrspc is None:
-            return
-        item = self._find_clrspc_item(combo, clrspc)
-        if not item:
-            return
-        combo.blockSignals(True)
-        combo.setCurrentText(item)
-        combo.blockSignals(False)
-
-    def set_mid_output_locked(
-        self, locked: bool, out_fmt: int | None = None,
-        out_clrspc: int | None = None,
-    ) -> None:
-        """设置 Mid 输出行状态（宿主按 CSC 是否为流水线末级调用）。
-
-        locked=True（CSC 为末级）：禁用两个下拉，并把值同步为 I/O 页的输出
-        格式/色彩空间；locked=False（CSC 非末级）：使能该行，由用户选择中间输出。
-        """
-        self._mid_output_locked = bool(locked)
-        if locked:
-            self._select_mid_fmt(out_fmt)
-            self._refresh_mid_clrspc_options(keep_current=False)
-            self._select_mid_clrspc(out_clrspc)
-        self.ui.cmbox_midFmt.setEnabled(not locked)
-        self.ui.cmbox_midClrspc.setEnabled(not locked)
-        self._update_base_type_info()
-
     def _on_mid_fmt_changed(self, *_args) -> None:
         """Mid Format 变化：按新的域重建 Mid Colorspace 选项并重跑链。"""
         self._refresh_mid_clrspc_options()
@@ -377,11 +323,16 @@ class CscUiController(QObject):
         self.paramsChanged.emit()
 
     def get_base_type_str(self) -> str:
-        """返回基础 CSC mode 字符串（进入 CSC 的输入色彩空间 -> Mid 输出色彩空间）。"""
+        """返回基础 CSC mode 字符串（进入 CSC 的输入色彩空间 -> Mid 输出色彩空间）。
+
+        输入侧取自最近一次真正进入 CSC 的帧（CSC 未必是流水线第一个模块，
+        故不能用 I/O 输入色彩空间代替）；尚无帧进入 CSC 时返回
+        ``Unknown (No Input)``。
+        """
         in_clrspc = self._last_input_clrspc
         out_clrspc = self.get_mid_clrspc()
         if in_clrspc < 0 or out_clrspc is None:
-            return "Unknown"
+            return "Unknown (No Input)"
         return build_csc_mode_display(in_clrspc, out_clrspc)
 
     def _update_base_type_info(self) -> None:

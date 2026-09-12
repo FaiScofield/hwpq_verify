@@ -232,7 +232,7 @@
      <item>
       <widget class="QLabel" name="label_baseTypeInfo">
        <property name="text">
-        <string>CSC Base Type: Unknown</string>
+        <string>CSC Base Type: Unknown (No Input)</string>
        </property>
       </widget>
      </item>

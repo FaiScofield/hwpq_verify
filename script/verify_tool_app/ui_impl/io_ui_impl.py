@@ -10,7 +10,7 @@ import re
 import numpy as np
 from PIL import Image
 from PySide6.QtWidgets import (
-    QCheckBox, QFileDialog, QHBoxLayout, QMainWindow, QMessageBox,
+    QCheckBox, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QPushButton, QVBoxLayout, QWidget,
 )
 
@@ -190,6 +190,7 @@ class IoUiController:
         on_input_loaded: Callable[[object, str], None] | None = None,
         on_load_config: Callable[[str], None] | None = None,
         on_output_changed: Callable[[], None] | None = None,
+        on_input_config_changed: Callable[[], None] | None = None,
         status_callback: Callable[[str], None] | None = None,
         auto_load_defaults: bool = True,
     ) -> None:
@@ -200,6 +201,10 @@ class IoUiController:
             parent_window: Optional host window kept only for dialog parenting.
             on_input_loaded: Optional callback receiving ``(input_yuv444, status_message)``.
             on_load_config: Optional callback receiving a config path.
+            on_output_changed: Optional callback fired when output format/colorspace changes.
+            on_input_config_changed: Optional callback fired when the input
+                format/colorspace *selection* changes (fires even when no file is
+                loaded, unlike ``on_input_loaded``); 宿主据此刷新依赖输入格式的显示。
             status_callback: Optional callback receiving a status-bar message.
             auto_load_defaults: Whether to auto-load the default input/config during init.
         """
@@ -209,6 +214,7 @@ class IoUiController:
         self._on_input_loaded = on_input_loaded
         self._load_config_callback = on_load_config
         self._on_output_changed = on_output_changed
+        self._on_input_config_changed = on_input_config_changed
         self._status_callback = status_callback
         self._input_loaded = False
         # 参数猜测级联（格式/色彩空间/帧号变化触发重载）期间抑制装载失败弹窗。
@@ -304,6 +310,9 @@ class IoUiController:
         self._on_pipeline_changed: Callable[[], None] | None = None
         self._pipeline_layout: QVBoxLayout | None = None
         self._pipeline_box = self.ui.groupBox_pipeline
+        # 流水线末尾的"出图前静默转换"提示（宿主经 set_output_convert_hint 设置）。
+        self._pipeline_hint_label: QLabel | None = None
+        self._pipeline_hint_text = ""
         self._pipeline_box.setVisible(False)                # 默认隐藏
 
     def configure_pipeline(
@@ -323,6 +332,23 @@ class IoUiController:
     def set_pipeline_visible(self, visible: bool) -> None:
         """显示/隐藏 groupBox_pipeline（默认隐藏）。"""
         self._pipeline_box.setVisible(visible)
+
+    def set_output_convert_hint(self, text: str) -> None:
+        """设置流水线末尾的"出图前静默转换"提示（空字符串则隐藏）。
+
+        text 形如 ``0x13-YUV444P_10LSB/5 → 0x0-RGB888/1``，表示链路输出格式
+        与 I/O 输出设置不同、出图前会静默转换一次；格式一致时传空串隐藏。
+        """
+        self._pipeline_hint_text = text or ""
+        self._apply_pipeline_hint()
+
+    def _apply_pipeline_hint(self) -> None:
+        """把缓存的提示文本写到流水线末尾的标签上（无标签时忽略）。"""
+        label = self._pipeline_hint_label
+        if label is None:
+            return
+        label.setText(self._pipeline_hint_text)
+        label.setVisible(bool(self._pipeline_hint_text))
 
     def set_pipeline_changed_callback(
         self, callback: Callable[[], None] | None,
@@ -379,6 +405,7 @@ class IoUiController:
                 w.setParent(None)
                 w.deleteLater()
         self._pipeline_checkboxes = {}
+        self._pipeline_hint_label = None
         count = len(self._pipeline_stages)
         if count == 0:
             return
@@ -420,6 +447,13 @@ class IoUiController:
                 sep.setStyleSheet("background:#808080;")
                 strip_layout.addWidget(sep)
         strip_layout.addStretch(1)
+        # 末尾提示：链路中间格式与 I/O 输出格式不同 -> 出图前会静默转换一次。
+        self._pipeline_hint_label = QLabel(strip)
+        self._pipeline_hint_label.setToolTip(
+            "链路输出格式与 I/O 输出设置不同，出图前会静默转换一次")
+        self._pipeline_hint_label.setStyleSheet("color:#c86400;")
+        strip_layout.addWidget(self._pipeline_hint_label)
+        self._apply_pipeline_hint()
         layout.addWidget(strip)
 
     def _on_pipeline_toggle(self, tag: str, checked: bool) -> None:
@@ -526,6 +560,15 @@ class IoUiController:
             except ValueError:
                 continue
         return ""
+
+    def _emit_input_config_changed(self) -> None:
+        """通知宿主：输入格式/色彩空间选择已变化。
+
+        与 ``_on_input_loaded`` 不同，这里不要求文件装载成功（未选文件时也会
+        触发），宿主据此刷新依赖输入格式的显示（CSC 基础 mode 标签、末端转换提示）。
+        """
+        if self._on_input_config_changed is not None:
+            self._on_input_config_changed()
 
     # ------------------------------------------------------------------ #
     # Signal handlers                                                    #
@@ -640,6 +683,7 @@ class IoUiController:
         self._update_swap_controls()
         self._recalc_frame_num()
         self._load_input_image()
+        self._emit_input_config_changed()
 
     def _on_input_colorspace_changed(self, index: int) -> None:
         """Reload the input since reading uses the selected colorspace, and
@@ -647,6 +691,7 @@ class IoUiController:
         del index
         self._refresh_output_colorspace_options()
         self._load_input_image()
+        self._emit_input_config_changed()
 
     def _on_output_format_changed(self, index: int) -> None:
         """Output format changed: refresh colorspace options and re-run pipeline."""

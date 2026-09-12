@@ -888,6 +888,56 @@ class ImageFrame:
         self.clrspc = target_clrspc
         return self
 
+    def convert_to(self, fmt: int, clrspc: int) -> "ImageFrame":
+        """静默转换到目标格式与色彩空间（就地，返回 self）。
+
+        - 格式与色彩空间都已匹配：直接返回，不做任何处理。
+        - 域相同（RGB->RGB / YUV->YUV）只换色彩空间：YUV 经 RGB 桥接重编码，
+          RGB 做量程缩放（limited <-> full）。
+        - 域不同（RGB<->YUV）：经 full-range RGB 桥接。
+        最后调用 ``to_format`` 完成布局/深度转换（子采样在写出时体现）。
+
+        与 ``to_format`` 的区别：后者只改格式标签/布局，本方法会真正做色彩
+        空间转换，且不抛错、不弹窗（用于流水线末端的输出格式对齐）。
+        """
+        if self.fmt == fmt and self.clrspc == clrspc:
+            return self
+        if self.is_yuv and not self.is_444:
+            self.to_yuv444()              # 先升采样到 444，避免转换中丢色度
+        if is_rgb_format(fmt):
+            if self.is_yuv:
+                self.to_rgb()             # YUV -> RGB，量程由 YUV 量程推得
+            if self.clrspc != clrspc:
+                self._convert_rgb_range(clrspc)
+        else:
+            if self.is_rgb:
+                self.to_yuv(target_clrspc=clrspc)
+            else:
+                # YUV -> YUV 且色彩空间不同：经 RGB 重编码（to_rgb 按当前色彩
+                # 空间正确解码，to_yuv 再按目标色彩空间编码）
+                self.to_rgb()
+                self.to_yuv(target_clrspc=clrspc)
+        return self.to_format(fmt)
+
+    def _convert_rgb_range(self, clrspc: int) -> None:
+        """full-range RGB <-> limited-range RGB（同深度纯量程缩放，就地）。"""
+        depth = self.depth
+        max_val = (1 << depth) - 1
+        rp = _csc_range_params(depth)
+        lo, hi = rp["yr_lo_l"], rp["yr_hi_l"]
+        dtype = np.uint16 if depth >= 10 else np.uint8
+        if is_limited_range(clrspc):
+            scale, offset = (hi - lo) / max_val, lo       # full -> limited
+        else:
+            scale, offset = max_val / (hi - lo), -lo * max_val / (hi - lo)
+        planes = []
+        for plane in (self.pyr, self.pug, self.pvb):
+            out = np.clip(np.rint(plane.astype(np.float32) * scale + offset),
+                          0, max_val)
+            planes.append(out.astype(dtype))
+        self.pyr, self.pug, self.pvb = planes
+        self.clrspc = clrspc
+
     # ------------------------------------------------------------------ #
     # Scaling / resize                                                   #
     # ------------------------------------------------------------------ #

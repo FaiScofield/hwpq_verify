@@ -575,6 +575,9 @@ class AcmUiController:
         self._output_pixel_edit = output_pixel_edit
         self._output_fmt_provider = output_fmt_provider
         self._output_clrspc_provider = output_clrspc_provider
+        # 链路模式（宿主 process_frame 调用）下的输出目标 (fmt, clrspc)：
+        # 非 None 时覆盖 provider，使本级输出保持输入帧格式。
+        self._chain_out_fmt: tuple[int, int] | None = None
         self._last_input_key: tuple | None = None
         self._latest_output_frame: ImageFrame | None = None
         self._latest_preview_frame: ImageFrame | None = None
@@ -1817,8 +1820,10 @@ class AcmUiController:
         调用。处理前把 UI 上的 gain/offset/ignore-gain-luts/delta 同步到当前
         ACM 实例（与 _do_auto_run 相同的步骤）；模块内使能
         （checkBox_enable_acm）关闭时直通返回原帧。
-        Returns (ok, dst_frame | 错误消息)。dst_frame 按 io_info 的输出
-        format/colorspace 编码（缺省用绑定到 io 的 provider）。
+        Returns (ok, dst_frame | 错误消息)。
+
+        输出格式/色彩空间保持与输入帧一致（流水线中间各级不改变链路格式），
+        与 I/O 输出设置的对齐由宿主在最后一级之后静默完成。
         """
         try:
             if not self._is_acm_enabled():
@@ -1828,9 +1833,12 @@ class AcmUiController:
             self._update_ignore_gain_luts()
             self._apply_delta_range_to_acm()
             self._apply_full_delta_to_acm()
-            out_frame, _preview = self._process_frame(src_frame)
-            out_fmt = int(io_info.get("out_fmt", self._output_fmt_code()))
-            result = self._apply_output_format(out_frame, out_fmt)
+            self._chain_out_fmt = (src_frame.fmt, src_frame.clrspc)
+            try:
+                out_frame, _preview = self._process_frame(src_frame)
+            finally:
+                self._chain_out_fmt = None
+            result = self._apply_output_format(out_frame, src_frame.fmt)
             # 链式宿主下 ACM 处理走 process_frame（不经 _do_auto_run），
             # 处理完成后同步 _do_auto_run 的只读 UI 刷新：冻结像素读数 /
             # 预览 H marker / LUT Result（对应窗口/像素缺失时内部直接返回）。
@@ -2168,13 +2176,17 @@ class AcmUiController:
     # ------------------------------------------------------------------ #
 
     def _output_fmt_code(self) -> int:
-        """所选输出格式代码（io_ui 提供；默认 YUV444P）。"""
+        """所选输出格式代码（链路模式跟随输入帧；io_ui 提供；默认 YUV444P）。"""
+        if self._chain_out_fmt is not None:
+            return self._chain_out_fmt[0]
         if self._output_fmt_provider is not None:
             return self._output_fmt_provider()
         return _PLANAR_YUV_8
 
     def _output_clrspc(self) -> int:
-        """所选输出色彩空间代码（io_ui 提供；默认 BT.709 full）。"""
+        """所选输出色彩空间代码（链路模式跟随输入帧；io_ui 提供；默认 BT.709 full）。"""
+        if self._chain_out_fmt is not None:
+            return self._chain_out_fmt[1]
         if self._output_clrspc_provider is not None:
             return self._output_clrspc_provider()
         return 5

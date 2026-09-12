@@ -104,6 +104,7 @@ from PySide6.QtCore import QSignalBlocker, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QMainWindow, QScrollArea, QVBoxLayout, QWidget
 
 from script.img_io import ImageFrame
+from script.csc.run_csc import CLRSPC_NAMES, FORMAT_NAMES
 
 if __package__:
     from .ui_impl.io_ui_impl import IoUiController, IoUiWidget
@@ -169,6 +170,7 @@ class PqVerifyAppWindow(QMainWindow):
             on_input_loaded=self._on_input_loaded,
             on_load_config=lambda path: self.acm_ctrl.load_current_config(path),
             on_output_changed=self._on_output_config_changed,
+            on_input_config_changed=self._on_input_config_changed,
             status_callback=self.ui.statusbar.showMessage,
             auto_load_defaults=False,
         )
@@ -245,8 +247,8 @@ class PqVerifyAppWindow(QMainWindow):
              ("dci", "DCI"), ("shp", "SHP")])
         self.io_ctrl.set_pipeline_visible(True)
         self.io_ctrl.set_pipeline_changed_callback(self._on_pipeline_changed)
-        # CSC 页 Mid 输出行的初值：默认 pipeline 无勾选 -> CSC 非末级 -> 使能。
-        self._update_csc_mid_row()
+        # 流水线末尾的"出图前静默转换"提示初值。
+        self._update_pipeline_convert_hint()
 
         self._init_auto_run_timer()
         self._install_view_menu()
@@ -310,21 +312,50 @@ class PqVerifyAppWindow(QMainWindow):
                     f"{label} failed: {result} ({elapsed_ms:.1f} ms)")
                 return
             current = result
+        # 最后一级之后：把链路输出静默对齐到 I/O 页设置的目标格式/色彩空间。
+        # 中间各级都保持 CSC 决定的链路格式不变，只有这里做一次最终对齐。
+        current = self._finalize_output_format(current, io_info)
         self._latest_chain_frame = current
         self.preview_ctrl.set_output_image(current)
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
         self.ui.statusbar.showMessage(
             f"Pipeline finished ({total} stage{'s' if total > 1 else ''}) in {elapsed_ms:.1f} ms")
 
+    def _finalize_output_format(self, frame: ImageFrame, io_info: dict) -> ImageFrame:
+        """把链路输出静默转换到 I/O 页设置的输出格式/色彩空间。
+
+        格式/色彩空间已匹配时原样返回；转换异常时也只记日志并原样返回，
+        不影响出图（静默转换）。
+        """
+        out_fmt = int(io_info["out_fmt"])
+        out_clrspc = int(io_info["out_clrspc"])
+        if frame.fmt == out_fmt and frame.clrspc == out_clrspc:
+            return frame
+        try:
+            return frame.copy().convert_to(out_fmt, out_clrspc)
+        except Exception as exc:
+            logger.warning("Final output format conversion failed: %s", exc)
+            return frame
+
     def _on_params_changed(self) -> None:
         """Module params changed: re-run the whole chain (debounced)."""
+        # CSC 的 Mid 行变化也走这里（paramsChanged），需同步末端转换提示。
+        self._update_pipeline_convert_hint()
         self.ui.statusbar.showMessage("Params changed - re-running pipeline...")
         self._schedule_chain_run()
 
     def _on_output_config_changed(self) -> None:
         """Output format/colorspace changed: re-run the chain (debounced)."""
-        self._update_csc_mid_row()
+        self._update_pipeline_convert_hint()
         self._schedule_chain_run()
+
+    def _on_input_config_changed(self) -> None:
+        """输入格式/色彩空间选择变化：刷新流水线末端转换提示。
+
+        CSC 基础 mode 标签只反映"真正进入 CSC 的帧"，由 CSC 自身在
+        process_frame 中刷新，这里不代它推断。
+        """
+        self._update_pipeline_convert_hint()
 
     def _init_auto_run_timer(self) -> None:
         """Create the debounced chain re-run timer used by automatic re-runs.
@@ -453,22 +484,50 @@ class PqVerifyAppWindow(QMainWindow):
             target = tag in enabled
             if box.isChecked() != target:
                 box.setChecked(target)
-        self._update_csc_mid_row()
+        self._update_pipeline_convert_hint()
         self.ui.statusbar.showMessage("Pipeline changed - re-running...")
         self._schedule_chain_run()
 
-    def _update_csc_mid_row(self) -> None:
-        """按 CSC 是否为流水线末级同步 CSC 页的 Mid 输出行。
+    def _chain_output_format(self) -> tuple[int, int]:
+        """链路出图前的格式 (fmt, clrspc)，即静默转换前的格式。
 
-        CSC 非末级：Mid Format/Colorspace 由用户选择（使能该行）。
-        CSC 为末级：禁用这两个下拉，并把值同步为 I/O 页的输出格式/色彩空间。
+        只有 CSC 会改变格式（按其 Mid 行）；其余模块都保持输入帧格式，故：
+        CSC 启用 -> Mid 行；否则 -> I/O 输入格式。
         """
-        tags = self.io_ctrl.get_pipeline_enabled()
-        is_last = bool(tags) and tags[-1] == "csc"
-        self.csc_ctrl.set_mid_output_locked(
-            is_last,
-            self.io_ctrl.get_output_fmt_code(),
-            self.io_ctrl.get_output_clrspc())
+        in_fmt = self.io_ctrl.get_input_fmt_code()
+        in_clrspc = self.io_ctrl.get_input_clrspc()
+        if "csc" not in self.io_ctrl.get_pipeline_enabled():
+            return in_fmt, in_clrspc
+        mid_fmt = self.csc_ctrl.get_mid_fmt_code()
+        mid_clrspc = self.csc_ctrl.get_mid_clrspc()
+        return (in_fmt if mid_fmt is None else mid_fmt,
+                in_clrspc if mid_clrspc is None else mid_clrspc)
+
+    def _update_pipeline_convert_hint(self) -> None:
+        """在 groupBox_pipeline 末尾提示"出图前的静默转换"。
+
+        链路输出格式与 I/O 输出设置不一致时显示 ``中间格式 → 输出格式``，
+        一致（或没有启用任何模块、末端无转换）时清空隐藏。
+        """
+        if not self.io_ctrl.get_pipeline_enabled():
+            self.io_ctrl.set_output_convert_hint("")
+            return
+        chain_fmt, chain_clrspc = self._chain_output_format()
+        out_fmt = self.io_ctrl.get_output_fmt_code()
+        out_clrspc = self.io_ctrl.get_output_clrspc()
+        if (chain_fmt, chain_clrspc) == (out_fmt, out_clrspc):
+            self.io_ctrl.set_output_convert_hint("")
+            return
+        self.io_ctrl.set_output_convert_hint(
+            f"{self._fmt_clrspc_text(chain_fmt, chain_clrspc)} -> "
+            f"{self._fmt_clrspc_text(out_fmt, out_clrspc)}")
+
+    @staticmethod
+    def _fmt_clrspc_text(fmt: int, clrspc: int) -> str:
+        """格式/色彩空间的紧凑显示：``0x13-YUV444P_10LSB/5-BT709_Full``。"""
+        fmt_name = FORMAT_NAMES.get(fmt, "Unknown")
+        clrspc_name = CLRSPC_NAMES.get(clrspc, "Unknown")
+        return f"0x{fmt:x}-{fmt_name}/{clrspc}-{clrspc_name}"
 
     def _on_module_enable_changed(self, tag: str, checked: bool) -> None:
         """模块 Enable 总开关切换：同步 pipeline 勾选并重跑链。"""
@@ -481,6 +540,8 @@ class PqVerifyAppWindow(QMainWindow):
         self.preview_ctrl.set_output_image(None)
         self._latest_chain_frame = None
         self.ui.statusbar.showMessage(status_message)
+        # 输入格式变化会影响链路格式（CSC 未启用时），同步末端转换提示。
+        self._update_pipeline_convert_hint()
         # 新输入：让 ACM 为新输入自动选择 colorspace；随后统一调度整链重跑。
         # （模块内部 request 只走其防抖定时器，而定时器已被宿主接管 -> 整链重跑）
         self.bcsh_ctrl.request_auto_run()
