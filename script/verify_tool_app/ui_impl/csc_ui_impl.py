@@ -201,8 +201,10 @@ class CscUiController(QObject):
             if not self.ui.checkBox_enableCsc.isChecked():
                 return True, src_frame
             params = self.get_params()
-            pixel_depth = max(get_pixel_depth(input_fmt),
-                              get_pixel_depth(output_fmt))
+            input_depth = get_pixel_depth(input_fmt)
+            output_depth = get_pixel_depth(output_fmt)
+            # 工作位深 = max(输入位深, 输出位深)：CSC 的矩阵与裁剪都按它进行。
+            pixel_depth = max(input_depth, output_depth)
             algo_type = params["algo_type"]
             bcsh_config = build_bcsh_config_from_dict({
                 "brightness": params["bright"],
@@ -215,12 +217,24 @@ class CscUiController(QObject):
             }, algo_type)
             planar_in = np.stack([src_frame.pyr, src_frame.pug,
                                   src_frame.pvb], axis=0)
+            if pixel_depth > input_depth:
+                # 输入位深低于工作位深（如 8bit 输入 + 10bit Mid 输出）：先左移
+                # 升位再转换，否则 8bit 量级的数值会被当作 10bit 处理
+                # （Y 只有应有值的约 1/4、色度中心错位）。
+                planar_in = planar_in.astype(np.uint16) << (pixel_depth - input_depth)
             output_data, s1c, s1o, s2c, s2o = run_selected_algo(
                 planar_in, bcsh_config, pixel_depth, params["precision"],
                 algo_type, input_clrspc, output_clrspc,
                 input_fmt, output_fmt,
             )
-            dst = ImageFrame(output_data[0], output_data[1], output_data[2],
+            if pixel_depth > output_depth:
+                # 工作位深高于输出位深：带舍入降位，使数值与 output_fmt 的位深一致。
+                shift = pixel_depth - output_depth
+                output_data = (output_data + (1 << (shift - 1))) >> shift
+            out_dtype = np.uint16 if output_depth > 8 else np.uint8
+            dst = ImageFrame(output_data[0].astype(out_dtype),
+                             output_data[1].astype(out_dtype),
+                             output_data[2].astype(out_dtype),
                              output_fmt, output_clrspc)
             # 各步骤输入/输出域（决定矩阵行/列通道标签）。
             input_is_rgb = is_rgb_format(input_fmt)

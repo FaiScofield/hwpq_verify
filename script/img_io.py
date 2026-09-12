@@ -442,7 +442,12 @@ def rgb_to_yuv(
     if output_limited:
         yuv[..., 0] = yuv[..., 0] * ((_yr_hi - _yr_lo) / _fr_hi) + _yr_lo
         uv_scale = (_uv_hi - _uv_lo) / _fr_hi
-        uv_bias = _uv_ctr + _uv_lo
+        # 矩阵输出的色度是 0 中心（full-range 分支靠 `+= _uv_ctr` 补中心，见下），
+        # limited 分支要加的是 limited 量程中点 (= _uv_ctr，(uv_lo+uv_hi)/2)：
+        # 中性色 -> _uv_ctr（10bit 512 / 8bit 128），极值 -> uv_lo / uv_hi。
+        # 原先的 _uv_ctr + _uv_lo 把中性色写成 576(10bit)，与 yuv_to_rgb 的
+        # 解码约定（中性 = uv_center）不一致，会让 limited 路径出现色偏。
+        uv_bias = _uv_ctr
         yuv[..., 1] = yuv[..., 1] * uv_scale + uv_bias
         yuv[..., 2] = yuv[..., 2] * uv_scale + uv_bias
         y_lo, y_hi = _yr_lo, _yr_hi
@@ -861,13 +866,16 @@ class ImageFrame:
             return self
         if not self.is_444:
             self.to_yuv444()
+        ten_bit = self.depth >= 10      # self.fmt 随后改写为 RGB，须先取深度
         r, g, b = yuv_to_rgb(
             self.pyr, self.pug, self.pvb, input_cs=self.clrspc, output_cs=0 if is_limited_range(self.clrspc) else 1
         )
         self.pyr = r
         self.pug = g
         self.pvb = b
-        self.fmt = self._pick_planar_fmt(target_10bit=self.depth >= 10)
+        # 注意：必须直接给 RGB 平面格式码。_pick_planar_fmt 依据当前 is_rgb
+        # 判断域，此处 self.fmt 仍是 YUV，用它会把帧标成"RGB 数据 + YUV 格式"。
+        self.fmt = _PLANAR_RGB_10 if ten_bit else _PLANAR_RGB_8
         self.clrspc = 0 if is_limited_range(self.clrspc) else 1  # YUV range → RGB range
         return self
 
@@ -880,11 +888,14 @@ class ImageFrame:
             if self.clrspc != target_clrspc:
                 self.clrspc = target_clrspc
             return self
+        ten_bit = self.depth >= 10      # self.fmt 随后改写为 YUV，须先取深度
         y, u, v = rgb_to_yuv(self.pyr, self.pug, self.pvb, input_cs=self.clrspc, output_cs=target_clrspc)
         self.pyr = y
         self.pug = u
         self.pvb = v
-        self.fmt = self._pick_planar_fmt(target_10bit=self.depth >= 10)
+        # 同上：直接给 YUV 平面格式码，否则帧会被标成"YUV 数据 + RGB 格式"，
+        # 后续 to_yuv422/420 等会误判 is_yuv 而报错。
+        self.fmt = _PLANAR_YUV_10 if ten_bit else _PLANAR_YUV_8
         self.clrspc = target_clrspc
         return self
 
@@ -912,9 +923,8 @@ class ImageFrame:
         else:
             if self.is_rgb:
                 self.to_yuv(target_clrspc=clrspc)
-            else:
-                # YUV -> YUV 且色彩空间不同：经 RGB 重编码（to_rgb 按当前色彩
-                # 空间正确解码，to_yuv 再按目标色彩空间编码）
+            elif self.clrspc != clrspc:
+                # YUV -> YUV 且色彩空间不同：经 full-range RGB 重编码。
                 self.to_rgb()
                 self.to_yuv(target_clrspc=clrspc)
         return self.to_format(fmt)

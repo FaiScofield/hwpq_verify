@@ -444,7 +444,11 @@ def apply_csc(planar_in, csc_coefs, csc_offset, coef_precision, pixel_depth):
         out = csc_coefs.astype(np.float32) @ pixels + csc_offset.reshape(3, 1).astype(np.float32)
 
     max_val = (1 << pixel_depth) - 1
-    out = np.clip(out, 0, max_val).astype(planar_in.dtype)
+    out = np.clip(out, 0, max_val)
+    # 输出位深由 pixel_depth 决定（不是输入 dtype）：输入位深低于工作位深时
+    # （如 8bit 输入 + 10bit 输出）用输入 dtype 写回会把 >255 的值按 uint8 回绕
+    # （色度中心 512 -> 0），必须按工作位深选择容器类型。
+    out = out.astype(np.uint16 if pixel_depth > 8 else np.uint8)
     return out.reshape(3, h, w)
 
 
