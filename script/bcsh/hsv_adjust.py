@@ -477,9 +477,11 @@ def lch_to_rgb(lch):
 # ------------------------------------------------------------------ #
 
 def _rgb_luma(rgb, coef='bt709'):
-    """luma -> (...,) 灰度（RGB 域 S 灰阶混合用）。coef='bt709'/'bt601'。"""
+    """luma -> (...,) 灰度（RGB 域 S 灰阶混合用）。coef='bt709'/'bt601'/'bt2020'。"""
     if coef == 'bt601':
         w0, w1, w2 = 0.299, 0.587, 0.114
+    elif coef == 'bt2020':
+        w0, w1, w2 = 0.2627, 0.6780, 0.0593
     else:
         w0, w1, w2 = 0.2126, 0.7152, 0.0722
     return rgb[..., 0] * w0 + rgb[..., 1] * w1 + rgb[..., 2] * w2
@@ -491,6 +493,48 @@ def _rgb_saturation(rgb):
     mn = np.min(rgb, axis=-1)
     c = mx - mn
     return np.divide(c, mx, out=np.zeros_like(c), where=mx != 0)
+
+
+def steepen_weight(w, steepness: float = 1.0):
+    """把指定色相过渡权重按陡度 S 陡化：``w' = clip((w-0.5)·S + 0.5, 0, 1)``。
+
+    S=1 恒等（原始线性）；S>1 使过渡集中在中间段——扫过的色相区间变窄，
+    "原色↔调整结果"插值经过的中间色相带随之压窄；w=0/1 两端保持不变，
+    故 Pad/Tail 的起止边界不受影响。S≤1 一律按 1 处理（避免 w=0 被抬到 0.5 而
+    破坏端点）。返回与 ``w`` 同形状、[0,1] 内的数组。
+    """
+    arr_w = np.asarray(w, dtype=np.float32)
+    s = float(steepness)
+    if s <= 1.0:
+        return arr_w
+    return np.clip((arr_w - 0.5) * s + 0.5, 0.0, 1.0).astype(np.float32)
+
+
+def transition_damp(w, trans_factor: float = 0.0):
+    """指定色相过渡带的彩度压制系数（Transition Factor）。
+
+    ``damp = trans_factor · (1 - |2w - 1|)``，w 为过渡权重（0=保持原色、
+    1=完全调整）。峰值落在过渡中点（w=0.5，原色与调整结果各半）、两端为 0，
+    故由 w 推出、与过渡来自 Tail 还是 Pad 无关，两段过渡一并覆盖。用于压掉
+    "原色↔调整结果"在 RGB 域插值时经过的中间色相（如 黄↔青 必经的绿）。
+    trans_factor∈[0,1]（0=关闭）；返回与 ``w`` 同形状、取值 [0, trans_factor]。
+    """
+    arr_w = np.asarray(w, dtype=np.float32)
+    k = float(np.clip(trans_factor, 0.0, 1.0))
+    if k <= 0.0:
+        return np.zeros_like(arr_w)
+    return (k * (1.0 - np.abs(2.0 * arr_w - 1.0))).astype(np.float32)
+
+
+def desaturate_toward_luma(rgb, damp, coef: str = 'bt709'):
+    """按 damp∈[0,1] 把 RGB 向自身亮度灰靠拢（保 luma，亮度不跳变）。
+
+    ``out = rgb·(1-damp) + luma(rgb)·damp``；damp 为标量或与 rgb 前两维同形状，
+    luma 权重由 ``coef`` 选择（'bt709'/'bt601'/'bt2020'）。
+    """
+    arr = np.asarray(rgb, dtype=np.float32)
+    d = np.asarray(damp, dtype=np.float32)[..., None]
+    return (arr * (1.0 - d) + _rgb_luma(arr, coef)[..., None] * d).astype(np.float32)
 
 
 def _rotate_hue(rgb, angle_deg):
@@ -555,10 +599,11 @@ def _rgb_contrast_brightness(rgb, gain_c, db, mode_c, mode_b):
     if mode_b in ('mul', 'mulkeepmin'):
         gv = np.clip(np.asarray(db, np.float32), 0.0, 4.0)
         out = np.clip(out * gv[..., None], 0.0, 1.0)
-    elif mode_b == 'negmulposrat':
-        d = np.clip(np.asarray(db, np.float32), -1.0, 1.0)
-        comp = out * (1.0 + d[..., None])         # δB<0：乘法压缩
-        white = out + d[..., None] * (1.0 - out)  # δB>0：向白靠拢
+    elif mode_b == 'rate2limit':
+        # db∈[0,2]，中性 1：db<1 向黑靠拢、db>1 向白靠拢（d=db-1∈[-1,1]）
+        d = np.clip(np.asarray(db, np.float32), 0.0, 2.0) - 1.0
+        comp = out * (1.0 + d[..., None])         # d<0：向黑靠拢
+        white = out + d[..., None] * (1.0 - out)  # d>0：向白靠拢
         out = np.clip(np.where((d < 0)[..., None], comp, white), 0.0, 1.0)
     else:   # 'add'（默认）：加性
         d = np.clip(np.asarray(db, np.float32), -1.0, 1.0)
@@ -590,16 +635,18 @@ def adjust_rgb(rgb, delta_b=None, delta_s=None, gain_c=1.0, tolerance_s=0.0,
     rgb_v = _rgb_contrast_brightness(rgb_in, gain_c, delta_b,
                                      str(mode_c).lower(), str(mode_b).lower())
     # ---- S：灰阶混合（scale 语义，始终生效） ----
-    scale = np.asarray(
+    scale_s = np.asarray(
         1.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), 0.0, 4.0),
         np.float32)
     gray = _rgb_luma(rgb_v, gray_coef)
-    sat = _rgb_saturation(rgb_v)
-    apply = (sat >= tolerance_s) | (scale <= 1.0)
-    rgb_s = np.where(
-        apply[..., None],
-        scale[..., None] * rgb_v + (1.0 - scale)[..., None] * gray[..., None],
-        rgb_v)
+    # sat = _rgb_saturation(rgb_v)
+    # apply = (sat >= tolerance_s) | (scale_s <= 1.0)
+    # rgb_s = np.where(
+    #     apply[..., None],
+    #     scale_s[..., None] * rgb_v + (1.0 - scale_s)[..., None] * gray[..., None],
+    #     rgb_v)
+    rgb_s = scale_s[..., None] * rgb_v + (1.0 - scale_s)[..., None] * gray[..., None]
+
     # ---- H：按 modeH 生效方式 ----
     angle = np.asarray(angle_deg, dtype=np.float32)
     h_mode = str(h_mode).lower()
@@ -612,8 +659,9 @@ def adjust_rgb(rgb, delta_b=None, delta_s=None, gain_c=1.0, tolerance_s=0.0,
     return _wrap(orig, np.clip(rgb_h, 0.0, 1.0))
 
 
-def adjust_hsv(hsv, delta_b=None, delta_s=None, delta_h=None, gain_c=1.0, mode='add',
-               tolerance_s: float = 0.0, mode_c='mid', mode_b='add'):
+def adjust_hsv(hsv, delta_b=None, delta_s=None, delta_h=None, gain_c=1.0, mode_s='add',
+               tolerance_s: float = 0.0, mode_c='mid', mode_b='add',
+               hsl_chroma=None):
     """HSV 域 V/S/H 调整（hsv 输入、hsv 输出，不涉及 RGB 重建）。
     按 V -> S -> H 顺序执行：
       V：Contrast 乘性 + delta_b（加性或乘性）；mode_c 选择增益参考点：
@@ -625,17 +673,19 @@ def adjust_hsv(hsv, delta_b=None, delta_s=None, delta_h=None, gain_c=1.0, mode='
          mode_b 决定 delta_b 生效方式：
            'add'   v'=clip(contrast(v)+db)           （db ∈ [-1,1]，默认）
            'mul'   v'=clip(contrast(v)*gv)           （gv 增益 ∈ [0,4]，中性 1.0）
-           'negmulposrat'  db∈[-1,1]，中性 0：db<0 乘性压缩 v'=clip(v*(1+db))；
-                   db>0 按进度向白靠拢 v'=clip(v+db*(1-v))；db=-1 纯黑、db=1 纯白
+           'rate2limit'  db∈[0,2]，中性 1：db<1 向黑靠拢 v'=clip(v*db)；db>1 按
+                   进度向白靠拢 v'=clip(v+(db-1)*(1-v))；db=0 纯黑、db=2 纯白
            'mulKeepMin'  保底乘性：调小(gv<1)时 V 线性缩小到旧 RGB 最小通道
                    m=v'*(1-s)（v'=m+(v-m)*gv，永不小于 m），S 保持不变（饱和度
                    不变，新最小通道自动 m'=r*v'，r=m/v）；调大(gv>=1)时与 'mul'
                    一致（gv 增益 ∈ [0,4]）
       S：mode='add'  s'=clip(s+ds)；mode='mul'  s'=clip(s*ds)     （ds ∈ [-1,1] 或乘性增益 ∈ [0,4]）
-      S：mode='negmulposrat'  ds∈[-1,1]，中性 0：ds<0 乘性压缩 s'=clip(s*(1+ds))；
-          ds>0 向全饱和靠拢 s'=clip(s+ds*(1-s))；ds=-1 灰、ds=1 全饱和
+      S：mode='rate2limit'  ds∈[0,2]，中性 1：ds<1 向灰度靠拢 s'=clip(s*ds)；ds>1
+          向全饱和靠拢 s'=clip(s+(ds-1)*(1-s))；ds=0 灰、ds=2 全饱和
       H：始终加性     h'=(h + dh*360) % 360                        （dh ∈ [-0.5,0.5]，0.5=180°）
-    语义：S < tolerance_s 的像素不做放大（增色），缩小（减色）始终允许；
+    语义：默认 S < tolerance_s 的像素不做放大（增色），缩小（减色）始终允许；
+          hsl_chroma 非 None（如 HSL 域传入 C=M-m）时，改用 C < tolerance_s
+          判断增色门控（即 8bit 尺度下的 st*255 > (M-m)，*255 两侧同乘抵消）；
           H 统一平移（对灰色无影响）。
     支持单个像素 (h,s,v) 或一帧图像 (...,3) 数组，返回同形状。"""
     orig = hsv
@@ -645,35 +695,16 @@ def adjust_hsv(hsv, delta_b=None, delta_s=None, delta_h=None, gain_c=1.0, mode='
     h = arr[..., 0] % 360.0
     s = np.clip(arr[..., 1], 0.0, 1.0)
     v = np.clip(arr[..., 2], 0.0, 1.0)
+
     db = 0.0 if delta_b is None else np.clip(np.asarray(delta_b, np.float32), -1.0, 1.0)
     dh = 0.0 if delta_h is None else np.clip(np.asarray(delta_h, np.float32), -0.5, 0.5)
-    mode_c = str(mode_c).lower()
-    if mode_c == 'tanslant':
-        # TanSlant：c∈[-1,1]，tan 映射增益（中性 0 -> tan(π/4)=1）
-        gc = 1.0 if gain_c is None else np.clip(np.asarray(gain_c, np.float32), -1.0, 1.0)
-    else:
-        gc = 1.0 if gain_c is None else np.clip(np.asarray(gain_c, np.float32), 0.0, 4.0)
-    mode = str(mode).lower()
-    if mode == 'add':
-        ds = 0.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), -1.0, 1.0)
-        # ---- S：S<tolerance_s 的像素不放大（增色），缩小（减色）始终允许 ----
-        s_new = np.where((s >= tolerance_s) | (ds <= 0.0), np.clip(s + ds, 0.0, 1.0), s)
-    elif mode == 'mul':
-        gs = 1.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), 0.0, 4.0)
-        # ---- S：S<tolerance_s 的像素不放大（增色），缩小（减色）始终允许 ----
-        s_new = np.where((s >= tolerance_s) | (gs <= 1.0), np.clip(s * gs, 0.0, 1.0), s)
-    elif mode == 'negmulposrat':
-        # 负值乘性压缩 / 正值向全饱和靠拢（ds∈[-1,1]，中性 0）
-        ds = 0.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), -1.0, 1.0)
-        s_comp = np.clip(s * (1.0 + ds), 0.0, 1.0)               # δS<0：乘性压缩（减色）
-        s_sat = np.clip(s + ds * (1.0 - s), 0.0, 1.0)            # δS>0：向全饱和靠拢（增色）
-        s_apply = np.where(ds < 0.0, s_comp, s_sat)
-        # ---- S：S<tolerance_s 的像素不放大（增色），缩小（减色）始终允许 ----
-        s_new = np.where((s >= tolerance_s) | (ds <= 0.0), s_apply, s)
-    else:
-        raise ValueError(f"Unsupported adjust_hsv mode: {mode!r}, expect 'add'/'mul'/'negmulposrat'")
+
+    # ---- H：平移 360° 归一（始终加性） ----
+    h_new = (h + dh * 360.0) % 360.0
+
     # ---- V：Contrast 乘性 + delta_b 加性 + clamp，mode_c 决定增益参考点 ----
     mode_c = str(mode_c).lower()
+    gc = 1.0 if gain_c is None else np.clip(np.asarray(gain_c, np.float32), 0.0, 4.0)
     if mode_c == 'zero':
         # 过 v=0.0 原点：v' = gc*v
         v_new = np.clip(gc * v, 0.0, 1.0)
@@ -682,35 +713,70 @@ def adjust_hsv(hsv, delta_b=None, delta_s=None, delta_h=None, gain_c=1.0, mode='
         v_new = np.where(gc < 1.0, gc * v, (v - 0.5) * gc + 0.5)
         v_new = np.clip(v_new, 0.0, 1.0)
     elif mode_c == 'tanslant':
-        # TanSlant：增益 = tan((c+1)π/4)，c∈[-1,1]；用 float64 避免 π/2 附近符号翻转
-        g = np.tan((np.asarray(gc, np.float64) + 1.0) * (np.pi / 4.0))
-        v_new = np.clip((v - 0.5) * g + 0.5, 0.0, 1.0).astype(np.float32)
+        # TanSlant：增益 = tan((c+1)π/4)，c∈[-1,1]；中性 0 -> tan(π/4)=1. 用 float64 避免 π/2 附近符号翻转.
+        gc = 1.0 if gain_c is None else np.clip(np.asarray(gain_c, np.float32), -1.0, 1.0)
+        gc = np.tan((np.asarray(gc, np.float64) + 1.0) * (np.pi / 4.0))
+        v_new = np.clip((v - 0.5) * gc + 0.5, 0.0, 1.0).astype(np.float32)
     else:   # 'mid'（默认）：过 v=0.5 中点
         v_new = np.clip((v - 0.5) * gc + 0.5, 0.0, 1.0)
+
     # ---- delta_b 生效方式：mode_b='add' 加性 / 'mul' 乘性 / 'mulKeepMin' 保底乘性 ----
     mode_b = str(mode_b).lower()
     if mode_b in ('mul', 'mulkeepmin'):
         gv = 1.0 if delta_b is None else np.clip(np.asarray(delta_b, np.float32), 0.0, 4.0)
         if mode_b == 'mulkeepmin':
             # 保底乘性：乘法增益作用于 V；调小(gv<1)时按量程比例线性缩小到旧
-            # RGB 最小通道 m=v_new*(1-s_new)（v'=m+(v-m)*gv，永不小于 m），
+            # RGB 最小通道 m=v_new*(1-s)（v'=m+(v-m)*gv，永不小于 m），
             # S 保持不变 -> 饱和度不变，新最小通道自动为 m'=r*v'（r=m/v）。
-            m_val = np.clip(v_new * (1.0 - s_new), 0.0, 1.0)
+            m_val = np.clip(v_new * (1.0 - s), 0.0, 1.0)
             v_new = np.clip(
                 np.where(gv < 1.0, m_val + (v_new - m_val) * gv, v_new * gv),
                 0.0, 1.0)
         else:
             v_new = np.clip(v_new * gv, 0.0, 1.0)
-    elif mode_b == 'negmulposrat':
-        # 负值乘性压缩 / 正值按进度向白靠拢（db∈[-1,1]，中性 0）
-        neg = db < 0
-        v_comp = np.clip(v_new * (1.0 + db), 0.0, 1.0)          # δB<0：乘法压缩
-        v_white = np.clip(v_new + db * (1.0 - v_new), 0.0, 1.0)  # δB>0：向白靠拢
+    elif mode_b == 'rate2limit':
+        # 按比例向黑/白极限靠拢（db∈[0,2]，中性 1：db<1 向黑靠拢、db>1 向白靠拢）
+        d = 0.0 if delta_b is None else np.clip(np.asarray(delta_b, np.float32), 0.0, 2.0) - 1.0
+        neg = d < 0
+        v_comp = np.clip(v_new * (1.0 + d), 0.0, 1.0)            # d<0：向黑靠拢
+        v_white = np.clip(v_new + d * (1.0 - v_new), 0.0, 1.0)   # d>0：向白靠拢
         v_new = np.where(neg, v_comp, v_white)
     else:   # 'add'（默认）：加性
         v_new = np.clip(v_new + db, 0.0, 1.0)
-    # ---- H：平移 360° 归一（始终加性） ----
-    h_new = (h + dh * 360.0) % 360.0
+
+    # ---- S：delta_s 生效方式: mode_s='add' 加性 / 'mul' 乘性 / 'rate2limit' 按比例向灰度/全饱和靠拢 ----
+    mode_s = str(mode_s).lower()
+
+    # HSL 域传入色度 C=M-m 时改用 C 作为增色门控（规避 L 近黑/白时 HSL 的 S 病态放大）。
+    s_guide = s if hsl_chroma is None else np.clip(np.asarray(hsl_chroma, np.float32), 0.0, 1.0)
+    if mode_s == 'add':
+        ds = 0.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), -1.0, 1.0)
+        # ---- S：tol<tolerance_s（tol=S，或 HSL 域传 C=M-m）的像素不放大（增色），缩小（减色）始终允许 ----
+        s_new = np.where((s_guide >= tolerance_s) | (ds <= 0.0), np.clip(s + ds, 0.0, 1.0), s)
+    elif mode_s == 'mul':
+        gs = 1.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), 0.0, 4.0)
+        # ---- S：tol<tolerance_s（tol=S，或 HSL 域传 C=M-m）的像素不放大（增色），缩小（减色）始终允许 ----
+        s_new = np.where((s_guide >= tolerance_s) | (gs <= 1.0), np.clip(s * gs, 0.0, 1.0), s)
+    elif mode_s == 'rate2limit':
+        # 按比例向灰度/全饱和靠拢（ds∈[0,2]，中性 1：ds<1 向灰度、ds>1 向全饱和）
+        ds = 0.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), 0.0, 2.0) - 1.0
+        s_comp = np.clip(s * (1.0 + ds), 0.0, 1.0)           # ds<0：向灰度靠拢（减色）
+        s_sat = np.clip(s + ds * (1.0 - s), 0.0, 1.0)            # ds>0：向全饱和靠拢（增色）
+        s_apply = np.where(ds < 0.0, s_comp, s_sat)
+        # ---- S：tol<tolerance_s（tol=S，或 HSL 域传 C=M-m）的像素不放大（增色），缩小（减色）始终允许 ----
+        s_new = np.where((s_guide >= tolerance_s) | (ds <= 0.0), s_apply, s)
+    else:
+        raise ValueError(f"Unsupported adjust_hsv mode_s: {mode_s!r}, expect 'add'/'mul'/'rate2limit'")
+
+    # ---- 低色度保护（hsl_chroma 非 None）：输入色度 C<st 的像素，输出色度
+    #      C'=S'·(1-|2L'-1|) 不超过阈值 st——规避 L 近黑/白时 HSL 的 S 病态放大
+    #      在亮度/对比度变动下被"变现"成颜色爆炸（如近白像素变黄）。 ----
+    if hsl_chroma is not None:
+        denom = 1.0 - np.abs(2.0 * v_new - 1.0)
+        s_cap = np.divide(tolerance_s, denom,
+                          out=np.full_like(denom, np.inf), where=denom > 0.0)
+        s_new = np.where(s_guide >= tolerance_s, s_new, np.minimum(s_new, s_cap))
+
     out = np.stack([h_new, s_new, v_new], axis=-1)
     return _wrap(orig, out)
 
@@ -746,31 +812,31 @@ if __name__ == '__main__':
           adjust_hsv((20.0, 0.5, 0.5), delta_b=0.5, mode_b='mulKeepMin'))
     print('标量: adjust_hsv((20.0, 0.5, 0.5), delta_b=0.0, mode_b="mulKeepMin") =',
           adjust_hsv((20.0, 0.5, 0.5), delta_b=0.0, mode_b='mulKeepMin'))
-    # S 乘性模式（仅 S 受 mode 影响）
-    print('标量: adjust_hsv((20.0, 0.5, 0.5), delta_s=1.5, mode="mul") =',
-          adjust_hsv((20.0, 0.5, 0.5), delta_s=1.5, mode='mul'))
-    print('标量: adjust_hsv((0.0, 0.0, 0.5), delta_s=3.0, mode="mul") =',
-          adjust_hsv((0.0, 0.0, 0.5), delta_s=3.0, mode='mul'))
-    # mode='negmulposrat'：ds<0 乘性压缩 / ds>0 向全饱和靠拢（ds=-1 灰、ds=1 全饱和）
-    print('标量: adjust_hsv((20.0, 0.6, 0.5), delta_s=-1.0, mode="negmulposrat") =',
-          adjust_hsv((20.0, 0.6, 0.5), delta_s=-1.0, mode='negmulposrat'))
-    print('标量: adjust_hsv((20.0, 0.6, 0.5), delta_s=1.0, mode="negmulposrat") =',
-          adjust_hsv((20.0, 0.6, 0.5), delta_s=1.0, mode='negmulposrat'))
-    print('标量: adjust_hsv((20.0, 0.6, 0.5), delta_s=0.5, mode="negmulposrat") =',
-          adjust_hsv((20.0, 0.6, 0.5), delta_s=0.5, mode='negmulposrat'))
-    print('标量: adjust_hsv((20.0, 0.6, 0.5), delta_s=-0.5, mode="negmulposrat") =',
-          adjust_hsv((20.0, 0.6, 0.5), delta_s=-0.5, mode='negmulposrat'))
-    print('标量: adjust_hsv((20.0, 0.02, 0.5), delta_s=0.5, mode="negmulposrat", tolerance_s=0.05) =',
-          adjust_hsv((20.0, 0.02, 0.5), delta_s=0.5, mode='negmulposrat', tolerance_s=0.05))
+    # S 乘性模式（仅 S 受 mode_s 影响）
+    print('标量: adjust_hsv((20.0, 0.5, 0.5), delta_s=1.5, mode_s="mul") =',
+          adjust_hsv((20.0, 0.5, 0.5), delta_s=1.5, mode_s='mul'))
+    print('标量: adjust_hsv((0.0, 0.0, 0.5), delta_s=3.0, mode_s="mul") =',
+          adjust_hsv((0.0, 0.0, 0.5), delta_s=3.0, mode_s='mul'))
+    # mode_s='rate2limit'：ds<1 向灰度 / ds>1 向全饱和靠拢（ds=0 灰、ds=2 全饱和）
+    print('标量: adjust_hsv((20.0, 0.6, 0.5), delta_s=0.0, mode_s="rate2limit") =',
+          adjust_hsv((20.0, 0.6, 0.5), delta_s=0.0, mode_s='rate2limit'))
+    print('标量: adjust_hsv((20.0, 0.6, 0.5), delta_s=2.0, mode_s="rate2limit") =',
+          adjust_hsv((20.0, 0.6, 0.5), delta_s=2.0, mode_s='rate2limit'))
+    print('标量: adjust_hsv((20.0, 0.6, 0.5), delta_s=0.5, mode_s="rate2limit") =',
+          adjust_hsv((20.0, 0.6, 0.5), delta_s=0.5, mode_s='rate2limit'))
+    print('标量: adjust_hsv((20.0, 0.6, 0.5), delta_s=1.5, mode_s="rate2limit") =',
+          adjust_hsv((20.0, 0.6, 0.5), delta_s=1.5, mode_s='rate2limit'))
+    print('标量: adjust_hsv((20.0, 0.02, 0.5), delta_s=1.5, mode_s="rate2limit", tolerance_s=0.05) =',
+          adjust_hsv((20.0, 0.02, 0.5), delta_s=1.5, mode_s='rate2limit', tolerance_s=0.05))
     # tolerance_s：S<阈值 的像素不放大（增色），缩小（减色）仍允许
     print('标量: adjust_hsv((20.0, 0.02, 0.5), delta_s=0.3, tolerance_s=0.05) =',
           adjust_hsv((20.0, 0.02, 0.5), delta_s=0.3, tolerance_s=0.05))
     print('标量: adjust_hsv((20.0, 0.02, 0.5), delta_s=-0.1, tolerance_s=0.05) =',
           adjust_hsv((20.0, 0.02, 0.5), delta_s=-0.1, tolerance_s=0.05))
-    print('标量: adjust_hsv((20.0, 0.02, 0.5), delta_s=2.0, mode="mul", tolerance_s=0.05) =',
-          adjust_hsv((20.0, 0.02, 0.5), delta_s=2.0, mode='mul', tolerance_s=0.05))
-    print('标量: adjust_hsv((20.0, 0.02, 0.5), delta_s=0.5, mode="mul", tolerance_s=0.05) =',
-          adjust_hsv((20.0, 0.02, 0.5), delta_s=0.5, mode='mul', tolerance_s=0.05))
+    print('标量: adjust_hsv((20.0, 0.02, 0.5), delta_s=2.0, mode_s="mul", tolerance_s=0.05) =',
+          adjust_hsv((20.0, 0.02, 0.5), delta_s=2.0, mode_s='mul', tolerance_s=0.05))
+    print('标量: adjust_hsv((20.0, 0.02, 0.5), delta_s=0.5, mode_s="mul", tolerance_s=0.05) =',
+          adjust_hsv((20.0, 0.02, 0.5), delta_s=0.5, mode_s='mul', tolerance_s=0.05))
     # mode_c='tanslant'：c∈[-1,1]，tan 映射增益（c=0 恒等 / c=1 极强 / c=-1 压平）
     print('标量: adjust_hsv((20.0, 0.5, 0.5), gain_c=1.0, mode_c="tanslant") =',
           adjust_hsv((20.0, 0.5, 0.5), gain_c=1.0, mode_c='tanslant'))
@@ -780,27 +846,27 @@ if __name__ == '__main__':
           adjust_hsv((20.0, 0.5, 0.3), gain_c=1.0, mode_c='tanslant'))
     print('标量: adjust_hsv((20.0, 0.5, 0.7), gain_c=-1.0, mode_c="tanslant") =',
           adjust_hsv((20.0, 0.5, 0.7), gain_c=-1.0, mode_c='tanslant'))
-    # mode_b='negmulposrat'：db<0 乘性压缩 / db>0 向白靠拢（db=-1 纯黑、db=1 纯白）
-    print('标量: adjust_hsv((20.0, 0.5, 0.6), delta_b=-1.0, mode_b="negmulposrat") =',
-          adjust_hsv((20.0, 0.5, 0.6), delta_b=-1.0, mode_b='negmulposrat'))
-    print('标量: adjust_hsv((20.0, 0.5, 0.6), delta_b=1.0, mode_b="negmulposrat") =',
-          adjust_hsv((20.0, 0.5, 0.6), delta_b=1.0, mode_b='negmulposrat'))
-    print('标量: adjust_hsv((20.0, 0.5, 0.6), delta_b=0.5, mode_b="negmulposrat") =',
-          adjust_hsv((20.0, 0.5, 0.6), delta_b=0.5, mode_b='negmulposrat'))
-    print('标量: adjust_hsv((20.0, 0.5, 0.6), delta_b=-0.5, mode_b="negmulposrat") =',
-          adjust_hsv((20.0, 0.5, 0.6), delta_b=-0.5, mode_b='negmulposrat'))
-    # adjust_rgb：中性恒等 / S 灰阶混合 / H 灰色轴旋转 / tanslant / negmulposrat
+    # mode_b='rate2limit'：db<1 向黑 / db>1 向白靠拢（db=0 纯黑、db=2 纯白）
+    print('标量: adjust_hsv((20.0, 0.5, 0.6), delta_b=0.0, mode_b="rate2limit") =',
+          adjust_hsv((20.0, 0.5, 0.6), delta_b=0.0, mode_b='rate2limit'))
+    print('标量: adjust_hsv((20.0, 0.5, 0.6), delta_b=2.0, mode_b="rate2limit") =',
+          adjust_hsv((20.0, 0.5, 0.6), delta_b=2.0, mode_b='rate2limit'))
+    print('标量: adjust_hsv((20.0, 0.5, 0.6), delta_b=0.5, mode_b="rate2limit") =',
+          adjust_hsv((20.0, 0.5, 0.6), delta_b=0.5, mode_b='rate2limit'))
+    print('标量: adjust_hsv((20.0, 0.5, 0.6), delta_b=1.5, mode_b="rate2limit") =',
+          adjust_hsv((20.0, 0.5, 0.6), delta_b=1.5, mode_b='rate2limit'))
+    # adjust_rgb：中性恒等 / S 灰阶混合 / H 灰色轴旋转 / tanslant / rate2limit
     _ar = np.array([0.2, 0.5, 0.8], np.float32)
     print('adjust_rgb 中性恒等 =', adjust_rgb(_ar))
     print('adjust_rgb S=0（纯灰） =', adjust_rgb(np.array([1.0, 0.0, 0.0], np.float32), delta_s=0.0))
     print('adjust_rgb H=120（红->绿） =', adjust_rgb(np.array([1.0, 0.0, 0.0], np.float32), angle_deg=120.0))
     print('adjust_rgb TanSlant c=1（v>0.5->1） =', adjust_rgb(np.array([0.7, 0.7, 0.7], np.float32), mode_c='tanslant', gain_c=1.0))
-    print('adjust_rgb NegMulPosRat db=-1（纯黑） =', adjust_rgb(np.array([0.6, 0.3, 0.1], np.float32), mode_b='negmulposrat', delta_b=-1.0))
-    print('adjust_rgb NegMulPosRat db=1（纯白） =', adjust_rgb(np.array([0.6, 0.3, 0.1], np.float32), mode_b='negmulposrat', delta_b=1.0))
+    print('adjust_rgb Rate2Limit db=0（纯黑） =', adjust_rgb(np.array([0.6, 0.3, 0.1], np.float32), mode_b='rate2limit', delta_b=0.0))
+    print('adjust_rgb Rate2Limit db=2（纯白） =', adjust_rgb(np.array([0.6, 0.3, 0.1], np.float32), mode_b='rate2limit', delta_b=2.0))
     try:
-        adjust_hsv((0.0, 0.0, 0.5), mode='bad')
+        adjust_hsv((0.0, 0.0, 0.5), mode_s='bad')
     except ValueError as exc:
-        print('非法 mode 抛 ValueError:', exc)
+        print('非法 mode_s 抛 ValueError:', exc)
     # hsv_to_rgb 冒烟：六经典色 / 灰色 / 数组 / 往返
     print('标量: hsv_to_rgb((300.0, 1.0, 1.0))         =', hsv_to_rgb((300.0, 1.0, 1.0)))
     print('标量: hsv_to_rgb((0.0, 0.0, 0.5))           =', hsv_to_rgb((0.0, 0.0, 0.5)))

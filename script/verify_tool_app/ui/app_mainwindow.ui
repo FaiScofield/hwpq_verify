@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>AcmTestAppWindow</class>
- <widget class="QMainWindow" name="AcmTestAppWindow">
+ <class>TestAppWindow</class>
+ <widget class="QMainWindow" name="TestAppWindow">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -39,7 +39,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>463</width>
+     <width>800</width>
      <height>22</height>
     </rect>
    </property>
@@ -49,7 +49,15 @@
     </property>
     <addaction name="actionPreview"/>
    </widget>
+   <widget class="QMenu" name="menuAbout">
+    <property name="title">
+     <string>Help</string>
+    </property>
+    <addaction name="actionAbout_This_App"/>
+    <addaction name="actionAPP_LOG"/>
+   </widget>
    <addaction name="menuView_2"/>
+   <addaction name="menuAbout"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="actionPreview">
@@ -61,6 +69,16 @@
    </property>
    <property name="text">
     <string>Preview</string>
+   </property>
+  </action>
+  <action name="actionAbout_This_App">
+   <property name="text">
+    <string>About</string>
+   </property>
+  </action>
+  <action name="actionAPP_LOG">
+   <property name="text">
+    <string>App Log</string>
    </property>
   </action>
  </widget>

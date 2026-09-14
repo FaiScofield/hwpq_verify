@@ -6,17 +6,54 @@ Date        : 2026-08-13
 Description : HSV test application host window with reusable widget composition
 """
 
+import logging
 import os
 import subprocess
 import sys
 
-HSV_APP_TARGET = "Sonnoc"
-HSV_APP_VERSION = "v3.0"
+HSV_APP_TARGET = "Sonnoc" # RK/Sonnoc
+HSV_APP_VERSION = "v3.1"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
 
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
+
+# 默认日志文件（Help -> App Log 菜单直接打开它）。打包后与 exe 同目录，
+# 源码运行时位于仓库根的 output/ 下（与 params_config.py 的路径约定一致）。
+_LOG_BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else PROJECT_ROOT
+DEFAULT_LOG_FILE = os.path.join(_LOG_BASE_DIR, "output", "test_app_hsv.log")
+
+
+def _git_short_hash() -> str:
+    """Return the repository HEAD short hash (or 'unknown')."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", PROJECT_ROOT, "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5)
+        return result.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _build_date_str() -> str:
+    """Return the source-file modification time as the build date."""
+    try:
+        import datetime
+        stamp = os.path.getmtime(os.path.abspath(__file__))
+        return datetime.datetime.fromtimestamp(stamp).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return "unknown"
+
+
+GIT_SHORT_HASH = _git_short_hash()
+BUILD_DATE = _build_date_str()
+
+# logger
+from script.utils import setup_logger
+
+setup_logger(name="TEST_HSV_APP", output=DEFAULT_LOG_FILE, loglevel="DEBUG")
+logger = logging.getLogger("TEST_HSV_APP")
 
 
 def _ensure_generated_ui_modules():
@@ -28,10 +65,10 @@ def _ensure_generated_ui_modules():
     if getattr(sys, "frozen", False):
         return
     ui_pairs = (
-        ("ui\\module_app_mainwindow.ui", "ui_gen\\module_app_mainwindow.py"),
-        ("ui\\io_preview_ui.ui", "ui_gen\\io_preview_ui.py"),
+        ("ui\\app_mainwindow.ui", "ui_gen\\app_mainwindow.py"),
+        ("ui\\preview_ui.ui", "ui_gen\\preview_ui.py"),
         ("ui\\io_ui.ui", "ui_gen\\io_ui.py"),
-        ("ui\\hsv_ui.ui", "ui_gen\\hsv_ui.py"),
+        ("ui\\bcsh_ui.ui", "ui_gen\\bcsh_ui.py"),
     )
     needs_regen = False
     for src_rel, gen_rel in ui_pairs:
@@ -44,7 +81,7 @@ def _ensure_generated_ui_modules():
     if not needs_regen:
         return
 
-    print("run auto uic to generate ui_gen modules...")
+    logger.info("run auto uic to generate ui_gen modules...")
     cmd_path = os.path.join(CURRENT_DIR, "uic.cmd")
     if not os.path.isfile(cmd_path):
         raise RuntimeError(f"Missing UI generator script: {cmd_path}")
@@ -62,14 +99,14 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QScrollArea, QVBoxLayou
 
 if __package__:
     from .ui_impl.io_ui_impl import IoUiController, IoUiWidget
-    from .ui_impl.hsv_ui_impl import HsvUiController, HsvUiWidget
-    from .ui_impl.io_preview_ui_impl import PreviewUiController, PreviewUiWidget
-    from .ui_gen.module_app_mainwindow import Ui_AcmTestAppWindow
+    from .ui_impl.bcsh_ui_impl import HsvUiController, HsvUiWidget
+    from .ui_impl.preview_ui_impl import PreviewUiController, PreviewUiWidget
+    from .ui_gen.app_mainwindow import Ui_TestAppWindow
 else:
     from ui_impl.io_ui_impl import IoUiController, IoUiWidget
-    from ui_impl.hsv_ui_impl import HsvUiController, HsvUiWidget
-    from ui_impl.io_preview_ui_impl import PreviewUiController, PreviewUiWidget
-    from ui_gen.module_app_mainwindow import Ui_AcmTestAppWindow
+    from ui_impl.bcsh_ui_impl import HsvUiController, HsvUiWidget
+    from script.verify_tool_app.ui_impl.preview_ui_impl import PreviewUiController, PreviewUiWidget
+    from ui_gen.app_mainwindow import Ui_TestAppWindow
 
 
 class HsvTestAppWindow(QMainWindow):
@@ -77,7 +114,7 @@ class HsvTestAppWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.ui = Ui_AcmTestAppWindow()
+        self.ui = Ui_TestAppWindow()
         self.ui.setupUi(self)
         self.setWindowTitle(f"HSV Test App {HSV_APP_VERSION}")
         # The host window .ui is shared across apps; set the HSV tab label here.
@@ -90,14 +127,14 @@ class HsvTestAppWindow(QMainWindow):
 
         # 隐藏不开放给客户使用的控件
         if HSV_APP_TARGET == "Sonnoc":
+            logger.info("Sonnoc mode")
+
             # 不包含 clipType 相关
             for _w in (
                 self.hsv_widget.ui.label_y2rClip,
                 self.hsv_widget.ui.label_y2yClip,
-                self.hsv_widget.ui.label_normYuv,
                 self.hsv_widget.ui.comboBox_y2rClipType,
                 self.hsv_widget.ui.comboBox_y2yClipType,
-                self.hsv_widget.ui.comboBox_normYuvChroma,
             ):
                 _w.setVisible(False)
 
@@ -106,16 +143,6 @@ class HsvTestAppWindow(QMainWindow):
                 idx = self.hsv_widget.ui.comboBox_adjustField.findText(name)
                 if idx >= 0:
                     self.hsv_widget.ui.comboBox_adjustField.removeItem(idx)
-
-            # 不包含 YCbCr 域相关Mode
-            for name in ("ModeAddKeepHS", "ModeAddKeepH"):
-                idx = self.hsv_widget.ui.comboBox_modeB.findText(name)
-                if idx >= 0:
-                    self.hsv_widget.ui.comboBox_modeB.removeItem(idx)
-            for name in ("ModeAddKeepS", "ModeAddKeepYH"):
-                idx = self.hsv_widget.ui.comboBox_modeH.findText(name)
-                if idx >= 0:
-                    self.hsv_widget.ui.comboBox_modeH.removeItem(idx)
 
             # 不包含配置文件相关控件
             for _w in (
@@ -159,6 +186,7 @@ class HsvTestAppWindow(QMainWindow):
         self.preview_ctrl.set_full_res_output_provider(self.hsv_ctrl.get_full_res_output)
         self.preview_ctrl.set_pixel_selection_callback(self.hsv_ctrl.on_preview_pixel_selection)
         self._install_view_menu()
+        self._install_help_actions()
         # Propagate HSV enabled state to preview for BothInLeft mode.
         self.hsv_ctrl.ui.checkBox_enableHsvAdj.toggled.connect(self.preview_ctrl.set_acm_enabled)
         self.preview_ctrl.set_acm_enabled(self.hsv_ctrl.ui.checkBox_enableHsvAdj.isChecked())
@@ -170,11 +198,34 @@ class HsvTestAppWindow(QMainWindow):
     def _install_view_menu(self) -> None:
         """Wire the Preview action to toggle the preview dock visibility.
 
-        The action is defined in module_app_mainwindow.ui as checkable /
+        The action is defined in app_mainwindow.ui as checkable /
         checked-by-default.  Toggling it shows or hides the preview dock.
         """
         action = self.ui.actionPreview
         action.toggled.connect(self._on_preview_action_toggled)
+
+    def _install_help_actions(self) -> None:
+        """Wire the Help-menu actions (About / App Log)."""
+        if hasattr(self.ui, "actionAbout_This_App"):
+            self.ui.actionAbout_This_App.triggered.connect(self._on_about)
+        if hasattr(self.ui, "actionAPP_LOG"):
+            self.ui.actionAPP_LOG.triggered.connect(self._on_open_log)
+
+    def _on_about(self) -> None:
+        """Show the About dialog (version / git hash / build date)."""
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.about(
+            self, "About HSV Test App",
+            f"<b>HSV Test App</b> {HSV_APP_VERSION}<br/><br/>"
+            f"Git commit: {GIT_SHORT_HASH}<br/>"
+            f"Compiled date: {BUILD_DATE}")
+
+    def _on_open_log(self) -> None:
+        """Open the default log file with the system handler."""
+        if os.path.isfile(DEFAULT_LOG_FILE):
+            os.startfile(DEFAULT_LOG_FILE)
+        else:
+            self.ui.statusbar.showMessage(f"Log file not found: {DEFAULT_LOG_FILE}")
 
     def _on_preview_action_toggled(self, checked: bool) -> None:
         """Show or hide the preview dock."""

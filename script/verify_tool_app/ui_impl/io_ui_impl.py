@@ -3,12 +3,16 @@ I/O tab controller — encapsulates all IO-related behavior for reuse.
 """
 
 from collections.abc import Callable
+import logging
 import os
 import re
 
 import numpy as np
 from PIL import Image
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
+    QPushButton, QVBoxLayout, QWidget,
+)
 
 from script.csc.run_csc import (
     CLRSPC_NAMES,
@@ -28,6 +32,32 @@ try:
     from ..ui_gen.io_ui import Ui_IoUiWidget
 except ImportError:
     from ui_gen.io_ui import Ui_IoUiWidget
+
+
+logger = logging.getLogger(__name__)
+
+# Browse 对话框默认目录：LineEdit 文本无效时回退到仓库 data/（若存在）。
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_DATA_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(_CURRENT_DIR))), "data")
+
+
+def _browse_start_dir(text: str) -> str:
+    """计算 Browse 对话框起始路径。
+
+    LineEdit 文本有效（文件/目录存在）→ 直接定位到它（文件则预选）；
+    否则回退到其父目录，再回退到仓库默认 data/ 目录。
+    """
+    text = (text or "").strip()
+    if text:
+        if os.path.isfile(text) or os.path.isdir(text):
+            return text
+        parent = os.path.dirname(text)
+        if parent and os.path.isdir(parent):
+            return parent
+    if os.path.isdir(_DATA_DIR):
+        return _DATA_DIR
+    return ""
 
 
 # ------------------------------------------------------------------ #
@@ -160,6 +190,7 @@ class IoUiController:
         on_input_loaded: Callable[[object, str], None] | None = None,
         on_load_config: Callable[[str], None] | None = None,
         on_output_changed: Callable[[], None] | None = None,
+        on_input_config_changed: Callable[[], None] | None = None,
         status_callback: Callable[[str], None] | None = None,
         auto_load_defaults: bool = True,
     ) -> None:
@@ -170,6 +201,10 @@ class IoUiController:
             parent_window: Optional host window kept only for dialog parenting.
             on_input_loaded: Optional callback receiving ``(input_yuv444, status_message)``.
             on_load_config: Optional callback receiving a config path.
+            on_output_changed: Optional callback fired when output format/colorspace changes.
+            on_input_config_changed: Optional callback fired when the input
+                format/colorspace *selection* changes (fires even when no file is
+                loaded, unlike ``on_input_loaded``); 宿主据此刷新依赖输入格式的显示。
             status_callback: Optional callback receiving a status-bar message.
             auto_load_defaults: Whether to auto-load the default input/config during init.
         """
@@ -179,12 +214,14 @@ class IoUiController:
         self._on_input_loaded = on_input_loaded
         self._load_config_callback = on_load_config
         self._on_output_changed = on_output_changed
+        self._on_input_config_changed = on_input_config_changed
         self._status_callback = status_callback
         self._input_loaded = False
         # 参数猜测级联（格式/色彩空间/帧号变化触发重载）期间抑制装载失败弹窗。
         self._suppress_load_errors = False
         self._init_ui()
         self._connect_signals()
+        self._init_pipeline_group()
         self._update_swap_controls()
         if auto_load_defaults:
             self._auto_load_defaults()
@@ -253,6 +290,201 @@ class IoUiController:
         self.ui.spinBox_frame_idx.valueChanged.connect(self._on_frame_idx_changed)
         self.ui.checkBox_swapRB.toggled.connect(self._on_swap_toggled)
         self.ui.checkBox_swapUV.toggled.connect(self._on_swap_toggled)
+
+    # ------------------------------------------------------------------ #
+    # Pipeline control bar (groupBox_pipeline)                           #
+    # ------------------------------------------------------------------ #
+    #
+    # 对应 PySimpleGUI 版 sg.Frame("Pipeline") 的控件语义：流水线模块水平
+    # 排列（左右移动），每个模块 = 启用勾选框 + ◀/▶（左移/右移）按钮。
+    # groupBox_pipeline 默认隐藏；宿主（如 test_app_pq）需要时调用
+    # set_pipeline_visible(True) 并 configure_pipeline() 注册模块。模块勾选
+    # 默认全部不选中，并与各模块 tab 页的 "Enable xxx" 总开关联动（宿主
+    # 经 set_pipeline_stage_enabled() 同步）。勾选/顺序变化经回调通知宿主。
+
+    def _init_pipeline_group(self) -> None:
+        """初始化 groupBox_pipeline 内的流水线控制栏并默认隐藏。"""
+        self._pipeline_stages: list[tuple[str, str]] = []   # 有序 [(tag, label)]
+        self._pipeline_enabled: set[str] = set()
+        self._pipeline_checkboxes: dict[str, QCheckBox] = {}
+        self._on_pipeline_changed: Callable[[], None] | None = None
+        self._pipeline_layout: QVBoxLayout | None = None
+        self._pipeline_box = self.ui.groupBox_pipeline
+        # 流水线末尾的"出图前静默转换"提示（宿主经 set_output_convert_hint 设置）。
+        self._pipeline_hint_label: QLabel | None = None
+        self._pipeline_hint_text = ""
+        self._pipeline_box.setVisible(False)                # 默认隐藏
+
+    def configure_pipeline(
+        self, stages: list[tuple[str, str]], default_enabled: bool = False,
+    ) -> None:
+        """注册流水线模块并构建水平排列的启用勾选 + ◀/▶ 控件。
+
+        Args:
+            stages: 有序的 (tag, label) 列表（初始执行顺序）。
+            default_enabled: 初始是否全部勾选启用（默认全不选中）。
+        """
+        self._pipeline_stages = list(stages)
+        self._pipeline_enabled = (
+            {tag for tag, _ in self._pipeline_stages} if default_enabled else set())
+        self._rebuild_pipeline_rows()
+
+    def set_pipeline_visible(self, visible: bool) -> None:
+        """显示/隐藏 groupBox_pipeline（默认隐藏）。"""
+        self._pipeline_box.setVisible(visible)
+
+    def set_output_convert_hint(self, text: str) -> None:
+        """设置流水线末尾的"出图前静默转换"提示（空字符串则隐藏）。
+
+        text 形如 ``0x13-YUV444P_10LSB/5 → 0x0-RGB888/1``，表示链路输出格式
+        与 I/O 输出设置不同、出图前会静默转换一次；格式一致时传空串隐藏。
+        """
+        self._pipeline_hint_text = text or ""
+        self._apply_pipeline_hint()
+
+    def _apply_pipeline_hint(self) -> None:
+        """把缓存的提示文本写到流水线末尾的标签上（无标签时忽略）。"""
+        label = self._pipeline_hint_label
+        if label is None:
+            return
+        label.setText(self._pipeline_hint_text)
+        label.setVisible(bool(self._pipeline_hint_text))
+
+    def set_pipeline_changed_callback(
+        self, callback: Callable[[], None] | None,
+    ) -> None:
+        """设置流水线启用/顺序变化时的回调（宿主据此重跑流水线）。"""
+        self._on_pipeline_changed = callback
+
+    def set_pipeline_stage_enabled(self, tag: str, checked: bool) -> None:
+        """同步某模块的启用勾选状态（宿主联动模块 "Enable xxx" 总开关时调用）。
+
+        值未变化时不做任何事（避免信号回流）；变化则更新勾选框并通知回调。
+        """
+        if checked:
+            if tag in self._pipeline_enabled:
+                return
+            self._pipeline_enabled.add(tag)
+        else:
+            if tag not in self._pipeline_enabled:
+                return
+            self._pipeline_enabled.discard(tag)
+        checkbox = self._pipeline_checkboxes.get(tag)
+        if checkbox is not None and checkbox.isChecked() != checked:
+            checkbox.setChecked(checked)
+        self._emit_pipeline_changed()
+
+    def get_pipeline_order(self) -> list[str]:
+        """返回当前模块执行顺序（含未启用的）。"""
+        return [tag for tag, _ in self._pipeline_stages]
+
+    def get_pipeline_enabled(self) -> list[str]:
+        """返回当前启用（勾选）模块，保持执行顺序。"""
+        return [tag for tag, _ in self._pipeline_stages
+                if tag in self._pipeline_enabled]
+
+    def _ensure_pipeline_layout(self) -> QVBoxLayout:
+        """返回 groupBox_pipeline 的布局（首次创建）。"""
+        if self._pipeline_layout is None:
+            self._pipeline_layout = QVBoxLayout(self._pipeline_box)
+            self._pipeline_layout.setContentsMargins(6, 6, 6, 6)
+            self._pipeline_layout.setSpacing(2)
+        return self._pipeline_layout
+
+    def _rebuild_pipeline_rows(self) -> None:
+        """按当前顺序重建水平排列的行（勾选 + ◀/▶）。
+
+        每个模块是一个紧凑 cell（勾选 + 左移/右移按钮），全部水平排成一行；
+        最左 cell 的 ◀ 与最右 cell 的 ▶ 禁用。
+        """
+        layout = self._ensure_pipeline_layout()
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+        self._pipeline_checkboxes = {}
+        self._pipeline_hint_label = None
+        count = len(self._pipeline_stages)
+        if count == 0:
+            return
+        strip = QWidget(self._pipeline_box)
+        strip_layout = QHBoxLayout(strip)
+        strip_layout.setContentsMargins(0, 0, 0, 0)
+        strip_layout.setSpacing(6)
+        for index, (tag, label) in enumerate(self._pipeline_stages):
+            cell = QWidget(strip)
+            cell_layout = QHBoxLayout(cell)
+            cell_layout.setContentsMargins(0, 0, 0, 0)
+            cell_layout.setSpacing(2)
+            checkbox = QCheckBox(label, cell)
+            checkbox.setChecked(tag in self._pipeline_enabled)
+            checkbox.setToolTip(f"启用/禁用 {label}（与模块页 Enable 总开关联动）")
+            checkbox.toggled.connect(
+                lambda checked, t=tag: self._on_pipeline_toggle(t, checked))
+            left_btn = QPushButton("◀", cell)
+            right_btn = QPushButton("▶", cell)
+            for btn in (left_btn, right_btn):
+                btn.setFixedWidth(24)
+                btn.setFixedHeight(22)
+            left_btn.setToolTip(f"左移 {label}（调整执行顺序）")
+            right_btn.setToolTip(f"右移 {label}（调整执行顺序）")
+            left_btn.setEnabled(index > 0)
+            right_btn.setEnabled(index < count - 1)
+            left_btn.clicked.connect(
+                lambda _=False, t=tag: self._move_pipeline_stage(t, -1))
+            right_btn.clicked.connect(
+                lambda _=False, t=tag: self._move_pipeline_stage(t, 1))
+            cell_layout.addWidget(checkbox)
+            cell_layout.addWidget(left_btn)
+            cell_layout.addWidget(right_btn)
+            self._pipeline_checkboxes[tag] = checkbox
+            strip_layout.addWidget(cell)
+            if index < count - 1:
+                sep = QWidget(strip)
+                sep.setFixedWidth(1)
+                sep.setStyleSheet("background:#808080;")
+                strip_layout.addWidget(sep)
+        strip_layout.addStretch(1)
+        # 末尾提示：链路中间格式与 I/O 输出格式不同 -> 出图前会静默转换一次。
+        self._pipeline_hint_label = QLabel(strip)
+        self._pipeline_hint_label.setToolTip(
+            "链路输出格式与 I/O 输出设置不同，出图前会静默转换一次")
+        self._pipeline_hint_label.setStyleSheet("color:#c86400;")
+        strip_layout.addWidget(self._pipeline_hint_label)
+        self._apply_pipeline_hint()
+        layout.addWidget(strip)
+
+    def _on_pipeline_toggle(self, tag: str, checked: bool) -> None:
+        """勾选/取消勾选某模块的启用状态。"""
+        if checked:
+            if tag in self._pipeline_enabled:
+                return
+            self._pipeline_enabled.add(tag)
+        else:
+            if tag not in self._pipeline_enabled:
+                return
+            self._pipeline_enabled.discard(tag)
+        self._emit_pipeline_changed()
+
+    def _move_pipeline_stage(self, tag: str, delta: int) -> None:
+        """把 tag 左移(-1)/右移(+1)；越界忽略，移动后重建行。"""
+        index = next(
+            (i for i, (t, _) in enumerate(self._pipeline_stages) if t == tag), -1)
+        target = index + delta
+        if index < 0 or not (0 <= target < len(self._pipeline_stages)):
+            return
+        stages = list(self._pipeline_stages)
+        stages[index], stages[target] = stages[target], stages[index]
+        self._pipeline_stages = stages
+        self._rebuild_pipeline_rows()
+        self._emit_pipeline_changed()
+
+    def _emit_pipeline_changed(self) -> None:
+        """通知宿主：流水线启用集合/顺序已变化。"""
+        if self._on_pipeline_changed is not None:
+            self._on_pipeline_changed()
 
     # ------------------------------------------------------------------ #
     # Public queries                                                     #
@@ -329,6 +561,15 @@ class IoUiController:
                 continue
         return ""
 
+    def _emit_input_config_changed(self) -> None:
+        """通知宿主：输入格式/色彩空间选择已变化。
+
+        与 ``_on_input_loaded`` 不同，这里不要求文件装载成功（未选文件时也会
+        触发），宿主据此刷新依赖输入格式的显示（CSC 基础 mode 标签、末端转换提示）。
+        """
+        if self._on_input_config_changed is not None:
+            self._on_input_config_changed()
+
     # ------------------------------------------------------------------ #
     # Signal handlers                                                    #
     # ------------------------------------------------------------------ #
@@ -338,7 +579,7 @@ class IoUiController:
         path, _ = QFileDialog.getOpenFileName(
             None,
             "Select Input File",
-            "",
+            _browse_start_dir(self.ui.lineEdit_input_file.text()),
             "All Files (*.*);;YUV Files (*.yuv);;RGB Files (*.rgb);;Image Files (*.png *.jpg *.bmp)",
         )
         if path:
@@ -375,7 +616,9 @@ class IoUiController:
 
     def _on_browse_output(self) -> None:
         """Browse for an output directory."""
-        path = QFileDialog.getExistingDirectory(None, "Select Output Directory")
+        path = QFileDialog.getExistingDirectory(
+            None, "Select Output Directory",
+            _browse_start_dir(self.ui.lineEdit_output_dir.text()))
         if path:
             self.ui.lineEdit_output_dir.setText(path)
 
@@ -387,7 +630,10 @@ class IoUiController:
 
     def _on_browse_config(self) -> None:
         """Browse for an ACM config file."""
-        path, _ = QFileDialog.getOpenFileName(None, "Select Config File", "", "JSON Files (*.json)")
+        path, _ = QFileDialog.getOpenFileName(
+            None, "Select Config File",
+            _browse_start_dir(self.ui.lineEdit_config_file.text()),
+            "JSON Files (*.json)")
         if path:
             self.ui.lineEdit_config_file.setText(path)
 
@@ -437,6 +683,7 @@ class IoUiController:
         self._update_swap_controls()
         self._recalc_frame_num()
         self._load_input_image()
+        self._emit_input_config_changed()
 
     def _on_input_colorspace_changed(self, index: int) -> None:
         """Reload the input since reading uses the selected colorspace, and
@@ -444,6 +691,7 @@ class IoUiController:
         del index
         self._refresh_output_colorspace_options()
         self._load_input_image()
+        self._emit_input_config_changed()
 
     def _on_output_format_changed(self, index: int) -> None:
         """Output format changed: refresh colorspace options and re-run pipeline."""
@@ -543,6 +791,7 @@ class IoUiController:
         """Enable the test-pattern controls and load the selected pattern as input."""
         self.ui.comboBox_useTestPattern.setEnabled(enabled)
         self.ui.label_valueV.setEnabled(enabled)
+        self.ui.label_valueH.setEnabled(enabled)
         self.ui.spinBox_valueV.setEnabled(enabled)
         self.ui.spinBox_valueH.setEnabled(enabled)
         self._update_swap_controls()
@@ -593,6 +842,7 @@ class IoUiController:
         try:
             r, g, b = build_test_pattern_rgb(kind, width, height, value_v, value_h)
         except Exception as exc:
+            logger.error("Failed to generate test pattern: %s", exc)
             QMessageBox.critical(None, "Error", f"Failed to generate test pattern: {exc}")
             return
         frame = ImageFrame(r, g, b, _PLANAR_RGB_8, 1)
@@ -899,4 +1149,5 @@ class IoUiController:
         except Exception as exc:
             if self._suppress_load_errors:
                 return
+            logger.error("Failed to load image: %s", exc)
             QMessageBox.critical(None, "Error", f"Failed to load image: {exc}")

@@ -96,7 +96,7 @@ npm run preview    # 本地预览构建产物
 
 ### 4.1 Python 计算代码
 
-**BCSH 调整与处理域转换由 `script/bcsh/hsv_adjust.py` 统一实现**：RGB 系圆柱色域走 `adjust_hsv`（域内按 V→S→H 顺序调整），RGB 域走 `adjust_rgb`（逐通道直接调整）；处理域选择与 YCbCr 极坐标在 `script/verify_tool_app/ui_impl/hsv_ui_impl.py` 中完成。所有通道归一化 `[0,1]`（YCbCr 色度 `[-0.5,0.5]`）并 clamp。
+**BCSH 调整与处理域转换由 `script/bcsh/hsv_adjust.py` 统一实现**：RGB 系圆柱色域走 `adjust_hsv`（域内按 V→S→H 顺序调整），RGB 域走 `adjust_rgb`（逐通道直接调整）；处理域选择与 YCbCr 极坐标在 `script/verify_tool_app/ui_impl/bcsh_ui_impl.py` 中完成。所有通道归一化 `[0,1]`（YCbCr 色度 `[-0.5,0.5]`）并 clamp。
 
 **表 4.1-1 处理域转换（Adjust Field，8 项；域值 (H, S, X)）**
 
@@ -127,7 +127,7 @@ npm run preview    # 本地预览构建产物
 | ---- | ---- | ---- | ---- |
 | ModeAdd（默认） | x'=clip(x+dv) | [-1,1] | 0 |
 | ModeMul | x'=clip(x·gv) | [0,4] | 1 |
-| NegMulPosRat | dv<0：x·(1+dv)；dv>0：x+dv·(1-x) | [-1,1] | 0 |
+| Rate2Limit | dv<1：x·dv 向黑；dv>1：x+(dv-1)·(1-x) 向白 | [0,2] | 1 |
 
 > 算法库另支持 `mulKeepMin`（保底乘性：调小时 V 不低过旧最小通道 m、S 不变），UI 未开放。
 
@@ -139,15 +139,17 @@ npm run preview    # 本地预览构建产物
 | ---- | ---- | ---- | ---- |
 | ModeAdd | s'=clip(s+ds) | [-1,1] | 0 |
 | ModeMul（默认） | s'=clip(s·gs) | [0,4] | 1 |
+| Rate2Limit | ds<1：s·ds 向灰度；ds>1：s+(ds-1)·(1-s) 向全饱和 | [0,2] | 1 |
 
 RGB 域（灰阶混合，仅 `Adjust Field=RGB` 时可选）：
 
 | 模式 | 公式 | 量程 | 中性 |
 | ---- | ---- | ---- | ---- |
-| MixGray_BT709 | out=scale·in+(1-scale)·gray，gray=BT.709(0.2126/0.7152/0.0722) | [0,2] | 0 |
-| MixGray_BT601 | 同上，gray=BT.601(0.299/0.587/0.114) | [0,2] | 0 |
+| MixGray_BT709 | out=scale·in+(1-scale)·gray，gray=BT.709(0.2126/0.7152/0.0722) | [0,2] | 1 |
+| MixGray_BT601 | 同上，gray=BT.601(0.299/0.587/0.114) | [0,2] | 1 |
 
-> MixGray 量程/中性值取配置的独立 `mixgray` 条目（默认 [0,2] 中性 0），非复用 mul。
+> MixGray 量程/中性值取配置的独立 `mixgray` 条目（默认 [0,2] 中性 1），非复用 mul。
+> 实现原理等价于 `Rate2Limit` 选项
 
 > `S Tolerance`（0~0.1，默认 0.0025）：S 低于阈值的像素不增色（放大），减色（缩小）始终允许。
 
@@ -171,13 +173,14 @@ RGB 域（灰阶混合，仅 `Adjust Field=RGB` 时可选）：
 | ---- | ---- | --- | --- | ---- | ---- |
 | Brightness | add | -1.0 | 1.0 | 0.01 | 0.0 |
 | Brightness | mul | 0.0 | 2.0 | 0.02 | 1.0 |
-| Brightness | negmulposrat | -1.0 | 1.0 | 0.01 | 0.0 |
+| Brightness | rate2limit | 0.0 | 2.0 | 0.01 | 1.0 |
 | Contrast | gain | 0.0 | 2.0 | 0.01 | 1.0 |
 | Contrast | tanslant | -1.0 | 1.0 | 0.01 | 0.0 |
 | Contrast | faststone | -1.0 | 1.0 | 0.01 | 0.0 |
 | Saturation | add | -1.0 | 1.0 | 0.01 | 0.0 |
 | Saturation | mul | 0.0 | 4.0 | 0.01 | 1.0 |
-| Saturation | mixgray | 0.0 | 2.0 | 0.01 | 0.0 |
+| Saturation | rate2limit | 0.0 | 2.0 | 0.01 | 1.0 |
+| Saturation | mixgray | 0.0 | 2.0 | 0.01 | 1.0 |
 | Hue | same_offset | -180.0 | 180.0 | 1.0 | 0.0 |
 | Hue | same_target | 0.0 | 100.0 | 1.0 | 0.0 |
 
@@ -299,7 +302,76 @@ void hsv2rgb_v3_optimal(uint16_t h14, uint16_t s11, uint16_t v10, uint16_t maxv,
 | `hsv2rgb_v3_optimal` | 98 | CPU 单线程 |
 | `hsv2rgb + acm + rgb2hsv` | 9.5 | OpenCL + float版 |
 
+##### 4.2.9 BCSH 调整：adjust_rgb_fix（RGB 域直接）vs adjust_hsv_fix（HSV 域往返）计算量对比
 
+> 对比前提（2026-09-01）：modeV=ModeAdd（V 步最简加性）、modeS=Rate2Limit、忽略 modeC（mode_c 恒等）、H 恒为 ModeAdd。两者均实现于 [hsv_fixed.h](hsv_fixed.h)/[hsv_fixed.c](hsv_fixed.c)：`adjust_rgb_fix`（RGB 域直接，V/S 逐通道、H 内联取六边形色相后 TAB 重排）与 `adjust_hsv_fix`（rgb2hsv_v3_optimal → HSV 域调整 V/S/H → hsv2rgb_v4_hexwalk 重建）。
+
+**功能差异先行**：`adjust_rgb_fix` 的 S 步是 MixGray（灰阶混合 `out=scale·in+(1-scale)·gray`），其 rate2limit 语义仅**减色**方向（scale<1 向灰度）与之相近；**增色（scale>1）虽也能增饱和**（通道围绕 gray 发散），但会**同步抬高 V**（$M'=\text{gray}+s(M-\text{gray})$，亮部易 clamp 丢高光、灰像素天然恒等），与 rate2limit 增色（保 V、S 沿轴向向全饱和插值、低饱和需门控保护）本质不同。`adjust_hsv_fix` 的 S 步在 HSV 域直接操作 S，可精确复现 rate2limit 全语义（减色+增色+门控）。故：**rate2limit 的精确语义（保 V + S 门控）只有 HSV 域（adjust_hsv_fix）能复现**。
+
+**每像素运算量**（modeV=add，modeS=rate2limit，modeC 忽略）：
+
+| 资源 | adjust_hsv_fix（HSV 往返） | adjust_rgb_fix（RGB 直接，S 用 MixGray） |
+| --- | --- | --- |
+| 乘法器 | **8**（rgb2hsv 4 + S 步 1 + hsv2rgb 3） | 14（MixGray 9 + H 步 5） |
+| 加/减 | ~10 | ~16 |
+| 比较/选择 | ~9 | ~12 |
+| 查表 ROM | 2 张（rcp 1024×21b + rcp6 1024×24b ≈ 46Kb） | 1 张（rcp6 1024×24b ≈ 24Kb） |
+| 流水深度 | 3 级（rgb2hsv→调整→hsv2rgb） | 2 级（V/S→H） |
+| 通道并行 | 单通道（S/V/H 各处理 1 次） | 3 通道并行（V/S 逐通道） |
+| rate2limit 覆盖 | 完整（减色+增色+门控） | 仅减色方向（增色动 V，语义不同） |
+
+**结论（RTL 评估）**：
+- 需要 rate2limit（向全饱和靠拢）→ **只能选 adjust_hsv_fix**：8 乘法 + 46Kb ROM，把 `C→rcp6[C]→乘` 查表依赖放进流水级即可，算力最省。
+- S 只需乘性减色（MixGray）→ **adjust_rgb_fix 更优**：无大 ROM、常数乘（luma 权重/scale）可移位+加展开、2 级流水、3 通道并行吞吐高，RTL 面积/时序更可控。
+- 若需求"乘性为主、偶尔增色"，可混合：RGB 域做 V/S 减色、增色分支旁路进 HSV 域——但引入双数据通路，工程上不如直接用 adjust_hsv_fix。
+
+##### 4.2.10 FIX_S_ONE 改为 2047（1.0 = 2^11 - 1）的影响评估
+
+> 评估前提（2026-09-01）：将 `FIX_S_ONE` 从 `2048`（=2^11）改为 `2047`（=2^11-1），S 恰好占满 11bit 无符号（[0,2047]），省 1 bit 存储/总线。结论基于数学推导 + `output/proto_s2047.c` 全遍历实测（C→S→C' 往返，u8/u10）。
+
+**结论先行**：
+
+| 问题 | 结论 |
+| --- | --- |
+| 影响范围 | S 相关归一化全部要改；**H 完全不受影响**（H 用 FIX_H_ONE=16384，仍为 2 的幂） |
+| 往返误差能否保持 0 | **可以**（u8/u10 全遍历实测 0 错误），但 hsv2rgb 重建必须用无除法修正公式，裸 `>>11` 会错 |
+| 主要硬件代价 | rgb2hsv 的 S 步乘法器从 32bit（11×21）升至 33bit+，C 代码需 int64 中间量 |
+| 附带影响 | `adjust_rgb_fix` / `adjust_hsv_fix` 的 Q11 增益语义（1.0=FIX_S_ONE）整体变为 2047，内部一致性不受影响 |
+
+**数学依据（往返为何仍能 0）**：S 量化误差 $\varepsilon \le 0.5$，重建时被放大因子 $M/2047 \le 1023/2047 \approx 0.25 < 0.5$，被末步四舍五入吸收——与 2048 的裕度相同（$M/2048 \le 0.25$）。故只要 S 与重建均精确舍入，往返严格为 0。
+
+**各函数改动点**：
+
+| 函数 | 原实现（2048=2^11） | 新实现（2047） | 代价 |
+| --- | --- | --- | --- |
+| rgb2hsv_v0/v1 | `(c<<11 + M/2)/M` | `(c*2047 + M/2)/M` | 最小，仅换乘数 |
+| rgb2hsv_v2/v3/v4 | `rcp_mul_rsh(C, rcp[M], RCP_BITS-11)`（窄乘 11×21） | `(int32_t)(((int64_t)C*2047*rcp[M] + 1<<20)>>21)` | **窄乘失效，需 int64**（实测仍往返 0） |
+| hsv2rgb_v0~v4 | `(V*S + 1024)>>11` | `t=V*S; (t>>11) + (((t>>11)+(t&2047)) >= 1024)` | 每像素 +1 比较 +1 加 |
+
+**S 步为什么从窄乘变 int64 乘**：原窄乘依赖 2048 是 2 的幂——$2^{11}$ 可拆进 rcp 表定标的右移（$2^{21}/2^{10}$），乘法器只有 C×rcp[M] 两个因子，且 C≤M 时乘积 ≤ 2^21；2047 非 2 的幂，无法并入右移，分子变成三因子 C·2047·rcp[M]（11+11+21=43bit）。即便拆两步窄乘 $q=\text{round}(C\cdot\text{rcp}[M])$（≤2^21）再 $S=\text{round}(q\cdot2047/2^{21})$，$q\cdot2047 \le 2^{32}-2^{21}$ 仍超 INT32_MAX（纯色 C=M 时 q=2^21 必然触发）。故 int64 不可避免。
+
+**hsv2rgb 重建的无除法修正公式**：利用 $t/2047 = t/(2048-1)$ 恒等，纯移位+加法+比较：
+
+$$C' = \text{round}(t/2047) = Q + \big[(Q + r) \ge 1024\big], \quad Q = t \gg 11,\ r = t\ \&\ 2047$$
+
+因 $Q + r \le 1023 + 2047 = 3070 < 2\times2047$，舍入增量只可能是 0 或 1，阈值恰为 1023.5→1024；编译为 CMOV，无除法无分支。
+
+**裸 `>>11`（除以 2048，不修正）的影响**（实测）：
+
+| 位深 | $t_{max}=V\cdot S$ | $\Delta_{max}\approx t/(2047\cdot2048)$ | S 量化放大 | 总误差 vs 0.5 阈值 | 往返错误 |
+| --- | --- | --- | --- | --- | --- |
+| u8 | $\approx 5.2\times10^5$ | $\approx 0.12$ | $\le 0.062$ | $\approx 0.19$ ✅ | 0 |
+| u10 | $\approx 2.09\times10^6$ | $\approx 0.50$ | $\le 0.25$ | $\approx 0.75$ ❌ | **15200 处（≈0.7%）** |
+
+u8 侥幸无事是位深低、Δ 够不着舍入边界；u10 时系统偏差（÷2048 欠除）与 S 量化误差叠加越过 0.5，约 0.7% 的 (S,V) 组合往返差 1 LSB。该偏差随位深线性增长，属系统性欠除（非随机噪声，无法对称抵消）。
+
+**硬件收益与代价汇总**：
+- 收益：S 用 11bit 无符号满量程，省 1 bit（存储/总线/乘法器输入位宽）
+- 代价 1（最大）：rgb2hsv S 步乘法器 32bit→33bit+，C 代码需 int64
+- 代价 2：hsv2rgb 每像素多 1 次比较+加法（CMOV）
+- 风险点：v0/v1/v2 的"提前量化到 2^11 对齐"设计依赖 2048 为 2 的幂，改后对齐失效，对 H 量化误差（≤2 Q14 LSB）的鲁棒性需重新验证（v4_hexwalk 无此问题，已实测往返 0）
+
+**建议**：若硬件端 S 位宽是主要诉求，改动可行且往返仍可 0；但需先确认 v0/v1/v2 的量化对齐问题，并评估 S 步乘法器位宽增加是否抵消 S 总线省 1bit 的收益。
 
 ## FastStone Image Viewer
 

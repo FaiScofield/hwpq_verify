@@ -673,6 +673,9 @@ class AcmImplBase:
         delta_h = delta_h * gain_hy * gain_hs  # [-dr_h, dr_h]
         delta_s = np.where(s_f < 1.0/s_max, 0.0, delta_s)
         delta_h = np.where(s_f < 1.0/s_max, 0.0, delta_h)
+        self._final_delta_y = delta_y.copy()
+        self._final_delta_s = delta_s.copy()
+        self._final_delta_h = delta_h.copy()
 
         # ---- 7. Apply to normalised values ----
         h_deg_new = np.mod(h_deg + delta_h, 360.0) # [0, 360]
@@ -1125,14 +1128,15 @@ class AcmImplBase:
 
         # ---- Rows 1-2: Gain heatmaps ----
         gain_specs = [
-            (1, 0, self.lut_gain_ybyy, "Gain Y by Y", f"{nhd}x{ny}"),
-            (1, 1, self.lut_gain_sbyy, "Gain S by Y", f"{nhd}x{ny}"),
-            (1, 2, self.lut_gain_hbyy, "Gain H by Y", f"{nhd}x{ny}"),
-            (2, 0, self.lut_gain_ybys, "Gain Y by S", f"{nhd}x{ns}"),
-            (2, 1, self.lut_gain_sbys, "Gain S by S", f"{nhd}x{ns}"),
-            (2, 2, self.lut_gain_hbys, "Gain H by S", f"{nhd}x{ns}"),
+            # row, col, data, title, shape_str, y_label
+            (1, 0, self.lut_gain_ybyy, "GainY by Y", f"{nhd}x{ny}", "Y index"),
+            (1, 1, self.lut_gain_sbyy, "GainS by Y", f"{nhd}x{ny}", "Y index"),
+            (1, 2, self.lut_gain_hbyy, "GainH by Y", f"{nhd}x{ny}", "Y index"),
+            (2, 0, self.lut_gain_ybys, "GainY by S", f"{nhd}x{ns}", "S index"),
+            (2, 1, self.lut_gain_sbys, "GainS by S", f"{nhd}x{ns}", "S index"),
+            (2, 2, self.lut_gain_hbys, "GainH by S", f"{nhd}x{ns}", "S index"),
         ]
-        for row, col, data, title, shape_str in gain_specs:
+        for row, col, data, title, shape_str, y_label in gain_specs:
             ax = fig.add_subplot(gs[row, col])
             h, w = data.shape
             step_y = (h + 3) // 4
@@ -1145,7 +1149,7 @@ class AcmImplBase:
             )
             ax.set_title(f"{title}  [{shape_str}]")
             ax.set_xlabel("H index")
-            ax.set_ylabel("Y/S index")
+            ax.set_ylabel(y_label)
             ax.set_xticks(np.arange(0, w, step_x, dtype=int))
             ax.set_yticks(np.arange(0, h, step_y, dtype=int))
             plt.colorbar(im, ax=ax, shrink=0.82)
@@ -1165,10 +1169,10 @@ class AcmImplBase:
         return image
 
     def dump_lut_results(self, return_image: bool = False) -> object:
-        """Dump per-pixel LUT lookup results as 9 heatmaps in a 3x3 grid.
+        """Dump per-pixel LUT lookup results as 12 heatmaps in a 4x3 grid.
 
-        Shows the 9 intermediate arrays (delta_y/s/h + 6 gains) from the
-        last ACM processing run at full image resolution.
+        Shows the 12 intermediate arrays (3 raw deltas + 3 final deltas + 6 gains)
+        from the last ACM processing run at full image resolution.
         """
         if not hasattr(self, "_last_intermediate_shape"):
             print("[LUT Result] dump_lut_results: no _last_intermediate_shape")
@@ -1176,19 +1180,23 @@ class AcmImplBase:
         print(f"[LUT Result] dump_lut_results: shape={self._last_intermediate_shape}")
         from matplotlib.gridspec import GridSpec
 
-        fig = plt.figure(figsize=(16, 12))
-        gs = GridSpec(3, 3, figure=fig, hspace=0.45, wspace=0.35)
+        fig = plt.figure(figsize=(16, 14))
+        gs = GridSpec(4, 3, figure=fig, hspace=0.45, wspace=0.35)
 
         specs = [
-            (0, 0, "_last_delta_y_raw", "delta_y (raw)", "RdBu_r", 1.0),
-            (0, 1, "_last_delta_s_raw", "delta_s (raw)", "RdBu_r", 1.0),
-            (0, 2, "_last_delta_h_raw", "delta_h (raw)", "RdBu_r", 64.0),
-            (1, 0, "_last_gain_yy", "gain_yy", "RdBu_r", 1.0),
-            (1, 1, "_last_gain_sy", "gain_sy", "RdBu_r", 1.0),
-            (1, 2, "_last_gain_hy", "gain_hy", "RdBu_r", 1.0),
-            (2, 0, "_last_gain_ys", "gain_ys", "RdBu_r", 1.0),
-            (2, 1, "_last_gain_ss", "gain_ss", "RdBu_r", 1.0),
-            (2, 2, "_last_gain_hs", "gain_hs", "RdBu_r", 1.0),
+            # row, col, attr, title, cmap, vmax
+            (0, 0, "_last_delta_y_raw", "DeltaY (raw)", "RdBu_r", 1.0),
+            (0, 1, "_last_delta_s_raw", "DeltaS (raw)", "RdBu_r", 1.0),
+            (0, 2, "_last_delta_h_raw", "DeltaH (raw)", "RdBu_r", 64.0),
+            (1, 0, "_final_delta_y", "DeltaY (final)", "RdBu_r", 1.0),
+            (1, 1, "_final_delta_s", "DeltaS (final)", "RdBu_r", 1.0),
+            (1, 2, "_final_delta_h", "DeltaH (final)", "RdBu_r", 64.0),
+            (2, 0, "_last_gain_yy", "GainY by Y", "RdBu_r", 1.0),
+            (2, 1, "_last_gain_sy", "GainS by Y", "RdBu_r", 1.0),
+            (2, 2, "_last_gain_hy", "GainH by Y", "RdBu_r", 1.0),
+            (3, 0, "_last_gain_ys", "GainY by S", "RdBu_r", 1.0),
+            (3, 1, "_last_gain_ss", "GainS by S", "RdBu_r", 1.0),
+            (3, 2, "_last_gain_hs", "GainH by S", "RdBu_r", 1.0),
         ]
         for row, col, attr, title, cmap, vmax in specs:
             data = getattr(self, attr, None)

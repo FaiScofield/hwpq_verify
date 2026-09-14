@@ -46,10 +46,12 @@ end
 
 安装问题：
 
-- `QuartusProProgrammer` 安装后 `JTAG` 驱动安装失败。
+- `QuartusProProgrammer` 安装后会自动跳出 `JTAG` 驱动的安装页面，如果点击下一步后提示安装失败，则可以：
   1. 搜索驱动安装日志，一般是`C:\Windows\INF\setupapi.dev.log`，查看文件末尾部分的日志，找到和安装时间对应的部分日志信息。
   2. 将日志信息发给AI分析，可能会告诉你原因是: **​​证书过期​​** (0x800B0101) + **根证书不受信任​**(0x800B0109) + **Windows强制验证签名** 导致
   3. 解决办法之一是：[禁用驱动签名强制验证](https://zhuanlan.zhihu.com/p/622920268) ，之后再重新安装驱动。
+      - 以管理员身份运行 `cmd`，然后输入命令 `bcdedit.exe /set nointegritychecks on` 驱动程序强制签名将被禁用，然后重启计算机即可。
+      - 如果要恢复驱动程序强制签名，则输入命令 `bcdedit.exe /set nointegritychecks off`
   4. 重新安装驱动无需再安装一次`QuartusProProgrammer`，可以直接启动已解压好的驱动安装器： `xxx\intelFPGA_pro\20.1\qprogrammer\quartus\drivers\DPInst.exe`
 
 - ArmDS 调试时提示`Unable to connect to New_configuration.`, `Licensed number of users already reached`的错误。
