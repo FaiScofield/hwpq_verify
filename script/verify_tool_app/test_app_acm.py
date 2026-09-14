@@ -19,19 +19,34 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+# 默认日志文件。打包后与 exe 同目录，源码运行时位于仓库根的 output/ 下
+# （与 params_config.py、test_app_hsv.py 的路径约定一致）。
+_LOG_BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else PROJECT_ROOT
+DEFAULT_LOG_FILE = os.path.join(_LOG_BASE_DIR, "output", "test_app_acm.log")
+
 # 复用 script/utils.py 的 setup_logger（不再自定义 _setup_logging）：
 # utils 顶部 basicConfig 已给 root 配好控制台 handler（g_plain_formatter 格式），
-# 这里仅把 root level 置为 INFO，各模块 logger propagate 到 root 统一输出。
+# 这里把 root level 置为 DEBUG 并挂上默认日志文件，各模块 logger propagate 到
+# root 统一输出。日志文件不可写时退回仅控制台，不影响启动。
 from script.utils import setup_logger
 
-setup_logger(name=None, output=None, loglevel="INFO")
+try:
+    setup_logger(name=None, output=DEFAULT_LOG_FILE, loglevel="DEBUG")
+except OSError:
+    setup_logger(name=None, output=None, loglevel="DEBUG")
 
 
 logger = logging.getLogger(__name__)
 
 
 def _ensure_generated_ui_modules():
-    """Regenerate ui_gen modules when they are missing or older than the source .ui files."""
+    """Regenerate ui_gen modules when they are missing or older than the source .ui files.
+
+    PyInstaller 打包后跳过：ui_gen 模块已内置于可执行文件中，
+    运行时不存在 .ui 源文件与 uic.cmd。
+    """
+    if getattr(sys, "frozen", False):
+        return
     ui_pairs = (
         ("ui\\app_mainwindow.ui", "ui_gen\\app_mainwindow.py"),
         ("ui\\acm_ui.ui", "ui_gen\\acm_ui.py"),
