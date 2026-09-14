@@ -73,7 +73,9 @@ class IMG_FMT(Enum):
 
 
 ## set encoding to utf-8 to support ✅ & ❌
-if not sys.stdout.encoding or sys.stdout.encoding.upper() != 'UTF-8':
+## PyInstaller 窗口模式（console=False）打包后 sys.stdout 为 None，需跳过。
+if (sys.stdout is not None
+        and (not sys.stdout.encoding or sys.stdout.encoding.upper() != 'UTF-8')):
     sys.stdout.reconfigure(encoding='utf-8')
 
 ## basic config

@@ -8,6 +8,7 @@ Description : ACM test application host window with reusable widget composition
 
 import logging
 import os
+import signal
 import subprocess
 import sys
 
@@ -67,7 +68,7 @@ def _ensure_generated_ui_modules():
 
 _ensure_generated_ui_modules()
 
-from PySide6.QtCore import QSignalBlocker, Qt
+from PySide6.QtCore import QSignalBlocker, QTimer, Qt
 from PySide6.QtWidgets import QApplication, QMainWindow, QScrollArea, QVBoxLayout
 
 if __package__:
@@ -224,6 +225,14 @@ def main():
     app = QApplication(sys.argv)
     window = AcmTestAppWindow()
     window.show()
+    # Ctrl+C（SIGINT）接管为 Qt 正常退出：Qt 事件循环停在 C++ 中，否则
+    # KeyboardInterrupt 会从 Qt 回调里逃逸（PySide6 报 "Error calling Python
+    # override of ..."）且程序不退出。空转 QTimer 让 Python 定期拿到执行权，
+    # 信号才能被及时处理；_sigint_tick 需持有到 exec() 返回。
+    signal.signal(signal.SIGINT, lambda *_: app.quit())
+    _sigint_tick = QTimer(app)
+    _sigint_tick.start(200)
+    _sigint_tick.timeout.connect(lambda: None)
     sys.exit(app.exec())
 
 
