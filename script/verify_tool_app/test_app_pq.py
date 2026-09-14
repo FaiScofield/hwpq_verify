@@ -52,10 +52,8 @@ BUILD_DATE = _build_date_str()
 # 这里把 root level 置为 INFO 并挂上默认日志文件；各模块 logger propagate 到 root。
 from script.utils import setup_logger
 
-setup_logger(name=None, output=DEFAULT_LOG_FILE, loglevel="DEBUG")
-
-
-logger = logging.getLogger(__name__)
+setup_logger(name="TEST_APP_PQ", output=DEFAULT_LOG_FILE, loglevel="DEBUG")
+logger = logging.getLogger("TEST_APP_PQ")
 
 
 def _ensure_generated_ui_modules():

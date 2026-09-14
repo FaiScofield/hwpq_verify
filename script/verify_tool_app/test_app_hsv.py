@@ -11,23 +11,49 @@ import os
 import subprocess
 import sys
 
-HSV_APP_TARGET = "SONNOC" # RK/SONNOC
-HSV_APP_VERSION = "v3.1.rc2"
+HSV_APP_TARGET = "Sonnoc" # RK/Sonnoc
+HSV_APP_VERSION = "v3.1"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
 
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-# 复用 script/utils.py 的 setup_logger（不再自定义 _setup_logging）：
-# utils 顶部 basicConfig 已给 root 配好控制台 handler（g_plain_formatter 格式），
-# 这里仅把 root level 置为 INFO，各模块 logger propagate 到 root 统一输出。
+# 默认日志文件（Help -> App Log 菜单直接打开它）。打包后与 exe 同目录，
+# 源码运行时位于仓库根的 output/ 下（与 params_config.py 的路径约定一致）。
+_LOG_BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else PROJECT_ROOT
+DEFAULT_LOG_FILE = os.path.join(_LOG_BASE_DIR, "output", "test_app_hsv.log")
+
+
+def _git_short_hash() -> str:
+    """Return the repository HEAD short hash (or 'unknown')."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", PROJECT_ROOT, "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5)
+        return result.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _build_date_str() -> str:
+    """Return the source-file modification time as the build date."""
+    try:
+        import datetime
+        stamp = os.path.getmtime(os.path.abspath(__file__))
+        return datetime.datetime.fromtimestamp(stamp).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return "unknown"
+
+
+GIT_SHORT_HASH = _git_short_hash()
+BUILD_DATE = _build_date_str()
+
+# logger
 from script.utils import setup_logger
 
-setup_logger(name=None, output=None, loglevel="INFO")
-
-
-logger = logging.getLogger(__name__)
+setup_logger(name="TEST_HSV_APP", output=DEFAULT_LOG_FILE, loglevel="DEBUG")
+logger = logging.getLogger("TEST_HSV_APP")
 
 
 def _ensure_generated_ui_modules():
@@ -160,6 +186,7 @@ class HsvTestAppWindow(QMainWindow):
         self.preview_ctrl.set_full_res_output_provider(self.hsv_ctrl.get_full_res_output)
         self.preview_ctrl.set_pixel_selection_callback(self.hsv_ctrl.on_preview_pixel_selection)
         self._install_view_menu()
+        self._install_help_actions()
         # Propagate HSV enabled state to preview for BothInLeft mode.
         self.hsv_ctrl.ui.checkBox_enableHsvAdj.toggled.connect(self.preview_ctrl.set_acm_enabled)
         self.preview_ctrl.set_acm_enabled(self.hsv_ctrl.ui.checkBox_enableHsvAdj.isChecked())
@@ -176,6 +203,29 @@ class HsvTestAppWindow(QMainWindow):
         """
         action = self.ui.actionPreview
         action.toggled.connect(self._on_preview_action_toggled)
+
+    def _install_help_actions(self) -> None:
+        """Wire the Help-menu actions (About / App Log)."""
+        if hasattr(self.ui, "actionAbout_This_App"):
+            self.ui.actionAbout_This_App.triggered.connect(self._on_about)
+        if hasattr(self.ui, "actionAPP_LOG"):
+            self.ui.actionAPP_LOG.triggered.connect(self._on_open_log)
+
+    def _on_about(self) -> None:
+        """Show the About dialog (version / git hash / build date)."""
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.about(
+            self, "About HSV Test App",
+            f"<b>HSV Test App</b> {HSV_APP_VERSION}<br/><br/>"
+            f"Git commit: {GIT_SHORT_HASH}<br/>"
+            f"Compiled date: {BUILD_DATE}")
+
+    def _on_open_log(self) -> None:
+        """Open the default log file with the system handler."""
+        if os.path.isfile(DEFAULT_LOG_FILE):
+            os.startfile(DEFAULT_LOG_FILE)
+        else:
+            self.ui.statusbar.showMessage(f"Log file not found: {DEFAULT_LOG_FILE}")
 
     def _on_preview_action_toggled(self, checked: bool) -> None:
         """Show or hide the preview dock."""
