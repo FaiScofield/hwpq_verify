@@ -495,6 +495,48 @@ def _rgb_saturation(rgb):
     return np.divide(c, mx, out=np.zeros_like(c), where=mx != 0)
 
 
+def steepen_weight(w, steepness: float = 1.0):
+    """把指定色相过渡权重按陡度 S 陡化：``w' = clip((w-0.5)·S + 0.5, 0, 1)``。
+
+    S=1 恒等（原始线性）；S>1 使过渡集中在中间段——扫过的色相区间变窄，
+    "原色↔调整结果"插值经过的中间色相带随之压窄；w=0/1 两端保持不变，
+    故 Pad/Tail 的起止边界不受影响。S≤1 一律按 1 处理（避免 w=0 被抬到 0.5 而
+    破坏端点）。返回与 ``w`` 同形状、[0,1] 内的数组。
+    """
+    arr_w = np.asarray(w, dtype=np.float32)
+    s = float(steepness)
+    if s <= 1.0:
+        return arr_w
+    return np.clip((arr_w - 0.5) * s + 0.5, 0.0, 1.0).astype(np.float32)
+
+
+def transition_damp(w, trans_factor: float = 0.0):
+    """指定色相过渡带的彩度压制系数（Transition Factor）。
+
+    ``damp = trans_factor · (1 - |2w - 1|)``，w 为过渡权重（0=保持原色、
+    1=完全调整）。峰值落在过渡中点（w=0.5，原色与调整结果各半）、两端为 0，
+    故由 w 推出、与过渡来自 Tail 还是 Pad 无关，两段过渡一并覆盖。用于压掉
+    "原色↔调整结果"在 RGB 域插值时经过的中间色相（如 黄↔青 必经的绿）。
+    trans_factor∈[0,1]（0=关闭）；返回与 ``w`` 同形状、取值 [0, trans_factor]。
+    """
+    arr_w = np.asarray(w, dtype=np.float32)
+    k = float(np.clip(trans_factor, 0.0, 1.0))
+    if k <= 0.0:
+        return np.zeros_like(arr_w)
+    return (k * (1.0 - np.abs(2.0 * arr_w - 1.0))).astype(np.float32)
+
+
+def desaturate_toward_luma(rgb, damp, coef: str = 'bt709'):
+    """按 damp∈[0,1] 把 RGB 向自身亮度灰靠拢（保 luma，亮度不跳变）。
+
+    ``out = rgb·(1-damp) + luma(rgb)·damp``；damp 为标量或与 rgb 前两维同形状，
+    luma 权重由 ``coef`` 选择（'bt709'/'bt601'/'bt2020'）。
+    """
+    arr = np.asarray(rgb, dtype=np.float32)
+    d = np.asarray(damp, dtype=np.float32)[..., None]
+    return (arr * (1.0 - d) + _rgb_luma(arr, coef)[..., None] * d).astype(np.float32)
+
+
 def _rotate_hue(rgb, angle_deg):
     """RGB 绕灰色轴 (1,1,1)/√3 旋转 angle_deg（度，标量或数组）。
 
@@ -597,12 +639,14 @@ def adjust_rgb(rgb, delta_b=None, delta_s=None, gain_c=1.0, tolerance_s=0.0,
         1.0 if delta_s is None else np.clip(np.asarray(delta_s, np.float32), 0.0, 4.0),
         np.float32)
     gray = _rgb_luma(rgb_v, gray_coef)
-    sat = _rgb_saturation(rgb_v)
-    apply = (sat >= tolerance_s) | (scale_s <= 1.0)
-    rgb_s = np.where(
-        apply[..., None],
-        scale_s[..., None] * rgb_v + (1.0 - scale_s)[..., None] * gray[..., None],
-        rgb_v)
+    # sat = _rgb_saturation(rgb_v)
+    # apply = (sat >= tolerance_s) | (scale_s <= 1.0)
+    # rgb_s = np.where(
+    #     apply[..., None],
+    #     scale_s[..., None] * rgb_v + (1.0 - scale_s)[..., None] * gray[..., None],
+    #     rgb_v)
+    rgb_s = scale_s[..., None] * rgb_v + (1.0 - scale_s)[..., None] * gray[..., None]
+
     # ---- H：按 modeH 生效方式 ----
     angle = np.asarray(angle_deg, dtype=np.float32)
     h_mode = str(h_mode).lower()

@@ -11,8 +11,8 @@ import os
 import subprocess
 import sys
 
-HSV_APP_TARGET = "RK"
-HSV_APP_VERSION = "v3.1.rc1"
+HSV_APP_TARGET = "SONNOC" # RK/SONNOC
+HSV_APP_VERSION = "v3.1.rc2"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
 
@@ -101,6 +101,8 @@ class HsvTestAppWindow(QMainWindow):
 
         # 隐藏不开放给客户使用的控件
         if HSV_APP_TARGET == "Sonnoc":
+            logger.info("Sonnoc mode")
+
             # 不包含 clipType 相关
             for _w in (
                 self.hsv_widget.ui.label_y2rClip,
