@@ -30,6 +30,34 @@
 #define VS_SHIFT   11 /* 重建第一级 V*S 提前右移位数：目的是降低乘法总位宽，最大允许到11不掉往返精度 */
 #define RS_SHIFT   (FIX_BITS_H + FIX_BITS_S - VS_SHIFT) /* 重建第二级右移 */
 
+extern const int32_t g_adj_tan_q11[4097]; /* tan(11bit) */
+
+/* ---------- 定点乘/舍入与 luma 权重（hsv_fixed.c 与 rgb_adjust.h 共用） ---------- */
+/* 有符号右移四舍五入（负数向 0 外舍入）：round(p/2^sh) */
+static inline int32_t adj_rsh_round(int64_t p, int sh)
+{
+    p += (1LL << (sh - 1)) + (p >> 63);
+    return (int32_t)(p >> sh);
+}
+
+/* 有符号定点乘：round(a*b/2^sh)，int64 中间量防溢出 */
+static inline int32_t adj_mul_q(int32_t a, int32_t b, int sh) { return adj_rsh_round((int64_t)a * b, sh); }
+
+/* luma 权重 Q16（1.0 = 2^16；末位调整使权重和恰为 2^16，保证灰阶混合不偏色） */
+#define ADJ_LUMA_BITS     16
+#define ADJ_LUMA_BT709_R  13933
+#define ADJ_LUMA_BT709_G  46877
+#define ADJ_LUMA_BT709_B  4726 /* 65536-13933-46877 */
+#define ADJ_LUMA_BT601_R  19594
+#define ADJ_LUMA_BT601_G  38470
+#define ADJ_LUMA_BT601_B  7472 /* 65536-19594-38470 */
+#define ADJ_LUMA_BT2020_R 17218
+#define ADJ_LUMA_BT2020_G 44433
+#define ADJ_LUMA_BT2020_B 3885 /* 65536-17218-44433 */
+#define ADJ_LUMA_P3_R     15006
+#define ADJ_LUMA_P3_G     45334
+#define ADJ_LUMA_P3_B     5196 /* 65536-15006-45334（Display P3：DCI-P3 原色 + D65） */
+
 void rgb2hsv_v0_classic(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10);
 void rgb2hsv_v1_no_branch(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10);
 void rgb2hsv_v2_no_division(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10);
@@ -100,12 +128,12 @@ typedef enum {
 } adj_rgb_mode_c_t;
 
 typedef enum {
-    ADJ_RGB_MODE_B_MUL = 0,      /* 乘性 */
+    ADJ_RGB_MODE_B_MUL = 0,    /* 乘性 */
     ADJ_RGB_MODE_B_RATE2LIMIT, /* 按比例向黑/白极限靠拢 */
 } adj_rgb_mode_b_t;
 
 typedef enum {
-    ADJ_RGB_MODE_S_MUL = 0,      /* 乘性 scale */
+    ADJ_RGB_MODE_S_MUL = 0,    /* 乘性 scale */
     ADJ_RGB_MODE_S_RATE2LIMIT, /* 按比例向灰度/全饱和靠拢 */
 } adj_rgb_mode_s_t;
 
@@ -113,12 +141,9 @@ typedef enum {
     ADJ_RGB_GRAY_BT709 = 0, /* luma BT.709 */
     ADJ_RGB_GRAY_BT601,     /* luma BT.601 */
     ADJ_RGB_GRAY_BT2020,    /* luma BT.2020 */
+    ADJ_RGB_GRAY_P3,        /* luma Display P3（DCI-P3 原色 + D65） */
 } adj_rgb_gray_coef_t;
 
-/* 单像素 RGB 域 BCSH 调整核心（像素域 [0,maxv]，maxv=255(u8)/1023(u10)）。
-   参数定点格式见上；mode 参数用 adj_rgb_* 枚举。H 恒为 ModeAdd（六边形色相加法）。 */
-void adjust_rgb_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t gain_c, int32_t delta_b, int32_t delta_s,
-    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, uint16_t *ro, uint16_t *go, uint16_t *bo);
 
 /* 单像素 HSV 域 BCSH 调整核心（像素域 [0,maxv]，maxv=255(u8)/1023(u10)）。
    与 adjust_rgb_fix 参数/模式完全一致，但走 HSV 域往返：
@@ -130,36 +155,8 @@ void adjust_rgb_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t g
    s'=s*ds、d>0 向全饱和靠拢 s'=s+d*(1-s)；增色（d>0）时 S<tolerance_s 的像素
    保持原样（S 门控，与 Python 一致）。 */
 void adjust_hsv_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t gain_c, int32_t delta_b, int32_t delta_s,
-    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, int mode_s, uint16_t *ro, uint16_t *go,
-    uint16_t *bo);
-
-/* u8 缓冲接口（整帧统一参数） */
-static inline void adjust_rgb_fix_u8(const uint8_t *rgb, int n, int32_t gain_c, int32_t delta_b, int32_t delta_s,
-    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, uint8_t *out)
-{
-    for (int i = 0; i < n; i++) {
-        uint16_t r1, g1, b1;
-        adjust_rgb_fix(rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2], 255, gain_c, delta_b, delta_s, tolerance_s,
-            angle_q14, gray_coef, mode_c, mode_b, &r1, &g1, &b1);
-        out[3 * i] = (uint8_t)r1;
-        out[3 * i + 1] = (uint8_t)g1;
-        out[3 * i + 2] = (uint8_t)b1;
-    }
-}
-
-/* u10 缓冲接口（整帧统一参数） */
-static inline void adjust_rgb_fix_u10(const uint16_t *rgb, int n, int32_t gain_c, int32_t delta_b, int32_t delta_s,
-    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, uint16_t *out)
-{
-    for (int i = 0; i < n; i++) {
-        uint16_t r1, g1, b1;
-        adjust_rgb_fix(rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2], 1023, gain_c, delta_b, delta_s, tolerance_s,
-            angle_q14, gray_coef, mode_c, mode_b, &r1, &g1, &b1);
-        out[3 * i] = r1;
-        out[3 * i + 1] = g1;
-        out[3 * i + 2] = b1;
-    }
-}
+    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, int mode_s, uint16_t *ro,
+    uint16_t *go, uint16_t *bo);
 
 /* u8 缓冲接口（整帧统一参数） */
 static inline void adjust_hsv_fix_u8(const uint8_t *rgb, int n, int32_t gain_c, int32_t delta_b, int32_t delta_s,

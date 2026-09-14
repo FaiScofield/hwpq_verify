@@ -457,34 +457,12 @@ void hsv2rgb_v4_hexwalk(uint16_t H, uint16_t S, uint16_t V, uint16_t maxv, uint1
    hsv2rgb 重建。TanSlant 的 tan 用 4097 项 Q11 直接查表（th Q14 直接索引，无插值）。
    无 float、无 math 库依赖。 */
 
-/* luma 权重 Q16（1.0 = 2^16；末位调整使权重和恰为 2^16，保证灰阶混合不偏色） */
-#define ADJ_LUMA_BITS     16
-#define ADJ_LUMA_BT709_R  13933
-#define ADJ_LUMA_BT709_G  46877
-#define ADJ_LUMA_BT709_B  4726 /* 65536-13933-46877 */
-#define ADJ_LUMA_BT601_R  19594
-#define ADJ_LUMA_BT601_G  38470
-#define ADJ_LUMA_BT601_B  7472 /* 65536-19594-38470 */
-#define ADJ_LUMA_BT2020_R 17218
-#define ADJ_LUMA_BT2020_G 44433
-#define ADJ_LUMA_BT2020_B 3885 /* 65536-17218-44433 */
-
-/* 有符号右移四舍五入（负数向 0 外舍入）：round(p/2^sh) */
-static inline int32_t adj_rsh_round(int64_t p, int sh)
-{
-    p += (1LL << (sh - 1)) + (p >> 63);
-    return (int32_t)(p >> sh);
-}
-
-/* 有符号定点乘：round(a*b/2^sh)，int64 中间量防溢出 */
-static inline int32_t adj_mul_q(int32_t a, int32_t b, int sh) { return adj_rsh_round((int64_t)a * b, sh); }
-
 /* TanSlant：tan((c+1)π/4) Q11 直接查表。θ=(c+1)π/4 用 Q14 表示（90°=4096），
    表 4097 项（T[i]=round(tan(i/4096*90°)*2048)，i=th 直接索引，无插值）；
    th=4096（c=+1，tan→∞）截断为 1<<26（除 v=0.5 外全部饱和，与精确 tan 输出一致）。
    全 c_q11∈[-2048,2048] × u8/u10 像素验证：输出与精确 tan 差 ≤1 LSB。 */
 #define ADJ_TAN_CAP (1 << 26)
-static const int32_t g_adj_tan_q11[4097] = {0, 1, 2, 2, 3, 4, 5, 5, 6, 7, 8, 9, 9, 10, 11, 12, 13, 13, 14, 15, 16, 16,
+const int32_t g_adj_tan_q11[4097] = {0, 1, 2, 2, 3, 4, 5, 5, 6, 7, 8, 9, 9, 10, 11, 12, 13, 13, 14, 15, 16, 16,
     17, 18, 19, 20, 20, 21, 22, 23, 24, 24, 25, 26, 27, 27, 28, 29, 30, 31, 31, 32, 33, 34, 35, 35, 36, 37, 38, 38, 39,
     40, 41, 42, 42, 43, 44, 45, 46, 46, 47, 48, 49, 49, 50, 51, 52, 53, 53, 54, 55, 56, 57, 57, 58, 59, 60, 60, 61, 62,
     63, 64, 64, 65, 66, 67, 68, 68, 69, 70, 71, 72, 72, 73, 74, 75, 75, 76, 77, 78, 79, 79, 80, 81, 82, 83, 83, 84, 85,
@@ -716,113 +694,6 @@ static inline int32_t adj_apply_v(int32_t q, int32_t maxv, int32_t gc, int32_t g
         out = CLIP(adj_mul_q(out, gv_q11, FIX_BITS_S), 0, cap);
     }
     return out;
-}
-
-/* RGB 域直接 BCSH 调整（单像素），见 hsv_fixed.h 说明 */
-void adjust_rgb_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t gain_c, int32_t delta_b, int32_t delta_s,
-    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, uint16_t *ro, uint16_t *go, uint16_t *bo)
-{
-    /* ---- mode_c 增益（Q11）：mid 取 [0,4]；tanslant 经 tan((c+1)π/4) 查表映射 ---- */
-    int32_t gc;
-    if (mode_c == ADJ_RGB_MODE_C_TANSLANT) {
-        int32_t th = CLIP(gain_c, -FIX_S_ONE, FIX_S_ONE) + FIX_S_ONE; /* (c+1)π/4 ∈ [0,π/2]，Q14 */
-        gc = g_adj_tan_q11[th];                                       /* th=4096（c=+1）已截断为 ADJ_TAN_CAP */
-    }
-    else {
-        gc = CLIP(gain_c, 0, 4 * FIX_S_ONE);
-    }
-
-    /* ---- delta_b / delta_s 预处理 ---- */
-    int32_t gv_q11 = CLIP(delta_b, 0, 4 * FIX_S_ONE);            /* mul 增益，中性 1.0 */
-    int32_t d_q11 = CLIP(delta_b, 0, 2 * FIX_S_ONE) - FIX_S_ONE; /* rate2limit 的 db-1（Q11，中性 0） */
-    int32_t scale_q11 = CLIP(delta_s, 0, 4 * FIX_S_ONE);         /* 灰阶混合增益，中性 1.0 */
-    int32_t wR, wG, wB;
-    if (gray_coef == ADJ_RGB_GRAY_BT601) {
-        wR = ADJ_LUMA_BT601_R;
-        wG = ADJ_LUMA_BT601_G;
-        wB = ADJ_LUMA_BT601_B;
-    }
-    else if (gray_coef == ADJ_RGB_GRAY_BT2020) {
-        wR = ADJ_LUMA_BT2020_R;
-        wG = ADJ_LUMA_BT2020_G;
-        wB = ADJ_LUMA_BT2020_B;
-    }
-    else {
-        wR = ADJ_LUMA_BT709_R;
-        wG = ADJ_LUMA_BT709_G;
-        wB = ADJ_LUMA_BT709_B;
-    }
-
-    /* ---- V：逐通道 contrast + brightness（Q11 像素域，统一舍入在 S 后） ---- */
-    int32_t r_v = adj_apply_v((int32_t)r << FIX_BITS_S, maxv, gc, gv_q11, d_q11, mode_b);
-    int32_t g_v = adj_apply_v((int32_t)g << FIX_BITS_S, maxv, gc, gv_q11, d_q11, mode_b);
-    int32_t b_v = adj_apply_v((int32_t)b << FIX_BITS_S, maxv, gc, gv_q11, d_q11, mode_b);
-
-    /* ---- S：灰阶混合（Q11 像素域，scale 语义，始终生效） ---- */
-    int32_t k1 = scale_q11;             /* scale Q11 */
-    int32_t k0 = FIX_S_ONE - scale_q11; /* 1-scale Q11 */
-    /* gray 保持 Q11 像素域：sum(r*w)/2^16（int64 累加 + 单次舍入，不先量化到整数） */
-    int64_t gsum = (int64_t)r_v * wR + (int64_t)g_v * wG + (int64_t)b_v * wB;
-    int32_t gray = (int32_t)((gsum + (1LL << (ADJ_LUMA_BITS - 1))) >> ADJ_LUMA_BITS);
-    r_v = adj_mul_q(k1, r_v, FIX_BITS_S) + adj_mul_q(k0, gray, FIX_BITS_S);
-    g_v = adj_mul_q(k1, g_v, FIX_BITS_S) + adj_mul_q(k0, gray, FIX_BITS_S);
-    b_v = adj_mul_q(k1, b_v, FIX_BITS_S) + adj_mul_q(k0, gray, FIX_BITS_S);
-    /* 统一舍入回像素域并 clamp（H 步输入需整数像素） */
-    r_v = CLIP((r_v + (FIX_S_ONE >> 1)) >> FIX_BITS_S, 0, maxv);
-    g_v = CLIP((g_v + (FIX_S_ONE >> 1)) >> FIX_BITS_S, 0, maxv);
-    b_v = CLIP((b_v + (FIX_S_ONE >> 1)) >> FIX_BITS_S, 0, maxv);
-
-    /* ---- H：ModeAdd 六边形色相加法（angle=0 恒等跳过）。
-       一次 rgb2hsv 取六边形色相 H（M/m/C 不变 -> S/V 天然不变），平移后在 RGB 域
-       按 6 段 TAB 重排中间通道（同 hsv2rgb_v4_hexwalk 模型），无需 hsv2rgb 重建 ---- */
-    if (angle_q14 != 0) {
-        /* per segment: [M channel, m channel, changing channel], 0/1/2 = R/G/B */
-        static const uint8_t TAB[6][3] = {
-            {0, 2, 1},
-            {1, 2, 0},
-            {1, 0, 2},
-            {2, 0, 1},
-            {2, 1, 0},
-            {0, 1, 2},
-        };
-        const uint32_t *rcp6 = rcp6_tbl_u24_fixed(); /* H 表：H=diff/(6C)，C(Chroma) 索引，RCP6_BITS bit */
-
-        /* 一次取调整后像素的六边形色相 H（M/m/C 用 r_v/g_v/b_v 算，避免混用原始输入） */
-        int32_t M = MAX3(r_v, g_v, b_v); /* U10: [0, 1023] */
-        int32_t m = MIN3(r_v, g_v, b_v); /* U10: [0, 1023] */
-        int32_t C = M - m;               /* U10: [0, 1023], chroma（精确，非 S 量化） */
-        int32_t H = 0;
-        if (C > 0) {
-            int32_t hR = (rcp_mul_rsh(g_v - b_v, rcp6[C], RCP6_BITS - FIX_BITS_H) + FIX_H_ONE) & (FIX_H_ONE - 1);
-            int32_t hG = rcp_mul_rsh(b_v - r_v, rcp6[C], RCP6_BITS - FIX_BITS_H) + 5461; // U22 max
-            int32_t hB = rcp_mul_rsh(r_v - g_v, rcp6[C], RCP6_BITS - FIX_BITS_H) + 10923;
-            uint32_t mR = (uint32_t)(M == r_v);
-            uint32_t mG = (uint32_t)(M == g_v) & ~mR;
-            uint32_t mB = (uint32_t)(M == b_v) & ~(mR | mG);
-            int32_t selR = (int32_t)(0u - mR);
-            int32_t selG = (int32_t)(0u - mG);
-            int32_t selB = (int32_t)(0u - mB);
-            H = (hR & selR) | (hG & selG) | (hB & selB);
-
-            H = (uint16_t)(((int32_t)H + angle_q14) & (FIX_H_ONE - 1));
-
-            int32_t t = H * 6;                                    /* U14=>U17 */
-            int32_t seg = t >> FIX_BITS_H;                        /* 60° node 0..5 */
-            int32_t f14 = t & (FIX_H_ONE - 1);                    /* fraction inside the 60° segment */
-            int32_t dm = (C * f14 + (FIX_H_ONE >> 1)) >> FIX_BITS_H;
-            int32_t mid = (seg & 1) ? (M - dm) : (m + dm);
-            int32_t ch[3] = {m, m, m};
-            ch[TAB[seg][0]] = M;
-            ch[TAB[seg][2]] = mid;
-            r_v = CLIP(ch[0], 0, maxv);
-            g_v = CLIP(ch[1], 0, maxv);
-            b_v = CLIP(ch[2], 0, maxv);
-        }
-    }
-
-    *ro = (uint16_t)r_v;
-    *go = (uint16_t)g_v;
-    *bo = (uint16_t)b_v;
 }
 
 /* HSV 域 BCSH 调整（单像素），见 hsv_fixed.h 说明。
