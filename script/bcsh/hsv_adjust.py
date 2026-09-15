@@ -510,20 +510,31 @@ def steepen_weight(w, steepness: float = 1.0):
     return np.clip((arr_w - 0.5) * s + 0.5, 0.0, 1.0).astype(np.float32)
 
 
-def transition_damp(w, trans_factor: float = 0.0):
-    """指定色相过渡带的彩度压制系数（Transition Factor）。
+def transition_damp(w, trans_factor: float = 0.0, steep: float = 1.0):
+    """指定色相过渡带的彩度压制系数（Trans Ratio）。
 
-    ``damp = trans_factor · (1 - |2w - 1|)``，w 为过渡权重（0=保持原色、
-    1=完全调整）。峰值落在过渡中点（w=0.5，原色与调整结果各半）、两端为 0，
-    故由 w 推出、与过渡来自 Tail 还是 Pad 无关，两段过渡一并覆盖。用于压掉
-    "原色↔调整结果"在 RGB 域插值时经过的中间色相（如 黄↔青 必经的绿）。
+    ``damp = trans_factor · (1 - |2w - 1|^S)``，w 为过渡权重（0=保持原色、
+    1=完全调整）、S 为陡度（Trans Factor）。峰值落在过渡中点（w=0.5，原色与
+    调整结果各半）、两端为 0，故由 w 推出、与过渡来自 Tail 还是 Pad 无关，
+    两段过渡一并覆盖。用于压掉"原色↔调整结果"插值时经过的中间色相
+    （如 黄↔青 必经的绿）。
+
+    S=1 退化为原始线性三角；S>1 把权重摊平为"宽平台 + 陡肩"——过渡带大部分
+    被压到接近 trans_factor、只在两端快速归零，即过渡区整体更淡。
+    注意 w 应传**未按 Trans Factor 陡化**的原始过渡权重：陡化会把像素推到
+    w=0/1（damp 恒为 0），而使可降饱和的范围随 S 增大而收窄。
+
     trans_factor∈[0,1]（0=关闭）；返回与 ``w`` 同形状、取值 [0, trans_factor]。
     """
     arr_w = np.asarray(w, dtype=np.float32)
     k = float(np.clip(trans_factor, 0.0, 1.0))
     if k <= 0.0:
         return np.zeros_like(arr_w)
-    return (k * (1.0 - np.abs(2.0 * arr_w - 1.0))).astype(np.float32)
+    u = np.abs(2.0 * arr_w - 1.0)
+    s = float(steep)
+    if s <= 1.0:                       # S=1 与陡化前逐位等价
+        return (k * (1.0 - u)).astype(np.float32)
+    return (k * (1.0 - u ** s)).astype(np.float32)
 
 
 def desaturate_toward_luma(rgb, damp, coef: str = 'bt709'):
@@ -535,6 +546,51 @@ def desaturate_toward_luma(rgb, damp, coef: str = 'bt709'):
     arr = np.asarray(rgb, dtype=np.float32)
     d = np.asarray(damp, dtype=np.float32)[..., None]
     return (arr * (1.0 - d) + _rgb_luma(arr, coef)[..., None] * d).astype(np.float32)
+
+
+def blend_in_domain(domain, adj, w, hue_first: bool = True):
+    """在处理域内按权重 w 融合原值与调整结果（过渡区融合）。
+
+    ``domain``/``adj`` 形状 (...,3)；``w`` 形状 (...,)，0=保持原值、1=完全调整。
+    ``hue_first=True`` 时布局为 (H,S,L)（HSV/HSI/HSL/HCY/HSP/Lch），H∈[0,360) 是
+    **角度量**，走圆环插值 ``h' = (h + w·Δ) % 360``、``Δ = wrap180(adj_h − h)``，
+    避免 350° 与 10° 被线性平均成 180°；``hue_first=False``（RGB 域）三分量线性融合。
+    S/L 分量恒为线性融合。返回新数组，不修改入参。
+    """
+    arr_d = np.asarray(domain, dtype=np.float32)
+    arr_a = np.asarray(adj, dtype=np.float32)
+    arr_w = np.asarray(w, dtype=np.float32)
+    ww = arr_w[..., None]
+    out = (arr_d * (1.0 - ww) + arr_a * ww).astype(np.float32)
+    if hue_first:
+        h = arr_d[..., 0]
+        delta = ((arr_a[..., 0] - h + 180.0) % 360.0) - 180.0   # 最短有向弧
+        out[..., 0] = (h + arr_w * delta) % 360.0
+    return out
+
+
+def damp_saturation_in_domain(domain, damp):
+    """过渡区降饱和：处理域内 ``S ← S·(1−damp)``，亮度分量不动（保亮度）。
+
+    圆锥模型域（HSV/HSL/HSI/HCY/HSP/Lch）的 S/色度分量都在 index 1、亮度分量在
+    index 2，故过渡区只会变淡，不会像"向 luma 靠拢"那样在暗色相一侧发黑。
+    """
+    out = np.array(domain, dtype=np.float32, copy=True)
+    out[..., 1] = out[..., 1] * (1.0 - np.asarray(damp, dtype=np.float32))
+    return out
+
+
+def damp_rgb_toward_max(rgb, damp):
+    """RGB 处理域的过渡区降饱和：向自身 max 通道靠拢（等价"保 V 降 S"）。
+
+    ``out = rgb·(1−damp) + max(rgb)·damp``：max 通道（HSV 的 V）守恒、色度随
+    damp 收缩；damp=1 时饱和色变纯白。RGB 域没有独立的 S/亮度分量，用 V 作锚点
+    可在过渡区保持亮度，避免向 luma 插值时的发黑。
+    """
+    arr = np.asarray(rgb, dtype=np.float32)
+    d = np.asarray(damp, dtype=np.float32)[..., None]
+    v_max = np.max(arr, axis=-1, keepdims=True)
+    return (arr * (1.0 - d) + v_max * d).astype(np.float32)
 
 
 def _rotate_hue(rgb, angle_deg):

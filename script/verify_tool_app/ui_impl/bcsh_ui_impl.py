@@ -16,7 +16,8 @@ from script.bcsh.hsv_adjust import (
     rgb_to_hsi, hsi_to_rgb, rgb_to_hsl, hsl_to_rgb,
     rgb_to_lch, lch_to_rgb, rgb_to_hcy, hcy_to_rgb,
     rgb_to_hsp, hsp_to_rgb,
-    steepen_weight, transition_damp, desaturate_toward_luma,
+    steepen_weight, transition_damp,
+    blend_in_domain, damp_saturation_in_domain, damp_rgb_toward_max,
 )
 from script.img_io import (
     ImageFrame, _csc_range_params, _get_csc_matrices, is_limited_range,
@@ -109,7 +110,7 @@ class PixelReadoutCache:
     """一次处理的像素读数缓存（全分辨率，源位深 float/原生）。
 
     输入侧：in_native(1️⃣) / in_full_rgb·in_full_yuv(2️⃣, 视 clip 钳位/未钳位) / in_domain(3️⃣)。
-    输出侧：out_native(6️⃣) / out_full_rgb·out_full_yuv(5️⃣, 视 clip) / out_domain(4️⃣)。
+    输出侧：out_native(6️⃣) / out_full_rgb·out_full_yuv·out_domain(5️⃣, 视 clip)。
     """
 
     in_native: tuple                       # (kind, (planes), depth)，kind='rgb'/'yuv'
@@ -121,7 +122,7 @@ class PixelReadoutCache:
     out_full_rgb: np.ndarray | None        # (H,W,3) 步骤 5️⃣ RGBF
     out_full_yuv: np.ndarray | None        # (H,W,3) 步骤 5️⃣ YUVF
     out_yuv_cs: int                        # out_full_yuv 的 colorspace 代码
-    out_domain: tuple                      # (name, h, s, x) 步骤 4️⃣
+    out_domain: tuple                      # (name, h, s, x) 步骤 5️⃣（与 out_full_* 自洽）
 
 
 def _cs_family(cs: int) -> int:
@@ -251,8 +252,7 @@ class HsvUiController:
         # adjustment must be OFF by default so the whole image is processed.
         self.ui.groupBox_setHueRange.setChecked(False)
         # Trans Factor(S)/Trans Ratio(K) 随“指定色调”开关使能（无过渡区时无意义）。
-        for ctrl in (self.ui.spinBox_transFactor, self.ui.spinBox_transRatio):
-            ctrl.setEnabled(self.ui.groupBox_setHueRange.isChecked())
+        self._update_trans_controls_enable()
         # 钳位/归一化下拉使能随处理域与输入格式更新。
         self._update_clip_enables()
         # comboBox_modeS 的 MixGray 项仅在 RGB 处理域可选。
@@ -318,8 +318,7 @@ class HsvUiController:
         ui.pushButton_resetH.clicked.connect(self._on_reset_h)
         ui.groupBox_setHueRange.toggled.connect(self._schedule_auto_run)
         # Trans Factor(S)/Trans Ratio(K) 随“指定色调”开关使能（无过渡区时无意义）。
-        for ctrl in (ui.spinBox_transFactor, ui.spinBox_transRatio):
-            ui.groupBox_setHueRange.toggled.connect(ctrl.setEnabled)
+        ui.groupBox_setHueRange.toggled.connect(self._update_trans_controls_enable)
         ui.spinBox_hueStart.valueChanged.connect(self._on_hue_range_changed)
         ui.spinBox_hueEnd.valueChanged.connect(self._on_hue_range_changed)
         for spin in (ui.spinBox_hueStartTail, ui.spinBox_hueEndTail,
@@ -798,21 +797,34 @@ class HsvUiController:
         return self.ui.comboBox_adjustField.currentText() == "YCbCr"
 
     def _trans_steep(self) -> float:
-        """过渡权重陡度 S（Trans Factor，≥1；1=原始线性，越大中间色相带越窄）。"""
+        """过渡区陡度 S（Trans Factor，≥1）。
+
+        同时作用于两处：①色相/亮度融合权重 ``w' = clip((w-0.5)·S+0.5, 0, 1)``，
+        S 越大中间色相带越窄；②降饱和权重 ``1-|2w-1|^S``，S 越大压得越平
+        （宽平台 + 陡肩，过渡区整体更淡）。S=1 时两处都退回原始线性。
+        """
         return float(self.ui.spinBox_transFactor.value())
 
     def _trans_ratio(self) -> float:
         """过渡带彩度压制强度 K（Trans Ratio，0.0~1.0；0=关闭）。"""
         return float(self.ui.spinBox_transRatio.value())
 
-    def _hue_blend_weights_for(self, hue_deg: np.ndarray) -> np.ndarray:
-        """Return per-pixel blend weight from the specified-hue group box.
+    def _update_trans_controls_enable(self, *_args) -> None:
+        """Trans Factor(S)/Trans Ratio(K) 随“指定色调”开关使能（无过渡区时无意义）。"""
+        active = self.ui.groupBox_setHueRange.isChecked()
+        for ctrl in (self.ui.spinBox_transFactor, self.ui.spinBox_transRatio):
+            ctrl.setEnabled(active)
 
-        指定色调的过渡权重（Pad/Tail 分段）最后按 Trans Factor(S) 陡化，使过渡
-        集中在中间段、两端 0/1 不变（详见 ``steepen_weight``）。
+    def _hue_blend_weights_raw(self, hue_deg: np.ndarray) -> np.ndarray:
+        """指定色调的**原始**过渡权重（Pad/Tail 分段，未按 Trans Factor 陡化）。
+
+        返回 0=保持原值、1=完全调整 的线性过渡权重。色相/亮度融合再用
+        ``steepen_weight`` 按 Trans Factor 陡化；而降饱和（``transition_damp``）
+        直接用这里的原始权重——陡化会把像素推到 0/1（damp 恒为 0），使可降饱和
+        的范围随 S 增大而收窄。未勾选指定色调时返回全 1（整图调整）。
         """
         if self.ui.groupBox_setHueRange.isChecked():
-            w = self._hue_blend_weights(
+            return self._hue_blend_weights(
                 hue_deg,
                 self.ui.spinBox_hueStart.value(),
                 self.ui.spinBox_hueEnd.value(),
@@ -821,7 +833,6 @@ class HsvUiController:
                 self.ui.spinBox_hueStartPad.value(),
                 self.ui.spinBox_hueEndPad.value(),
             )
-            return steepen_weight(w, self._trans_steep())
         return np.ones_like(hue_deg, dtype=np.float32)
 
     def _process_frame_rgb(
@@ -870,15 +881,22 @@ class HsvUiController:
                 domain, h_deg, hsl_chroma=hsl_chroma)
 
         # ---- 5️⃣ 回 full-range RGB（域往返本身有钳位 -> 恒 [0,1]） ----
-        rgb_5 = from_domain(adj)
-        w = self._hue_blend_weights_for(h_deg)
-        rgb_5 = rgb_2 * (1.0 - w[..., None]) + rgb_5 * w[..., None]
-        # 过渡带降饱和（Trans Ratio=K）：压掉"原色↔调整结果"在 RGB 域插值时经过
-        # 的中间色相（如 黄↔青 必经的绿）。damp 由 w 推出，Pad/Tail 两段均覆盖；
-        # Trans Factor=S 已在 _hue_blend_weights_for 中对 w 陡化。
-        trans_k = self._trans_ratio()
-        if trans_k > 0.0 and self.ui.groupBox_setHueRange.isChecked():
-            rgb_5 = desaturate_toward_luma(rgb_5, transition_damp(w, trans_k))
+        # 过渡区融合在**处理域内**进行（HSV 就在 HSV 里融合，HSL 就在 HSL 里融合…）：
+        # H 分量走圆环插值，S/亮度分量线性融合。之后按 Trans Ratio 降饱和：
+        # 圆锥模型域直接降 S、亮度分量不动（保亮度，过渡区只会变淡不会发暗）；
+        # RGB 域无独立 S/亮度分量，向自身 max 通道靠拢（等价保 V 降 S）。
+        # 过渡权重两用：色相/亮度融合用按 Trans Factor(S) 陡化后的 w（过渡集中在
+        # 中间段）；降饱和用**未陡化**的 w_raw（陡化会把像素推到 0/1 使 damp 恒为
+        # 0，收窄可降饱和的范围），S 同时兼作 damp 的平台陡度。
+        w_raw = self._hue_blend_weights_raw(h_deg)
+        w = steepen_weight(w_raw, self._trans_steep())
+        trans_k = self._trans_ratio() if self.ui.groupBox_setHueRange.isChecked() else 0.0
+        dom_5 = blend_in_domain(domain, adj, w, hue_first=(field != "RGB"))
+        if trans_k > 0.0:
+            damp = transition_damp(w_raw, trans_k, self._trans_steep())
+            dom_5 = damp_rgb_toward_max(dom_5, damp) if field == "RGB" \
+                else damp_saturation_in_domain(dom_5, damp)
+        rgb_5 = from_domain(dom_5)
         rgb_5 = np.clip(rgb_5, 0.0, 1.0)
 
         # ---- 预览帧（步骤 5️⃣，full-range RGB，存储必钳位） ----
@@ -894,7 +912,8 @@ class HsvUiController:
             in_domain=(field, domain[..., 0], domain[..., 1], domain[..., 2]),
             out_native=out_native,
             out_full_rgb=rgb_5, out_full_yuv=None, out_yuv_cs=5,
-            out_domain=(field, adj[..., 0], adj[..., 1], adj[..., 2]),
+            # 域值取步骤 5️⃣（融合/降饱和后的实际输出），与 out_full_rgb 自洽。
+            out_domain=(field, dom_5[..., 0], dom_5[..., 1], dom_5[..., 2]),
         )
         return out_frame, preview_frame, readout
 
@@ -948,10 +967,11 @@ class HsvUiController:
         yhs = np.stack([angle, s_norm, y_n], axis=-1)
         adj = self._compute_adjusted_hsv(yhs, angle, proc_cs=proc_cs)
         angle_a, s_a, y_a = adj[..., 0], adj[..., 1], adj[..., 2]
-        hue_sync_a = hue_ycbcr_to_hsv(angle_a, proc_cs)
 
         # ---- 5️⃣ 回 yuv full-range（y2yClipType 决定重建与色域处理方式） ----
-        w = self._hue_blend_weights_for(hue_sync)
+        # 色度/亮度融合用陡化后的 w，降饱和用未陡化的 w_raw（见 _hue_blend_weights_raw）。
+        w_raw = self._hue_blend_weights_raw(hue_sync)
+        w = steepen_weight(w_raw, self._trans_steep())
         if y2y_policy == 'scalechromapix':
             # ScaleChromaPix 重建：r' = S'·r_max(Y',θ')，天然在调整后的色域内。
             r_max_a = self._gamut_r_max(
@@ -968,11 +988,11 @@ class HsvUiController:
         cr_5 = cr * (1.0 - w) + cr_a * w
         y_5 = y_n * (1.0 - w) + y_a * w
         # 过渡带降饱和（Trans Ratio=K）：YCbCr 域按 damp 收缩色度向灰轴靠拢
-        # （保 Y 不变）。damp 由 w 推出，Pad/Tail 两段过渡均覆盖；
-        # Trans Factor=S 已在 _hue_blend_weights_for 中对 w 陡化。
+        # （保 Y 不变）。damp 由未陡化的 w_raw 推出、Pad/Tail 两段过渡均覆盖；
+        # Trans Factor(S) 兼作 damp 的平台陡度。
         trans_k = self._trans_ratio()
         if trans_k > 0.0 and self.ui.groupBox_setHueRange.isChecked():
-            chroma_scale = 1.0 - transition_damp(w, trans_k)
+            chroma_scale = 1.0 - transition_damp(w_raw, trans_k, self._trans_steep())
             cb_5 = cb_5 * chroma_scale
             cr_5 = cr_5 * chroma_scale
         yuv_5_raw = np.stack([y_5, cb_5, cr_5], axis=-1)
@@ -995,6 +1015,10 @@ class HsvUiController:
         else:
             s_out = radius_out
 
+        # 读数域值取步骤 5️⃣（含 y2y 策略后的最终色度/亮度），与 out_full_yuv 自洽。
+        angle_out = (np.degrees(np.arctan2(yuv_5_disp[..., 2], yuv_5_disp[..., 1]))
+                     + 360.0) % 360.0
+        hue_sync_out = hue_ycbcr_to_hsv(angle_out, proc_cs)
         readout = PixelReadoutCache(
             in_native=in_native,
             in_full_rgb=None, in_full_yuv=yuv_in, in_yuv_cs=proc_cs,
@@ -1002,7 +1026,8 @@ class HsvUiController:
             in_domain=("H/H'SY", np.stack([angle, hue_sync], axis=-1), s_norm, y_n),
             out_native=out_native,
             out_full_rgb=None, out_full_yuv=yuv_5_disp, out_yuv_cs=proc_cs,
-            out_domain=("H/H'SY", np.stack([angle_a, hue_sync_a], axis=-1), s_out, y_a),
+            out_domain=("H/H'SY", np.stack([angle_out, hue_sync_out], axis=-1),
+                        s_out, yuv_5_disp[..., 0]),
         )
         return out_frame, preview_frame, readout
 
@@ -1629,7 +1654,7 @@ class HsvUiController:
         """按当前用例拼装 (x,y) 像素读数；role='input'/'output'。
 
         输入侧：native(1️⃣), 处理域 full(2️⃣), 域值(3️⃣)
-        输出侧：native(6️⃣), 处理域 full(5️⃣), 域值(4️⃣)
+        输出侧：native(6️⃣), 处理域 full(5️⃣), 域值(5️⃣)
         视 clip 选项显示钳位或未钳位值（归一化值可超出 [0,1]、出现负值）。
         """
         if self._last_readout is None:
