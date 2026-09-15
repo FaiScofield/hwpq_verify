@@ -13,7 +13,7 @@ import subprocess
 import sys
 
 HSV_APP_TARGET = "Sonnoc" # RK/Sonnoc
-HSV_APP_VERSION = "v3.1"
+HSV_APP_VERSION = "v3.2"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
 
