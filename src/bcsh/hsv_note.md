@@ -121,15 +121,13 @@ npm run preview    # 本地预览构建产物
 | TanSlant | x'=clip((x-0.5)·tan((c+1)π/4)+0.5)（float64 计算） | [-1,1] | 0 |
 | FastStone（仅 RGB 域） | x'=clip(k·x+b)；参数 C∈[-1,1] 归一化为 [-100,100] 后按通用公式（见文末 FastStone 小节） | [-1,1] | 0 |
 
-**表 4.1-3 Brightness（B/V，Contrast 之后由 `V Mode` 施加）**
+**表 4.1-3 Brightness（B/V，Contrast 之后由 `B Mode` 施加）**
 
 | 模式 | 公式 | 量程 | 中性 |
 | ---- | ---- | ---- | ---- |
 | ModeAdd（默认） | x'=clip(x+dv) | [-1,1] | 0 |
 | ModeMul | x'=clip(x·gv) | [0,4] | 1 |
 | Rate2Limit | dv<1：x·dv 向黑；dv>1：x+(dv-1)·(1-x) 向白 | [0,2] | 1 |
-
-> 算法库另支持 `mulKeepMin`（保底乘性：调小时 V 不低过旧最小通道 m、S 不变），UI 未开放。
 
 **表 4.1-4 Saturation（S，由 `S Mode` 决定）**
 

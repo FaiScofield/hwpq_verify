@@ -73,6 +73,23 @@ static inline int32_t rgb_adj_sin_q15(int32_t angle_q14)
 /* angle_q14 的 cos，Q15：cos(x) = sin(x + 90°) */
 static inline int32_t rgb_adj_cos_q15(int32_t angle_q14) { return rgb_adj_sin_q15(angle_q14 + (FIX_H_ONE >> 2)); }
 
+/* 绕灰轴 (1,1,1)/√3 旋转 angle_q14（Q11 像素域，原地修改）。
+   o0 = cos·r + (1-cos)·(r+g+b)/3 + sin·(b-g)/√3，另两通道按 r->g->b 轮换；
+   灰阶保持不变。对应 hsv_adjust.py 的 _rotate_hue（RGB 域 H 步 RotateOnGray）。
+   qr/qg/qb 为 Q11 像素域（pixel<<11），允许传未钳位的中间值（与浮点参考一致：
+   Python 在未钳位的 S 步输出上旋转，末尾才统一 clip）。 */
+static inline void rgb_adj_rotate_on_gray_q11(int32_t *qr, int32_t *qg, int32_t *qb, int32_t angle_q14)
+{
+    const int32_t cs = rgb_adj_cos_q15(angle_q14);
+    const int32_t sn = rgb_adj_sin_q15(angle_q14);
+    const int32_t r0 = *qr, g0 = *qg, b0 = *qb;
+    /* (1-cos)/3 先算成 Q15，再与 (r+g+b) 相乘 —— 把除以 3 合并进常数 */
+    const int32_t k3 = adj_mul_q(adj_mul_q(RGB_ADJ_TRIG_ONE - cs, RGB_ADJ_RCP3_Q16, 16), r0 + g0 + b0, 15);
+    *qr = adj_mul_q(cs, r0, 15) + k3 + adj_mul_q(adj_mul_q(sn, b0 - g0, 15), RGB_ADJ_INV_SQRT3_Q15, 15);
+    *qg = adj_mul_q(cs, g0, 15) + k3 + adj_mul_q(adj_mul_q(sn, r0 - b0, 15), RGB_ADJ_INV_SQRT3_Q15, 15);
+    *qb = adj_mul_q(cs, b0, 15) + k3 + adj_mul_q(adj_mul_q(sn, g0 - r0, 15), RGB_ADJ_INV_SQRT3_Q15, 15);
+}
+
 /* 单像素 RGB 域固定管线 BCSH 调整（像素域 [0,maxv]）。 */
 static inline void rgb_bcsh_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t gain_c, int32_t gain_b,
     int32_t scale_s, int32_t angle_q14, int gray_coef, uint16_t *ro, uint16_t *go, uint16_t *bo)
@@ -125,17 +142,9 @@ static inline void rgb_bcsh_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t max
         qb = adj_mul_q(k1, qb, FIX_BITS_S) + adj_mul_q(k0, gray, FIX_BITS_S);
     }
 
-    /* ---- 4. H（RotateOnGray，SameOffset）：绕灰轴 (1,1,1)/√3 旋转 ----
-       o0 = cos·r + (1-cos)·(r+g+b)/3 + sin·(b-g)/√3，另两通道按 r->g->b 轮换 */
+    /* ---- 4. H（RotateOnGray，SameOffset）：绕灰轴 (1,1,1)/√3 旋转 ---- */
     if (angle_q14 != 0) {
-        const int32_t cs = rgb_adj_cos_q15(angle_q14);
-        const int32_t sn = rgb_adj_sin_q15(angle_q14);
-        const int32_t r0 = qr, g0 = qg, b0 = qb;
-        /* (1-cos)/3 先算成 Q15，再与 (r+g+b) 相乘 —— 把除以 3 合并进常数 */
-        const int32_t k3 = adj_mul_q(adj_mul_q(RGB_ADJ_TRIG_ONE - cs, RGB_ADJ_RCP3_Q16, 16), r0 + g0 + b0, 15);
-        qr = adj_mul_q(cs, r0, 15) + k3 + adj_mul_q(adj_mul_q(sn, b0 - g0, 15), RGB_ADJ_INV_SQRT3_Q15, 15);
-        qg = adj_mul_q(cs, g0, 15) + k3 + adj_mul_q(adj_mul_q(sn, r0 - b0, 15), RGB_ADJ_INV_SQRT3_Q15, 15);
-        qb = adj_mul_q(cs, b0, 15) + k3 + adj_mul_q(adj_mul_q(sn, g0 - r0, 15), RGB_ADJ_INV_SQRT3_Q15, 15);
+        rgb_adj_rotate_on_gray_q11(&qr, &qg, &qb, angle_q14);
     }
 
     /* ---- 统一舍入回像素域并 clip ---- */
@@ -172,27 +181,29 @@ static inline void rgb_bcsh_fix_u10(const uint16_t *rgb, int n, int32_t gain_c, 
     }
 }
 
-/* ===================== 通用版（mode 可选，H 恒 ModeAdd） ===================== */
+/* ===================== 通用版（mode 可选） ===================== */
 /* 实现见 rgb_adjust.c；参数定点格式与上同：
-     gain_c     : Q11（1.0 = FIX_S_ONE）；mid 取 [0,4]，tanslant 取 [-1,1]
-     delta_b    : Q11（1.0 = FIX_S_ONE）；mul 取 [0,4]，rate2limit 取 [0,2]
+     gain_c     : Q11（1.0 = FIX_S_ONE）；mid/zero/both 取 [0,4]，tanslant 取 [-1,1]
+     delta_b    : Q11（1.0 = FIX_S_ONE）；add 取 [-1,1]，mul 取 [0,4]，rate2limit 取 [0,2]
      delta_s    : Q11（1.0 = FIX_S_ONE）；灰阶混合乘性增益 [0,4]，中性 1.0
      tolerance_s: Q11（1.0 = FIX_S_ONE）；S 门控 [0,1]（保留参数位，当前未启用）
      angle_q14  : Q14（360° = FIX_H_ONE）；H 平移量
-   mode 用 adj_rgb_mode_c_t / adj_rgb_mode_b_t / adj_rgb_gray_coef_t（见 hsv_fixed.h）。
+   mode 用 adj_rgb_mode_c_t / adj_rgb_mode_b_t / adj_rgb_mode_h_t / adj_rgb_gray_coef_t
+   （见 hsv_fixed.h）。
    tanslant 的 tan 用 4097 项 Q11 直接查表（θ Q14 直接索引，无插值，无 float/math 依赖）。 */
 void adjust_rgb_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t gain_c, int32_t delta_b, int32_t delta_s,
-    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, uint16_t *ro, uint16_t *go, uint16_t *bo);
+    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, int mode_h, uint16_t *ro,
+    uint16_t *go, uint16_t *bo);
 
 
 /* u8 缓冲接口（整帧统一参数） */
 static inline void adjust_rgb_fix_u8(const uint8_t *rgb, int n, int32_t gain_c, int32_t delta_b, int32_t delta_s,
-    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, uint8_t *out)
+    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, int mode_h, uint8_t *out)
 {
     for (int i = 0; i < n; i++) {
         uint16_t r1, g1, b1;
         adjust_rgb_fix(rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2], 255, gain_c, delta_b, delta_s, tolerance_s,
-            angle_q14, gray_coef, mode_c, mode_b, &r1, &g1, &b1);
+            angle_q14, gray_coef, mode_c, mode_b, mode_h, &r1, &g1, &b1);
         out[3 * i] = (uint8_t)r1;
         out[3 * i + 1] = (uint8_t)g1;
         out[3 * i + 2] = (uint8_t)b1;
@@ -201,12 +212,12 @@ static inline void adjust_rgb_fix_u8(const uint8_t *rgb, int n, int32_t gain_c, 
 
 /* u10 缓冲接口（整帧统一参数） */
 static inline void adjust_rgb_fix_u10(const uint16_t *rgb, int n, int32_t gain_c, int32_t delta_b, int32_t delta_s,
-    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, uint16_t *out)
+    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, int mode_h, uint16_t *out)
 {
     for (int i = 0; i < n; i++) {
         uint16_t r1, g1, b1;
         adjust_rgb_fix(rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2], 1023, gain_c, delta_b, delta_s, tolerance_s,
-            angle_q14, gray_coef, mode_c, mode_b, &r1, &g1, &b1);
+            angle_q14, gray_coef, mode_c, mode_b, mode_h, &r1, &g1, &b1);
         out[3 * i] = r1;
         out[3 * i + 1] = g1;
         out[3 * i + 2] = b1;

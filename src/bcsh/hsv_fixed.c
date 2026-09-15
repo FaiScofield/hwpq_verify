@@ -8,7 +8,10 @@
    rcp6[k] = round(2^RCP6_BITS/(6k)) —— H=diff/(6C) 用，以 C(Chroma) 为索引
    rcp6 把原两级乘法 (diff×rcp[C])×RCP6 合并为一级乘法 diff×rcp6[C]，省 3 个 /6 乘法器；
    两表索引（M vs C）与定标（/k vs /6k）均不同，无法共用，故独立。
-   最小位宽由 hsv_precision_test [11] 全遍历确定：S 表 21bit、H 表 24bit。 */
+   最小位宽由 hsv_precision_test [11] 全遍历确定：S 表 21bit、H 表 24bit。
+   注：H 表相关接口（rcp6_tbl_u24_fixed / rcp_mul_rsh / adj_apply_v）声明在
+   hsv_fixed.h、实现在本文件，rgb_adjust.c 共用；RCP6_BITS 由本文件定义，
+   rgb_adjust.c 内有同值的 #ifndef 后备（用 -D 覆盖时两边取值一致）。 */
 #define RCP_BITS      21 /* S 表定标位宽；可用 -DRCP_BITS=N 覆盖（最小值 21 由 [11] 全遍历确定） */
 #define RCP6_BITS     24 /* H 表定标位宽；可用 -DRCP6_BITS=N 覆盖（最小值 24 由 [11] 全遍历确定） */
 #define RCP_MAX       1023
@@ -31,8 +34,9 @@ static inline const uint32_t *rcp_tbl_u21_fixed(void)
 }
 
 /* H 表：rcp6[k] = round(2^RCP6_BITS/(6k))，k∈[1,RCP_MAX]，C(Chroma) 索引。
-   利用 (diff×2^14/C)/6 = diff×2^14/(6C) 恒等，H 用 rcp6 一级乘法直接得 Q14 候选 */
-static inline const uint32_t *rcp6_tbl_u24_fixed(void)
+   利用 (diff×2^14/C)/6 = diff×2^14/(6C) 恒等，H 用 rcp6 一级乘法直接得 Q14 候选。
+   非 static：rgb_adjust.c 的 H 步也用同一份表（声明见 hsv_fixed.h）。 */
+const uint32_t *rcp6_tbl_u24_fixed(void)
 {
     static uint32_t t[RCP_MAX + 1];
     static int ready = 0;
@@ -47,8 +51,8 @@ static inline const uint32_t *rcp6_tbl_u24_fixed(void)
 
 /* 除法消除（窄乘法形式）：round(a * rcp / 2^rsh)，a ≤ 17bit 有符号、rcp ≤ 24bit。
    调用方把 a 自带的 2 的幂缩放(×2^SH)拆成右移 rsh = 定标位 - SH，乘法器只需 a×rcp 位宽
-   （相比 a<<SH × rcp 少 SH 位），适合硬件实现 */
-static inline int32_t rcp_mul_rsh(int32_t a, uint32_t rcp, int rsh)
+   （相比 a<<SH × rcp 少 SH 位），适合硬件实现。非 static：rgb_adjust.c 的 H 步共用。 */
+int32_t rcp_mul_rsh(int32_t a, uint32_t rcp, int rsh)
 {
     int32_t p = a * rcp;
     p += (1LL << (rsh - 1)) + (p >> 31); /* 有符号四舍五入到 2^rsh */
@@ -673,17 +677,28 @@ const int32_t g_adj_tan_q11[4097] = {0, 1, 2, 2, 3, 4, 5, 5, 6, 7, 8, 9, 9, 10, 
     267012, 281066, 296682, 314134, 333768, 356020, 381450, 410793, 445026, 485484, 534033, 593370, 667542, 762906,
     890057, 1068069, 1335087, 1780117, 2670176, 5340353, 67108864};
 
-/* 单通道 V 步（Q11 像素域，pixel×2^11）：过 0.5 中点 contrast + mode_b 亮度。
-   q 为 Q11 像素域输入；gc/gv_q11/d_q11 为 Q11 增益（d = db-1，中性 0）。
-   mid 中点 maxv/2 的 Q11 表示为 maxv<<10（精确）；contrast 后先 clamp 到
-   [0, maxv<<11]（与浮点参考一致，避免亮度前越界），亮度后同 clamp。
-   返回值 Q11 像素域，由上层统一舍入回像素（避免逐步骤舍入误差累积）。 */
-static inline int32_t adj_apply_v(int32_t q, int32_t maxv, int32_t gc, int32_t gv_q11, int32_t d_q11, int mode_b)
+/* 单通道 V 步（Q11 像素域，pixel×2^11）：contrast(mode_c) + brightness(mode_b)。
+   q 为 Q11 像素域输入；gc 为 Q11 增益；gv_q11/d_q11/db_q11 分别为 Q11 的
+   mul 增益（中性 1.0）、rate2limit 的 d=db-1（中性 0）、add 的 db∈[-1,1]（中性 0）。
+   maxv/2 的 Q11 表示为 maxv<<10（精确）；contrast 后先 clamp 到 [0, maxv<<11]
+   （与浮点参考一致，避免亮度前越界），亮度后同 clamp。
+   返回值 Q11 像素域，由上层统一舍入回像素（避免逐步骤舍入误差累积）。
+   RGB 域（adjust_rgb_fix）与 HSV 域（adjust_hsv_fix）共用。 */
+int32_t adj_apply_v(int32_t q, int32_t maxv, int32_t gc, int mode_c, int32_t gv_q11, int32_t d_q11, int32_t db_q11, int mode_b)
 {
     int32_t half = (int32_t)maxv << (FIX_BITS_S - 1); /* maxv/2 的 Q11 像素域 */
     int32_t cap = (int32_t)maxv << FIX_BITS_S;        /* maxv 的 Q11 像素域 */
-    int32_t out = CLIP(adj_mul_q(q - half, gc, FIX_BITS_S) + half, 0, cap);
-    if (mode_b == ADJ_RGB_MODE_B_RATE2LIMIT) {
+    int32_t out;
+    /* contrast：mid 过 v=0.5 中点；zero 过 v=0 原点；both 按 gc<1 二选一（gc==1 两者等价） */
+    if (mode_c == ADJ_RGB_MODE_C_ZERO || (mode_c == ADJ_RGB_MODE_C_BOTH && gc < FIX_S_ONE))
+        out = CLIP(adj_mul_q(q, gc, FIX_BITS_S), 0, cap);
+    else
+        out = CLIP(adj_mul_q(q - half, gc, FIX_BITS_S) + half, 0, cap);
+    if (mode_b == ADJ_RGB_MODE_B_ADD) {
+        /* db∈[-1,1]：加性（中性 0）。db 为归一化量，须折算到 Q11 像素域（×maxv） */
+        out = CLIP(out + db_q11 * maxv, 0, cap);
+    }
+    else if (mode_b == ADJ_RGB_MODE_B_RATE2LIMIT) {
         if (d_q11 < 0)
             out = adj_mul_q(out, FIX_S_ONE + d_q11, FIX_BITS_S); /* db<1：向黑靠拢 */
         else
@@ -699,17 +714,18 @@ static inline int32_t adj_apply_v(int32_t q, int32_t maxv, int32_t gc, int32_t g
 /* HSV 域 BCSH 调整（单像素），见 hsv_fixed.h 说明。
    与 adjust_rgb_fix 对应，但走 HSV 域往返：rgb2hsv_v3_optimal 取 H/S/V，在 HSV
    域调整 V/S/H，再用 hsv2rgb_v4_hexwalk 重建。V 步复用 adj_apply_v（Q11 像素域，
-   mid/tanslant + mul/rate2limit 同 adjust_rgb_fix）；S 步按 mode_s：mul 乘性
-   scale（delta_s Q11，中性 1.0）或 rate2limit 按比例向灰度/全饱和靠拢（含
-   tolerance_s S 门控）；H 步为 ModeAdd（h'=(h+angle) mod 360）。
+   mid/zero/both/tanslant + add/mul/rate2limit 同 adjust_rgb_fix）；S 步按 mode_s：
+   add 加性 / mul 乘性 scale（delta_s Q11，中性 1.0）/ rate2limit 按比例向灰度/
+   全饱和靠拢；三个 mode_s 共用 tolerance_s S 门控（增色时 S<tolerance_s 保持原样）；
+   H 步为 ModeAdd（h'=(h+angle) mod 360）。
    gray_coef 为保留参数位（HSV 域 S 步无需 luma）。 */
 void adjust_hsv_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t gain_c, int32_t delta_b, int32_t delta_s,
-    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, int mode_s, uint16_t *ro, uint16_t *go,
-    uint16_t *bo)
+    int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, int mode_s, uint16_t *ro,
+    uint16_t *go, uint16_t *bo)
 {
     (void)gray_coef; /* 保留参数位，HSV 域 S 步无需 luma */
 
-    /* ---- mode_c 增益（Q11）：mid 取 [0,4]；tanslant 经 tan((c+1)π/4) 查表映射 ---- */
+    /* ---- mode_c 增益（Q11）：mid/zero/both 取 [0,4]；tanslant 经 tan((c+1)π/4) 查表映射 ---- */
     int32_t gc;
     if (mode_c == ADJ_RGB_MODE_C_TANSLANT) {
         int32_t th = CLIP(gain_c, -FIX_S_ONE, FIX_S_ONE) + FIX_S_ONE; /* (c+1)π/4 ∈ [0,π/2]，Q14 */
@@ -722,30 +738,38 @@ void adjust_hsv_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t g
     /* ---- delta_b 预处理（同 adjust_rgb_fix，供 V 步） ---- */
     int32_t gv_q11 = CLIP(delta_b, 0, 4 * FIX_S_ONE);            /* mul 增益，中性 1.0 */
     int32_t d_q11 = CLIP(delta_b, 0, 2 * FIX_S_ONE) - FIX_S_ONE; /* rate2limit 的 db-1（Q11，中性 0） */
+    int32_t db_q11 = CLIP(delta_b, -FIX_S_ONE, FIX_S_ONE);       /* add 的 db（Q11，中性 0） */
 
     /* ---- RGB -> HSV（v3：无分支无除法） ---- */
     uint16_t H, S, V; // U14, U11, U10
     rgb2hsv_v3_optimal(r, g, b, &H, &S, &V);
 
-    /* ---- V：单通道 contrast + brightness（Q11 像素域） ---- */
-    int32_t v_q = adj_apply_v((int32_t)V << FIX_BITS_S, maxv, gc, gv_q11, d_q11, mode_b);
+    /* ---- V：contrast(mode_c) + brightness(mode_b)（Q11 像素域） ---- */
+    int32_t v_q = adj_apply_v((int32_t)V << FIX_BITS_S, maxv, gc, mode_c, gv_q11, d_q11, db_q11, mode_b);
     int32_t vn = CLIP((v_q + (FIX_S_ONE >> 1)) >> FIX_BITS_S, 0, maxv); /* 舍入回像素域 */
 
-    /* ---- S：mode_s 生效方式（Q11） ---- */
+    /* ---- S：mode_s 生效方式（Q11）。三个模式共用 tolerance_s S 门控：增色
+       （放大）时 S<tolerance_s 的像素保持原样，减色/中性始终允许（与 Python 一致） ---- */
     int32_t sn;
-    if (mode_s == ADJ_RGB_MODE_S_RATE2LIMIT) {
+    if (mode_s == ADJ_RGB_MODE_S_ADD) {
+        /* ds∈[-1,1]，中性 0：ds<0 减色、ds>0 增色 */
+        int32_t ds_q11 = CLIP(delta_s, -FIX_S_ONE, FIX_S_ONE);
+        int32_t s_add = CLIP((int32_t)S + ds_q11, 0, FIX_S_ONE);
+        sn = ((ds_q11 <= 0) || ((int32_t)S >= tolerance_s)) ? s_add : (int32_t)S;
+    }
+    else if (mode_s == ADJ_RGB_MODE_S_RATE2LIMIT) {
         /* ds∈[0,2]，中性 1（d=ds-1∈[-1,1]）：d<0 向灰度靠拢 s'=s*ds、d>0 向全饱和
-           靠拢 s'=s+d*(1-s)；ds=0 灰、ds=2 全饱和。增色（d>0）时 S<tolerance_s
-           的像素保持原样（S 门控，与 Python adjust_hsv 一致） */
-        int32_t ds_q11 = CLIP(delta_s, 0, 2 * FIX_S_ONE) - FIX_S_ONE;                  /* ds-1（Q11，中性 0） */
-        int32_t s_comp = adj_mul_q((int32_t)S, FIX_S_ONE + ds_q11, FIX_BITS_S);        /* ds<1：向灰度靠拢 */
+           靠拢 s'=s+d*(1-s)；ds=0 灰、ds=2 全饱和 */
+        int32_t ds_q11 = CLIP(delta_s, 0, 2 * FIX_S_ONE) - FIX_S_ONE;           /* ds-1（Q11，中性 0） */
+        int32_t s_comp = adj_mul_q((int32_t)S, FIX_S_ONE + ds_q11, FIX_BITS_S); /* ds<1：向灰度靠拢 */
         int32_t s_sat = (int32_t)S + adj_mul_q(ds_q11, FIX_S_ONE - (int32_t)S, FIX_BITS_S); /* ds>1：向全饱和靠拢 */
         int32_t s_apply = CLIP((ds_q11 < 0) ? s_comp : s_sat, 0, FIX_S_ONE);
         sn = ((ds_q11 <= 0) || ((int32_t)S >= tolerance_s)) ? s_apply : (int32_t)S;
     }
     else { /* ADJ_RGB_MODE_S_MUL：乘性缩放（中性 1.0；scale>1 增色、scale<1 减色） */
         int32_t scale_q11 = CLIP(delta_s, 0, 4 * FIX_S_ONE);
-        sn = CLIP(adj_mul_q((int32_t)S, scale_q11, FIX_BITS_S), 0, FIX_S_ONE);
+        int32_t s_mul = CLIP(adj_mul_q((int32_t)S, scale_q11, FIX_BITS_S), 0, FIX_S_ONE);
+        sn = ((scale_q11 <= FIX_S_ONE) || ((int32_t)S >= tolerance_s)) ? s_mul : (int32_t)S;
     }
 
     /* ---- H：ModeAdd，h'=(h+angle) mod 360 ---- */

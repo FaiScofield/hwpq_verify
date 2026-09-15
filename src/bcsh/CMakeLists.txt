@@ -6,6 +6,7 @@ include_directories(${CMAKE_CURRENT_LIST_DIR})
 add_executable(hsv_fixed_test
     ${CMAKE_CURRENT_LIST_DIR}/hsv_fixed.c
     ${CMAKE_CURRENT_LIST_DIR}/hsv_fixed_test.c
+    ${CMAKE_CURRENT_LIST_DIR}/rgb_adjust.c
 )
 
 # hsv 浮点参考实现 + rgb->hsv->rgb 往返精度评估（可选参数 full 做 u10 全遍历）

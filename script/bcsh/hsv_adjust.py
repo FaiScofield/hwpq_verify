@@ -652,7 +652,7 @@ def _rgb_contrast_brightness(rgb, gain_c, db, mode_c, mode_b):
         gc = np.clip(np.asarray(gain_c, np.float32), 0.0, 4.0)
         out = np.clip((rgb - 0.5) * gc + 0.5, 0.0, 1.0)
     mode_b = str(mode_b).lower()
-    if mode_b in ('mul', 'mulkeepmin'):
+    if mode_b == 'mul':
         gv = np.clip(np.asarray(db, np.float32), 0.0, 4.0)
         out = np.clip(out * gv[..., None], 0.0, 1.0)
     elif mode_b == 'rate2limit':
@@ -731,10 +731,6 @@ def adjust_hsv(hsv, delta_b=None, delta_s=None, delta_h=None, gain_c=1.0, mode_s
            'mul'   v'=clip(contrast(v)*gv)           （gv 增益 ∈ [0,4]，中性 1.0）
            'rate2limit'  db∈[0,2]，中性 1：db<1 向黑靠拢 v'=clip(v*db)；db>1 按
                    进度向白靠拢 v'=clip(v+(db-1)*(1-v))；db=0 纯黑、db=2 纯白
-           'mulKeepMin'  保底乘性：调小(gv<1)时 V 线性缩小到旧 RGB 最小通道
-                   m=v'*(1-s)（v'=m+(v-m)*gv，永不小于 m），S 保持不变（饱和度
-                   不变，新最小通道自动 m'=r*v'，r=m/v）；调大(gv>=1)时与 'mul'
-                   一致（gv 增益 ∈ [0,4]）
       S：mode='add'  s'=clip(s+ds)；mode='mul'  s'=clip(s*ds)     （ds ∈ [-1,1] 或乘性增益 ∈ [0,4]）
       S：mode='rate2limit'  ds∈[0,2]，中性 1：ds<1 向灰度靠拢 s'=clip(s*ds)；ds>1
           向全饱和靠拢 s'=clip(s+(ds-1)*(1-s))；ds=0 灰、ds=2 全饱和
@@ -776,20 +772,11 @@ def adjust_hsv(hsv, delta_b=None, delta_s=None, delta_h=None, gain_c=1.0, mode_s
     else:   # 'mid'（默认）：过 v=0.5 中点
         v_new = np.clip((v - 0.5) * gc + 0.5, 0.0, 1.0)
 
-    # ---- delta_b 生效方式：mode_b='add' 加性 / 'mul' 乘性 / 'mulKeepMin' 保底乘性 ----
+    # ---- delta_b 生效方式：mode_b='add' 加性 / 'mul' 乘性 ----
     mode_b = str(mode_b).lower()
-    if mode_b in ('mul', 'mulkeepmin'):
+    if mode_b == 'mul':
         gv = 1.0 if delta_b is None else np.clip(np.asarray(delta_b, np.float32), 0.0, 4.0)
-        if mode_b == 'mulkeepmin':
-            # 保底乘性：乘法增益作用于 V；调小(gv<1)时按量程比例线性缩小到旧
-            # RGB 最小通道 m=v_new*(1-s)（v'=m+(v-m)*gv，永不小于 m），
-            # S 保持不变 -> 饱和度不变，新最小通道自动为 m'=r*v'（r=m/v）。
-            m_val = np.clip(v_new * (1.0 - s), 0.0, 1.0)
-            v_new = np.clip(
-                np.where(gv < 1.0, m_val + (v_new - m_val) * gv, v_new * gv),
-                0.0, 1.0)
-        else:
-            v_new = np.clip(v_new * gv, 0.0, 1.0)
+        v_new = np.clip(v_new * gv, 0.0, 1.0)
     elif mode_b == 'rate2limit':
         # 按比例向黑/白极限靠拢（db∈[0,2]，中性 1：db<1 向黑靠拢、db>1 向白靠拢）
         d = 0.0 if delta_b is None else np.clip(np.asarray(delta_b, np.float32), 0.0, 2.0) - 1.0
@@ -863,11 +850,6 @@ if __name__ == '__main__':
           adjust_hsv((20.0, 0.5, 0.5), delta_b=1.5, mode_b='mul'))
     print('标量: adjust_hsv((20.0, 0.5, 0.5), delta_b=0.7, mode_b="mul") =',
           adjust_hsv((20.0, 0.5, 0.5), delta_b=0.7, mode_b='mul'))
-    # mode_b='mulKeepMin'：调小保底旧 m 且 S 不变（v=0.5,s=0.5 -> m=0.25）
-    print('标量: adjust_hsv((20.0, 0.5, 0.5), delta_b=0.5, mode_b="mulKeepMin") =',
-          adjust_hsv((20.0, 0.5, 0.5), delta_b=0.5, mode_b='mulKeepMin'))
-    print('标量: adjust_hsv((20.0, 0.5, 0.5), delta_b=0.0, mode_b="mulKeepMin") =',
-          adjust_hsv((20.0, 0.5, 0.5), delta_b=0.0, mode_b='mulKeepMin'))
     # S 乘性模式（仅 S 受 mode_s 影响）
     print('标量: adjust_hsv((20.0, 0.5, 0.5), delta_s=1.5, mode_s="mul") =',
           adjust_hsv((20.0, 0.5, 0.5), delta_s=1.5, mode_s='mul'))

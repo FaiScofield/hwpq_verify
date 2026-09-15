@@ -43,6 +43,14 @@ static inline int32_t adj_rsh_round(int64_t p, int sh)
 /* 有符号定点乘：round(a*b/2^sh)，int64 中间量防溢出 */
 static inline int32_t adj_mul_q(int32_t a, int32_t b, int sh) { return adj_rsh_round((int64_t)a * b, sh); }
 
+/* H 倒数表（惰性构建，全工程共用一份）。实现见 hsv_fixed.c */
+const uint32_t *rcp6_tbl_u24_fixed(void);
+
+/* 除法消除（窄乘法形式）：round(a * rcp / 2^rsh)，a ≤ 17bit 有符号、rcp ≤ 24bit。
+   调用方把 a 自带的 2 的幂缩放(×2^SH)拆成右移 rsh = 定标位 - SH，乘法器只需 a×rcp 位宽
+   （相比 a<<SH × rcp 少 SH 位），适合硬件实现。实现见 hsv_fixed.c */
+int32_t rcp_mul_rsh(int32_t a, uint32_t rcp, int rsh);
+
 /* luma 权重 Q16（1.0 = 2^16；末位调整使权重和恰为 2^16，保证灰阶混合不偏色） */
 #define ADJ_LUMA_BITS     16
 #define ADJ_LUMA_BT709_R  13933
@@ -107,35 +115,49 @@ static inline int32_t hsv_h14_from_q16(int32_t H16) { return H16 >> 2; }
 /* 对应 script/bcsh/hsv_adjust.py 的 adjust_rgb：不经过 HSV 域转换，逐通道直接调整。
    - V：三通道统一 contrast(mode_c) 后按 mode_b 施加 brightness（全程像素域，不归一化）
         mode_c='mid'   v'=clip((v-0.5)*gc+0.5)（过 v=0.5 中点，gc∈[0,4]，中性 1.0）
+        mode_c='zero'  v'=clip(gc*v)（过 v=0 原点，gc∈[0,4]，中性 1.0）
+        mode_c='both'  gc<1 用 'zero'、gc>=1 用 'mid'（gc==1 恒等）
         mode_c='tanslant' v'=clip((v-0.5)*tan((c+1)π/4)+0.5)（c∈[-1,1]，中性 0）
+        mode_b='add'   v'=clip(v'+db)（db∈[-1,1]，中性 0）
         mode_b='mul'   v'=clip(v'*gv)（gv∈[0,4]，中性 1.0）
         mode_b='rate2limit'  db∈[0,2]，中性 1：db<1 向黑靠拢 v'=v*db（混入 1-db 黑）；
         db>1 向白靠拢 v'=v+(db-1)*(maxv-v)（混入 db-1 白）
    - S：灰阶混合 out = scale*in + (1-scale)*gray，gray 为 luma（BT.709/BT.601/BT.2020）；
-   - H：恒为 ModeAdd 六边形色相加法 h'=(h+angle)%360：一次 rgb2hsv 取色相（M/m/C 不变
-        -> S/V 天然不变），平移后在 RGB 域按 6 段 TAB 重排中间通道（同
-        hsv2rgb_v4_hexwalk 模型），无需 hsv2rgb 重建
+   - H：按 mode_h：
+        'add'        ModeAdd 六边形色相加法 h'=(h+angle)%360：一次 rgb2hsv 取色相（M/m/C 不变
+                     -> S/V 天然不变），平移后在 RGB 域按 6 段 TAB 重排中间通道（同
+                     hsv2rgb_v4_hexwalk 模型），无需 hsv2rgb 重建
+        'rotategray' RotateOnGray 绕灰轴 (1,1,1)/√3 旋转（灰阶不变，会色相偏移）
    定点格式（与 hsv_fixed 其余接口一致）：
-     gain_c     : Q11（1.0 = FIX_S_ONE）；mid 取 [0,4]，tanslant 取 [-1,1]
-     delta_b    : Q11（1.0 = FIX_S_ONE）；mul 取 [0,4]，rate2limit 取 [0,2]
+     gain_c     : Q11（1.0 = FIX_S_ONE）；mid/zero/both 取 [0,4]，tanslant 取 [-1,1]
+     delta_b    : Q11（1.0 = FIX_S_ONE）；add 取 [-1,1]，mul 取 [0,4]，rate2limit 取 [0,2]
      delta_s    : Q11（1.0 = FIX_S_ONE）；灰阶混合乘性增益 [0,4]，中性 1.0
      tolerance_s: Q11（1.0 = FIX_S_ONE）；S 门控 [0,1]（保留参数位，当前未启用）
-     angle_q14  : Q14（360° = FIX_H_ONE）；H 平移量
+     angle_q14  : Q14（360° = FIX_H_ONE）；H 平移/旋转量
    tanslant 的 tan 用 4097 项 Q11 直接查表（θ Q14 直接索引，无插值，无 float/math 依赖）。 */
 typedef enum {
     ADJ_RGB_MODE_C_MID = 0,  /* GainAtMid：过 v=0.5 中点 */
+    ADJ_RGB_MODE_C_ZERO,     /* GainAtZero：过 v=0 原点 */
+    ADJ_RGB_MODE_C_BOTH,     /* GainAtBoth：gc<1 用 Zero、gc>=1 用 Mid（gc==1 恒等） */
     ADJ_RGB_MODE_C_TANSLANT, /* TanSlant：tan((c+1)π/4) */
 } adj_rgb_mode_c_t;
 
 typedef enum {
-    ADJ_RGB_MODE_B_MUL = 0,    /* 乘性 */
+    ADJ_RGB_MODE_B_ADD = 0,    /* 加性（默认，同 Python） */
+    ADJ_RGB_MODE_B_MUL,        /* 乘性 */
     ADJ_RGB_MODE_B_RATE2LIMIT, /* 按比例向黑/白极限靠拢 */
 } adj_rgb_mode_b_t;
 
 typedef enum {
-    ADJ_RGB_MODE_S_MUL = 0,    /* 乘性 scale */
+    ADJ_RGB_MODE_S_ADD = 0,    /* 加性（默认，同 Python） */
+    ADJ_RGB_MODE_S_MUL,        /* 乘性 scale */
     ADJ_RGB_MODE_S_RATE2LIMIT, /* 按比例向灰度/全饱和靠拢 */
 } adj_rgb_mode_s_t;
+
+typedef enum {
+    ADJ_RGB_MODE_H_ADD = 0,    /* ModeAdd：六边形色相加法 h'=(h+angle)%360 */
+    ADJ_RGB_MODE_H_ROTATEGRAY, /* RotateOnGray：绕灰轴 (1,1,1)/√3 旋转 */
+} adj_rgb_mode_h_t;
 
 typedef enum {
     ADJ_RGB_GRAY_BT709 = 0, /* luma BT.709 */
@@ -145,15 +167,26 @@ typedef enum {
 } adj_rgb_gray_coef_t;
 
 
+/* 单通道 V 步（Q11 像素域，pixel×2^11）：contrast(mode_c) + brightness(mode_b)。
+   q 为 Q11 像素域输入；gc 为 Q11 增益；gv_q11/d_q11/db_q11 分别为 Q11 的
+   mul 增益（中性 1.0）、rate2limit 的 d=db-1（中性 0）、add 的 db∈[-1,1]（中性 0）。
+   maxv/2 的 Q11 表示为 maxv<<10（精确）；contrast 后先 clamp 到 [0, maxv<<11]
+   （与浮点参考一致，避免亮度前越界），亮度后同 clamp。
+   add 的 db 是**归一化量**（∈[-1,1]，1.0 对应满量程），内部按 ×maxv 折算到
+   Q11 像素域后再相加；mul/rate2limit 为无量纲比例，直接作用。
+   返回值 Q11 像素域，由上层统一舍入回像素（避免逐步骤舍入误差累积）。
+   RGB 域（adjust_rgb_fix）与 HSV 域（adjust_hsv_fix）共用。实现见 hsv_fixed.c */
+int32_t adj_apply_v(int32_t q, int32_t maxv, int32_t gc, int mode_c, int32_t gv_q11, int32_t d_q11, int32_t db_q11, int mode_b);
+
+
 /* 单像素 HSV 域 BCSH 调整核心（像素域 [0,maxv]，maxv=255(u8)/1023(u10)）。
-   与 adjust_rgb_fix 参数/模式完全一致，但走 HSV 域往返：
-   rgb2hsv_v3_optimal 取 H/S/V，在 HSV 域调整 V（contrast+brightness）、
-   S（mode_s：mul 乘性 scale 或 rate2limit 按比例向灰度/全饱和靠拢）、
+   与 adjust_rgb_fix 参数/模式完全一致（mode_h 除外，HSV 域 H 恒为 ModeAdd），
+   但走 HSV 域往返：rgb2hsv_v3_optimal 取 H/S/V，在 HSV 域调整 V（contrast+brightness）、
+   S（mode_s：add 加性 / mul 乘性 scale / rate2limit 按比例向灰度/全饱和靠拢）、
    H（ModeAdd 平移），再用 hsv2rgb_v4_hexwalk 重建 RGB。
    对应 script/bcsh/hsv_adjust.py 的 adjust_hsv。
-   mode_s='rate2limit'：delta_s∈[0,2]，中性 1（d=ds-1∈[-1,1]）；d<0 向灰度靠拢
-   s'=s*ds、d>0 向全饱和靠拢 s'=s+d*(1-s)；增色（d>0）时 S<tolerance_s 的像素
-   保持原样（S 门控，与 Python 一致）。 */
+   tolerance_s（Q11）：S 增色（放大）门控，三个 mode_s 共用——S<tolerance_s 的像素
+   保持原样；减色/中性始终允许（add 的 ds<=0、mul 的 gs<=1、rate2limit 的 d<=0）。 */
 void adjust_hsv_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t gain_c, int32_t delta_b, int32_t delta_s,
     int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, int mode_s, uint16_t *ro,
     uint16_t *go, uint16_t *bo);
