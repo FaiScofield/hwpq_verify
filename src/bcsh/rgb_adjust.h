@@ -224,4 +224,19 @@ static inline void adjust_rgb_fix_u10(const uint16_t *rgb, int n, int32_t gain_c
     }
 }
 
+/* ===================== Sonnoc 固定管线（无 mode 分支） ===================== */
+/* 固定 C(GainAtZero 过零点乘法) -> B(add 加性) -> S(MixGray luma 灰阶混合)
+   -> H(RotateOnGray 绕灰轴旋转)，与 adjust_rgb_fix(mode_c=ZERO, mode_b=ADD,
+   mode_h=ROTATEGRAY) 逐位等价，供 Sonnoc 竞品模拟使用。实现见 rgb_adjust.c。
+   参数定点格式：gain_c/delta_b/delta_s 均为 Q11（1.0 = FIX_S_ONE），
+   angle_q14 为 Q14（360° = FIX_H_ONE），gray_coef 见 adj_rgb_gray_coef_t。 */
+void adjust_rgb_sonnoc_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t gain_c, int32_t delta_b,
+    int32_t delta_s, int32_t angle_q14, int gray_coef, uint16_t *ro, uint16_t *go, uint16_t *bo);
+
+/* 同管线的浮点参考实现（精度基准，无定点量化）：r/g/b ∈ [0,1]（归一化像素域），
+   参数为物理量 gain_c∈[0,4] / delta_b∈[-1,1] / delta_s∈[0,4] / angle_deg（度），
+   gray_coef 同定点版；输出 ro/go/bo ∈ [0,1]（已 clip）。实现见 rgb_adjust.c（依赖 math.h）。 */
+void adjust_rgb_sonnoc_float(float r, float g, float b, float gain_c, float delta_b, float delta_s, float angle_deg,
+    int gray_coef, float *ro, float *go, float *bo);
+
 #endif /* RGB_ADJUST_H */
