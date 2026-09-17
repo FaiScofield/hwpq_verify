@@ -6,7 +6,6 @@
 .understand-anything/
 graphify-out/
 __pycache__
-*.lnk
 build/
 docs/
 dist/
@@ -17,3 +16,5 @@ prebuilt/
 script/verify_tool_app/ui_gen/
 
 compile_commands.json
+*.lnk
+*.pdf

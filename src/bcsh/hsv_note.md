@@ -121,7 +121,7 @@ npm run preview    # 本地预览构建产物
 | TanSlant | x'=clip((x-0.5)·tan((c+1)π/4)+0.5)（float64 计算） | [-1,1] | 0 |
 | FastStone（仅 RGB 域） | x'=clip(k·x+b)；参数 C∈[-1,1] 归一化为 [-100,100] 后按通用公式（见文末 FastStone 小节） | [-1,1] | 0 |
 
-**表 4.1-3 Brightness（B/V，Contrast 之后由 `B Mode` 施加）**
+**表 4.1-3 Brightness（B/V，先于 Contrast 由 `B Mode` 施加）**
 
 | 模式 | 公式 | 量程 | 中性 |
 | ---- | ---- | ---- | ---- |

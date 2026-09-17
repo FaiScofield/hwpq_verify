@@ -1544,7 +1544,7 @@ class HsvUiController:
     def _compute_adjusted_rgb(
         self, rgb: np.ndarray, h_deg: np.ndarray,
     ) -> np.ndarray:
-        """RGB 域 BCSH 调整：C/V 逐通道、S 灰阶混合（MixGray_BT709/BT601）、
+        """RGB 域 BCSH 调整：V/C 逐通道（先 db 后 gc）、S 灰阶混合（MixGray_BT709/BT601）、
         H 按 modeH 生效（ModeAdd 六边形加法 / RotateOnGray 灰轴）。
 
         SameOffset：angle=dh；SameTarget：angle=progress*shortest_arc（逐像素，

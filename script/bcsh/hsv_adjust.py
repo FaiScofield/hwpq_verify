@@ -619,22 +619,40 @@ def _rgb_hue_add(rgb, angle_deg):
 
 
 def _rgb_contrast_brightness(rgb, gain_c, db, mode_c, mode_b):
-    """RGB 域 C/V：三通道统一 contrast(ch) 后按 mode_b 施加 db。返回 (...,3)。"""
+    """RGB 域 V/B：三通道统一**先按 mode_b 施加 db、再按 mode_c 做 contrast**。返回 (...,3)。
+
+    每步各自 clip 到 [0,1]（与定点版一致，避免下一步前越界）。
+    """
     if gain_c is None:
         gain_c = 1.0
     if db is None:
         db = 0.0
+    # ---- B（brightness，mode_b）：先于 contrast 生效 ----
+    mode_b = str(mode_b).lower()
+    if mode_b == 'mul':
+        gv = np.clip(np.asarray(db, np.float32), 0.0, 4.0)
+        out = np.clip(rgb * gv[..., None], 0.0, 1.0)
+    elif mode_b == 'rate2limit':
+        # db∈[0,2]，中性 1：db<1 向黑靠拢、db>1 向白靠拢（d=db-1∈[-1,1]）
+        d = np.clip(np.asarray(db, np.float32), 0.0, 2.0) - 1.0
+        comp = rgb * (1.0 + d[..., None])         # d<0：向黑靠拢
+        white = rgb + d[..., None] * (1.0 - rgb)  # d>0：向白靠拢
+        out = np.clip(np.where((d < 0)[..., None], comp, white), 0.0, 1.0)
+    else:   # 'add'（默认）：加性
+        d = np.clip(np.asarray(db, np.float32), -1.0, 1.0)
+        out = np.clip(rgb + d[..., None], 0.0, 1.0)
+    # ---- C（contrast，mode_c）：作用在 B 之后 ----
     mode_c = str(mode_c).lower()
     if mode_c == 'tanslant':
         c = np.clip(np.asarray(gain_c, np.float64), -1.0, 1.0)
         g = np.tan((c + 1.0) * (np.pi / 4.0))
-        out = np.clip((rgb - 0.5) * g[..., None] + 0.5, 0.0, 1.0).astype(np.float32)
+        out = np.clip((out - 0.5) * g[..., None] + 0.5, 0.0, 1.0).astype(np.float32)
     elif mode_c == 'zero':
         gc = np.clip(np.asarray(gain_c, np.float32), 0.0, 4.0)
-        out = np.clip(gc * rgb, 0.0, 1.0)
+        out = np.clip(gc * out, 0.0, 1.0)
     elif mode_c == 'both':
         gc = np.clip(np.asarray(gain_c, np.float32), 0.0, 4.0)
-        out = np.where(gc < 1.0, gc * rgb, (rgb - 0.5) * gc + 0.5)
+        out = np.where(gc < 1.0, gc * out, (out - 0.5) * gc + 0.5)
         out = np.clip(out, 0.0, 1.0)
     elif mode_c == 'faststone':
         # FastStone Contrast：逐通道 Levels 拉伸 out=clip(k·in+b)（0~255 域，C∈[-1,1] 中性 0）
@@ -647,23 +665,10 @@ def _rgb_contrast_brightness(rgb, gain_c, db, mode_c, mode_b):
                      1.0 + 9.11e-3 * c + 1.09e-4 * c * c + 5.23e-7 * c * c * c)
         b = np.where(pos, -1.1759 * c + 0.338,
                      -6.50e-1 * c - 7.82e-3 * c * c - 3.75e-5 * c * c * c)
-        out = np.clip(k[..., None] * rgb + (b / 255.0)[..., None], 0.0, 1.0).astype(np.float32)
+        out = np.clip(k[..., None] * out + (b / 255.0)[..., None], 0.0, 1.0).astype(np.float32)
     else:   # 'mid'（默认）：过 0.5 中点
         gc = np.clip(np.asarray(gain_c, np.float32), 0.0, 4.0)
-        out = np.clip((rgb - 0.5) * gc + 0.5, 0.0, 1.0)
-    mode_b = str(mode_b).lower()
-    if mode_b == 'mul':
-        gv = np.clip(np.asarray(db, np.float32), 0.0, 4.0)
-        out = np.clip(out * gv[..., None], 0.0, 1.0)
-    elif mode_b == 'rate2limit':
-        # db∈[0,2]，中性 1：db<1 向黑靠拢、db>1 向白靠拢（d=db-1∈[-1,1]）
-        d = np.clip(np.asarray(db, np.float32), 0.0, 2.0) - 1.0
-        comp = out * (1.0 + d[..., None])         # d<0：向黑靠拢
-        white = out + d[..., None] * (1.0 - out)  # d>0：向白靠拢
-        out = np.clip(np.where((d < 0)[..., None], comp, white), 0.0, 1.0)
-    else:   # 'add'（默认）：加性
-        d = np.clip(np.asarray(db, np.float32), -1.0, 1.0)
-        out = np.clip(out + d[..., None], 0.0, 1.0)
+        out = np.clip((out - 0.5) * gc + 0.5, 0.0, 1.0)
     return out
 
 
@@ -672,8 +677,9 @@ def adjust_rgb(rgb, delta_b=None, delta_s=None, gain_c=1.0, tolerance_s=0.0,
                h_mode='add'):
     """RGB 域直接 BCSH 调整（不经过 HSV 域转换）。标量或数组 (...,3) 均可。
 
-    - C/V：三通道统一 ch'=contrast(ch) 按 mode_c 参考点（'faststone' 为 FastStone
-      兼容逐通道 Levels 拉伸 out=clip(k·in+b)，C∈[-1,1]，再按 mode_b 施加 delta_b
+    - V/C：三通道统一**先按 mode_b 施加 delta_b、再按 mode_c 做 contrast**
+      （db 先于 gc 生效，每步各自 clip 到 [0,1]）；mode_c 参考点中 'faststone' 为
+      FastStone 兼容逐通道 Levels 拉伸 out=clip(k·in+b)，C∈[-1,1]
     - S：scale=delta_s（乘性，中性 1.0）；out=scale*in+(1-scale)*gray(in)，
          gray 为 luma——gray_coef='bt709' 用 BT.709、'bt601' 用 BT.601 系数；
          scale>1（增色）时 S<tolerance_s 的像素保持原样。
@@ -687,7 +693,7 @@ def adjust_rgb(rgb, delta_b=None, delta_s=None, gain_c=1.0, tolerance_s=0.0,
     if arr.shape[-1] != 3:
         raise ValueError(f'rgb 最后一维必须为 3，实际 shape={arr.shape}')
     rgb_in = np.clip(arr, 0.0, 1.0)
-    # ---- V：逐通道 contrast + brightness ----
+    # ---- V：逐通道先 brightness 后 contrast（db 先于 gc） ----
     rgb_v = _rgb_contrast_brightness(rgb_in, gain_c, delta_b,
                                      str(mode_c).lower(), str(mode_b).lower())
     # ---- S：灰阶混合（scale 语义，始终生效） ----
@@ -720,17 +726,18 @@ def adjust_hsv(hsv, delta_b=None, delta_s=None, delta_h=None, gain_c=1.0, mode_s
                hsl_chroma=None):
     """HSV 域 V/S/H 调整（hsv 输入、hsv 输出，不涉及 RGB 重建）。
     按 V -> S -> H 顺序执行：
-      V：Contrast 乘性 + delta_b（加性或乘性）；mode_c 选择增益参考点：
-           'mid'   v'=clip((v-0.5)*gc + 0.5 [+db])   （过 v=0.5 中点，默认）
-           'zero'  v'=clip(gc*v [+db])               （过 v=0.0 原点）
+      V：先 delta_b（brightness）、后 Contrast 乘性（**db 先于 gc 生效**），
+         每步各自 clamp 到 [0,1]；mode_b 决定 delta_b 生效方式：
+           'add'   v'=clip(v+db)                     （db ∈ [-1,1]，默认，中性 0）
+           'mul'   v'=clip(v*gv)                     （gv 增益 ∈ [0,4]，中性 1.0）
+           'rate2limit'  db∈[0,2]，中性 1：db<1 向黑靠拢 v'=clip(v*db)；db>1 按
+                   进度向白靠拢 v'=clip(v+(db-1)*(1-v))；db=0 纯黑、db=2 纯白
+         mode_c 选择 contrast 增益参考点（作用在 brightness 之后）：
+           'mid'   v'=clip((v-0.5)*gc + 0.5)         （过 v=0.5 中点，默认）
+           'zero'  v'=clip(gc*v)                     （过 v=0.0 原点）
            'both'  gc<1 时等效 'zero'，gc>1 时等效 'mid'（gc==1 恒等）
            'tanslant'  v'=clip((v-0.5)*tan((c+1)π/4)+0.5)（c∈[-1,1]，中性 0；
                    tan 映射增益：c=0->1 恒等，c=-1->0 全压到 0.5，c=1->∞ 极强对比）
-         mode_b 决定 delta_b 生效方式：
-           'add'   v'=clip(contrast(v)+db)           （db ∈ [-1,1]，默认）
-           'mul'   v'=clip(contrast(v)*gv)           （gv 增益 ∈ [0,4]，中性 1.0）
-           'rate2limit'  db∈[0,2]，中性 1：db<1 向黑靠拢 v'=clip(v*db)；db>1 按
-                   进度向白靠拢 v'=clip(v+(db-1)*(1-v))；db=0 纯黑、db=2 纯白
       S：mode='add'  s'=clip(s+ds)；mode='mul'  s'=clip(s*ds)     （ds ∈ [-1,1] 或乘性增益 ∈ [0,4]）
       S：mode='rate2limit'  ds∈[0,2]，中性 1：ds<1 向灰度靠拢 s'=clip(s*ds)；ds>1
           向全饱和靠拢 s'=clip(s+(ds-1)*(1-s))；ds=0 灰、ds=2 全饱和
@@ -754,38 +761,38 @@ def adjust_hsv(hsv, delta_b=None, delta_s=None, delta_h=None, gain_c=1.0, mode_s
     # ---- H：平移 360° 归一（始终加性） ----
     h_new = (h + dh * 360.0) % 360.0
 
-    # ---- V：Contrast 乘性 + delta_b 加性 + clamp，mode_c 决定增益参考点 ----
+    # ---- V：先 delta_b（mode_b = brightness），再 Contrast 乘性（mode_c）加性 + clamp ----
+    mode_b = str(mode_b).lower()
+    if mode_b == 'mul':
+        gv = 1.0 if delta_b is None else np.clip(np.asarray(delta_b, np.float32), 0.0, 4.0)
+        v_new = np.clip(v * gv, 0.0, 1.0)
+    elif mode_b == 'rate2limit':
+        # 按比例向黑/白极限靠拢（db∈[0,2]，中性 1：db<1 向黑靠拢、db>1 向白靠拢）
+        d = 0.0 if delta_b is None else np.clip(np.asarray(delta_b, np.float32), 0.0, 2.0) - 1.0
+        neg = d < 0
+        v_comp = np.clip(v * (1.0 + d), 0.0, 1.0)          # d<0：向黑靠拢
+        v_white = np.clip(v + d * (1.0 - v), 0.0, 1.0)     # d>0：向白靠拢
+        v_new = np.where(neg, v_comp, v_white)
+    else:   # 'add'（默认）：加性
+        v_new = np.clip(v + db, 0.0, 1.0)
+
+    # ---- V：Contrast 乘性（作用在 brightness 之后），mode_c 决定增益参考点 ----
     mode_c = str(mode_c).lower()
     gc = 1.0 if gain_c is None else np.clip(np.asarray(gain_c, np.float32), 0.0, 4.0)
     if mode_c == 'zero':
         # 过 v=0.0 原点：v' = gc*v
-        v_new = np.clip(gc * v, 0.0, 1.0)
+        v_new = np.clip(gc * v_new, 0.0, 1.0)
     elif mode_c == 'both':
         # gc<1 等效 GainAtZero>1 等效 GainAtMid==1 恒等
-        v_new = np.where(gc < 1.0, gc * v, (v - 0.5) * gc + 0.5)
+        v_new = np.where(gc < 1.0, gc * v_new, (v_new - 0.5) * gc + 0.5)
         v_new = np.clip(v_new, 0.0, 1.0)
     elif mode_c == 'tanslant':
         # TanSlant：增益 = tan((c+1)π/4)，c∈[-1,1]；中性 0 -> tan(π/4)=1. 用 float64 避免 π/2 附近符号翻转.
         gc = 1.0 if gain_c is None else np.clip(np.asarray(gain_c, np.float32), -1.0, 1.0)
         gc = np.tan((np.asarray(gc, np.float64) + 1.0) * (np.pi / 4.0))
-        v_new = np.clip((v - 0.5) * gc + 0.5, 0.0, 1.0).astype(np.float32)
+        v_new = np.clip((v_new - 0.5) * gc + 0.5, 0.0, 1.0).astype(np.float32)
     else:   # 'mid'（默认）：过 v=0.5 中点
-        v_new = np.clip((v - 0.5) * gc + 0.5, 0.0, 1.0)
-
-    # ---- delta_b 生效方式：mode_b='add' 加性 / 'mul' 乘性 ----
-    mode_b = str(mode_b).lower()
-    if mode_b == 'mul':
-        gv = 1.0 if delta_b is None else np.clip(np.asarray(delta_b, np.float32), 0.0, 4.0)
-        v_new = np.clip(v_new * gv, 0.0, 1.0)
-    elif mode_b == 'rate2limit':
-        # 按比例向黑/白极限靠拢（db∈[0,2]，中性 1：db<1 向黑靠拢、db>1 向白靠拢）
-        d = 0.0 if delta_b is None else np.clip(np.asarray(delta_b, np.float32), 0.0, 2.0) - 1.0
-        neg = d < 0
-        v_comp = np.clip(v_new * (1.0 + d), 0.0, 1.0)            # d<0：向黑靠拢
-        v_white = np.clip(v_new + d * (1.0 - v_new), 0.0, 1.0)   # d>0：向白靠拢
-        v_new = np.where(neg, v_comp, v_white)
-    else:   # 'add'（默认）：加性
-        v_new = np.clip(v_new + db, 0.0, 1.0)
+        v_new = np.clip((v_new - 0.5) * gc + 0.5, 0.0, 1.0)
 
     # ---- S：delta_s 生效方式: mode_s='add' 加性 / 'mul' 乘性 / 'rate2limit' 按比例向灰度/全饱和靠拢 ----
     mode_s = str(mode_s).lower()

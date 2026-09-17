@@ -768,7 +768,7 @@ void adjust_hsv_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t g
     uint16_t H, S, V; // U14, U11, U10
     rgb2hsv_v3_optimal(r, g, b, &H, &S, &V);
 
-    /* ---- V：contrast(mode_c) + brightness(mode_b)（Q11 像素域） ---- */
+    /* ---- V：brightness(mode_b) → contrast(mode_c)（Q11 像素域，db 先于 gc 生效） ---- */
     int32_t v_q = adj_apply_v((int32_t)V << FIX_BITS_S, maxv, gc, mode_c, gv_q11, d_q11, db_q11, mode_b);
     int32_t vn = CLIP((v_q + (FIX_S_ONE >> 1)) >> FIX_BITS_S, 0, maxv); /* 舍入回像素域 */
 

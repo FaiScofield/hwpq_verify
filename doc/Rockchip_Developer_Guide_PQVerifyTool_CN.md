@@ -362,7 +362,7 @@ $$r_{\max}(Y,\theta)=\min\!\Big(\min_{k_i>0}\tfrac{1-Y}{k_i},\ \min_{k_i<0}\tfra
 - $\mathrm{clip}(x)$ 钳位到 $[0,1]$（色相角度域 $[0,360)$）；
 - $x$ 为被调整通道——RGB 域为逐通道 $R/G/B$，圆柱色域为亮度/色相/饱和度通道，YCbCr 域为 $Y$（B/C）或极角/极径（H/S）。
 - 控件参数：$\delta B$（`deltaB`）、$g_c$（`gainC`）、$\delta S$（`deltaS`）、$\delta H$（`deltaH`）、`tolerance_s`。
-- 执行顺序 **C → B → S → H**。
+- 执行顺序 **B → C → S → H**（先亮度 δB、后对比度 Contrast，即 `deltaB` 先于 `gainC` 生效）。
 
 #### C（Contrast，modeC）
 
@@ -378,7 +378,7 @@ $g_c\in[0,4]$ 中性 1；TanSlant/FastStone 参数 $c\in[-1,1]$ 中性 0。
 
 #### B（Brightness，modeB）
 
-$\delta B\in[-1,1]$ 中性 0（ModeAdd）；ModeMul $g_v\in[0,4]$ 中性 1；Rate2Limit $\delta B\in[0,2]$ 中性 1。在 modeC 输出上施加。
+$\delta B\in[-1,1]$ 中性 0（ModeAdd）；ModeMul $g_v\in[0,4]$ 中性 1；Rate2Limit $\delta B\in[0,2]$ 中性 1。**在 modeC 之前施加**（B 先于 C，见上方执行顺序）。
 
 | 模式 | 公式 | 适用域 |
 | ---- | ---- | ---- |
@@ -422,7 +422,7 @@ S Tolerance 门控（所有 S 模式）：$s<\mathrm{tolerance\_s}$（默认 0.0
 ### RGB 系处理域（简述）
 
 - **步骤 2️⃣**：RGB 输入 limited→full 展开后**直接硬钳**（不依赖 `y2rClipType`）；YUV 输入转 RGB 后按 `y2rClipType` 钳位。
-- **步骤 4️⃣**：`adjust_rgb`——C/V 逐通道（Contrast + δB）、S 灰阶混合（`MixGray_BT709`/`BT601`）、H 按 modeH 生效（`ModeAdd` 六边形加法 / `RotateOnGray` 绕灰轴 Rodrigues 旋转，严格正交、往返无累积误差）。各 Mode 计算公式见「步骤 4️⃣ BCSH 调整公式」。
+- **步骤 4️⃣**：`adjust_rgb`——V/C 逐通道（先 δB 后 Contrast）、S 灰阶混合（`MixGray_BT709`/`BT601`）、H 按 modeH 生效（`ModeAdd` 六边形加法 / `RotateOnGray` 绕灰轴 Rodrigues 旋转，严格正交、往返无累积误差）。各 Mode 计算公式见「步骤 4️⃣ BCSH 调整公式」。
 - **步骤 6️⃣**：RGB 输出直接编码；YUV 输出经 `rgb_to_yuv`（内部钳位量化）。
 
 ### YCbCr 处理域
@@ -445,7 +445,7 @@ S 按 `y2yClipType` 的 S 语义归一化（`ScaleChromaPix`/`ScaleChromaSec` �
 
 - **H**：直接旋转极角 $\theta_a=(\theta+\delta H)\%360$（`adjust_hsv` 的 dh 即极角加性旋转，不再经 HSV 色相中转）；`hue_sync` 经 LUT（`hue_ycbcr_to_hsv`/`hue_hsv_to_ycbcr`）仅作读数显示（H/H'SY）与指定色相 range。
 - **S**：`adjust_hsv` 对 $s$ 做加性/乘性/按比例靠拢（`ModeAdd` $s'=\mathrm{clip}(s+ds)$ / `ModeMul` $s'=\mathrm{clip}(s\cdot ds)$ / `Rate2Limit` $\delta S<1$ 向灰度、$\delta S>1$ 向全饱和）。
-- **B/C**：Y 通道——Contrast 乘性 + δB（`mode_b`：`ModeAdd` 加性 / `ModeMul` 乘性 / `Rate2Limit` δB<1 压黑、δB>1 向白）。
+- **B/C**：Y 通道——先 δB、后 Contrast 乘性（`mode_b`：`ModeAdd` 加性 / `ModeMul` 乘性 / `Rate2Limit` δB<1 压黑、δB>1 向白）。
 - 各 ModeB/C/S/H 的完整计算公式见「步骤 4️⃣ BCSH 调整公式」。
 
 #### 3. 重建与钳位（步骤 5️⃣）
