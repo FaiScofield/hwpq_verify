@@ -1,5 +1,5 @@
 /**
- * yuv_adjust_test.c — YCbCr 域固定管线 BCSH（C -> B -> S -> H -> 色域处理）精度与性能对比
+ * yuv_adjust_test.c — YCbCr 域固定管线 BCSH（B -> C -> S -> H -> 色域处理）精度与性能对比
  *
  * 对比对象：
  *   fix   : adjust_yuv_fix  （Q11 定点，无浮点、无 math 库依赖）
@@ -259,7 +259,7 @@ int main(int argc, char **argv)
     }
 
     printf("== YCbCr fixed pipeline BCSH: fix (Q11) vs float reference ==\n");
-    printf("   fixed modes: C=MulAtMidPoint B=ModeAdd S=ModeMul H=ModeAdd (+CompLumaFirst switch)\n");
+    printf("   fixed modes: B=ModeAdd C=MulAtMidPoint S=ModeMul H=ModeAdd (+CompLumaFirst switch)\n");
     printf("n_pixels = %d (%.2f MP), iters = %d\n\n", n, (double)n / 1e6, iters);
 
     /* ---------------- precision: all scenarios x both gamut modes ---------------- */

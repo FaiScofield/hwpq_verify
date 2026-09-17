@@ -1,5 +1,5 @@
 /**
- * rgb_adjust_test.c — Sonnoc 固定管线（C -> B -> S -> H）精度与性能对比
+ * rgb_adjust_test.c — Sonnoc 固定管线（B -> C -> S -> H）精度与性能对比
  *
  * 对比对象：
  *   fix   : adjust_rgb_sonnoc_fix  （Q11 定点，无浮点、无 math 库依赖）

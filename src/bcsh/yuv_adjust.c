@@ -15,9 +15,9 @@ static const int32_t s_y2r_cbcr_q14[3][3][2] = {
 };
 
 /* 单像素 YCbCr 域固定管线 BCSH（定点），见 yuv_adjust.h 说明：
-     C(MulAtMidPoint) -> B(ModeAdd) -> S(ModeMul) -> H(ModeAdd) -> 色域处理
-   Y 在 Q11 像素域做 contrast/brightness；(Cb,Cr) 先乘 ds（极径缩放）再按 angle
-   旋转（极角加法），不需要 atan2/开方。 */
+     B(ModeAdd) -> C(MulAtMidPoint) -> S(ModeMul) -> H(ModeAdd) -> 色域处理
+   Y 在 Q11 像素域做 brightness/contrast（db 先于 gc 生效）；(Cb,Cr) 先乘 ds（极径缩放）
+   再按 angle 旋转（极角加法），不需要 atan2/开方。 */
 void adjust_yuv_fix(uint16_t y, int32_t cb, int32_t cr, uint16_t maxv, int32_t gain_c, int32_t delta_b,
     int32_t delta_s, int32_t angle_q14, int comp_luma_first, int cs, uint16_t *yo, int32_t *cbo, int32_t *cro)
 {
@@ -28,11 +28,11 @@ void adjust_yuv_fix(uint16_t y, int32_t cb, int32_t cr, uint16_t maxv, int32_t g
     const int32_t db = CLIP(delta_b, -FIX_S_ONE, FIX_S_ONE);
     const int32_t gs = CLIP(delta_s, 0, 4 * FIX_S_ONE);
 
-    /* ---- 1. C（MulAtMidPoint 过 Y=0.5 中点乘法）：Y1 = clip((Y-0.5)·gc + 0.5) ---- */
-    int32_t qy = CLIP(adj_mul_q(((int32_t)y << FIX_BITS_S) - half_y, gc, FIX_BITS_S) + half_y, 0, cap_y);
+    /* ---- 1. B（ModeAdd 加性）：Y1 = clip(Y + db·maxv)（db 为归一化量，折算到 Q11 像素域） ---- */
+    int32_t qy = CLIP(((int32_t)y << FIX_BITS_S) + db * maxv, 0, cap_y);
 
-    /* ---- 2. B（ModeAdd 加性）：Y2 = clip(Y1 + db·maxv)（db 为归一化量，折算到像素域） ---- */
-    qy = CLIP(qy + db * maxv, 0, cap_y);
+    /* ---- 2. C（MulAtMidPoint 过 Y=0.5 中点乘法）：Y2 = clip((Y1-0.5)·gc + 0.5) ---- */
+    qy = CLIP(adj_mul_q(qy - half_y, gc, FIX_BITS_S) + half_y, 0, cap_y);
 
     /* ---- 3. S（ModeMul）：(Cb,Cr) *= ds（色度向量缩放 = 极径乘 ds） ---- */
     int32_t qcb = adj_mul_q(cb * FIX_S_ONE, gs, FIX_BITS_S);
@@ -83,9 +83,9 @@ void adjust_yuv_fix(uint16_t y, int32_t cb, int32_t cr, uint16_t maxv, int32_t g
 }
 
 /* ---- 浮点参考实现（精度基准，无定点量化） ---- */
-/* 与 adjust_yuv_fix 同语义（C -> B -> S -> H -> 色域处理），归一化域：
-     Y∈[0,1]、Cb,Cr∈[-0.5,0.5]；C/B 逐步 clip01；S 为纯色度增益（不额外截断 r）；
-     H 为极角旋转；末尾统一按 gamut 策略处理（HardClip 各自钳位 /
+/* 与 adjust_yuv_fix 同语义（B -> C -> S -> H -> 色域处理），归一化域：
+     Y∈[0,1]、Cb,Cr∈[-0.5,0.5]；B/C 逐步 clip01（db 先于 gc 生效）；S 为纯色度增益
+     （不额外截断 r）；H 为极角旋转；末尾统一按 gamut 策略处理（HardClip 各自钳位 /
      CompLumaFirst 保极角补偿）。参数取物理量（与定点版同一套限幅）。 */
 static inline float yuv_adj_clipf(float x, float lo, float hi) { return x < lo ? lo : (x > hi ? hi : x); }
 
@@ -104,10 +104,10 @@ void adjust_yuv_float(float y, float cb, float cr, float gain_c, float delta_b, 
     delta_b = yuv_adj_clipf(delta_b, -1.0f, 1.0f);
     delta_s = yuv_adj_clipf(delta_s, 0.0f, 4.0f);
 
-    /* 1. C（MulAtMidPoint）：Y1 = clip01((Y-0.5)·gc + 0.5) */
-    y = yuv_adj_clipf((y - 0.5f) * gain_c + 0.5f, 0.0f, 1.0f);
-    /* 2. B（ModeAdd）：Y2 = clip01(Y1 + db) */
+    /* 1. B（ModeAdd）：Y1 = clip01(Y + db) */
     y = yuv_adj_clipf(y + delta_b, 0.0f, 1.0f);
+    /* 2. C（MulAtMidPoint）：Y2 = clip01((Y1-0.5)·gc + 0.5) */
+    y = yuv_adj_clipf((y - 0.5f) * gain_c + 0.5f, 0.0f, 1.0f);
     /* 3. S（ModeMul）：极径乘 ds */
     cb *= delta_s;
     cr *= delta_s;

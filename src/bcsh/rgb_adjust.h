@@ -193,9 +193,10 @@ static inline void adjust_rgb_fix_u10(const uint16_t *rgb, int n, int32_t gain_c
 }
 
 /* ===================== Sonnoc 固定管线（无 mode 分支） ===================== */
-/* 固定 C(GainAtZero 过零点乘法) -> B(add 加性) -> S(MixGray luma 灰阶混合)
+/* 固定 B(add 加性) -> C(GainAtZero 过零点乘法) -> S(MixGray luma 灰阶混合)
    -> H(RotateOnGray 绕灰轴旋转)，与 adjust_rgb_fix(mode_c=ZERO, mode_b=ADD,
-   mode_h=ROTATEGRAY) 逐位等价，供 Sonnoc 竞品模拟使用。实现见 rgb_adjust.c。
+   mode_h=ROTATEGRAY) 逐位等价，供 Sonnoc 竞品模拟使用（db 先于 gc 生效）。
+   实现见 rgb_adjust.c。
    参数定点格式：gain_c/delta_b/delta_s 均为 Q11（1.0 = FIX_S_ONE），
    angle_q14 为 Q14（360° = FIX_H_ONE），gray_coef 见 adj_rgb_gray_coef_t。 */
 void adjust_rgb_sonnoc_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t gain_c, int32_t delta_b,

@@ -134,15 +134,16 @@ static inline int32_t hsv_h14_from_q16(int32_t H16) { return H16 >> 2; }
 
 /* ================= RGB 域直接 BCSH 调整（adjust_rgb 定点版） ================= */
 /* 对应 script/bcsh/hsv_adjust.py 的 adjust_rgb：不经过 HSV 域转换，逐通道直接调整。
-   - V：三通道统一 contrast(mode_c) 后按 mode_b 施加 brightness（全程像素域，不归一化）
+   - V：三通道统一先按 mode_b 施加 brightness、再施加 contrast(mode_c)（**db 先于 gc 生效**；
+        全程像素域，不归一化；每步各自 clamp 到 [0, maxv]）
+        mode_b='add'   v'=clip(v+db)（db∈[-1,1]，中性 0）
+        mode_b='mul'   v'=clip(v*gv)（gv∈[0,4]，中性 1.0）
+        mode_b='rate2limit'  db∈[0,2]，中性 1：db<1 向黑靠拢 v'=v*db（混入 1-db 黑）；
+        db>1 向白靠拢 v'=v+(db-1)*(maxv-v)（混入 db-1 白）
         mode_c='mid'   v'=clip((v-0.5)*gc+0.5)（过 v=0.5 中点，gc∈[0,4]，中性 1.0）
         mode_c='zero'  v'=clip(gc*v)（过 v=0 原点，gc∈[0,4]，中性 1.0）
         mode_c='both'  gc<1 用 'zero'、gc>=1 用 'mid'（gc==1 恒等）
         mode_c='tanslant' v'=clip((v-0.5)*tan((c+1)π/4)+0.5)（c∈[-1,1]，中性 0）
-        mode_b='add'   v'=clip(v'+db)（db∈[-1,1]，中性 0）
-        mode_b='mul'   v'=clip(v'*gv)（gv∈[0,4]，中性 1.0）
-        mode_b='rate2limit'  db∈[0,2]，中性 1：db<1 向黑靠拢 v'=v*db（混入 1-db 黑）；
-        db>1 向白靠拢 v'=v+(db-1)*(maxv-v)（混入 db-1 白）
    - S：灰阶混合 out = scale*in + (1-scale)*gray，gray 为 luma（BT.709/BT.601/BT.2020）；
    - H：按 mode_h：
         'add'        ModeAdd 六边形色相加法 h'=(h+angle)%360：一次 rgb2hsv 取色相（M/m/C 不变
@@ -188,11 +189,11 @@ typedef enum {
 } adj_rgb_gray_coef_t;
 
 
-/* 单通道 V 步（Q11 像素域，pixel×2^11）：contrast(mode_c) + brightness(mode_b)。
+/* 单通道 V 步（Q11 像素域，pixel×2^11）：brightness(mode_b) → contrast(mode_c)。
    q 为 Q11 像素域输入；gc 为 Q11 增益；gv_q11/d_q11/db_q11 分别为 Q11 的
    mul 增益（中性 1.0）、rate2limit 的 d=db-1（中性 0）、add 的 db∈[-1,1]（中性 0）。
-   maxv/2 的 Q11 表示为 maxv<<10（精确）；contrast 后先 clamp 到 [0, maxv<<11]
-   （与浮点参考一致，避免亮度前越界），亮度后同 clamp。
+   **先施加 brightness（db）、再施加 contrast（gc）**，每步各自 clamp 到
+   [0, maxv<<11]；maxv/2 的 Q11 表示为 maxv<<10（精确）。
    add 的 db 是**归一化量**（∈[-1,1]，1.0 对应满量程），内部按 ×maxv 折算到
    Q11 像素域后再相加；mul/rate2limit 为无量纲比例，直接作用。
    返回值 Q11 像素域，由上层统一舍入回像素（避免逐步骤舍入误差累积）。
@@ -202,7 +203,8 @@ int32_t adj_apply_v(int32_t q, int32_t maxv, int32_t gc, int mode_c, int32_t gv_
 
 /* 单像素 HSV 域 BCSH 调整核心（像素域 [0,maxv]，maxv=255(u8)/1023(u10)）。
    与 adjust_rgb_fix 参数/模式完全一致（mode_h 除外，HSV 域 H 恒为 ModeAdd），
-   但走 HSV 域往返：rgb2hsv_v3_optimal 取 H/S/V，在 HSV 域调整 V（contrast+brightness）、
+   但走 HSV 域往返：rgb2hsv_v3_optimal 取 H/S/V，在 HSV 域调整 V（先 brightness 后 contrast，
+   db 先于 gc 生效）、
    S（mode_s：add 加性 / mul 乘性 scale / rate2limit 按比例向灰度/全饱和靠拢）、
    H（ModeAdd 平移），再用 hsv2rgb_v4_hexwalk 重建 RGB。
    对应 script/bcsh/hsv_adjust.py 的 adjust_hsv。

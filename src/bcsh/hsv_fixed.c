@@ -698,11 +698,12 @@ const int32_t g_adj_tan_q11[4097] = {0, 1, 2, 2, 3, 4, 5, 5, 6, 7, 8, 9, 9, 10, 
     267012, 281066, 296682, 314134, 333768, 356020, 381450, 410793, 445026, 485484, 534033, 593370, 667542, 762906,
     890057, 1068069, 1335087, 1780117, 2670176, 5340353, 67108864};
 
-/* 单通道 V 步（Q11 像素域，pixel×2^11）：contrast(mode_c) + brightness(mode_b)。
+/* 单通道 V 步（Q11 像素域，pixel×2^11）：brightness(mode_b) → contrast(mode_c)。
    q 为 Q11 像素域输入；gc 为 Q11 增益；gv_q11/d_q11/db_q11 分别为 Q11 的
    mul 增益（中性 1.0）、rate2limit 的 d=db-1（中性 0）、add 的 db∈[-1,1]（中性 0）。
-   maxv/2 的 Q11 表示为 maxv<<10（精确）；contrast 后先 clamp 到 [0, maxv<<11]
-   （与浮点参考一致，避免亮度前越界），亮度后同 clamp。
+   **先施加 brightness（db）、再施加 contrast（gc）**，每步各自 clamp 到
+   [0, maxv<<11]（与浮点参考一致，避免下一步前越界）；maxv/2 的 Q11 表示为
+   maxv<<10（精确）。
    返回值 Q11 像素域，由上层统一舍入回像素（避免逐步骤舍入误差累积）。
    RGB 域（adjust_rgb_fix）与 HSV 域（adjust_hsv_fix）共用。 */
 int32_t adj_apply_v(int32_t q, int32_t maxv, int32_t gc, int mode_c, int32_t gv_q11, int32_t d_q11, int32_t db_q11, int mode_b)
@@ -710,25 +711,27 @@ int32_t adj_apply_v(int32_t q, int32_t maxv, int32_t gc, int mode_c, int32_t gv_
     int32_t half = (int32_t)maxv << (FIX_BITS_S - 1); /* maxv/2 的 Q11 像素域 */
     int32_t cap = (int32_t)maxv << FIX_BITS_S;        /* maxv 的 Q11 像素域 */
     int32_t out;
-    /* contrast：mid 过 v=0.5 中点；zero 过 v=0 原点；both 按 gc<1 二选一（gc==1 两者等价） */
-    if (mode_c == ADJ_RGB_MODE_C_ZERO || (mode_c == ADJ_RGB_MODE_C_BOTH && gc < FIX_S_ONE))
-        out = CLIP(adj_mul_q(q, gc, FIX_BITS_S), 0, cap);
-    else
-        out = CLIP(adj_mul_q(q - half, gc, FIX_BITS_S) + half, 0, cap);
+    /* ---- brightness（mode_b）：先于 contrast 生效 ---- */
     if (mode_b == ADJ_RGB_MODE_B_ADD) {
         /* db∈[-1,1]：加性（中性 0）。db 为归一化量，须折算到 Q11 像素域（×maxv） */
-        out = CLIP(out + db_q11 * maxv, 0, cap);
+        out = CLIP(q + db_q11 * maxv, 0, cap);
     }
     else if (mode_b == ADJ_RGB_MODE_B_RATE2LIMIT) {
         if (d_q11 < 0)
-            out = adj_mul_q(out, FIX_S_ONE + d_q11, FIX_BITS_S); /* db<1：向黑靠拢 */
+            out = adj_mul_q(q, FIX_S_ONE + d_q11, FIX_BITS_S); /* db<1：向黑靠拢 */
         else
-            out = out + adj_mul_q(d_q11, cap - out, FIX_BITS_S); /* db>1：向白靠拢 */
+            out = q + adj_mul_q(d_q11, cap - q, FIX_BITS_S); /* db>1：向白靠拢 */
         out = CLIP(out, 0, cap);
     }
     else { /* ADJ_RGB_MODE_B_MUL */
-        out = CLIP(adj_mul_q(out, gv_q11, FIX_BITS_S), 0, cap);
+        out = CLIP(adj_mul_q(q, gv_q11, FIX_BITS_S), 0, cap);
     }
+    /* ---- contrast（mode_c）：作用在 brightness 之后 ----
+       mid 过 v=0.5 中点；zero 过 v=0 原点；both 按 gc<1 二选一（gc==1 两者等价） */
+    if (mode_c == ADJ_RGB_MODE_C_ZERO || (mode_c == ADJ_RGB_MODE_C_BOTH && gc < FIX_S_ONE))
+        out = CLIP(adj_mul_q(out, gc, FIX_BITS_S), 0, cap);
+    else
+        out = CLIP(adj_mul_q(out - half, gc, FIX_BITS_S) + half, 0, cap);
     return out;
 }
 

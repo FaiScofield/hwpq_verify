@@ -12,10 +12,10 @@
    (Y, Cb, Cr)（Cb/Cr 去中心：Y∈[0,1]、Cb,Cr∈[-0.5,0.5]）；BCSH 直接作用在
    “亮度 Y + 色度极坐标 (radius, θ)”上，B 通道即 Y：
 
-     执行顺序：C(MulAtMidPoint) -> B(ModeAdd) -> S(ModeMul) -> H(ModeAdd)
+     执行顺序：B(ModeAdd) -> C(MulAtMidPoint) -> S(ModeMul) -> H(ModeAdd)（db 先于 gc 生效）
 
-     C  MulAtMidPoint  Y1 = clip((Y-0.5)·gc + 0.5)   gc∈[0,4]，中性 1.0（过 Y=0.5 中点）
-     B  ModeAdd        Y2 = clip(Y1 + db)            db∈[-1,1]，中性 0（归一化量，×maxv）
+     B  ModeAdd        Y1 = clip(Y + db)             db∈[-1,1]，中性 0（归一化量，×maxv）
+     C  MulAtMidPoint  Y2 = clip((Y1-0.5)·gc + 0.5)  gc∈[0,4]，中性 1.0（过 Y=0.5 中点）
      S  ModeMul        r' = r·ds                     ds∈[0,4]，中性 1.0（r=√(Cb²+Cr²)）
      H  ModeAdd        θ' = θ + angle                angle 为极角增量（色度向量旋转）
 
