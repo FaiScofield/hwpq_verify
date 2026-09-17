@@ -46,8 +46,18 @@ if(NOT WIN32)
     target_link_libraries(rgb_adjust_test m)
 endif()
 
+# YCbCr 域固定管线 BCSH：定点实现 vs 浮点参考 的精度/性能对比
+add_executable(yuv_adjust_test
+    ${CMAKE_CURRENT_LIST_DIR}/hsv_fixed.c
+    ${CMAKE_CURRENT_LIST_DIR}/yuv_adjust.c
+    ${CMAKE_CURRENT_LIST_DIR}/yuv_adjust_test.c
+)
+if(NOT WIN32)
+    target_link_libraries(yuv_adjust_test m)
+endif()
 
-install(TARGETS hsv_fixed_test hsv_float_test hsv_precision_test hsv_adjust_bench rgb_adjust_test
+
+install(TARGETS hsv_fixed_test hsv_float_test hsv_precision_test hsv_adjust_bench rgb_adjust_test yuv_adjust_test
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}

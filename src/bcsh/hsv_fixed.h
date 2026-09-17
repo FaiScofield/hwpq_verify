@@ -51,6 +51,27 @@ const uint32_t *rcp6_tbl_u24_fixed(void);
    （相比 a<<SH × rcp 少 SH 位），适合硬件实现。实现见 hsv_fixed.c */
 int32_t rcp_mul_rsh(int32_t a, uint32_t rcp, int rsh);
 
+/* ---------- 角度三角量（domain 无关；RGB 域绕灰轴旋转与 YCbCr 域极角旋转共用） ---------- */
+/* sin(2*pi*k/256) 的 Q15 表（k = 0..256，末项为 360°，用于 wrap 处插值；1.0 = 32768）。
+   定义见 hsv_fixed.c */
+extern const int16_t g_adj_sin_q15[257];
+
+/* angle_q14（360° = FIX_H_ONE）的 sin，Q15（1.0 = 32768）。
+   表索引取 Q14 的高 8 bit（256 等分 360°），低 6 bit 线性插值。 */
+static inline int32_t adj_sin_q15(int32_t angle_q14)
+{
+    uint32_t h = (uint32_t)angle_q14 & (uint32_t)(FIX_H_ONE - 1); /* 归一化到 [0, 360°) */
+    uint32_t i = h >> (FIX_BITS_H - 8);                           /* 0..255 */
+    int32_t f = (int32_t)(h & ((1u << (FIX_BITS_H - 8)) - 1));    /* 段内小数 0..63 */
+    int32_t a = g_adj_sin_q15[i];
+    int32_t d = (int32_t)g_adj_sin_q15[i + 1] - a;
+    /* 注意：插值偏移量必须用有符号字面量，否则 d*f 会被提升为无符号、右移变逻辑移位 */
+    return a + ((d * f + (1 << (FIX_BITS_H - 9))) >> (FIX_BITS_H - 8));
+}
+
+/* angle_q14 的 cos，Q15（1.0 = 32768）：cos(x) = sin(x + 90°) */
+static inline int32_t adj_cos_q15(int32_t angle_q14) { return adj_sin_q15(angle_q14 + (FIX_H_ONE >> 2)); }
+
 /* luma 权重 Q16（1.0 = 2^16；末位调整使权重和恰为 2^16，保证灰阶混合不偏色） */
 #define ADJ_LUMA_BITS     16
 #define ADJ_LUMA_BT709_R  13933
