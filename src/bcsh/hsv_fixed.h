@@ -43,6 +43,104 @@ static inline int32_t adj_rsh_round(int64_t p, int sh)
 /* 有符号定点乘：round(a*b/2^sh)，int64 中间量防溢出 */
 static inline int32_t adj_mul_q(int32_t a, int32_t b, int sh) { return adj_rsh_round((int64_t)a * b, sh); }
 
+/* 有符号定点乘（32bit 窄版）：round(a*b/2^sh)，语义与 adj_mul_q 一致（half-away-from-zero）。
+   要求 |a·b| ≤ 2^25（int32 内不溢出），省去 64bit 中间量/乘法器，适合硬件。
+   典型用法：a、b 分别为 11bit 与 ≤15bit 的有符号量（如 S×gain、angle×progress）。 */
+static inline int32_t adj_mul_q32(int32_t a, int32_t b, int sh)
+{
+    int32_t p = a * b;
+    p += (1 << (sh - 1)) + (p >> 31); /* 负数补 -1，与 adj_rsh_round 的 half-away 语义一致 */
+    return p >> sh;
+}
+
+
+/* ===================== 指定色调过渡区（Sonnoc 色彩匹配模式） ===================== */
+/* 对应 UI 的 groupBox_setHueRange（Specified Hue Adjust）+ Trans Factor/Ratio：
+   只在目标色相区间及其过渡带内调整，过渡带内“调整量渐变 + 降饱和”。
+
+   处理区 = [hs - sp, he + ep]（可跨 0° 环绕），内含三段：
+     起点过渡  [hs-sp, hs]       w 0 → 1
+     核心区    [hs, he]          w = 1
+     终点过渡  [he, he+ep]       w 1 → 0
+   sp==ep==0 时为硬边界 [hs, he]（含两端）。过渡锥形线性、连续，两端天然衔接
+   （核心区含两端），不存在任何单点空洞。
+
+   角度全部为 Q14（360° = FIX_H_ONE = 16384 → 0.02197°/LSB）；权重 w 为 Q11（1.0 = FIX_S_ONE）。
+   Trans Factor 为整数≥1（UI 范围 1..5）：同时作为融合权重陡度与降饱和平台陡度。
+   Trans Ratio 为 Q11（0=关闭降饱和）。 */
+#define ADJ_ZONE_RAMP_SH 16 /* 斜坡倒数定标：inv = (Δw << ADJ_ZONE_RAMP_SH) / 段长 */
+#define ADJ_ZONE_TF_MAX 8   /* Trans Factor 上限（UI 为 5，留余量） */
+
+/* 过渡区参数（UI 原样参数，Q14 角度 / Q11 比例） */
+typedef struct {
+    int32_t enabled;         /* 0 = 不做过渡区处理（等价全图调整） */
+    int32_t hue_start_q14;   /* hs：目标色相范围起始角（支持跨 0° 环绕） */
+    int32_t hue_end_q14;     /* he：目标色相范围结束角；**允许 FIX_H_ONE(=16384) 表示 360°**
+                                （与 0° 区分：he=16384,hs=0 为整圈，he=0,hs=0 为单点） */
+    int32_t start_pad_q14;   /* sp：起始端向外过渡角（0 = 无过渡，硬边界） */
+    int32_t end_pad_q14;     /* ep：结束端向外过渡角（0 = 无过渡，硬边界） */
+    int32_t trans_factor;    /* Trans Factor（整数，≥1）：融合陡度 + 降饱和平台陡度 */
+    int32_t trans_ratio_q11; /* Trans Ratio（Q11，[0,FIX_S_ONE]）：过渡区降饱和强度 */
+} adj_hue_zone_cfg_t;
+
+/* 过渡区浮点参数（UI 原样物理量：角度为度、比率为 [0,1]） */
+typedef struct {
+    int enabled;
+    float hue_start;    /* 度 */
+    float hue_end;      /* 度 */
+    float start_pad;    /* 度 */
+    float end_pad;      /* 度 */
+    float trans_factor; /* ≥1 */
+    float trans_ratio;  /* [0,1] */
+} adj_hue_zone_cfg_f_t;
+
+/* 预计算后的过渡区（每帧由 adj_hue_zone_setup 算一次，逐像素只需 adj_hue_zone_weight）。
+   斜坡统一形式：w = w0 ± ramp(d, lo, len, inv)，ramp 把 (d-lo) 夹到 [0,len] 后乘 inv 右移
+   ADJ_ZONE_RAMP_SH —— 逐像素无除法，乘积上界 = Δw<<ADJ_ZONE_RAMP_SH = 2^27（int32 安全）。 */
+typedef struct {
+    int32_t hsp;     /* 处理区起点 hs-sp（Q14，已回绕） */
+    int32_t span;    /* 处理区长度 (he+ep)-(hs-sp)（Q14，≤整圈） */
+    int32_t len_s;   /* 起点过渡长度 sp（Q14）；0 = 无起点过渡 */
+    int32_t len_e;   /* 终点过渡长度 ep（Q14）；0 = 无终点过渡 */
+    int32_t inv_s;   /* (FIX_S_ONE << ADJ_ZONE_RAMP_SH) / len_s（len_s=0 时为 0） */
+    int32_t inv_e;   /* (FIX_S_ONE << ADJ_ZONE_RAMP_SH) / len_e（len_e=0 时为 0） */
+    int32_t tf;      /* Trans Factor（整数 ≥1） */
+    int32_t ratio_q11; /* Trans Ratio（Q11） */
+    int32_t hard;      /* 1 = 无 Pad，硬边界 [hs,he] */
+    int32_t enabled;
+} adj_hue_zone_t;
+
+/* 过渡区预计算（每帧一次）：参数合法化 + 斜坡倒数预计算。cfg=NULL 或 enabled=0 时置为关闭态。 */
+void adj_hue_zone_setup(const adj_hue_zone_cfg_t *cfg, adj_hue_zone_t *z);
+
+/* 逐像素过渡区权重（Q11）：0=保持原色、FIX_S_ONE=完全调整。
+   轮廓： w=0（处理区外）→ [0,len_s] 升到 1 → 核心区 [len_s, span-len_e] 保持 1
+   → [span-len_e, span] 降到 0 → w=0。三段依次覆盖赋值（后写优先），核心区**含两端**，
+   因此 len_s==0（起点无过渡）时 d=0、或 len_e==0（终点无过渡）时 d=span 都不会落进
+   掩码缝隙而回退到 0。len_s/len_e≤span 恒成立（span = 跨度 + len_s + len_e），故不存在
+   两侧过渡带重叠的退化配置。 */
+static inline int32_t adj_hue_zone_weight(const adj_hue_zone_t *z, int32_t h_q14)
+{
+    int32_t d, w;
+    if (z->enabled == 0)
+        return FIX_S_ONE;
+    d = (h_q14 - z->hsp) & (FIX_H_ONE - 1);
+    if (z->hard)
+        return (d <= z->span) ? FIX_S_ONE : 0; /* 硬边界 [hs, he]（含两端） */
+    w = 0;
+    if (d <= z->len_s) /* 起点上升段（len_s==0 时 d=0 由核心区给 1） */
+        w = ((d * z->inv_s) >> ADJ_ZONE_RAMP_SH); /* d≤len_s → 乘积 ≤ 2^27，int32 安全 */
+    if (d >= z->len_s && d <= z->span - z->len_e)
+        w = FIX_S_ONE; /* 核心区（含两端） */
+    if (d >= z->span - z->len_e && d <= z->span) { /* 终点下降段（起点处 w=1，与核心区衔接） */
+        int32_t dd = d - (z->span - z->len_e);
+        if (dd > z->len_e)
+            dd = z->len_e;
+        w = FIX_S_ONE - ((dd * z->inv_e) >> ADJ_ZONE_RAMP_SH);
+    }
+    return CLIP(w, 0, FIX_S_ONE);
+}
+
 /* H 倒数表（惰性构建，全工程共用一份）。实现见 hsv_fixed.c */
 const uint32_t *rcp6_tbl_u24_fixed(void);
 
@@ -241,5 +339,42 @@ static inline void adjust_hsv_fix_u10(const uint16_t *rgb, int n, int32_t gain_c
         out[3 * i + 2] = b1;
     }
 }
+
+
+/* ===================== Sonnoc 固定管线 HSV 域 BCSH（无 mode 分支） ===================== */
+/* 对应 UI 的 HSV 处理域（Adjust Field = HSV），固定 mode：B(add) -> S(mul) -> H(add)，
+   Hue Goal = SameTarget（目标色相 + 进度），无 C（对比度）步：
+
+     B  add   v' = clip(v + delta_b)                              delta_b∈[-1,1]，中性 0
+     S  mul   s' = clip(s * delta_s)                              delta_s∈[0,4]，中性 1.0
+     H  add   h' = (h + progress·wrap180(hue_goal − h)) mod 360   progress∈[0,1]，中性 0
+              （SameTarget：沿最短有向弧向目标色相旋转 progress 比例；progress=1 时
+                rot 恰等于弧长，**精确到达目标色相**）
+
+   定点格式（与 hsv_fixed 其余接口一致）：
+     delta_b      : Q11（1.0 = FIX_S_ONE = 2048），[-1,1]
+     delta_s      : Q11（1.0 = FIX_S_ONE），[0,4]
+     hue_goal_q14 : Q14（360° = FIX_H_ONE = 16384）→ 0.02197°/LSB，
+                    **满足 0.3° 精度要求**（0.3° 仅需 11 bit，Q14 有 8 倍余量）
+     progress_q11 : Q11（1.0 = FIX_S_ONE），内部 clip 到 [0,1]
+   像素域 [0, maxv]（u8: 255 / u10: 1023），内部保持像素域 + Q11/Q14 定点。
+   位宽优化：B 折算为**整数像素偏移**（11bit，逐像素只 1 次加法，无 Q11 中间量）；
+   S/H 用 adj_mul_q32（S 11bit × gain 13bit、arc 15bit × progress 11bit，均在 int32 内）。
+
+   过渡区（zone 非 NULL 且 enabled）额外做两步（与 Python UI 步骤 5️⃣ 一致）：
+     ① 按融合权重 w = steepen(w_raw, Trans Factor) 把“原色”与“完全调整结果”融合
+        （H 走圆环插值、S/V 线性），权重 w_raw 由 hs/he + 两端 Pad 决定；
+     ② 降饱和：S ← S·(1 − damp)，damp = Trans Ratio·(1 − |2·w_raw−1|^Trans Factor)。
+   zone=NULL / enabled=0 时 w≡1.0、damp≡0，退化为全图调整。 */
+void adjust_hsv_sonnoc_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t delta_b, int32_t delta_s,
+    int32_t hue_goal_q14, int32_t progress_q11, const adj_hue_zone_t *zone, uint16_t *ro, uint16_t *go, uint16_t *bo);
+
+/* 同管线的浮点参考实现（精度基准，无定点量化）：r/g/b∈[0,1]（归一化像素域），
+   参数为物理量 delta_b∈[-1,1] / delta_s∈[0,4] / hue_goal_deg（度）/ progress∈[0,1]；
+   zone 为浮点参数形式（度），NULL 表示不做过渡区处理；
+   输出 ro/go/bo∈[0,1]（已 clip）。六边形 HSV 模型（与定点版同模型），
+   实现见 hsv_fixed.c（仅依赖 math.h 的 fmodf/fabsf/fminf/fmaxf）。 */
+void adjust_hsv_sonnoc_float(float r, float g, float b, float delta_b, float delta_s, float hue_goal_deg,
+    float progress, const adj_hue_zone_cfg_f_t *zone, float *ro, float *go, float *bo);
 
 #endif /* HSV_FIXED_H */

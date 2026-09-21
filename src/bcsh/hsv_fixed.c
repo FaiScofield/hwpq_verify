@@ -1,5 +1,5 @@
-
 #include "hsv_fixed.h"
+#include <math.h>
 
 
 /* ---------- 除法消除：双倒数表（S 表 / H 表，位宽独立） ---------- */
@@ -801,4 +801,270 @@ void adjust_hsv_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t g
 
     /* ---- HSV -> RGB（v4：六边形走表模型，无分支无除法） ---- */
     hsv2rgb_v4_hexwalk((uint16_t)hn, (uint16_t)sn, (uint16_t)vn, maxv, ro, go, bo);
+}
+
+/* ===================== 指定色调过渡区（每帧预计算） ===================== */
+
+/* 斜坡倒数：inv = (Δw << ADJ_ZONE_RAMP_SH) / len（向下取整，保证 len·inv ≤ Δw<<ADJ_ZONE_RAMP_SH）。
+   len≤0 或 Δw≤0 返回 0（该段不存在）。 */
+static int32_t adj_zone_ramp_inv(int32_t delta_w, int32_t len)
+{
+    if (len <= 0 || delta_w <= 0)
+        return 0;
+    return (delta_w << ADJ_ZONE_RAMP_SH) / len;
+}
+
+void adj_hue_zone_setup(const adj_hue_zone_cfg_t *cfg, adj_hue_zone_t *z)
+{
+    int32_t hs, he, hsp_raw, sp, ep;
+
+    memset(z, 0, sizeof(*z));
+    if (cfg == NULL || cfg->enabled == 0)
+        return;
+
+    /* 角度归一：hue_end_q14 允许取 FIX_H_ONE（=360°，与 0° 区分）；he<hs 时按跨 0° 环绕 */
+    hs = cfg->hue_start_q14 & (FIX_H_ONE - 1);
+    he = cfg->hue_end_q14;
+    if (he < hs)
+        he += FIX_H_ONE;
+    sp = CLIP(cfg->start_pad_q14, 0, FIX_H_ONE - 1);
+    ep = CLIP(cfg->end_pad_q14, 0, FIX_H_ONE - 1);
+
+    z->enabled = 1;
+    z->tf = CLIP(cfg->trans_factor, 1, ADJ_ZONE_TF_MAX);
+    z->ratio_q11 = CLIP(cfg->trans_ratio_q11, 0, FIX_S_ONE);
+    z->hsp = hs;
+    z->span = CLIP(he - hs, 0, FIX_H_ONE); /* 硬边界跨度；he==hs 时为 0（单点） */
+
+    if (sp == 0 && ep == 0) {
+        z->hard = 1; /* 两侧都不设 Pad：硬边界 [hs, he]（含两端），无需斜坡 */
+        return;
+    }
+
+    /* 处理区 = [hs-sp, he+ep]：长度用**未回绕**的起点算（超过整圈按整圈），
+       逐像素查表时才把起点回绕到 [0,360) */
+    hsp_raw = hs - sp;
+    z->hsp = hsp_raw & (FIX_H_ONE - 1);
+    z->span = CLIP(he + ep - hsp_raw, 0, FIX_H_ONE);
+    z->len_s = sp;
+    z->inv_s = adj_zone_ramp_inv(FIX_S_ONE, sp);
+    z->len_e = ep;
+    z->inv_e = adj_zone_ramp_inv(FIX_S_ONE, ep);
+}
+
+/* ===================== Sonnoc 固定管线 HSV 域 BCSH（无 mode 分支、无 C 步） ===================== */
+/* 对应 UI 的 HSV 处理域，mode 全部固定：B(add) -> S(mul) -> H(add / SameTarget)，
+   无对比度步。与 adjust_hsv_fix(mode_b=ADD, mode_s=MUL, 无 C 步, H 为 SameTarget)
+   等价，但去掉全部 mode 分支与 Q11 像素域中间量，按硬件友好方式做位宽最小化：
+
+     步    运算                                    中间位宽
+     B     v' = clamp(v + off_px)                  off_px 11bit signed（整数像素偏移）
+     S     s' = clamp(S·gs >> 11)                  S(11) × gs(13) = 24bit
+     H     h' = (H + (prog·arc >> 11)) mod 2^14     arc(15) × prog(11) = 26bit
+     过渡区 w 折线（无除法）                          d(14) × inv(≤27bit) ≤ 2^27
+     过渡区 融合/降饱和                              w(11)/dh(15)/kV 的乘法均 ≤ 2^24
+     重建  hsv2rgb_v4_hexwalk                      S·M = 11×10 = 21bit、C·f14 = 10×14 = 24bit
+
+   B 步先用 adj_rsh_round 将 Q11 的 delta_b 折算为整数像素偏移（调用级一次），逐像素只剩
+   1 次加法且位宽从 22bit 降到 11bit；代价是 ≤0.5 LSB 舍入，与 adjust_hsv_fix 末端的
+   像素域舍入同量级，总误差仍 ≤1 LSB。
+   H 步 progress=1 时 rot ≡ arc（adj_mul_q32 对 2^n 倍乘精确），可无误差到达 hue_goal。
+   S 步乘性增益在 S=0（灰度）时恒为 0，不引入色度，等价于“无处传色”。
+   过渡区（zone 非 NULL 且 enabled）为 UI 步骤 5️⃣ 的逐像素等价：先按 Trans Factor 陡化
+   权重做融合，再按 Trans Ratio 降饱和。zone=NULL 时这两步整体省掉（等价 w≡1、damp≡0）。 */
+void adjust_hsv_sonnoc_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t delta_b, int32_t delta_s,
+    int32_t hue_goal_q14, int32_t progress_q11, const adj_hue_zone_t *zone, uint16_t *ro, uint16_t *go, uint16_t *bo)
+{
+    /* ---- 参数预处理（调用级一次，与像素无关） ---- */
+    /* B(add)：Q11 归一化量 ×maxv 折算为整数像素偏移，位宽 ≤ maxv（u10 为 11bit signed） */
+    const int32_t off_px = adj_rsh_round((int64_t)CLIP(delta_b, -FIX_S_ONE, FIX_S_ONE) * maxv, FIX_BITS_S);
+    const int32_t gs = CLIP(delta_s, 0, 4 * FIX_S_ONE);  /* S 乘性增益（Q11，中性 1.0） */
+    const int32_t goal = hue_goal_q14 & (FIX_H_ONE - 1); /* 目标色相（Q14） */
+    const int32_t prog = CLIP(progress_q11, 0, FIX_S_ONE);
+
+    /* ---- RGB -> HSV（v3：无分支无除法） ---- */
+    uint16_t H, S, V;
+    int32_t hn, sn, vn;
+    rgb2hsv_v3_optimal(r, g, b, &H, &S, &V);
+
+    /* ---- B（add）：整数像素偏移，单次加法 + clamp ---- */
+    vn = CLIP((int32_t)V + off_px, 0, maxv);
+
+    /* ---- S（mul）：11bit × 13bit = 24bit 乘法器（无需 64bit 中间量）。
+       无 S 保护门控：mul 保 H 不变，且输出彩度 C'=V·S·gs 与 S 成正比，
+       近灰像素（C=round(V·S/2^11)=0）天然不变化，无需额外门控。 ---- */
+    sn = CLIP(adj_mul_q32((int32_t)S, gs, FIX_BITS_S), 0, FIX_S_ONE);
+
+    /* ---- H（add / SameTarget）：h' = h + progress·wrap180(goal − h) ----
+       arc 为最短有向弧（∈[-180°,180°)）；prog=1 时 rot≡arc，精确到达目标色相。 */
+    int32_t arc = ((goal - (int32_t)H + (FIX_H_ONE >> 1)) & (FIX_H_ONE - 1)) - (FIX_H_ONE >> 1);
+    hn = ((int32_t)H + adj_mul_q32(prog, arc, FIX_BITS_S)) & (FIX_H_ONE - 1);
+
+    /* ---- 过渡区：按权重融合 + 降饱和（与 Python blend_in_domain / transition_damp 一致） ---- */
+    if (zone != NULL && zone->enabled != 0) {
+        const int32_t tf = zone->tf;
+        /* 权重由**原始**色相 H 决定（降饱和用未陡化的 w_raw） */
+        const int32_t w_raw = adj_hue_zone_weight(zone, (int32_t)H);
+        /* 融合权重：w' = clip((w−0.5)·S + 0.5)；S 为整数，逐像素只 1 次小整数乘法 */
+        int32_t w = w_raw;
+        if (tf > 1)
+            w = CLIP((w_raw - (FIX_S_ONE >> 1)) * tf + (FIX_S_ONE >> 1), 0, FIX_S_ONE);
+        /* 融合：H 走圆环插值（最短有向弧），S/V 线性 */
+        int32_t dh = ((hn - (int32_t)H + (FIX_H_ONE >> 1)) & (FIX_H_ONE - 1)) - (FIX_H_ONE >> 1);
+        hn = ((int32_t)H + adj_mul_q32(w, dh, FIX_BITS_S)) & (FIX_H_ONE - 1);
+        sn = (int32_t)S + adj_mul_q32(w, sn - (int32_t)S, FIX_BITS_S);
+        vn = (int32_t)V + adj_mul_q32(w, vn - (int32_t)V, FIX_BITS_S);
+        /* 降饱和：damp = K·(1 − |2·w_raw−1|^S)，再 S ← S·(1−damp)。
+           S 为整数 → u^S 用 S−1 次乘法；中间量取 Q15 而非 Q11，避免连续舍入累积
+           （Q11 逐次舍入在 S=5 时可达数 LSB）。u≤2^11、p≤2^15 → 乘积 ≤2^26，int32 安全。 */
+        if (zone->ratio_q11 > 0) {
+            int32_t u = 2 * w_raw - FIX_S_ONE;
+            int32_t p, damp;
+            if (u < 0)
+                u = -u;
+            p = u << (15 - FIX_BITS_S); /* Q11 -> Q15 */
+            for (int k = 1; k < tf; k++)
+                p = (p * u) >> FIX_BITS_S; /* Q15 -> Q26 >> 11 = Q15 */
+            damp = adj_mul_q32(zone->ratio_q11, FIX_S_ONE - ((p + (1 << (15 - FIX_BITS_S - 1))) >> (15 - FIX_BITS_S)),
+                FIX_BITS_S);
+            sn = adj_mul_q32(sn, FIX_S_ONE - damp, FIX_BITS_S);
+        }
+    }
+
+    /* ---- HSV -> RGB（v4：六边形走表模型，无分支无除法） ---- */
+    hsv2rgb_v4_hexwalk((uint16_t)hn, (uint16_t)CLIP(sn, 0, FIX_S_ONE), (uint16_t)CLIP(vn, 0, maxv), maxv, ro, go,
+        bo);
+}
+
+/* 过渡区权重（浮点，与 Python UI 的 _hue_blend_weights 同轮廓；角度单位为度）。
+   轮廓： w=0（处理区外）→ [0, sp] 升到 1 → 核心区保持 1 → [span-ep, span] 降到 0 → 0。
+   返回 0=保持原值、1=完全调整；未启用时返回 1（全图调整）。 */
+static float adj_hue_zone_weight_f(const adj_hue_zone_cfg_f_t *z, float h_deg)
+{
+    float hs, he, sp, ep, hsp, span, d, w;
+    int wrap;
+
+    if (z == NULL || !z->enabled)
+        return 1.0f;
+    hs = z->hue_start;
+    he = z->hue_end;
+    sp = z->start_pad;
+    ep = z->end_pad;
+    wrap = (he < hs); /* he<hs：跨 0° 环绕（he 写成 0 表示 360° 也走这里） */
+    if (sp <= 0.0f && ep <= 0.0f) { /* 硬边界 [hs, he]（含两端，wrap-aware） */
+        if (!wrap)
+            return (h_deg >= hs && h_deg <= he) ? 1.0f : 0.0f;
+        return (h_deg >= hs || h_deg <= he) ? 1.0f : 0.0f;
+    }
+    if (wrap)
+        he += 360.0f;
+    hsp = hs - sp;
+    span = he + ep - hsp; /* 处理区长度（未回绕；超过整圈按整圈） */
+    if (span > 360.0f)
+        span = 360.0f;
+    d = fmodf(h_deg - hsp + 720.0f, 360.0f);
+    w = 0.0f;
+    if (sp > 0.0f && d <= sp) /* 起点上升段（sp==0 时 d=0 由核心区给 1） */
+        w = CLIP(d / sp, 0.0f, 1.0f);
+    if (d >= sp && d <= span - ep) /* 核心区（含两端） */
+        w = 1.0f;
+    if (d >= span - ep && d <= span) { /* 终点下降段（起点处 w=1，与核心区衔接） */
+        if (ep > 0.0f)
+            w = 1.0f - CLIP((d - (span - ep)) / ep, 0.0f, 1.0f);
+        else
+            w = 1.0f; /* ep==0：d 只能是 span，与核心区衔接 */
+    }
+    return CLIP(w, 0.0f, 1.0f);
+}
+
+/* HSV -> RGB（浮点，六边形模型；H 为度、S/V∈[0,1]），输出已 clip。 */
+static void adj_hsv2rgb_f(float h, float s, float v, float *ro, float *go, float *bo)
+{
+    const float c = v * s;
+    const float m = v - c;
+    const float hp = h * (1.0f / 60.0f);
+    const float x = c * (1.0f - fabsf(fmodf(hp, 2.0f) - 1.0f));
+    float r1 = 0.0f, g1 = 0.0f, b1 = 0.0f;
+    switch ((int)hp % 6) { /* H=360° 时 (int)6%6=0，等价 0° */
+    case 0:
+        r1 = c;
+        g1 = x;
+        break;
+    case 1:
+        r1 = x;
+        g1 = c;
+        break;
+    case 2:
+        g1 = c;
+        b1 = x;
+        break;
+    case 3:
+        g1 = x;
+        b1 = c;
+        break;
+    case 4:
+        r1 = x;
+        b1 = c;
+        break;
+    default:
+        r1 = c;
+        b1 = x;
+        break;
+    }
+    *ro = CLIP(r1 + m, 0.0f, 1.0f);
+    *go = CLIP(g1 + m, 0.0f, 1.0f);
+    *bo = CLIP(b1 + m, 0.0f, 1.0f);
+}
+
+/* Sonnoc 定管线 HSV 域 BCSH 的浮点参考实现（精度基准，逐步复现 sameTarget 与过渡区语义）。
+   RGB↔HSV 用六边形模型（与定点版 rgb2hsv_v3_optimal / hsv2rgb_v4_hexwalk 同模型），
+   无需 π，仅用 fminf/fmaxf/fmodf/fabsf。 */
+void adjust_hsv_sonnoc_float(float r, float g, float b, float delta_b, float delta_s, float hue_goal_deg,
+    float progress, const adj_hue_zone_cfg_f_t *zone, float *ro, float *go, float *bo)
+{
+    /* ---- RGB -> HSV（归一化域，H∈[0,360)，C=0 时 H=0） ---- */
+    const float mx = fmaxf(fmaxf(r, g), b);
+    const float mn = fminf(fminf(r, g), b);
+    const float c = mx - mn;
+    float h = 0.0f;
+    if (c > 0.0f) {
+        if (mx == r)
+            h = 60.0f * fmodf((g - b) / c + 6.0f, 6.0f);
+        else if (mx == g)
+            h = 60.0f * ((b - r) / c + 2.0f);
+        else
+            h = 60.0f * ((r - g) / c + 4.0f);
+    }
+    const float s = (mx > 0.0f) ? c / mx : 0.0f;
+    const float v = mx;
+
+    /* ---- B(add) -> S(mul) -> H(add / SameTarget)，无 S 保护门控 ---- */
+    float vn = CLIP(v + delta_b, 0.0f, 1.0f);
+    const float s_mul = CLIP(s * delta_s, 0.0f, 1.0f);
+    float sn = s_mul;
+    const float arc = fmodf(hue_goal_deg - h + 540.0f, 360.0f) - 180.0f; /* 最短有向弧 [-180,180) */
+    float hn = fmodf(h + progress * arc + 360.0f, 360.0f);
+
+    /* ---- 过渡区：融合 + 降饱和（UI 步骤 5️⃣） ---- */
+    if (zone != NULL && zone->enabled) {
+        const float tf = zone->trans_factor;
+        const float w_raw = adj_hue_zone_weight_f(zone, h);
+        const float w = (tf > 1.0f) ? CLIP((w_raw - 0.5f) * tf + 0.5f, 0.0f, 1.0f) : w_raw;
+        /* 融合：H 走圆环插值、S/V 线性 */
+        const float dh = fmodf(hn - h + 540.0f, 360.0f) - 180.0f;
+        hn = fmodf(h + w * dh + 360.0f, 360.0f);
+        sn = s + (sn - s) * w;
+        vn = v + (vn - v) * w;
+        /* 降饱和：damp = K·(1 − |2·w_raw−1|^S)，再 S ← S·(1−damp) */
+        const float k = CLIP(zone->trans_ratio, 0.0f, 1.0f);
+        if (k > 0.0f) {
+            const float u = fabsf(2.0f * w_raw - 1.0f);
+            float p = u;
+            for (int i = 1; (float)i < tf; i++)
+                p *= u;
+            sn *= (1.0f - k * (1.0f - p));
+        }
+    }
+
+    adj_hsv2rgb_f(hn, sn, vn, ro, go, bo);
 }

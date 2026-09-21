@@ -1581,10 +1581,15 @@ class HsvUiController:
           start: Pad [hs-sp, hs] + Tail [hs, hs+st]
           end:   Tail [he-et, he] + Pad [he, he+ep]
           core:  [hs+st, he-et]  (w = 1)
-        Transition weights:
-          - tail and pad both set: pad 0 -> 0.5, tail 0.5 -> 1 (start);
-                                 tail 1 -> 0.5, pad 0.5 -> 0 (end)
-          - only one side set: linear 0 -> 1 (start) / 1 -> 0 (end)
+        Transition weights, **per side independently**:
+          - side with both pad and tail set: pad 0 -> 0.5, tail 0.5 -> 1 (start);
+                                            tail 1 -> 0.5, pad 0.5 -> 0 (end)
+          - side with only pad or only tail: linear 0 -> 1 (start) / 1 -> 0 (end)
+          - no pad and no tail at all:       hard range [hs, he] (both ends inclusive)
+        Per-side keeps the curve continuous for any parameter combination (a global
+        "tail and pad both used somewhere" flag would make a side with only one of
+        them start/end at 0.5 and would leave a single-sample hole at the core end
+        when the end Tail is 0).
         """
         h = np.asarray(hue_deg, dtype=np.float32)
         sp = float(sp)
@@ -1606,34 +1611,34 @@ class HsvUiController:
         w = np.zeros_like(d, dtype=np.float32)
         core_start = sp + st
         core_end = span - (ep + et)
-        combined = use_tail and use_pad
+        combined_start = (sp > 0.0) and (st > 0.0)       # 每侧独立判断
+        combined_end = (et > 0.0) and (ep > 0.0)
         # Start ramp over [0, core_start].
         if core_start > 0.0:
-            if combined:
-                if sp > 0.0:
-                    m1 = d <= sp
-                    w[m1] = np.clip(d[m1] / sp * 0.5, 0.0, 0.5)
-                if st > 0.0:
-                    m2 = (d > sp) & (d <= core_start)
-                    w[m2] = 0.5 + np.clip((d[m2] - sp) / st * 0.5, 0.0, 0.5)
+            if combined_start:
+                m1 = d <= sp
+                w[m1] = np.clip(d[m1] / sp * 0.5, 0.0, 0.5)
+                m2 = (d > sp) & (d <= core_start)
+                w[m2] = 0.5 + np.clip((d[m2] - sp) / st * 0.5, 0.0, 0.5)
             else:
                 m = d <= core_start
                 w[m] = np.clip(d[m] / core_start, 0.0, 1.0)
-        # Core (full adjustment).
+        # Core (full adjustment)，含 core_start / core_end 两端（core_start==0 时
+        # d=0 由核心区给 1；core_end==span 时 d=span 由核心区给 1）。
         if core_end > core_start:
-            w[(d > core_start) & (d < core_end)] = 1.0
-        # End ramp over [core_end, span].
-        if span > core_end:
-            if combined:
-                if et > 0.0:
-                    m3 = (d >= core_end) & (d <= core_end + et)
-                    w[m3] = 1.0 - np.clip((d[m3] - core_end) / et * 0.5, 0.0, 0.5)
-                if ep > 0.0:
-                    m4 = (d > core_end + et) & (d <= span)
-                    w[m4] = 0.5 - np.clip((d[m4] - core_end - et) / ep * 0.5, 0.0, 0.5)
-            else:
+            w[(d >= core_start) & (d <= core_end)] = 1.0
+        # End ramp over [core_end, span]（core_end 处 w=1，与核心区衔接）.
+        if span >= core_end:
+            if combined_end:
+                m3 = (d >= core_end) & (d <= core_end + et)
+                w[m3] = 1.0 - np.clip((d[m3] - core_end) / et * 0.5, 0.0, 0.5)
+                m4 = (d > core_end + et) & (d <= span)
+                w[m4] = 0.5 - np.clip((d[m4] - core_end - et) / ep * 0.5, 0.0, 0.5)
+            elif span > core_end:
                 m = (d >= core_end) & (d <= span)
                 w[m] = 1.0 - np.clip((d[m] - core_end) / (span - core_end), 0.0, 1.0)
+            else:  # span == core_end（终点无 Tail/Pad）：d 只能是 core_end
+                w[(d >= core_end) & (d <= span)] = 1.0
         return np.clip(w, 0.0, 1.0)
 
     # ------------------------------------------------------------------ #
