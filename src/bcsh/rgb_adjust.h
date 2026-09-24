@@ -30,7 +30,7 @@
    定点格式（与 hsv_fixed 其余接口一致）：
      gain_c / gain_b / scale_s : Q11（1.0 = FIX_S_ONE = 2048），[0, 4]
      angle_q14                 : Q14（360° = FIX_H_ONE = 16384），SameOffset 旋转角
-     gray_coef                 : ADJ_RGB_GRAY_BT601 / BT709 / BT2020 / P3（见 hsv_fixed.h）
+     gray_coef                 : ADJ_RGB_GRAY_BT601 / BT709 / BT2020 / P3 / THEATER_P3（见 hsv_fixed.h）
    像素域 [0, maxv]（u8: 255 / u10: 1023），内部统一 Q11（pixel<<11）运算。 */
 
 /* 1.0（Q15 三角量表满量程）与几个常量 */
@@ -91,9 +91,14 @@ static inline void rgb_bcsh_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t max
         wB = ADJ_LUMA_BT2020_B;
         break;
     case ADJ_RGB_GRAY_P3:
-        wR = ADJ_LUMA_P3_R;
-        wG = ADJ_LUMA_P3_G;
-        wB = ADJ_LUMA_P3_B;
+        wR = ADJ_LUMA_Display_P3_R;
+        wG = ADJ_LUMA_Display_P3_G;
+        wB = ADJ_LUMA_Display_P3_B;
+        break;
+    case ADJ_RGB_GRAY_THEATER_P3:
+        wR = ADJ_LUMA_Theater_P3_R;
+        wG = ADJ_LUMA_Theater_P3_G;
+        wB = ADJ_LUMA_Theater_P3_B;
         break;
     default:
         wR = ADJ_LUMA_BT709_R;

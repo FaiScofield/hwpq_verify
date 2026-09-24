@@ -171,19 +171,22 @@ static inline int32_t adj_sin_q15(int32_t angle_q14)
 static inline int32_t adj_cos_q15(int32_t angle_q14) { return adj_sin_q15(angle_q14 + (FIX_H_ONE >> 2)); }
 
 /* luma 权重 Q16（1.0 = 2^16；末位调整使权重和恰为 2^16，保证灰阶混合不偏色） */
-#define ADJ_LUMA_BITS     16
-#define ADJ_LUMA_BT709_R  13933
-#define ADJ_LUMA_BT709_G  46877
-#define ADJ_LUMA_BT709_B  4726 /* 65536-13933-46877 */
-#define ADJ_LUMA_BT601_R  19594
-#define ADJ_LUMA_BT601_G  38470
-#define ADJ_LUMA_BT601_B  7472 /* 65536-19594-38470 */
-#define ADJ_LUMA_BT2020_R 17218
-#define ADJ_LUMA_BT2020_G 44433
-#define ADJ_LUMA_BT2020_B 3885 /* 65536-17218-44433 */
-#define ADJ_LUMA_P3_R     15006
-#define ADJ_LUMA_P3_G     45334
-#define ADJ_LUMA_P3_B     5196 /* 65536-15006-45334（Display P3：DCI-P3 原色 + D65） */
+#define ADJ_LUMA_BITS         16
+#define ADJ_LUMA_BT709_R      13933
+#define ADJ_LUMA_BT709_G      46877
+#define ADJ_LUMA_BT709_B      4726 /* 65536-13933-46877 */
+#define ADJ_LUMA_BT601_R      19594
+#define ADJ_LUMA_BT601_G      38470
+#define ADJ_LUMA_BT601_B      7472 /* 65536-19594-38470 */
+#define ADJ_LUMA_BT2020_R     17218
+#define ADJ_LUMA_BT2020_G     44433
+#define ADJ_LUMA_BT2020_B     3885 /* 65536-17218-44433 */
+#define ADJ_LUMA_Display_P3_R 15006
+#define ADJ_LUMA_Display_P3_G 45334
+#define ADJ_LUMA_Display_P3_B 5196 /* 65536-15006-45334（Display P3：DCI-P3 原色 + D65） */
+#define ADJ_LUMA_Theater_P3_R 13729
+#define ADJ_LUMA_Theater_P3_G 47290
+#define ADJ_LUMA_Theater_P3_B 4517 /* 65536-13729-47290（Theater P3：DCI-P3 原色 + D63） */
 
 void rgb2hsv_v0_classic(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10);
 void rgb2hsv_v1_no_branch(uint16_t r, uint16_t g, uint16_t b, uint16_t *h14, uint16_t *s11, uint16_t *v10);
@@ -280,10 +283,11 @@ typedef enum {
 } adj_rgb_mode_h_t;
 
 typedef enum {
-    ADJ_RGB_GRAY_BT709 = 0, /* luma BT.709 */
-    ADJ_RGB_GRAY_BT601,     /* luma BT.601 */
-    ADJ_RGB_GRAY_BT2020,    /* luma BT.2020 */
-    ADJ_RGB_GRAY_P3,        /* luma Display P3（DCI-P3 原色 + D65） */
+    ADJ_RGB_GRAY_BT709 = 0,  /* luma BT.709 */
+    ADJ_RGB_GRAY_BT601,      /* luma BT.601 */
+    ADJ_RGB_GRAY_BT2020,     /* luma BT.2020 */
+    ADJ_RGB_GRAY_P3,         /* luma Display P3（DCI-P3 原色 + D65） */
+    ADJ_RGB_GRAY_THEATER_P3, /* luma Theater P3（DCI-P3 原色 + D63） */
 } adj_rgb_gray_coef_t;
 
 

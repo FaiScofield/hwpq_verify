@@ -5,7 +5,12 @@ import argparse
 
 def get_args():
     parser = argparse.ArgumentParser(description='Get csc matrix')
-    parser.add_argument('-c', '--color_space', type=str, default='bt709', help='color space')
+    parser.add_argument('-i', '--input', type=str, required=True,
+                        help='input color space, e.g. bt601L / bt709F / 2020 (suffix L: limited range, F: full range, default: F)')
+    parser.add_argument('-o', '--output', type=str, default=None,
+                        help='output color space, e.g. bt601F; if not set, print the y2r / r2y coefs of the input color space')
+    parser.add_argument('-b', '--fix_bits', type=int, default=10,
+                        help='the fixed-point precision bits of the coefs (8/10/13), default: 10')
     args = parser.parse_args()
     return args
 
@@ -37,7 +42,7 @@ def getMatByCoord(rgbw_coord):
 
 
 def getXYbyColorSpace(color_space):
-    if color_space == 'bt709':  # or color_space == 'srgb':
+    if color_space == 'bt709' or color_space == 'srgb':
         r_xy = [0.6400, 0.3300]  # z=0.03
         g_xy = [0.3000, 0.6000]  # z=0.10
         b_xy = [0.1500, 0.0600]  # z=0.79
@@ -67,13 +72,20 @@ def getXYbyColorSpace(color_space):
     #     g_xy = [0.210, 0.710]
     #     b_xy = [0.150, 0.060]
     #     w_xy = [0.3127, 0.3290] # D65
-    # elif color_space == 'dci-p3':
-    #     r_xy = [0.6800, 0.3200]
-    #     g_xy = [0.2650, 0.6900]
-    #     b_xy = [0.1500, 0.0600]
-    #   # w_xy = [0.32168, 0.33767] # Cinema, p3-D60(K=6000)
-    #   # w_xy = [0.3140, 0.3510] # Theater, p3-DCI(K=6300)
-    #     w_xy = [0.3127, 0.3290] # Display, p3-D65(K=6504)
+    elif color_space == 'dci-p3' or color_space == 'dci-p3-theater':
+        r_xy = [0.6800, 0.3200]
+        g_xy = [0.2650, 0.6900]
+        b_xy = [0.1500, 0.0600]
+        # w_xy = [0.32168, 0.33767] # Cinema, p3-D60(K=6000)
+        w_xy = [0.3140, 0.3510] # Theater, p3-DCI(K=6300)
+        # w_xy = [0.3127, 0.3290] # Display, p3-D65(K=6504)
+    elif color_space == 'display-p3' or color_space == 'dci-p3-d65':
+        r_xy = [0.6800, 0.3200]
+        g_xy = [0.2650, 0.6900]
+        b_xy = [0.1500, 0.0600]
+        # w_xy = [0.32168, 0.33767] # Cinema, p3-D60(K=6000)
+        # w_xy = [0.3140, 0.3510] # Theater, p3-DCI(K=6300)
+        w_xy = [0.3127, 0.3290] # Display, p3-D65(K=6504)
     # elif color_space == 'dci-p3+':
     #     r_xy = [0.7400, 0.2700]
     #     g_xy = [0.2200, 0.2700]
@@ -226,47 +238,82 @@ def getYUVF2LMat(is_float=True, pix_bits=10, coef_fix_bits=10):
     return mat_yuv_f2l
 
 
+# 解析色域参数：<色域名>[L|F]，L 表示 limited range，F 表示 full range，未指定时默认为 F
+def parseColorSpace(spec):
+    spec = spec.strip().lower()
+    if spec and spec[-1] in ("l", "f"):
+        range_ = spec[-1].upper()
+        name = spec[:-1]
+    else:
+        range_ = "F"
+        name = spec
+
+    # 兼容 601 / 709 / 2020 等简写，以及 rec* / bt2100 等别名
+    alias = {
+        "601": "bt601",
+        "709": "bt709",
+        "2020": "bt2020",
+        "2100": "bt2020",
+        "bt2100": "bt2020",
+        "rec601": "bt601",
+        "rec709": "bt709",
+        "rec2020": "bt2020",
+    }
+    name = alias.get(name, name)
+
+    supported = ("bt601", "bt709", "srgb", "bt2020", "dci-p3", "dci-p3-theater", "display-p3", "dci-p3-d65")
+    if name not in supported:
+        print(f"Error: color space '{spec}' is not supported!")
+        print(f"supported: {', '.join(supported)}, e.g. bt709L / 601F")
+        sys.exit(1)
+
+    return name, range_
+
+
 if __name__ == '__main__':
-    r_xy_bt709, g_xy_bt709, b_xy_bt709, w_xy_bt709 = getXYbyColorSpace("bt709")
-    r_xy_bt2020, g_xy_bt2020, b_xy_bt2020, w_xy_bt2020 = getXYbyColorSpace("bt2020")
-    r_xy_bt601, g_xy_bt601, b_xy_bt601, w_xy_bt601 = getXYbyColorSpace("bt601")
+    args = get_args()
 
     pix_bits = 10
-    coef_fix_bits = 10
+    coef_fix_bits = args.fix_bits
+    if coef_fix_bits <= 0:
+        print(f"Error: invalid fix_bits({coef_fix_bits}), should be > 0!")
+        sys.exit(1)
 
-    Mat_r2y_bt601F = getR2YMat("bt601", is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="F")
-    Mat_r2y_bt601L = getR2YMat("bt601", is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="L")
-    Mat_y2r_bt601F = getY2RMat("bt601", is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="F")
-    Mat_y2r_bt601L = getY2RMat("bt601", is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="L")
+    cs_in, range_in = parseColorSpace(args.input)
+    tag_in = (cs_in[2:] if cs_in.startswith("bt") else cs_in) + range_in
 
-    Mat_r2y_bt709F = getR2YMat("bt709", is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="F")
-    Mat_r2y_bt709L = getR2YMat("bt709", is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="L")
-    Mat_y2r_bt709F = getY2RMat("bt709", is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="F")
-    Mat_y2r_bt709L = getY2RMat("bt709", is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="L")
+    if args.output:
+        cs_out, range_out = parseColorSpace(args.output)
 
-    Mat_r2y_bt2020F = getR2YMat("bt2020", is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="F")
-    Mat_r2y_bt2020L = getR2YMat("bt2020", is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="L")
-    Mat_y2r_bt2020F = getY2RMat("bt2020", is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="F")
-    Mat_y2r_bt2020L = getY2RMat("bt2020", is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range="L")
+        # 601 与 2020 之间的转换是非法的
+        if {cs_in, cs_out} == {"bt601", "bt2020"}:
+            print(f"Error: csc between {cs_in} and {cs_out} is illegal!")
+            sys.exit(1)
 
-    Mat_601L_2_601F  = getFixMat(Mat_r2y_bt601F @ Mat_y2r_bt601L, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits)
-    Mat_601F_2_601F  = getFixMat(Mat_r2y_bt601F @ Mat_y2r_bt601F, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits)
-    Mat_709L_2_601F  = getFixMat(Mat_r2y_bt601F @ Mat_y2r_bt709L, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits)
-    Mat_709F_2_601F  = getFixMat(Mat_r2y_bt601F @ Mat_y2r_bt709F, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits)
-    Mat_2020L_2_601F = getFixMat(Mat_r2y_bt601F @ Mat_y2r_bt2020L, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits)
-    Mat_2020F_2_601F = getFixMat(Mat_r2y_bt601F @ Mat_y2r_bt2020F, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits)
-    offset_601L_2_601F = Mat_601L_2_601F @ np.array([[-64], [-512], [-512]]) + np.array([[0], [512], [512]])*(2**coef_fix_bits)
-    offset_601F_2_601F = Mat_601F_2_601F @ np.array([[0], [-512], [-512]]) + np.array([[0], [512], [512]])*(2**coef_fix_bits)
-    offset_709L_2_601F = Mat_709L_2_601F @ np.array([[-64], [-512], [-512]]) + np.array([[0], [512], [512]])*(2**coef_fix_bits)
-    offset_709F_2_601F = Mat_709F_2_601F @ np.array([[0], [-512], [-512]]) + np.array([[0], [512], [512]])*(2**coef_fix_bits)
-    offset_2020L_2_601F = Mat_2020L_2_601F @ np.array([[-64], [-512], [-512]]) + np.array([[0], [512], [512]])*(2**coef_fix_bits)
-    offset_2020F_2_601F = Mat_2020F_2_601F @ np.array([[0], [-512], [-512]]) + np.array([[0], [512], [512]])*(2**coef_fix_bits)
-    print("mat_601L_2_601F:\n\t", Mat_601L_2_601F.flatten(), "\n\t", offset_601L_2_601F.flatten())
-    print("mat_601F_2_601F:\n\t", Mat_601F_2_601F.flatten(), "\n\t", offset_601F_2_601F.flatten())
-    print("mat_709L_2_601F:\n\t", Mat_709L_2_601F.flatten(), "\n\t", offset_709L_2_601F.flatten())
-    print("mat_709F_2_601F:\n\t", Mat_709F_2_601F.flatten(), "\n\t", offset_709F_2_601F.flatten())
-    print("mat_2020L_2_601F:\n\t", Mat_2020L_2_601F.flatten(), "\n\t", offset_2020L_2_601F.flatten())
-    print("mat_2020F_2_601F:\n\t", Mat_2020F_2_601F.flatten(), "\n\t", offset_2020F_2_601F.flatten())
+        tag_out = (cs_out[2:] if cs_out.startswith("bt") else cs_out) + range_out
+
+        # 计算输入色域到输出色域的转换矩阵与 offset
+        mat_cvt = getFixMat(
+            getR2YMat(cs_out, is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range=range_out)
+            @ getY2RMat(cs_in, is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range=range_in),
+            pix_bits=pix_bits,
+            coef_fix_bits=coef_fix_bits,
+        )
+        offset_in = np.array([[-64], [-512], [-512]]) if range_in == "L" else np.array([[0], [-512], [-512]])
+        offset_out = np.array([[64], [512], [512]]) if range_out == "L" else np.array([[0], [512], [512]])
+        offset_cvt = mat_cvt @ offset_in + offset_out * (2**coef_fix_bits)
+
+        print(f"mat_{tag_in}_2_{tag_out}:\n\t", mat_cvt.flatten(), "\n\t", offset_cvt.flatten())
+    else:
+        # 只指定输入色域时，打印该色域的 y2r / r2y 转换系数
+        mat_y2r = getY2RMat(cs_in, is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range=range_in)
+        mat_r2y = getR2YMat(cs_in, is_float=True, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits, range=range_in)
+        print(f"mat_y2r_{tag_in} (float):\n\t", mat_y2r.flatten())
+        print(f"mat_y2r_{tag_in} (fix {coef_fix_bits} bits):\n\t",
+              getFixMat(mat_y2r, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits).flatten())
+        print(f"mat_r2y_{tag_in} (float):\n\t", mat_r2y.flatten())
+        print(f"mat_r2y_{tag_in} (fix {coef_fix_bits} bits):\n\t",
+              getFixMat(mat_r2y, pix_bits=pix_bits, coef_fix_bits=coef_fix_bits).flatten())
 
     # read yuv from file
     if False:
@@ -284,11 +331,9 @@ if __name__ == '__main__':
         yuv_vec = np.concatenate((y_, u_, v_), axis=0).astype(np.int32)
         yuv_vec = yuv_vec * 4
 
-        # convert from bt709L to bt601F
-        mat_cvt = Mat_709L_2_601F
-        offset_cvt = offset_709L_2_601F
+        # 使用 -i / -o 指定的输入色域到输出色域的转换系数（需要指定 -o）
         yuv_601F = mat_cvt @ yuv_vec + offset_cvt @ np.ones([1, img_w*img_h])
-        yuv_601F = np.clip(yuv_601F / 1024 / 4, 0, 255)
+        yuv_601F = np.clip(yuv_601F / (2**coef_fix_bits) / 4, 0, 255)
         print("coef:")
         print(mat_cvt)
         print("offset:")

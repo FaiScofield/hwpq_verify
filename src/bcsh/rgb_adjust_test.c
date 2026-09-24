@@ -82,6 +82,7 @@ static const sn_params_t k_gray_scen[] = {
     {"gray BT709 ", 1.20f, 0.05f, 1.30f, 30.0f, ADJ_RGB_GRAY_BT709},
     {"gray BT2020", 1.20f, 0.05f, 1.30f, 30.0f, ADJ_RGB_GRAY_BT2020},
     {"gray P3    ", 1.20f, 0.05f, 1.30f, 30.0f, ADJ_RGB_GRAY_P3},
+    {"gray P3-T  ", 1.20f, 0.05f, 1.30f, 30.0f, ADJ_RGB_GRAY_THEATER_P3},
 };
 #define N_GRAY ((int)(sizeof(k_gray_scen) / sizeof(k_gray_scen[0])))
 

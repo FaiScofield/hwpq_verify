@@ -40,9 +40,14 @@ void adjust_rgb_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t g
         wB = ADJ_LUMA_BT2020_B;
     }
     else if (gray_coef == ADJ_RGB_GRAY_P3) {
-        wR = ADJ_LUMA_P3_R;
-        wG = ADJ_LUMA_P3_G;
-        wB = ADJ_LUMA_P3_B;
+        wR = ADJ_LUMA_Display_P3_R;
+        wG = ADJ_LUMA_Display_P3_G;
+        wB = ADJ_LUMA_Display_P3_B;
+    }
+    else if (gray_coef == ADJ_RGB_GRAY_THEATER_P3) {
+        wR = ADJ_LUMA_Theater_P3_R;
+        wG = ADJ_LUMA_Theater_P3_G;
+        wB = ADJ_LUMA_Theater_P3_B;
     }
     else {
         wR = ADJ_LUMA_BT709_R;
@@ -146,7 +151,7 @@ void adjust_rgb_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t g
      delta_b   : Q11（1.0 = FIX_S_ONE）；加性 [-1,1]，中性 0
      delta_s   : Q11（1.0 = FIX_S_ONE）；灰阶混合 scale [0,4]，中性 1.0
      angle_q14 : Q14（360° = FIX_H_ONE）；绕灰轴旋转角，0 恒等跳过
-     gray_coef : ADJ_RGB_GRAY_BT601 / BT709 / BT2020 / P3（MixGray 的 luma 系数）
+     gray_coef : ADJ_RGB_GRAY_BT601 / BT709 / BT2020 / P3 / THEATER_P3（MixGray 的 luma 系数）
    像素域 [0, maxv]（u8: 255 / u10: 1023），内部统一 Q11（pixel<<11）运算。 */
 void adjust_rgb_sonnoc_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t gain_c, int32_t delta_b,
     int32_t delta_s, int32_t angle_q14, int gray_coef, uint16_t *ro, uint16_t *go, uint16_t *bo)
@@ -167,9 +172,14 @@ void adjust_rgb_sonnoc_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, in
         wB = ADJ_LUMA_BT2020_B;
     }
     else if (gray_coef == ADJ_RGB_GRAY_P3) {
-        wR = ADJ_LUMA_P3_R;
-        wG = ADJ_LUMA_P3_G;
-        wB = ADJ_LUMA_P3_B;
+        wR = ADJ_LUMA_Display_P3_R;
+        wG = ADJ_LUMA_Display_P3_G;
+        wB = ADJ_LUMA_Display_P3_B;
+    }
+    else if (gray_coef == ADJ_RGB_GRAY_THEATER_P3) {
+        wR = ADJ_LUMA_Theater_P3_R;
+        wG = ADJ_LUMA_Theater_P3_G;
+        wB = ADJ_LUMA_Theater_P3_B;
     }
     else {
         wR = ADJ_LUMA_BT709_R;
@@ -234,9 +244,14 @@ void adjust_rgb_sonnoc_float(float r, float g, float b, float gain_c, float delt
         wB = (float)ADJ_LUMA_BT2020_B / 65536.0f;
     }
     else if (gray_coef == ADJ_RGB_GRAY_P3) {
-        wR = (float)ADJ_LUMA_P3_R / 65536.0f;
-        wG = (float)ADJ_LUMA_P3_G / 65536.0f;
-        wB = (float)ADJ_LUMA_P3_B / 65536.0f;
+        wR = (float)ADJ_LUMA_Display_P3_R / 65536.0f;
+        wG = (float)ADJ_LUMA_Display_P3_G / 65536.0f;
+        wB = (float)ADJ_LUMA_Display_P3_B / 65536.0f;
+    }
+    else if (gray_coef == ADJ_RGB_GRAY_THEATER_P3) {
+        wR = (float)ADJ_LUMA_Theater_P3_R / 65536.0f;
+        wG = (float)ADJ_LUMA_Theater_P3_G / 65536.0f;
+        wB = (float)ADJ_LUMA_Theater_P3_B / 65536.0f;
     }
     else {
         wR = (float)ADJ_LUMA_BT709_R / 65536.0f;
