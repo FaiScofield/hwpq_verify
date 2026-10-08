@@ -41,10 +41,19 @@ RM24 = 0xFFFFFF
 RM32 = 0xFFFFFFFF
 
 
+def to_uint32(value) -> np.uint32:
+    """把寄存器值转换为 uint32（负数按 32bit 补码处理）。
+
+    统一用 python int 做运算：numpy 2.x 下 `2**32 + np.int32(x)` 会因 NEP50 直接抛 OverflowError，
+    而 `np.uint32(x)` 在 Windows 上又会因 C long 为 32bit 对 x >= 2**32 抛 OverflowError。
+    """
+    return np.uint32(int(value) & 0xFFFFFFFF)
+
+
 class Reg:
     def __init__(self, offset: int, value: int, name: str = ""):
         self.offset = offset
-        self.value = np.uint32(value) if value >= 0 else np.uint32(2**32 + value)
+        self.value = to_uint32(value)
         self.name = name
 
         self.base_addr = 0x0
@@ -130,7 +139,7 @@ class ModuleRegisterCore(ABC):
                 pos_ok = False
                 for i in range(len(self.regs)):
                     if pos == self.regs[i].offset or pos == self.regs[i].offset + self.base_addr:
-                        self.regs[i].value = np.uint32(val) if val >= 0 else np.uint32(2**32 + val)
+                        self.regs[i].value = to_uint32(val)
                         pos_ok = True
                         break
                 if not pos_ok:
@@ -144,7 +153,7 @@ class ModuleRegisterCore(ABC):
                 )
                 return False
             for i in range(len(self.regs)):
-                self.regs[i].value = np.uint32(data[i]) if data[i] >= 0 else np.uint32(2**32 + data[i])
+                self.regs[i].value = to_uint32(data[i])
             # if self.config is not None:
             #     self.regs2config()
             #     self.config.dump()
@@ -183,7 +192,7 @@ class ModuleRegisterCore(ABC):
                 or (name is not None and self.regs[i].name == name)
                 or (offset is not None and self.regs[i].offset == offset)
             ):
-                self.regs[i].value = np.uint32(value) if value >= 0 else np.uint32(2**32 + value)
+                self.regs[i].value = to_uint32(value)
                 ret = True
                 break
             else:
@@ -225,13 +234,14 @@ class ModuleRegisterCore(ABC):
         offsets = [o for o, v, n in regs]
         offset_value_dict = {o: v for o, v, n in regs}
 
-        key_st = np.uint32(min(offsets))
-        key_ed = np.uint32(max(offsets))
+        # 用 python int 计算地址，避免 np.uint32 在 Windows(C long 为 32bit) 上对超出 32bit 的地址报 OverflowError
+        key_st = min(offsets)
+        key_ed = max(offsets)
         lines = []
 
         while key_st <= key_ed:
             valid_line = False
-            line = "0x%08X:" % (key_st + np.uint32(base_address))
+            line = "0x%08X:" % (key_st + base_address)
             for j in range(align):
                 key = key_st + j * 4
                 if key in offset_value_dict:

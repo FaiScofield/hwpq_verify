@@ -50,14 +50,14 @@ class DciHWParam_VOP:
         self.act_start_v_offset = 0  # u9
         self.act_blk_size_h = 0  # u9
         self.act_blk_size_v = 0  # u9
-        self.ca_enable = 0
+        self.ca_enable = 0 # u1
         self.sat_w = 0  # u7
         self.luma_sat_adj_zero = 0  # u16
         self.luma_sat_adj_thrd = 0  # u16
         self.luma_sat_adj_k = 0  # u16
-        self.dci_local_lut = np.zeros(16 * 16 * 16, np.uint16)
-        self.dci_locat_ratio = np.zeros(16 * 16, np.uint8)
-        self.dci_global_lut = np.zeros(256, np.uint16)
+        self.dci_local_lut = np.zeros(16 * 16 * 16, np.uint16) # u10 x 16^3
+        self.dci_locat_ratio = np.zeros(16 * 16, np.uint8) # u6 x 16^2
+        self.dci_global_lut = np.zeros(256, np.uint16) # u10 x 256
 
 
 class DciConfig(ModuleConfigCore):
@@ -145,9 +145,9 @@ class DciConfig(ModuleConfigCore):
                     self.vdpp_config.dci_hsd_mode = vdpp_data["dci_hsd_mode"]
                 elif "vdpp_config" in data:
                     vdpp_data = data["vdpp_config"]
-                    self.vdpp_config.working_mode = vdpp_data["working_mode"]
-                    self.vdpp_config.dci_data_format = vdpp_data["dci_data_format"]
-                    self.vdpp_config.dci_csc_range = vdpp_data["dci_csc_range"]
+                    self.vdpp_config.working_mode = vdpp_data["working_mode"] if "working_mode" in vdpp_data else 3
+                    self.vdpp_config.dci_data_format = vdpp_data["dci_data_format"] if "dci_data_format" in vdpp_data else 4
+                    self.vdpp_config.dci_csc_range = vdpp_data["dci_csc_range"] if "dci_csc_range" in vdpp_data else 0
                     self.vdpp_config.dci_vsd_mode = vdpp_data["dci_vsd_mode"]
                     self.vdpp_config.dci_hsd_mode = vdpp_data["dci_hsd_mode"]
                     self.vdpp_config.dci_alpha_swap = vdpp_data["dci_alpha_swap"]
@@ -220,8 +220,6 @@ class DciConfig(ModuleConfigCore):
         blk_size_ver_half = (blk_size_ver + 1) >> 1
         lum_zero = random.randint(0, 255)
         lum_thr = lum_zero + random.randint(-40, 40)
-        while lum_thr == lum_zero:
-            lum_thr = lum_zero + random.randint(-40, 40)
         if lum_zero > lum_thr:
             lum_zero, lum_thr = lum_thr, lum_zero
         lum_zero *= 4
@@ -229,7 +227,7 @@ class DciConfig(ModuleConfigCore):
 
         ## random config for vdpp
         self.vdpp_config.working_mode = 2 if (img_wid <= 1920 and img_hgt <= 2048) else 3
-        self.vdpp_config.dci_data_format = 4
+        self.vdpp_config.dci_data_format = 4 # 0-RGB888, 1-ARGB8888, 4-YSP8bit, 5-YSP10bit
         self.vdpp_config.dci_csc_range = int(random.randint(0, 99) < 50)  # 50%
         self.vdpp_config.dci_vsd_mode = random.randint(0, 2) if self.vdpp_config.working_mode == 3 else 0
         self.vdpp_config.dci_hsd_mode = random.randint(0, 1) if self.vdpp_config.working_mode == 3 else 0
@@ -269,7 +267,7 @@ class DciConfig(ModuleConfigCore):
         self.vop_config.dci_local_lut = np.random.randint(0, 1023, size=16 * 16 * 16, dtype=np.uint16)
         self.vop_config.dci_locat_ratio = np.random.randint(0, 32, size=16 * 16, dtype=np.uint8)
         self.vop_config.dci_global_lut = np.random.randint(0, 1023, size=256, dtype=np.uint16)
-        self.logger.info(f"generated a random config with seed={seed}")
+        self.logger.info(f"generated a random config with seed={seed}, size={img_wid}x{img_hgt}")
         return True
 
 class DciUserConfig(ModuleConfigCore):

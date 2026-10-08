@@ -31,6 +31,9 @@ def parse_common_args(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", "--module", type=str, required=True, help="module name (sharp[lite], acm, dci, csc, ...)")
     parser.add_argument("-e", "--exe", type=str, default="", help="module sim_exe file path")
+    parser.add_argument(
+        "--mode", type=int, default=0, help="test mode passed to sim_exe ('-m'), customized by each module"
+    )
     parser.add_argument("-r", "--root", type=str, default="", help="the root dir for data saving")
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="RK3572/RK3576")
     parser.add_argument("-i", "--input_file", type=str, default="", help="input file path")
@@ -78,8 +81,8 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
     root_dir = args.root if args.root != "" else "//172.16.4.246/vop/RKCFA/batch_sim/sim_check_fpga_rk3572/"
     input_dir = os.path.join(root_dir, "input")
     output_dir = os.path.join(root_dir, "output")
-    # config_dir = os.path.join(root_dir, "config")
-    config_dir = os.path.join(root_dir, "acm_rand_config_20260318")
+    config_dir = os.path.join(root_dir, "config")
+    # config_dir = os.path.join(root_dir, "acm_rand_config_20260318")
     log_dir = os.path.join(root_dir, "log")
     os.makedirs(input_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
@@ -103,6 +106,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
         NB_REG_PER_FRAME = len(reg_handler.regs)
     module_args = kwargs["module_args"] if "module_args" in kwargs else ""
     platform = args.platform
+    mode = int(args.mode)
     nb_input = int(args.input_num)
     nb_config = int(args.config_num)
     nb_frame = int(args.frame_num)
@@ -116,6 +120,7 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
     logger.info(f"Set root_dir: {root_dir}")
     logger.info(f"Set module_args: '{module_args}'")
     logger.info(f"Set platform: {platform}")
+    logger.info(f"Set simulator mode: {mode}")
     logger.info(f"Set input file: {args.input_file}, size: {img_wid}x{img_hgt}, nb_frame: {nb_frame}")
     logger.info(f"Set random input/config num: {nb_input} / {nb_config}")
     if nb_input > 0:
@@ -173,8 +178,10 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
             config_list.append(os.path.basename(config_file))
             if reg_handler is not None:
                 reg_file = os.path.join(config_dir, f"{config_handler.name.lower()}_config_seed_{config_seed + i}.bin")
+                dat_file = os.path.join(config_dir, f"{config_handler.name.lower()}_config_seed_{config_seed + i}.dat")
                 reg_handler.load(filename=config_file)
                 reg_handler.dump(filename=reg_file)
+                reg_handler.dump(filename=dat_file)
         logger.info(f"generated {len(config_list)} config files in {config_dir} ...")
         ## cat reg_files to single bin file
         if reg_handler is not None:
@@ -229,17 +236,22 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
                 # seed = config_handler.randSeed
                 # suffix = f"_seed_{seed}"
 
+                if mode == 1:
+                    config_path = config_path.replace(".json", ".bin")
+
                 try:
                     # run command
                     cmd_str = (
                         exe
-                        + f" -i {input_path} -n {nb_frame} -o {output_dir} -c {config_path} -C {final_crc_file} -w {wid} -g {hgt} -f {img_fmt.value[0]} -F {12 if is_rgb_fmt else 13} {module_args}"
+                        + f" -i {input_path} -n {nb_frame} -o {output_dir} -c {config_path} -C {final_crc_file}"
+                        + f" -w {wid} -g {hgt} -f {img_fmt.value[0]} -F {12 if is_rgb_fmt else 13} -m {mode} {module_args}"
                     )
                     ret = run_cmd(cmd_str, False, logger)
-                    if ret != 0:
-                        raise Exception("run sim_exe failed for intput={input_name}, config={config}!")
-                except:
-                    logger.error(f"run sim_exe failed for intput={input_name}, config={config}!")
+                    if ret.returncode != 0:
+                        logger.error(f"run sim_exe failed for input={input_name}, config={config}, err={ret.stderr}!")
+                        break
+                except Exception as e:
+                    logger.error(f"run sim_exe failed! {e}")
                     break
                 config_idx += 1
 
@@ -257,9 +269,9 @@ def run_common_module(config_handler, reg_handler, args, **kwargs):
                             f"❌ register file size = {exe_reg_file_size} != {theorical_file_size} theorical size, please check!"
                         )
                         exit(-1)
-                except:
+                except Exception as e:
                     logger.error(
-                        f"❌ copy register file failed for intput={input_name}, exe_output_reg_file={exe_output_reg_file}!"
+                        f"❌ copy register file failed for intput={input_name}, exe_output_reg_file={exe_output_reg_file}! {e}"
                     )
 
     logger.info(f"run sim_exe done. check output data in {output_dir}")

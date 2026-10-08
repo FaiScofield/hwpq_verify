@@ -24,7 +24,7 @@ class DciModuleIndex(Enum):
     """enum = (name, ip_address, offset, nb_regs)"""
 
     VDPP_VEP = ("VDPP_VEP", 0x0, 0x00001004, 7)
-    VOP_CLUSTER0 = ("VOP_CLUSTER0", 0xF90000000, 0x00001104, 23 + 1408)  # 1408=5632/4
+    VOP_CLUSTER0 = ("VOP_CLUSTER0", 0xF9000000, 0x00001104, 23 + 1408)  # 1408=5632/4
 
 
 class DciRegister(ModuleRegisterCore):
@@ -133,8 +133,29 @@ class DciRegister(ModuleRegisterCore):
             name="DCI_CTRL",
             value=(cfg.vop_config.dci_enable & 0x1) | ((cfg.vop_config.ca_enable & 0x1) << 1) | (1 << 2),
         )
-        # self.set(name="DCI_LUT_MST", value=0x0)
+        self.set(name="DCI_LUT_MST", value=0x0)
+        self.set(name="DCI_DBG_CTRL", value=0x0)
+        self.set(name="DCI_DBG_PIX", value=0x0)
 
+        # dci-csc regs, y2y case
+        coef = np.array([0] * 12, dtype=np.int32)
+        if cfg.vdpp_config.dci_csc_range == 0:  # limited range
+            coef[0] = 1196
+            coef[4] = coef[8] = 1169
+            coef[9] = -76544
+            coef[10] = coef[11] = -74240
+        else:  # full range
+            coef[0] = coef[4] = coef[8] = 1024
+        self.set(name="DCI_CSC_COE01_00", value=(coef[0] | (coef[1] << 16)))
+        self.set(name="DCI_CSC_COE10_02", value=(coef[2] | (coef[3] << 16)))
+        self.set(name="DCI_CSC_COE12_11", value=(coef[4] | (coef[5] << 16)))
+        self.set(name="DCI_CSC_COE21_20", value=(coef[6] | (coef[7] << 16)))
+        self.set(name="DCI_CSC_COE22", value=coef[8])
+        self.set(name="DCI_CSC_OFFSET0", value=coef[9])
+        self.set(name="DCI_CSC_OFFSET1", value=coef[10])
+        self.set(name="DCI_CSC_OFFSET2", value=coef[11])
+
+        # pack lut data
         self.packed_lut = self.pack_lut(
             cfg.vop_config.dci_global_lut, cfg.vop_config.dci_locat_ratio, cfg.vop_config.dci_local_lut
         )
@@ -281,6 +302,8 @@ if __name__ == "__main__":
     parser.add_argument("-f", "--file", type=str, default="", help="读写文件名")
     parser.add_argument("-p", "--platform", type=str, default="RK3572", help="设置平台: RK3572/RK3538...")
     parser.add_argument("-s", "--seed", type=int, default=114514, help="设置随机种子")
+    parser.add_argument("-w", "--width", type=int, default=1920, help="设置图像宽度")
+    parser.add_argument("-g", "--height", type=int, default=1080, help="设置图像高度")
     parser.print_usage()
     args = parser.parse_args()
 
@@ -291,15 +314,15 @@ if __name__ == "__main__":
     elif args.interface == "dump":
         register.dump(args.file)
     elif args.interface == "gen":
-        if register.gen(args.seed):
+        if register.gen(args.seed, width=args.width, height=args.height):
             register.dump(args.file)
     elif args.interface in ["c2r", "config2regs"]:
-        register.config.gen(args.seed)
+        register.config.gen(args.seed, width=args.width, height=args.height)
         register.config.dump()
         if register.config2regs():
             register.dump()
     elif args.interface in ["r2c", "regs2config"]:
-        register.gen(args.seed)
+        register.gen(args.seed, width=args.width, height=args.height)
         register.dump()
         if register.regs2config():
             register.config.dump()
