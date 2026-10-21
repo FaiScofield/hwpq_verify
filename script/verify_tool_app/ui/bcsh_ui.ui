@@ -15,6 +15,61 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
+    <layout class="QHBoxLayout" name="horizontalLayout_2">
+     <property name="topMargin">
+      <number>0</number>
+     </property>
+     <item>
+      <widget class="QCheckBox" name="cbox_useExe">
+       <property name="text">
+        <string>Use CModel EXE:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="combo_exePath">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="editable">
+        <bool>true</bool>
+       </property>
+       <item>
+        <property name="text">
+         <string>G:/Codes/RkYuvAlgos_git/project/vc/build_ninja_Release/rkswpq/rk_swpq_exe.exe</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_browseExe">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="toolTip">
+        <string>BCSH CModel 可执行文件（rk_swpq_exe）</string>
+       </property>
+       <property name="text">
+        <string>Browse</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_explore">
+       <property name="text">
+        <string>Explore</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
     <layout class="QHBoxLayout" name="horizontalLayout_enable">
      <item>
       <widget class="QCheckBox" name="checkBox_enableHsvAdj">
@@ -1018,6 +1073,10 @@
   </layout>
  </widget>
  <tabstops>
+  <tabstop>cbox_useExe</tabstop>
+  <tabstop>combo_exePath</tabstop>
+  <tabstop>btn_browseExe</tabstop>
+  <tabstop>btn_explore</tabstop>
   <tabstop>checkBox_enableHsvAdj</tabstop>
   <tabstop>comboBox_adjustField</tabstop>
   <tabstop>comboBox_y2rClipType</tabstop>
@@ -1049,6 +1108,8 @@
   <tabstop>spinBox_hueEndTail</tabstop>
   <tabstop>spinBox_hueStartPad</tabstop>
   <tabstop>spinBox_hueEndPad</tabstop>
+  <tabstop>spinBox_transFactor</tabstop>
+  <tabstop>spinBox_transRatio</tabstop>
  </tabstops>
  <resources/>
  <connections/>

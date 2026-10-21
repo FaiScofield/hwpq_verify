@@ -5,11 +5,15 @@ HSV tab controller — encapsulates all HSV-related UI behavior and state.
 from collections.abc import Callable
 from dataclasses import dataclass
 import logging
+import os
 import time
 
 import numpy as np
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QLineEdit, QMainWindow, QWidget
+from PySide6.QtCore import QTimer, QUrl
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import (
+    QFileDialog, QLineEdit, QMainWindow, QMessageBox, QWidget,
+)
 
 from script.bcsh.hsv_adjust import (
     adjust_hsv, adjust_rgb, rgb_to_hsv, hsv_to_rgb,
@@ -18,6 +22,9 @@ from script.bcsh.hsv_adjust import (
     rgb_to_hsp, hsp_to_rgb,
     steepen_weight, transition_damp,
     blend_in_domain, damp_saturation_in_domain, damp_rgb_toward_max,
+)
+from script.bcsh.native_compare import (
+    BcshNativeConfig, NativeBcshError, NativeBcshRunner,
 )
 from script.img_io import (
     ImageFrame, _csc_range_params, _get_csc_matrices, is_limited_range,
@@ -103,6 +110,28 @@ _DOMAIN_CONVERTERS = {
     "Lch": (rgb_to_lch, lch_to_rgb),
     "RGB": (_rgb_domain_to, _rgb_domain_from),
 }
+
+# 外部执行模式（rk_swpq_exe 的 BCSH 单模块）下各处理域允许的 mode 组合；
+# None 表示 C++ BCSH 无对应实现（控件不可用）。
+#   RGB: B(ModeAdd) -> C(GainAtZero) -> S(MixGray) -> H(RotateOnGray), HueGoal=SameOffset
+#   HSV: B(ModeMul) -> S(ModeMul) -> H(ModeAdd), HueGoal=SameTarget（无 Contrast）
+# 参数为中性 1024、范围 [0, 2047]，见 HsvUiController._exe_config。
+_EXE_MODE_ALLOWED = {
+    "HSV": {"modeC": None,
+            "modeB": ("ModeMul",),
+            "modeS": ("ModeMul",),
+            "modeH": ("ModeAdd",),
+            "goalH": ("SameTarget",)},
+    "RGB": {"modeC": ("GainAtZero",),
+            "modeB": ("ModeAdd",),
+            "modeS": ("MixGray_BT709", "MixGray_BT601"),
+            "modeH": ("RotateOnGray",),
+            "goalH": ("SameOffset",)},
+}
+_EXE_FIELDS = ("HSV", "RGB")
+_EXE_SUFFIXES = (".exe", ".bat", ".cmd", ".com")
+# exe 的 nBrightness/nSaturation 上限 2047（中性 1024）→ 乘性增益上限 ≈ 2
+_EXE_MUL_MAX = 2047.0 / 1024.0
 
 
 @dataclass
@@ -228,6 +257,10 @@ class HsvUiController:
         self._s_mode = 'mul'          # 'add'/'mul'（S 通道模式，.ui 默认 Mul）
         self._b_mode = 'add'          # 'add'/'mul'（B 通道模式，.ui 默认 Add）
         self._work_size: tuple[int, int] | None = None   # 最近一次预览处理的分辨率
+        # 外部执行模式（cbox_useExe）：勾选并通过校验后 BCSH 由 rk_swpq_exe 完成。
+        self._use_exe = False
+        self._exe_path = ""
+        self._exe_runner: NativeBcshRunner | None = None
 
         # --- Auto-run debounce timer ---
         self.auto_run_timer = QTimer(self.widget)
@@ -342,6 +375,14 @@ class HsvUiController:
         # 过渡区参数（Trans Factor(S)/Trans Ratio(K)）为独立 spinBox，无联动对象。
         ui.spinBox_transFactor.valueChanged.connect(self._schedule_auto_run)
         ui.spinBox_transRatio.valueChanged.connect(self._schedule_auto_run)
+        # 外部执行模式（CModel exe）
+        ui.cbox_useExe.toggled.connect(self._on_use_exe_toggled)
+        ui.btn_browseExe.clicked.connect(self._on_browse_exe)
+        ui.btn_explore.clicked.connect(self._on_explore_exe)
+        ui.combo_exePath.currentIndexChanged.connect(self._on_exe_path_edited)
+        line_edit = ui.combo_exePath.lineEdit()
+        if line_edit is not None:
+            line_edit.editingFinished.connect(self._on_exe_path_edited)
 
     # ------------------------------------------------------------------ #
     # Slider-spin helpers                                                #
@@ -481,6 +522,33 @@ class HsvUiController:
         """B 模式配置条目键：add/mul/rate2limit 各自条目。"""
         return code
 
+    @staticmethod
+    def _mode_value_family(code: str) -> str:
+        """B/S 参数的数值语义族：'add'（加性，中性 0）/ 'mul'（乘性，中性 1）。"""
+        if code == 'add':
+            return 'add'
+        if code in ('mul', 'mixgray', 'mixgray_bt709', 'mixgray_bt601'):
+            return 'mul'
+        return code
+
+    @classmethod
+    def _convert_mode_value(cls, value: float, old_code: str,
+                            new_code: str) -> float | None:
+        """模式切换时换算 B/S 数值；None 表示语义不可换算，调用方用新中性值。
+
+        add ↔ mul：V'=V+db（中性 0）↔ V'=V*g（中性 1），按 g=1+db 换算。
+        rate2limit 的“向黑/白靠拢”语义不同，跨族时不做数值换算。
+        """
+        old_family = cls._mode_value_family(old_code)
+        new_family = cls._mode_value_family(new_code)
+        if old_family == new_family:
+            return value
+        if old_family == 'add' and new_family == 'mul':
+            return value + 1.0
+        if old_family == 'mul' and new_family == 'add':
+            return value - 1.0
+        return None
+
     def _apply_b_mode_ui(self, mode: str, keep_value: bool = False) -> None:
         """按配置设置 B 通道量程/步长；默认置为配置默认值，keep_value 时保留当前值（clip 到新量程）。"""
         entry = self._entry('Brightness', self._b_entry_mode(mode))
@@ -504,8 +572,15 @@ class HsvUiController:
 
     def _on_adjust_field_changed(self, *_args) -> None:
         """adjustField 切换：RGB 域只允许 MixGray_BT709/BT601（灰阶混合），
-        圆柱色域只允许 ModeAdd/ModeMul/Rate2Limit；modeC 的 FastStone 仅 RGB 域。"""
+        圆柱色域只允许 ModeAdd/ModeMul/Rate2Limit；modeC 的 FastStone 仅 RGB 域。
+
+        外部执行模式下改用 ``_apply_exe_ui`` 的固定 mode 组合。
+        """
         del _args
+        if self._use_exe:
+            self._apply_exe_ui()
+            self._schedule_auto_run()
+            return
         is_rgb = self._adjust_field() == "RGB"
         self._set_mode_s_items_enabled(is_rgb)
         self._set_mode_h_items_enabled(is_rgb)
@@ -643,6 +718,396 @@ class HsvUiController:
         self.ui.spinBox_sameHueGoal.setEnabled(active)
 
     # ------------------------------------------------------------------ #
+    # 外部执行模式（CModel exe）                                          #
+    # ------------------------------------------------------------------ #
+
+    def _exe_path_text(self) -> str:
+        """combo_exePath 当前文本（可编辑，去首尾空白）。"""
+        return self.ui.combo_exePath.currentText().strip()
+
+    @staticmethod
+    def _validate_exe_path(path: str) -> tuple[bool, str]:
+        """校验 exe 路径：非空、存在、是文件且有可执行权限。"""
+        if not path:
+            return False, "请先填写或选择 BCSH CModel 可执行文件路径。"
+        if not os.path.exists(path):
+            return False, f"文件不存在：\n{path}"
+        if not os.path.isfile(path):
+            return False, f"路径不是文件：\n{path}"
+        if os.name == "nt" and not path.lower().endswith(_EXE_SUFFIXES):
+            return False, (
+                f"不是可执行文件（扩展名应为 {'/'.join(_EXE_SUFFIXES)}）：\n{path}"
+            )
+        if not os.access(path, os.X_OK):
+            return False, f"文件没有可执行权限：\n{path}"
+        return True, ""
+
+    def _set_exe_path(self, path: str) -> None:
+        """把路径写入 combo_exePath（不存在时追加为可选项），不触发校验信号。"""
+        combo = self.ui.combo_exePath
+        combo.blockSignals(True)
+        index = combo.findText(path)
+        if index < 0:
+            combo.addItem(path)
+            index = combo.count() - 1
+        combo.setCurrentIndex(index)
+        combo.blockSignals(False)
+
+    def _on_browse_exe(self) -> None:
+        """选择 BCSH CModel 可执行文件并填充 combo_exePath。"""
+        current = self._exe_path_text()
+        start = os.path.dirname(current) if current else os.getcwd()
+        path, _selected = QFileDialog.getOpenFileName(
+            self._win, "Select BCSH CModel Exe", start,
+            "Executable (*.exe *.bat *.cmd *.com);;All Files (*)")
+        if not path:
+            return
+        self._set_exe_path(path)
+        if self._use_exe:
+            self._revalidate_active_exe()
+
+    def _on_explore_exe(self) -> None:
+        """打开 combo_exePath 所在文件夹。"""
+        path = self._exe_path_text()
+        if not path:
+            self._status_callback("BCSH exe path is empty")
+            return
+        folder = path if os.path.isdir(path) else os.path.dirname(path)
+        if not folder or not os.path.isdir(folder):
+            QMessageBox.warning(self._win, "Explore", f"文件夹不存在：\n{folder}")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+
+    def _on_exe_path_edited(self, *_args) -> None:
+        """路径编辑/切换完成后，外部执行模式下重新校验。"""
+        if self._use_exe:
+            self._revalidate_active_exe()
+
+    def _revalidate_active_exe(self) -> None:
+        """外部执行模式下路径变化：校验失败则弹窗并退出外部执行模式。"""
+        path = self._exe_path_text()
+        ok, message = self._validate_exe_path(path)
+        if ok:
+            self._exe_path = path
+            self._exe_runner = None
+            return
+        QMessageBox.warning(self._win, "Use CModel EXE", message)
+        self._deactivate_exe_mode()
+        self._status_callback("BCSH exe mode disabled: invalid exe path")
+
+    def _on_use_exe_toggled(self, checked: bool) -> None:
+        """cbox_useExe：校验通过才真正进入外部执行模式，否则弹窗并保持不选中。"""
+        if checked and not self._use_exe:
+            path = self._exe_path_text()
+            ok, message = self._validate_exe_path(path)
+            if not ok:
+                QMessageBox.warning(self._win, "Use CModel EXE", message)
+                self._uncheck_use_exe()
+                self._status_callback("BCSH exe mode not enabled")
+                return
+            logger.debug("BCSH exe 校验通过，开始自检: %s", path)
+            ok, message = self._self_test_exe(path)
+            if not ok:
+                logger.warning("BCSH exe 自检失败: %s\n%s", path, message)
+                QMessageBox.warning(self._win, "Use CModel EXE", message)
+                self._uncheck_use_exe()
+                self._status_callback("BCSH exe self-test failed")
+                return
+            self._use_exe = True
+            self._exe_path = path
+            self._exe_runner = None
+            self._apply_exe_ui()
+            logger.info("BCSH exe mode enabled: %s", path)
+            self._status_callback(f"BCSH exe mode: {path}")
+            self._schedule_auto_run()
+            return
+        if not checked and self._use_exe:
+            self._deactivate_exe_mode()
+            self._status_callback("BCSH exe mode disabled")
+            self._schedule_auto_run()
+
+    def _uncheck_use_exe(self) -> None:
+        """不触发信号地把 cbox_useExe 置回未选中。"""
+        self.ui.cbox_useExe.blockSignals(True)
+        self.ui.cbox_useExe.setChecked(False)
+        self.ui.cbox_useExe.blockSignals(False)
+
+    def _deactivate_exe_mode(self) -> None:
+        """退出外部执行模式：取消勾选并恢复常规 UI 约束。"""
+        self._use_exe = False
+        self._exe_path = ""
+        self._exe_runner = None
+        self._uncheck_use_exe()
+        self._restore_domain_ui()
+
+    def _apply_exe_ui(self) -> None:
+        """外部执行模式的 UI 约束：处理域仅 HSV/RGB，钳位下拉不可用，
+        5 个 mode 组合框按 ``_EXE_MODE_ALLOWED`` 固定。"""
+        ui = self.ui
+        # 记录切换前的模式/数值：exe 强制 HSV 用 ModeMul、RGB 用 ModeAdd，
+        # 两者中性值不同（0 vs 1.0），直接保留数值会让中性 0 变成 0 倍增益（全黑）。
+        old_b_mode = self._b_mode_code()
+        old_s_mode = self._s_mode_code()
+        old_b_value = float(ui.spinBox_deltaB.value())
+        old_s_value = float(ui.spinBox_deltaS.value())
+        field_combo = ui.comboBox_adjustField
+        for i in range(field_combo.count()):
+            field_combo.model().item(i).setEnabled(
+                field_combo.itemText(i) in _EXE_FIELDS)
+        if field_combo.currentText() not in _EXE_FIELDS:
+            self._set_combo_text(field_combo, _EXE_FIELDS[0])
+
+        allowed = _EXE_MODE_ALLOWED[self._adjust_field()]
+        mode_ctrls = {
+            "modeC": ui.comboBox_modeC,
+            "modeB": ui.comboBox_modeB,
+            "modeS": ui.comboBox_modeS,
+            "modeH": ui.comboBox_modeH,
+            "goalH": ui.comboBox_goalH,
+        }
+        for key, ctrl in mode_ctrls.items():
+            items = allowed[key]
+            ctrl.setEnabled(items is not None)
+            for i in range(ctrl.count()):
+                ctrl.model().item(i).setEnabled(
+                    items is not None and ctrl.itemText(i) in items)
+            if items and ctrl.currentText() not in items:
+                self._set_combo_text(ctrl, items[0])
+
+        # C++ BCSH 无 Contrast（HSV）、S Tolerance 与指定色调过渡区
+        c_available = allowed["modeC"] is not None
+        for ctrl in (ui.label_gainC, ui.comboBox_modeC, ui.slider_gainC,
+                     ui.spinBox_gainC, ui.pushButton_resetC):
+            ctrl.setEnabled(c_available)
+        for ctrl in (ui.label_y2rClip, ui.comboBox_y2rClipType,
+                     ui.label_y2yClip, ui.comboBox_y2yClipType,
+                     ui.label_toleranceS, ui.spinBox_toleranceS):
+            ctrl.setEnabled(False)
+        ui.groupBox_setHueRange.setEnabled(False)
+
+        # mode 取值变化后同步各通道量程（C/B/S 模式与 SameTarget/SameOffset）。
+        # _set_combo_text 屏蔽了信号，故清空 _b_mode/_s_mode 缓存，强制重算量程。
+        # B/S 跨 add/mul 时先换算数值：Add 的中性 0 -> Mul 的 0 倍增益会输出全黑。
+        b_code = self._b_mode_code()
+        s_code = self._s_mode_code()
+        b_value = self._convert_mode_value(old_b_value, old_b_mode, b_code)
+        s_value = self._convert_mode_value(old_s_value, old_s_mode, s_code)
+        self._b_mode = ''
+        self._s_mode = ''
+        self._on_c_mode_changed()
+        self._apply_b_mode_ui(b_code, keep_value=False)
+        if b_value is not None:
+            b_value = min(max(b_value, ui.spinBox_deltaB.minimum()),
+                          ui.spinBox_deltaB.maximum())
+            self._set_spin_value(ui.spinBox_deltaB, b_value)
+            self._set_slider_value(ui.slider_deltaB,
+                                   int(round(b_value * SLIDER_SCALE['Brightness'])))
+        self._b_mode = b_code
+        self._apply_s_mode_ui(s_code, keep_value=False)
+        if s_value is not None:
+            s_value = min(max(s_value, ui.spinBox_deltaS.minimum()),
+                          ui.spinBox_deltaS.maximum())
+            self._set_spin_value(ui.spinBox_deltaS, s_value)
+            self._set_slider_value(ui.slider_deltaS,
+                                   int(round(s_value * SLIDER_SCALE['Saturation'])))
+        self._s_mode = s_code
+        self._apply_same_hue_goal_enable(
+            self.ui.comboBox_goalH.currentText() == "SameTarget")
+        self._on_h_mode_changed()
+        self._clamp_exe_ranges()
+
+    def _clamp_exe_ranges(self) -> None:
+        """把 Saturation 乘性增益上限收到 exe 的 [0, 2047] 参数域（增益 ≈ 2）。"""
+        spin, slider = self.ui.spinBox_deltaS, self.ui.slider_deltaS
+        scale = SLIDER_SCALE['Saturation']
+        value = min(float(spin.value()), _EXE_MUL_MAX)
+        spin.setRange(0.0, _EXE_MUL_MAX)
+        slider.setRange(0, int(round(_EXE_MUL_MAX * scale)))
+        self._set_spin_value(spin, value)
+        self._set_slider_value(slider, int(round(value * scale)))
+
+    def _restore_domain_ui(self) -> None:
+        """退出外部执行模式：恢复 adjustField/clip/mode 的常规约束与量程。"""
+        ui = self.ui
+        field_combo = ui.comboBox_adjustField
+        for i in range(field_combo.count()):
+            field_combo.model().item(i).setEnabled(True)
+        for ctrl in (ui.comboBox_modeC, ui.comboBox_modeB, ui.comboBox_modeS,
+                     ui.comboBox_modeH, ui.comboBox_goalH):
+            ctrl.setEnabled(True)
+            for i in range(ctrl.count()):
+                ctrl.model().item(i).setEnabled(True)
+        for ctrl in (ui.label_gainC, ui.comboBox_modeC, ui.slider_gainC,
+                     ui.spinBox_gainC, ui.pushButton_resetC):
+            ctrl.setEnabled(True)
+        for ctrl in (ui.label_y2rClip, ui.comboBox_y2rClipType,
+                     ui.label_y2yClip, ui.comboBox_y2yClipType,
+                     ui.label_toleranceS, ui.spinBox_toleranceS):
+            ctrl.setEnabled(True)
+        ui.groupBox_setHueRange.setEnabled(True)
+        # 退出外部执行模式后按常规模式重新套用量程/中性值（S 的乘性上限可能被收紧过）
+        self._b_mode = ''
+        self._s_mode = ''
+        self._apply_b_mode_ui(self._b_mode_code(), keep_value=True)
+        self._b_mode = self._b_mode_code()
+        self._apply_s_mode_ui(self._s_mode_code(), keep_value=True)
+        self._s_mode = self._s_mode_code()
+        self._on_adjust_field_changed()
+
+    def _get_exe_runner(self) -> NativeBcshRunner:
+        """当前 exe 路径对应的 runner（路径变化时重建）。"""
+        path = self._exe_path or self._exe_path_text()
+        if self._exe_runner is None or str(self._exe_runner.exe) != path:
+            keep_temp = bool(os.environ.get("BCSH_KEEP_TEMP"))
+            self._exe_runner = NativeBcshRunner(
+                path, timeout=120.0, keep_temp=keep_temp)
+            logger.debug("BCSH exe runner: %s (keep_temp=%s)", path, keep_temp)
+        return self._exe_runner
+
+    @staticmethod
+    def _self_test_exe(path: str) -> tuple[bool, str]:
+        """进入外部执行模式前的自检：用中性参数处理一张小渐变图。
+
+        主要拦截"exe 与 OpenCL kernel 缓存不匹配导致输出全黑"这类静默失败，
+        以及缺 DLL / 不支持 BCSH 模块等错误。
+        """
+        size = 128
+        ramp = np.arange(size, dtype=np.int32)[None, :]
+        rgb = np.stack([
+            np.broadcast_to((ramp * 2) % 256, (size, size)),
+            np.broadcast_to(((ramp * 3) % 256).T, (size, size)),
+            np.broadcast_to((ramp * 5) % 256, (size, size)),
+        ], axis=-1).astype(np.uint8)
+        config = BcshNativeConfig(
+            model="rgb", brightness=1024, contrast=1024,
+            saturation=1024, hue=1024, proc_mode=0,
+        )
+        try:
+            out = NativeBcshRunner(path, timeout=30.0).run(
+                rgb, config, check_black=True)
+        except (NativeBcshError, OSError) as exc:
+            return False, f"BCSH exe 自检失败：\n{exc}"
+        except Exception as exc:  # pragma: no cover - 兜底
+            return False, f"BCSH exe 自检失败：{exc}"
+        if int(out[..., :3].max()) == 0:
+            return False, (
+                "BCSH exe 自检失败：中性参数下输出全黑。\n"
+                "常见原因是 exe 与 D:/RkDefaultDumpData/pq_bcsh_*.bin 的 "
+                "OpenCL kernel 缓存不匹配（exe 过旧）。\n"
+                "请改用与当前源码同时构建的 rk_swpq_exe，或删除该缓存文件后重试。"
+            )
+        logger.debug(
+            "BCSH exe 自检通过: %s（输出 mean=%.2f max=%d）",
+            path, float(out[..., :3].mean()), int(out[..., :3].max()),
+        )
+        return True, ""
+
+    def _exe_config(self) -> BcshNativeConfig:
+        """按当前 UI 参数生成 rkpq_bcsh_cfg（换算规则见 script/bcsh/native_compare.py）。
+
+        RGB: B(add) -> C(GainAtZero) -> S(MixGray) -> H(RotateOnGray), HueGoal=SameOffset
+        HSV: B(ModeMul) -> S(ModeMul) -> H(SameTarget 进度)，无 Contrast
+
+        参数均为中性 1024 / 范围 [0, 2047]：RGB 的 B 为加性偏移（1024+1024*db），
+        HSV 的 B 为乘性增益（nBrightness = gain*1024）。
+        """
+        ui = self.ui
+
+        def to_u(value: float) -> int:
+            return int(min(max(round(value), 0), 2047))
+
+        if self._adjust_field() == "HSV":
+            return BcshNativeConfig(
+                model="hsv",
+                color_space=3,                        # BT.709 full（HSV 模型不用灰度系数）
+                brightness=to_u(float(ui.spinBox_deltaB.value()) * 1024.0),  # ModeMul
+                contrast=1024,                        # HSV 模型不使用对比度
+                saturation=to_u(float(ui.spinBox_deltaS.value()) * 1024.0),
+                hue=to_u(float(ui.spinBox_deltaH.value()) * 1024.0 / 100.0),
+                hue_goal=float(ui.spinBox_sameHueGoal.value()),
+                proc_mode=0,                          # auto: GPU 优先，无 OpenCL 时回落 CPU
+            )
+        gray_601 = self._s_mode_code() == 'mixgray_bt601'
+        return BcshNativeConfig(
+            model="rgb",
+            color_space=1 if gray_601 else 3,          # 1=BT.601F / 3=BT.709F（仅灰度系数）
+            brightness=to_u(1024.0 + float(ui.spinBox_deltaB.value()) * 1024.0),
+            contrast=to_u(float(ui.spinBox_gainC.value()) * 1024.0),
+            saturation=to_u(float(ui.spinBox_deltaS.value()) * 1024.0),
+            hue=to_u(1024.0 + float(ui.spinBox_deltaH.value()) * 1024.0 / 180.0),
+            hue_goal=-1.0,
+            proc_mode=0,
+        )
+
+    def _process_frame_exe(
+        self, work_frame: ImageFrame,
+    ) -> tuple[ImageFrame, ImageFrame, PixelReadoutCache]:
+        """外部执行模式：CSC（Python）+ BCSH（rk_swpq_exe）步骤 1️⃣~6️⃣。
+
+        exe 仅支持 RGB 帧族（本机 OpenCL 驱动仅支持 RGBA8888），故先按 Python
+        路径的 2️⃣ 转 full-range RGB 并量化到 8bit；10bit 输入在此损失约 ±2LSB。
+        Returns (输出帧 6️⃣, 预览帧 5️⃣, 读数缓存).
+        """
+        depth = work_frame.depth
+        field = self._adjust_field()
+        in_native = self._native_planes(work_frame)
+
+        # ---- 2️⃣ 输入 CSC -> full-range RGB（exe 不支持 y2r 钳位策略，统一硬钳） ----
+        if work_frame.is_rgb:
+            rgb_2 = np.clip(self._rgb_full_from_frame(work_frame), 0.0, 1.0)
+        else:
+            rgb_2 = np.clip(self._yuv_to_rgb_full_float(work_frame), 0.0, 1.0)
+
+        # ---- 3️⃣/4️⃣ exe BCSH（RGBA8888，逐像素运算） ----
+        rgb8 = np.floor(np.clip(rgb_2, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+        config = self._exe_config()
+        runner = self._get_exe_runner()
+        logger.debug(
+            "[BCSH exe] exe=%s | 帧 %dx%d depth=%d field=%s | 输入 RGB8 min=%d max=%d mean=%.2f",
+            runner.exe, work_frame.width, work_frame.height, depth, field,
+            int(rgb8.min()), int(rgb8.max()), float(rgb8.mean()),
+        )
+        logger.debug(
+            "[BCSH exe] cfg: model=%s cs=%d proc=%d B=%d C=%d S=%d H=%d goal=%s",
+            config.model, config.color_space, config.proc_mode,
+            config.brightness, config.contrast, config.saturation,
+            config.hue, config.hue_goal,
+        )
+        start = time.perf_counter()
+        try:
+            rgba = runner.run(rgb8, config)
+        except NativeBcshError as exc:
+            logger.warning("BCSH exe failed: %s", exc)
+            first_line = str(exc).splitlines()[0] if str(exc) else "unknown error"
+            raise RuntimeError(f"BCSH exe failed: {first_line}") from exc
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        rgb_5 = rgba[..., :3].astype(np.float32) / 255.0
+        logger.debug(
+            "[BCSH exe] 输出 RGB min=%d max=%d mean=%.2f | alpha min=%d max=%d | 耗时 %.1f ms",
+            int(rgba[..., :3].min()), int(rgba[..., :3].max()),
+            float(rgba[..., :3].mean()),
+            int(rgba[..., 3].min()), int(rgba[..., 3].max()), elapsed_ms,
+        )
+
+        # ---- 5️⃣ 预览帧 / 6️⃣ 输出帧 ----
+        preview_frame = self._rgb_full_to_frame(rgb_5, depth)
+        out_frame = self._to_output_frame_rgb(rgb_5, depth)
+        out_native = self._native_planes(out_frame)
+
+        to_domain, _from_domain = _DOMAIN_CONVERTERS[field]
+        dom_in = np.stack(to_domain(rgb_2), axis=-1)
+        dom_out = np.stack(to_domain(rgb_5), axis=-1)
+        readout = PixelReadoutCache(
+            in_native=in_native,
+            in_full_rgb=rgb_2, in_full_yuv=None, in_yuv_cs=5,
+            in_domain=(field, dom_in[..., 0], dom_in[..., 1], dom_in[..., 2]),
+            out_native=out_native,
+            out_full_rgb=rgb_5, out_full_yuv=None, out_yuv_cs=5,
+            out_domain=(field, dom_out[..., 0], dom_out[..., 1], dom_out[..., 2]),
+        )
+        return out_frame, preview_frame, readout
+
+    # ------------------------------------------------------------------ #
     # HSV processing                                                     #
     # ------------------------------------------------------------------ #
 
@@ -743,7 +1208,9 @@ class HsvUiController:
         if work_wh is not None and (work_wh[0] < src_w or work_wh[1] < src_h):
             work_frame = self._downsample_frame(frame, work_wh[0], work_wh[1])
 
-        if self._is_yuv_colorspace():
+        if self._use_exe:
+            out_frame, preview_frame, readout = self._process_frame_exe(work_frame)
+        elif self._is_yuv_colorspace():
             out_frame, preview_frame, readout = self._process_frame_yuv(work_frame)
         else:
             out_frame, preview_frame, readout = self._process_frame_rgb(work_frame)
@@ -1113,7 +1580,12 @@ class HsvUiController:
         - comboBox_y2rClipType：存在 YUV->RGB（y2r）节点时启用——YCbCr 处理域
           （预览 y2r 恒存在，输出 RGB 桥亦然）或 输入为 YUV 且非 YCbCr
           （输入 y2r 节点）。
+        外部执行模式下两者恒不可用（C++ BCSH 无对应策略）。
         """
+        if self._use_exe:
+            self.ui.comboBox_y2yClipType.setEnabled(False)
+            self.ui.comboBox_y2rClipType.setEnabled(False)
+            return
         is_ycbcr = self._adjust_field() == "YCbCr"
         self.ui.comboBox_y2yClipType.setEnabled(is_ycbcr)
         frame = self._input_provider()

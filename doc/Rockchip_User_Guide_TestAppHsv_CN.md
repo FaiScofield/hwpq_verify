@@ -212,6 +212,41 @@ Rockchip Electronics Co., Ltd.
 
   - 注意：因为保持亮度，**高亮度的饱和色在 damp 接近 1 时会被推向纯白**（例如纯蓝↔红的中点会变成白色），过渡区偏“淡/亮”而不是“灰/黑”；若希望过渡更含蓄，把 `Trans Ratio` 调小即可。
 
+### 4.5 外部 CModel EXE 执行模式
+
+勾选 `Use CModel EXE` 后，BCSH 处理不再由 Python 实现完成，而是调用 Rockchip CModel 可执行程序
+（`rk_swpq_exe`，BCSH 单模块 `-m=13`）处理，用于把界面参数与 C/C++ 实现逐像素对齐验证。
+
+- **EXE Path**：可执行文件路径（可直接编辑，或点 `Browse` 选择；`Explore` 打开所在文件夹）
+- **勾选校验**：勾选时先检查文件存在、是可执行文件且有可执行权限；不通过会弹窗提示并保持未勾选。
+  通过后还会用中性参数跑一次 128×128 自检，**若输出全黑则拒绝进入**并提示 kernel 缓存不匹配
+  （这是旧 exe 加载新构建 kernel 时的典型现象）。`Use CModel EXE` 处于勾选状态时修改路径也会重新校验，
+  失败则自动退出外部执行模式
+- **调试**：设置环境变量 `BCSH_KEEP_TEMP=1` 可保留每次调用的临时目录（输入帧/JSON/输出帧）；
+  日志（`logging` DEBUG）会记录 exe 路径与时间、JSON 参数、处理尺寸、输出 RGB/alpha 统计和耗时
+- **执行流程**：输入帧 →（Python）转 full-range RGB →（临时目录写 RGBA8888 帧 + JSON 参数 → 调用 exe）→ 读回结果 → 预览/保存
+- **UI 联动**（外部执行模式下）：
+  - `Adjust Field` 只保留 `HSV` / `RGB`（C++ BCSH 仅支持 RGB 帧族）
+  - `Y2R Clip` / `Y2Y Clip`、`S Tolerance`、`Specified Hue Adjust`（含 Trans Factor/Ratio）不可用
+  - 模式固定：
+
+    | Adjust Field | Contrast | Brightness | Saturation | Hue | Hue Goal |
+    | ------------ | -------- | ---------- | ---------- | --- | -------- |
+    | `HSV` | 不可用 | `ModeMul` | `ModeMul` | `ModeAdd` | `SameTarget` |
+    | `RGB` | `GainAtZero` | `ModeAdd` | `MixGray_BT709` / `MixGray_BT601` | `RotateOnGray` | `SameOffset` |
+
+  - `Saturation` 乘性增益上限收紧到 `2.0`（对应 exe 的 `nSaturation ≤ 2047`）
+- **参数换算**：参数均为**中性 1024、范围 `[0, 2047]`**：
+  - RGB：`Brightness(add)` = `1024 + 1024×偏移`、`Contrast` = `1024×增益`、`Saturation` = `1024×增益`、
+    `Hue(SameOffset)` = `1024 + 1024×角度/180`
+  - HSV：`Brightness` = `1024×增益`、`Saturation` = `1024×增益`、`Hue(SameTarget)` = `1024×进度`
+  - `MixGray_BT709/BT601` 分别映射灰度系数 `BT.709` / `BT.601`（exe 的 `colorSpace`）
+- **注意**：
+  - exe 仅支持 RGBA8888 的 8bit 通路（部分平台不支持 10bit `CL_UNORM_INT_101010_2`），10bit 输入会先量化到 8bit（约 ±2LSB@10bit）
+  - exe 的 OpenCL kernel 缓存位于 `D:/RkDefaultDumpData/pq_bcsh_*.bin`，由最近一次运行的 exe 生成；
+    若更换了 exe 版本后出现**全黑输出**，删除该缓存文件或改用最新构建的 exe 即可
+  - exe 的 `SameTarget` 在目标色相对跖（180°）附近存在方向翻转的病态点，属于定点/浮点差异，不是实现错误
+
 ## 5. Preview 预览
 
 - **Preview Type**：
