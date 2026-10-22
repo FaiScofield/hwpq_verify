@@ -97,6 +97,14 @@ class BcshNativeConfig:
     saturation: int = 1024          # [0, (1024), 2047]，乘性增益
     hue: int = 1024                 # [0, (1024), 2047]: RGB-旋转角 / HSV-向目标色相的进度
     hue_goal: float = -1.0          # HSV 强制 SameTarget：必须在 [0, 360]，否则不调整色相
+    # HSV 模型的指定色相调整（rkpq_bcsh_cfg.stHueMask）
+    hue_mask_enable: bool = False   # 仅 HSV 模型有效
+    hue_start: int = 0              # [0, 2047] => [0, 360] degree
+    hue_end: int = 2047             # [0, 2047] => [0, 360] degree
+    pad_start: int = 0              # [0, 341] => [0, 60] degree
+    pad_end: int = 0                # [0, 341] => [0, 60] degree
+    trans_factor: int = 1           # [1, 5]
+    trans_ratio: float = 0.0        # [0.0, 1.0]
     proc_mode: int = 1              # 0-auto / 1-GPU / 2-CPU / 3-CPU&GPU
     enable: bool = True
 
@@ -113,6 +121,17 @@ class BcshNativeConfig:
             raise ValueError(
                 f"HSV 模型强制 SameTarget，hue_goal={self.hue_goal} 超出 [0, 360]"
             )
+        if self.hue_mask_enable and self.model != "hsv":
+            raise ValueError("hueMask 仅支持 HSV 模型")
+        for name, hi in (("hue_start", 2047), ("hue_end", 2047),
+                         ("pad_start", 341), ("pad_end", 341)):
+            value = getattr(self, name)
+            if not 0 <= value <= hi:
+                raise ValueError(f"{name}={value} 超出 [0, {hi}]")
+        if not 1 <= self.trans_factor <= 5:
+            raise ValueError(f"trans_factor={self.trans_factor} 超出 [1, 5]")
+        if not 0.0 <= self.trans_ratio <= 1.0:
+            raise ValueError(f"trans_ratio={self.trans_ratio} 超出 [0, 1]")
         if self.proc_mode not in (0, 1, 2, 3):
             raise ValueError(f"proc_mode={self.proc_mode} 超出 [0, 3]")
 
@@ -123,24 +142,32 @@ class BcshNativeConfig:
         指定的组，未指定时取第一组），组内使用短键名。
         """
         self.validate()
+        bcsh = {
+            "name": "default",
+            "enable": 1 if self.enable else 0,
+            "colorModel": 0 if self.model == "rgb" else 1,
+            "colorSpace": int(self.color_space),
+            "procMode": int(self.proc_mode),
+            "brightness": int(self.brightness),
+            "contrast": int(self.contrast),
+            "saturation": int(self.saturation),
+            "hue": int(self.hue),
+            "hueGoal": float(self.hue_goal),
+        }
+        # stHueMask：仅 HSV 模型支持；与 rkpq_parseJsonConfigBcsh() 的键名一致。
+        if self.model == "hsv":
+            bcsh["hueMask"] = {
+                "enable": 1 if self.hue_mask_enable else 0,
+                "hueStart": int(self.hue_start),
+                "hueEnd": int(self.hue_end),
+                "padStart": int(self.pad_start),
+                "padEnd": int(self.pad_end),
+                "transFactor": int(self.trans_factor),
+                "transRatio": float(self.trans_ratio),
+            }
         return {
             "config_info": {"version": "2.0.0"},
-            "pq_tuning_param": {
-                "bcsh": [
-                    {
-                        "name": "default",
-                        "enable": 1 if self.enable else 0,
-                        "colorModel": 0 if self.model == "rgb" else 1,
-                        "colorSpace": int(self.color_space),
-                        "procMode": int(self.proc_mode),
-                        "brightness": int(self.brightness),
-                        "contrast": int(self.contrast),
-                        "saturation": int(self.saturation),
-                        "hue": int(self.hue),
-                        "hueGoal": float(self.hue_goal),
-                    }
-                ]
-            },
+            "pq_tuning_param": {"bcsh": [bcsh]},
         }
 
     @classmethod

@@ -116,6 +116,8 @@ _DOMAIN_CONVERTERS = {
 #   RGB: B(ModeAdd) -> C(GainAtZero) -> S(MixGray) -> H(RotateOnGray), HueGoal=SameOffset
 #   HSV: B(ModeMul) -> S(ModeMul) -> H(ModeAdd), HueGoal=SameTarget（无 Contrast）
 # 参数为中性 1024、范围 [0, 2047]，见 HsvUiController._exe_config。
+# HSV 模型固定 SameTarget，并支持 stHueMask（Specified Hue Adjust）；
+# RGB 模型固定 SameOffset，无 stHueMask。
 _EXE_MODE_ALLOWED = {
     "HSV": {"modeC": None,
             "modeB": ("ModeMul",),
@@ -157,6 +159,16 @@ class PixelReadoutCache:
 def _cs_family(cs: int) -> int:
     """Colorspace 代码 -> 矩阵族代表代码（601->2，709->4，2020->6）。"""
     return {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 6, 7: 6}.get(cs, 4)
+
+
+def _hue_deg_to_exe(deg: float) -> int:
+    """[0, 360] 度 -> stHueMask 角度量化 [0, 2047]。"""
+    return int(round(min(max(float(deg), 0.0), 360.0) * 2047.0 / 360.0))
+
+
+def _pad_deg_to_exe(deg: float) -> int:
+    """[0, 60] 度 -> stHueMask.nPad* 的 [0, 341]。"""
+    return int(round(min(max(float(deg), 0.0), 60.0) * 341.0 / 60.0))
 
 
 def hue_hsv_to_ycbcr(h, cs: int = 4) -> np.ndarray:
@@ -842,7 +854,8 @@ class HsvUiController:
 
     def _apply_exe_ui(self) -> None:
         """外部执行模式的 UI 约束：处理域仅 HSV/RGB，钳位下拉不可用，
-        5 个 mode 组合框按 ``_EXE_MODE_ALLOWED`` 固定。"""
+        5 个 mode 组合框按 ``_EXE_MODE_ALLOWED`` 固定；HSV 额外启用
+        Specified Hue Adjust（stHueMask），RGB 保持禁用。"""
         ui = self.ui
         # 记录切换前的模式/数值：exe 强制 HSV 用 ModeMul、RGB 用 ModeAdd，
         # 两者中性值不同（0 vs 1.0），直接保留数值会让中性 0 变成 0 倍增益（全黑）。
@@ -869,6 +882,7 @@ class HsvUiController:
             items = allowed[key]
             ctrl.setEnabled(items is not None)
             for i in range(ctrl.count()):
+                # HueGoal 按模型限定：HSV 仅 SameTarget，RGB 仅 SameOffset。
                 ctrl.model().item(i).setEnabled(
                     items is not None and ctrl.itemText(i) in items)
             if items and ctrl.currentText() not in items:
@@ -883,7 +897,9 @@ class HsvUiController:
                      ui.label_y2yClip, ui.comboBox_y2yClipType,
                      ui.label_toleranceS, ui.spinBox_toleranceS):
             ctrl.setEnabled(False)
-        ui.groupBox_setHueRange.setEnabled(False)
+        # 指定色相调整（stHueMask）仅 HSV 模型的 exe 配置支持；RGB 模型无此字段。
+        ui.groupBox_setHueRange.setEnabled(self._adjust_field() == "HSV")
+        self._update_trans_controls_enable()
 
         # mode 取值变化后同步各通道量程（C/B/S 模式与 SameTarget/SameOffset）。
         # _set_combo_text 屏蔽了信号，故清空 _b_mode/_s_mode 缓存，强制重算量程。
@@ -1006,7 +1022,7 @@ class HsvUiController:
         """按当前 UI 参数生成 rkpq_bcsh_cfg（换算规则见 script/bcsh/native_compare.py）。
 
         RGB: B(add) -> C(GainAtZero) -> S(MixGray) -> H(RotateOnGray), HueGoal=SameOffset
-        HSV: B(ModeMul) -> S(ModeMul) -> H(SameTarget 进度)，无 Contrast
+        HSV: B(ModeMul) -> S(ModeMul) -> H(SameTarget 进度) + stHueMask，无 Contrast
 
         参数均为中性 1024 / 范围 [0, 2047]：RGB 的 B 为加性偏移（1024+1024*db），
         HSV 的 B 为乘性增益（nBrightness = gain*1024）。
@@ -1025,6 +1041,15 @@ class HsvUiController:
                 saturation=to_u(float(ui.spinBox_deltaS.value()) * 1024.0),
                 hue=to_u(float(ui.spinBox_deltaH.value()) * 1024.0 / 100.0),
                 hue_goal=float(ui.spinBox_sameHueGoal.value()),
+                # stHueMask：UI 的 Range/Pad/Trans 映射到 exe；
+                # Target Hue Tail 在 rkpq_bcsh_cfg 中无对应字段，不参与配置。
+                hue_mask_enable=bool(ui.groupBox_setHueRange.isChecked()),
+                hue_start=_hue_deg_to_exe(ui.spinBox_hueStart.value()),
+                hue_end=_hue_deg_to_exe(ui.spinBox_hueEnd.value()),
+                pad_start=_pad_deg_to_exe(ui.spinBox_hueStartPad.value()),
+                pad_end=_pad_deg_to_exe(ui.spinBox_hueEndPad.value()),
+                trans_factor=int(ui.spinBox_transFactor.value()),
+                trans_ratio=float(ui.spinBox_transRatio.value()),
                 proc_mode=0,                          # auto: GPU 优先，无 OpenCL 时回落 CPU
             )
         gray_601 = self._s_mode_code() == 'mixgray_bt601'
@@ -1068,10 +1093,14 @@ class HsvUiController:
             int(rgb8.min()), int(rgb8.max()), float(rgb8.mean()),
         )
         logger.debug(
-            "[BCSH exe] cfg: model=%s cs=%d proc=%d B=%d C=%d S=%d H=%d goal=%s",
+            "[BCSH exe] cfg: model=%s cs=%d proc=%d B=%d C=%d S=%d H=%d goal=%s "
+            "mask=%s [%d,%d] pad=%d/%d trans=%d/%.3f",
             config.model, config.color_space, config.proc_mode,
             config.brightness, config.contrast, config.saturation,
             config.hue, config.hue_goal,
+            "on" if config.hue_mask_enable else "off",
+            config.hue_start, config.hue_end, config.pad_start,
+            config.pad_end, config.trans_factor, config.trans_ratio,
         )
         start = time.perf_counter()
         try:
