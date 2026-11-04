@@ -105,7 +105,7 @@ if /i "%TARGET%"=="all" (
 ) else if /i "%TARGET%"=="acm" (
     set PUSH_LIST=acm_verify_demo
 ) else if /i "%TARGET%"=="hsv" (
-    set PUSH_LIST=hsv_fixed_test hsv_float_test hsv_precision_test hsv_adjust_bench
+    set PUSH_LIST=hsv_fixed_test hsv_float_test hsv_precision_test hsv_adjust_bench rgb_adjust_test yuv_adjust_test
 )
 
 for %%T in (%PUSH_LIST%) do (

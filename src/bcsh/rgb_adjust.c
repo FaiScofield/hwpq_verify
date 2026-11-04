@@ -6,6 +6,57 @@
 #define RCP6_BITS 24
 #endif
 
+/* ------------------------------------------------------------------------------------------------
+ * 32bit 定点乘/舍入（高低位拆分，替代 64bit 中间量；结果与 adj_mul_q()/int64 单次舍入逐位一致）
+ *  - 拆分恒等式：a = (a >> sh) * 2^sh + (a & mask)
+ *      =>  round(a*b / 2^sh) = (a >> sh)*b + round((a & mask)*b / 2^sh)
+ *  - 低段乘积 (a & mask)*b ≤ 2^sh × |b|，只要 |b| ≤ 2^15（或 |a| ≤ 2^15）即不溢出 int32
+ *  - 负积沿用 adj_rsh_round() 的对称舍入，额外补 -1，保证与 64bit 版本一致
+ * ---------------------------------------------------------------------------------------------- */
+/* round(a*b/2^sh)：a 为较大操作数(|a| ≤ 2^22)，b 为较小操作数(|b| ≤ 2^15) */
+static inline int32_t rgb_adj_mul_q(int32_t a, int32_t b, int sh)
+{
+    const int32_t mask = (1 << sh) - 1;
+    const int32_t hi = a >> sh;
+    const int32_t lo = a & mask;
+    const int32_t p = lo * b;
+    int32_t sgn = (a < 0) ? -1 : 0;
+
+    if (b < 0)
+        sgn = ~sgn;
+
+    return hi * b + ((p + (1 << (sh - 1)) + sgn) >> sh);
+}
+
+/* round(a*b/2^sh)：a 为较小操作数(|a| ≤ 2^15)，b 为较大操作数(|b| ≤ 2^22) */
+static inline int32_t rgb_adj_mul_qs(int32_t a, int32_t b, int sh)
+{
+    const int32_t mask = (1 << sh) - 1;
+    const int32_t hi = b >> sh;
+    const int32_t lo = b & mask;
+    const int32_t p = lo * a;
+    int32_t sgn = (b < 0) ? -1 : 0;
+
+    if (a < 0)
+        sgn = ~sgn;
+
+    return hi * a + ((p + (1 << (sh - 1)) + sgn) >> sh);
+}
+
+/* luma(gray)：round((qr*wR + qg*wG + qb*wB) / 2^ADJ_LUMA_BITS)，拆成 2^10 的高/低段累加，
+   进位在最后一次移位前合并，等价于 int64 单次舍入：
+     total = H*2^10 + L  =>  round(total / 2^16) = (H + ((L + 2^15) >> 10)) >> 6 */
+static inline int32_t rgb_adj_luma_q16(int32_t qr, int32_t qg, int32_t qb, int32_t wR, int32_t wG, int32_t wB)
+{
+    const int32_t hr = qr >> 10, lr = qr & 1023;
+    const int32_t hg = qg >> 10, lg = qg & 1023;
+    const int32_t hb = qb >> 10, lb = qb & 1023;
+    const int32_t hSum = hr * wR + hg * wG + hb * wB; /* ≤ 3 × 2^10 × 2^16 ≈ 2^27.6 */
+    const int32_t lSum = lr * wR + lg * wG + lb * wB; /* ≤ 3 × 1023 × 65536 ≈ 2^27.6 */
+
+    return (hSum + ((lSum + (1 << (ADJ_LUMA_BITS - 1))) >> 10)) >> (ADJ_LUMA_BITS - 10);
+}
+
 /* RGB 域直接 BCSH 调整（单像素），见 hsv_fixed.h 说明 */
 void adjust_rgb_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t gain_c, int32_t delta_b, int32_t delta_s,
     int32_t tolerance_s, int32_t angle_q14, int gray_coef, int mode_c, int mode_b, int mode_h, uint16_t *ro,
@@ -63,12 +114,11 @@ void adjust_rgb_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, int32_t g
     /* ---- S：灰阶混合（Q11 像素域，scale 语义，始终生效） ---- */
     int32_t k1 = scale_q11;             /* scale Q11 */
     int32_t k0 = FIX_S_ONE - scale_q11; /* 1-scale Q11 */
-    /* gray 保持 Q11 像素域：sum(r*w)/2^16（int64 累加 + 单次舍入，不先量化到整数） */
-    int64_t gsum = (int64_t)r_v * wR + (int64_t)g_v * wG + (int64_t)b_v * wB;
-    int32_t gray = (int32_t)((gsum + (1LL << (ADJ_LUMA_BITS - 1))) >> ADJ_LUMA_BITS);
-    r_v = adj_mul_q(k1, r_v, FIX_BITS_S) + adj_mul_q(k0, gray, FIX_BITS_S);
-    g_v = adj_mul_q(k1, g_v, FIX_BITS_S) + adj_mul_q(k0, gray, FIX_BITS_S);
-    b_v = adj_mul_q(k1, b_v, FIX_BITS_S) + adj_mul_q(k0, gray, FIX_BITS_S);
+    /* gray 保持 Q11 像素域：sum(r*w)/2^16（32bit 高低段累加 + 单次舍入，不先量化到整数） */
+    int32_t gray = rgb_adj_luma_q16(r_v, g_v, b_v, wR, wG, wB);
+    r_v = rgb_adj_mul_qs(k1, r_v, FIX_BITS_S) + rgb_adj_mul_qs(k0, gray, FIX_BITS_S);
+    g_v = rgb_adj_mul_qs(k1, g_v, FIX_BITS_S) + rgb_adj_mul_qs(k0, gray, FIX_BITS_S);
+    b_v = rgb_adj_mul_qs(k1, b_v, FIX_BITS_S) + rgb_adj_mul_qs(k0, gray, FIX_BITS_S);
 
     /* ---- H（angle=0 恒等跳过） ----
        'rotategray'：绕灰轴 (1,1,1)/√3 旋转。在 Q11 域对**未钳位**的 S 步输出旋转
@@ -194,18 +244,17 @@ void adjust_rgb_sonnoc_fix(uint16_t r, uint16_t g, uint16_t b, uint16_t maxv, in
     int32_t qb = CLIP(((int32_t)b << FIX_BITS_S) + off_q11, 0, cap);
 
     /* ---- 2. C（GainAtZero 过零点乘法）：x'' = clip(gc·x')；作用在 B 之后 -> B 的幅度受 C 缩放 ---- */
-    qr = CLIP(adj_mul_q(qr, gc, FIX_BITS_S), 0, cap);
-    qg = CLIP(adj_mul_q(qg, gc, FIX_BITS_S), 0, cap);
-    qb = CLIP(adj_mul_q(qb, gc, FIX_BITS_S), 0, cap);
+    qr = CLIP(rgb_adj_mul_q(qr, gc, FIX_BITS_S), 0, cap);
+    qg = CLIP(rgb_adj_mul_q(qg, gc, FIX_BITS_S), 0, cap);
+    qb = CLIP(rgb_adj_mul_q(qb, gc, FIX_BITS_S), 0, cap);
 
     /* ---- 3. S（MixGray 灰阶混合）：out = scale·in + (1-scale)·gray，gray = luma(in)，单次舍入 ---- */
-    const int64_t gsum = (int64_t)qr * wR + (int64_t)qg * wG + (int64_t)qb * wB;
-    const int32_t gray = (int32_t)((gsum + (1LL << (ADJ_LUMA_BITS - 1))) >> ADJ_LUMA_BITS);
+    const int32_t gray = rgb_adj_luma_q16(qr, qg, qb, wR, wG, wB);
     const int32_t k1 = sc;
     const int32_t k0 = FIX_S_ONE - sc;
-    qr = adj_mul_q(k1, qr, FIX_BITS_S) + adj_mul_q(k0, gray, FIX_BITS_S);
-    qg = adj_mul_q(k1, qg, FIX_BITS_S) + adj_mul_q(k0, gray, FIX_BITS_S);
-    qb = adj_mul_q(k1, qb, FIX_BITS_S) + adj_mul_q(k0, gray, FIX_BITS_S);
+    qr = rgb_adj_mul_qs(k1, qr, FIX_BITS_S) + rgb_adj_mul_qs(k0, gray, FIX_BITS_S);
+    qg = rgb_adj_mul_qs(k1, qg, FIX_BITS_S) + rgb_adj_mul_qs(k0, gray, FIX_BITS_S);
+    qb = rgb_adj_mul_qs(k1, qb, FIX_BITS_S) + rgb_adj_mul_qs(k0, gray, FIX_BITS_S);
 
     /* ---- 4. H（RotateOnGray 绕灰轴 (1,1,1)/√3 旋转；angle=0 恒等跳过） ---- */
     if (angle_q14 != 0)

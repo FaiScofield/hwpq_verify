@@ -371,6 +371,102 @@ u8 侥幸无事是位深低、Δ 够不着舍入边界；u10 时系统偏差（�
 
 **建议**：若硬件端 S 位宽是主要诉求，改动可行且往返仍可 0；但需先确认 v0/v1/v2 的量化对齐问题，并评估 S 步乘法器位宽增加是否抵消 S 总线省 1bit 的收益。
 
+### 4.3 RKSWPQ 工程定点化实现对比与最低位宽（2026-11）
+
+> 对比对象：本仓库 `RkYuvAlgos_git/source/src/lib_rkalgo/rkalgo_swpq_bcsh.cpp`（CPU 定点实现）
+> 与参考工程 `rgb_adjust.c` / `hsv_fixed.c`。两者定标完全一致（Q14 H / Q11 S+V / Q16 luma / rcp21+rcp24）。
+
+#### 4.3.1 对齐关系
+
+**RGB 模型**
+
+| 项目 | 参考 `rgb_adjust.c` | RKSWPQ CPU 实现 |
+| --- | --- | --- |
+| 参数模式 | B: add/mul/rate2limit；C: mid/zero/both/tanslant（tan 表 4097 项） | 固定 B=add、C=zero-crossing gain → **等价于 `adjust_rgb_sonnoc_fix()`** |
+| Hue 模式 | RotateOnGray + ModeAdd 六边形色相加法（RGB 域内先 rgb2hsv 取 H，再 6 段 TAB 重排） | 仅 RotateOnGray |
+| 中间域 | Q11 像素域（`pixel << 11`） | 同 |
+| 灰阶 luma | Q16，5 组色域系数 | 同口径 Q16；常量取整略有差异（BT709 R/G/B：参考 13933/46877/4726，RKSWPQ 13936/46869/4731，和均为 65536） |
+| luma 累加 | `int64` 三项累加 + 单次舍入 | **32bit 高低段拆分**（hSum/lSum + 进位合并），位等价 |
+| 定点乘 | `adj_mul_q` = `(int64)a*b`（32×32→64 乘法器） | **高低位拆分**，乘法器 ≤ 26bit，位等价 |
+| 末尾 | `+half >> sh` + clip | 同 |
+
+**HSV 模型**
+
+| 项目 | 参考 `hsv_fixed.c` | RKSWPQ CPU 实现 |
+| --- | --- | --- |
+| H / S / V 定标 | Q14 / Q11 / 像素域 | 同 |
+| S 倒数表 | `rcp[k]=round(2^21/k)`，索引 M | 同（`aRcpU21`） |
+| H 倒数表 | `rcp6[k]=round(2^24/(6k))`，索引 C | 同（`aRcp6U24`） |
+| rgb2hsv | v3_optimal（优先级掩码 + 双表，2 查表 + 4 乘法） | 同（`bcshRgb2Hsv`） |
+| hsv2rgb | v4_hexwalk（`C=round(S*M/2^11)`、`dm=round(C*f14/2^14)`、6 段 TAB） | 同（`bcshHsv2Rgb`，含同样的双重舍入） |
+| 增益 / 色相弧 | `adj_mul_q32`（|a·b| ≤ 2^25） | `bcshMulQ32` 同口径 |
+| HueMask | Q14 角度 + Q11 权重 + `ZONE_RAMP_SH=16` | 同 |
+
+结论：RKSWPQ 的 CPU 实现是参考工程的一个"固定模式子集"——RGB 等价 `adjust_rgb_sonnoc_fix`，HSV 等价 `rgb2hsv_v3_optimal + hsv2rgb_v4_hexwalk`；差异只在参考多出的模式分支、ModeAdd 色相，以及中间量用 64bit 还是 32bit 拆分。
+
+#### 4.3.2 每像素计算量
+
+| 通路 | 参考 | RKSWPQ | 差异 |
+| --- | --- | --- | --- |
+| RGB 模型 | ≈17 乘法（32×16→64）+ ≈25 加减/裁剪 + 3 移位 | 同结构、同乘法次数；每次乘法 = 1 乘 + 1 移位 + 2 加 | 乘法器 64bit → 26bit，ALU 约 +30% |
+| rgb2hsv | 2 查表 + 4 乘法 + 2×(max/min) 4 比较 + 3 常量加 + 3 比较/3 取反/3 AND/2 OR | 同 | 最大乘法 22bit |
+| hsv2rgb（hexwalk） | 2 乘法 + 1 移位 + 3 段选择 + 3 裁剪 | 同 | 最大乘法 24bit |
+| HueMask | 权重（≤3 段斜坡）+ 2 乘法 | 同 | `w·dh ≤ 2^24` |
+
+#### 4.3.3 RGB 模型：identity 与最低位宽
+
+identity 的成立**与位宽无关**，只依赖三条：
+1. 中性常数是 2 的整数幂（`ONE = 2^sh`，`round(ONE·x/2^sh) = x`）；
+2. `angle=0` 时 `cs = 2^15`、`sn = 0`、`1-cs = 0`（旋转项恒为 0）；
+3. 末尾舍入为 `+half >> sh`。
+
+RKSWPQ 实测 identity 为 0 LSB。位宽由"调整量动态范围"决定（u10 输入）：
+
+| 部分 | 数值上界 | 理论最低位宽 |
+| --- | --- | --- |
+| 输入像素 | 0..1023 | **10** |
+| B 步偏移 `db·maxv`（db∈[-1,1] Q11） | 1023×2048 < 2^21 | **22**（21+符号） |
+| Q11 工作域 `cap = maxv<<11` | < 2^21 | **22**（有符号） |
+| C 步 `qr·gc`（gc∈[0,4] Q11） | 2^21 × 2^13 = 2^34 | 单次精确 34；**提前右移 sh=11 后 24**（乘法器） |
+| S 步 luma `Σq·L`（L ≤ 2^16） | 3×2^21×2^16 ≈ 2^38.6 | 单次 39；**拆 2^10 双段后 28**（加法器） |
+| S 步混合 `k1·qr + k0·gray` | 2^11 × 2^21 = 2^32 | 拆半：**24**（乘法器）+ 24（累加） |
+| H 步旋转 `q·cs`（cs ≤ 2^15） | 2^21 × 2^15 = 2^36 | 拆半：**26**（乘法器） |
+| H 步 `k3=(1-cs)/3·(r+g+b)` | 2^23 × 2^14 = 2^37 | 拆半：**25** |
+| 输出回像素域 | ≤ 2^21 | **22** |
+
+**结论：32bit 数据通路足够；乘法器最低 26bit（旋转通路），加法器最低 28bit（luma）。**
+
+#### 4.3.4 HSV 模型：往返 0 误差与最低位宽
+
+与 4.2.1 的全遍历结论一致（RKSWPQ 参数与参考完全相同）：
+
+| 对象 | u8 最低 | u10 最低 | RKSWPQ 取值 |
+| --- | --- | --- | --- |
+| H | 11 | **13** | 14 |
+| S | 8 | **11** | 11 |
+| H+S 组合 | 21 | **25** | 25（14+11） |
+| S 倒数表 `rcp` | — | **21** | 21 |
+| H 倒数表 `rcp6` | — | **24** | 24 |
+| rgb2hsv S 乘法 `C·rcp[M]` | — | **21** | 21 |
+| rgb2hsv H 乘法 `diff·rcp6[C]` | — | **22** | 22 |
+| hsv2rgb `V·S` | — | **21** | 21 |
+| hsv2rgb 重建 `vsq·t` | — | **24** | 24（`VS_SHIFT=11` 提前降位宽） |
+| V（明度） | 8 | **10** | 像素域 |
+
+关键约束是 **H+S ≥ 25bit（u10）**：单独 H 需要 13、单独 S 需要 11，两者不能互相补足太多；(H=13,S=12) 或 (H=14,S=11) 均可，参考与 RKSWPQ 均取后者。
+
+#### 4.3.5 32bit 化改造（`rgb_adjust.c` 已同步）
+
+`rgb_adjust.c` 内已无 64bit 中间量，新增三个本地 helper：
+
+- `rgb_adj_mul_q(a,b,sh)`：a 为大操作数（|a| ≤ 2^22），按 `a = (a>>sh)<<sh + (a&mask)` 拆分，低段乘积 ≤ 2^sh×2^15；
+- `rgb_adj_mul_qs(a,b,sh)`：操作数顺序相反（小×大）时拆 b；
+- `rgb_adj_luma_q16()`：luma 三项按 2^10 拆成 hSum/lSum，进位在最后移位前合并，等价 int64 单次舍入。
+
+两者均保留 `adj_rsh_round()` 的对称舍入（负积补 -1），因此结果与原先 int64 版本逐位一致。
+
+> 注意：`rgb_adj_rotate_on_gray_q11()` 与 `adj_apply_v()` 仍在 `hsv_fixed.c` 中，其 `adj_mul_q` 仍为 int64；如需全链路 32bit，需要同样改造这两个函数（旋转通路乘法器最低 26bit）。
+
 ## FastStone Image Viewer
 
 `Contrast`参数像素值变化情况
