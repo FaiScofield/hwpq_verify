@@ -12,7 +12,7 @@ import numpy as np
 from PySide6.QtCore import QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QFileDialog, QLineEdit, QMainWindow, QMessageBox, QWidget,
+    QComboBox, QFileDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QWidget,
 )
 
 from script.bcsh.hsv_adjust import (
@@ -354,6 +354,18 @@ class HsvUiController:
         ui.comboBox_y2yClipType.currentIndexChanged.connect(self._on_y2y_clip_changed)
         ui.comboBox_modeB.currentIndexChanged.connect(self._on_b_mode_changed)
         ui.comboBox_modeS.currentIndexChanged.connect(self._on_s_mode_changed)
+        # Hue Goal 的旋转方案（仅 Python 模型有效；CModel EXE 使用定点实现的固定方案）：
+        #   ShortestArc(带死区) / FixedDir-Stop / FixedDir-Taper30
+        goal_mode_combo = QComboBox(ui.groupBox_hsvAdjust)
+        goal_mode_combo.addItems(["ShortestArc", "FixedDir-Stop", "FixedDir-Taper30", "VectorBlend"])
+        goal_mode_combo.setToolTip("Hue Goal 旋转方案（仅 Python 模型有效）")
+        _lay = ui.groupBox_hsvAdjust.layout()
+        _row = _lay.rowCount()
+        _lab = QLabel("Hue Goal Mode", ui.groupBox_hsvAdjust)
+        _lay.addWidget(_lab, _row, 0, 1, 1)
+        _lay.addWidget(goal_mode_combo, _row, 1, 1, 1)
+        ui.comboBox_goalMode = goal_mode_combo
+        goal_mode_combo.currentIndexChanged.connect(self._schedule_auto_run)
         ui.comboBox_goalH.currentIndexChanged.connect(self._on_h_mode_changed)
         ui.comboBox_modeH.currentIndexChanged.connect(self._on_h_apply_changed)
         ui.comboBox_modeC.currentIndexChanged.connect(self._on_c_mode_changed)
@@ -1041,6 +1053,7 @@ class HsvUiController:
                 saturation=to_u(float(ui.spinBox_deltaS.value()) * 1024.0),
                 hue=to_u(float(ui.spinBox_deltaH.value()) * 1024.0 / 100.0),
                 hue_goal=float(ui.spinBox_sameHueGoal.value()),
+                hue_goal_mode=int(ui.comboBox_goalMode.currentIndex()),
                 # stHueMask：UI 的 Range/Pad/Trans 映射到 exe；
                 # Target Hue Tail 在 rkpq_bcsh_cfg 中无对应字段，不参与配置。
                 hue_mask_enable=bool(ui.groupBox_setHueRange.isChecked()),
@@ -2037,8 +2050,32 @@ class HsvUiController:
                 target = float(hue_hsv_to_ycbcr(np.asarray(target), proc_cs))
             # Delta H 范围 [0,100]：表示向目标色相旋转的进度（0=不旋转，100=完全到位）。
             progress = float(np.clip(dh_deg / 100.0, 0.0, 1.0))
-            arc = ((target - h_deg + 180.0) % 360.0) - 180.0   # shortest signed arc
-            h_adj = (h_deg + progress * arc) % 360.0
+            # 3 种旋转方案（comboBox_goalMode）：
+            #   0-最短弧+死区 / 1-固定正方向+到 goal 停止 / 2-固定正方向+goal 附近 30° 平滑窗
+            mode = int(self.ui.comboBox_goalMode.currentIndex())
+            if mode == 1:
+                theta = (target - h_deg) % 360.0
+                h_adj = (h_deg + np.minimum(theta, progress * 360.0)) % 360.0
+            elif mode == 2:
+                win = 30.0
+                theta = (target - h_deg) % 360.0
+                dist = np.minimum(theta, 360.0 - theta)       # 到 goal 的角距(双向)
+                weight = np.minimum(dist, win) / win
+                h_adj = (h_deg + np.minimum(theta, progress * 360.0 * weight)) % 360.0
+            elif mode == 3:
+                # 向量(复数)插值：在色相圆的单位向量上做线性混合，随 h 连续 ⇒ 无分界线；
+                # 对跖点附近会平滑“收束”，正对跖且 progress≈0.5 时 |v|→0，退化点直接取目标色相
+                a_h = np.radians(h_deg)
+                a_g = np.radians(target)
+                vx = (1.0 - progress) * np.cos(a_h) + progress * float(np.cos(a_g))
+                vy = (1.0 - progress) * np.sin(a_h) + progress * float(np.sin(a_g))
+                h_adj = np.degrees(np.arctan2(vy, vx)) % 360.0
+                h_adj = np.where(np.hypot(vx, vy) < 1e-4, target % 360.0, h_adj)
+            else:
+                arc = ((target - h_deg + 180.0) % 360.0) - 180.0   # shortest signed arc
+                band = 360.0 * 2.0 / 16384.0                       # 死区 2 LSB ≈ 0.044°
+                arc = np.where(arc >= 180.0 - band, arc - 360.0, arc)
+                h_adj = (h_deg + progress * arc) % 360.0
             adj_hsv = np.stack([h_adj, adj_hsv[..., 1], adj_hsv[..., 2]], axis=-1)
         return adj_hsv
 

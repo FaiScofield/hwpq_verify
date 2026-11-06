@@ -97,6 +97,10 @@ class BcshNativeConfig:
     saturation: int = 1024          # [0, (1024), 2047]，乘性增益
     hue: int = 1024                 # [0, (1024), 2047]: RGB-旋转角 / HSV-向目标色相的进度
     hue_goal: float = -1.0          # HSV 强制 SameTarget：必须在 [0, 360]，否则不调整色相
+    hue_goal_mode: int = 0          # HSV SameTarget 的旋转方案：
+                                    #   0 = 最短弧 + 死区(δ=2 LSB, 与定点实现一致)
+                                    #   1 = 固定正方向旋转 + 到 goal 停止
+                                    #   2 = 固定正方向旋转 + goal 附近 30° 平滑窗
     # HSV 模型的指定色相调整（rkpq_bcsh_cfg.stHueMask）
     hue_mask_enable: bool = False   # 仅 HSV 模型有效
     hue_start: int = 0              # [0, 2047] => [0, 360] degree
@@ -121,6 +125,8 @@ class BcshNativeConfig:
             raise ValueError(
                 f"HSV 模型强制 SameTarget，hue_goal={self.hue_goal} 超出 [0, 360]"
             )
+        if not 0 <= self.hue_goal_mode <= 2:
+            raise ValueError(f"hue_goal_mode={self.hue_goal_mode} 超出 [0, 2]")
         if self.hue_mask_enable and self.model != "hsv":
             raise ValueError("hueMask 仅支持 HSV 模型")
         for name, hi in (("hue_start", 2047), ("hue_end", 2047),
@@ -374,12 +380,31 @@ def python_reference(rgb: np.ndarray, config: BcshNativeConfig) -> np.ndarray:
             mode_b="mul",
         )
         # H = SameTarget（强制）：nHue 为向目标色相旋转的进度，中性 1024 -> 50%
+        # 3 种旋转方案（hue_goal_mode）：
+        #   0-最短弧(带死区，与定点实现一致) / 1-固定正方向+到 goal 停止 / 2-固定正方向+goal 附近平滑窗
         if 0.0 <= config.hue_goal <= 360.0:
             progress = min(config.hue / 1024.0, 1.0)
-            arc = ((config.hue_goal - h + 180.0) % 360.0) - 180.0
-            adj = np.stack(
-                [(h + progress * arc) % 360.0, adj[..., 1], adj[..., 2]], axis=-1
-            )
+            goal = float(config.hue_goal)
+            if config.hue_goal_mode == 1:
+                # 固定正方向：每个色相统一顺时针转 progress*360°，到达 goal 即停
+                theta = (goal - h) % 360.0
+                dh = np.minimum(theta, progress * 360.0)
+                h_new = (h + dh) % 360.0
+            elif config.hue_goal_mode == 2:
+                # 固定正方向 + goal 附近 W=30° 的平滑窗：越靠近 goal 旋转量越小，消除 goal 处的跳变
+                win = 30.0
+                theta = (goal - h) % 360.0
+                dist = np.minimum(theta, 360.0 - theta)   # 到 goal 的角距(双向)
+                weight = np.minimum(dist, win) / win
+                dh = np.minimum(theta, progress * 360.0 * weight)
+                h_new = (h + dh) % 360.0
+            else:
+                # 最短弧 + 死区：距 180° 2 LSB(≈0.044°) 以内的弧强制走负方向
+                arc = ((goal - h + 180.0) % 360.0) - 180.0
+                band = 360.0 * 2.0 / 16384.0
+                arc = np.where(arc >= 180.0 - band, arc - 360.0, arc)
+                h_new = (h + progress * arc) % 360.0
+            adj = np.stack([h_new, adj[..., 1], adj[..., 2]], axis=-1)
         out = hsv_to_rgb(adj)
 
     return np.floor(np.clip(out, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
