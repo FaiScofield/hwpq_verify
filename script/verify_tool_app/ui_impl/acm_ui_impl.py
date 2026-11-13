@@ -13,16 +13,12 @@ import numpy as np
 from PySide6.QtCore import QRect, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QComboBox,
     QFileDialog,
-    QGroupBox,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
     QMessageBox,
     QSizePolicy,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -182,6 +178,10 @@ class SingleCurveChartWidget(QWidget):
         # (n_coarse, n_fine, coarse_span_deg, fine_span_deg) when the axis
         # follows ACM_LITE hue angles; None keeps the legacy uniform spacing.
         self.hue_partition: tuple[int, int, float, float] | None = None
+        # Y-axis labels show raw LUT values multiplied by this factor, so the
+        # ticks follow the active max-delta setting without moving the curve.
+        self.axis_scale = 1.0
+        self.axis_decimals = 0
         self.padding = 40
         self.sample_positions: list[float] = []
         self.sample_values: list[float] = []
@@ -212,6 +212,21 @@ class SingleCurveChartWidget(QWidget):
     def set_h_cycle_closure(self, enabled: bool) -> None:
         """Enable or disable mirrored first/last sample values."""
         self.h_cycle_closure = bool(enabled)
+
+    def set_axis_scale(self, scale: float, decimals: int = 0) -> None:
+        """Scale the Y-axis labels without moving the plotted curve.
+
+        ``scale`` converts a raw LUT value into the physical unit shown on the
+        axis (degrees for delta-H, normalised delta for delta-Y/S), so the
+        ticks follow the active max-delta setting.
+        """
+        scale = float(scale) if scale > 0 else 1.0
+        decimals = max(0, int(decimals))
+        if abs(scale - self.axis_scale) < 1e-9 and decimals == self.axis_decimals:
+            return
+        self.axis_scale = scale
+        self.axis_decimals = decimals
+        self.update()
 
     def set_hue_partition_axis(
         self,
@@ -417,6 +432,15 @@ class SingleCurveChartWidget(QWidget):
         mid_y = self._value_to_y(0)
         painter.drawLine(self.padding, int(mid_y), width - self.padding, int(mid_y))
 
+        # Coarse/fine hue partition divider (ACM_LITE only)
+        if self.hue_partition is not None:
+            n_coarse, n_fine = self.hue_partition[0], self.hue_partition[1]
+            if n_coarse > 0 and n_fine > 0 and n_coarse + n_fine == n:
+                x_div = self._ratio_to_x(self._index_ratio(float(n_coarse)))
+                painter.setPen(QPen(QColor(120, 120, 120), 1, Qt.DashLine))
+                painter.drawLine(int(x_div), self.padding,
+                                 int(x_div), height - self.padding)
+
         # H_in reference line (dark dashed)
         ref_x = self._reference_x_position()
         if ref_x is not None:
@@ -488,9 +512,17 @@ class SingleCurveChartWidget(QWidget):
                 text_rect = self._clamp_text_rect(QRect(int(x_pos) - 18, int(height - self.padding + 6), 36, 14))
                 painter.drawText(text_rect, Qt.AlignCenter, str(idx))
 
-        # Y-axis range labels
-        for value in (255, 192, 128, 64, 0, -64, -128, -192, -255):
-            painter.drawText(5, int(self._value_to_y(value) + 4), str(value))
+        # Y-axis range labels: nine evenly spaced ticks, converted to the
+        # physical unit of the active max-delta setting
+        value_min, value_max = self.value_range
+        for idx in range(9):
+            raw_value = value_min + (value_max - value_min) * idx / 8
+            display = raw_value * self.axis_scale
+            if self.axis_decimals > 0:
+                label = f"{display:.{self.axis_decimals}f}"
+            else:
+                label = str(int(round(display)))
+            painter.drawText(5, int(self._value_to_y(raw_value) + 4), label)
 
         # Integer-indexed points: small filled circles + value label
         # (even indices above the curve, odd indices below the curve)
@@ -701,7 +733,6 @@ class AcmUiController:
         }
         self.current_algo = "VOP_VP_ACM"
         self._apply_algo_display_names()
-        self._ensure_lite_controls()
 
         # --- Delta chart state ---
         self.full_delta_ybyh = None
@@ -760,7 +791,6 @@ class AcmUiController:
         self._sync_ctrl_point_slider(self._get_current_acm().len_h)
         self._reload_delta_controls_from_acm()
         self._sync_lite_options_state()
-        self._reload_lite_options_from_acm()
         self._on_lut_visualization_toggled(bool(self.ui.checkBox_lut_config.isChecked()))
 
     def _is_acm_enabled(self) -> bool:
@@ -922,77 +952,8 @@ class AcmUiController:
         """Return True when the active (or given) algorithm is ACM_LITE HSV."""
         return (algo_name or self.current_algo) == self._LITE_ALGO_KEY
 
-    def _ensure_lite_controls(self) -> None:
-        """Create ACM_LITE-specific partition and hue-preserve controls."""
-        if hasattr(self, "lite_options_group"):
-            return
-        group = QGroupBox("ACM_LITE HSV Options")
-        layout = QHBoxLayout(group)
-        layout.setContentsMargins(6, 4, 6, 4)
-
-        self.spinBox_n_coarse = QSpinBox()
-        self.spinBox_n_coarse.setRange(1, 359)
-        self.spinBox_n_coarse.setValue(18)
-        self.spinBox_n_coarse.setToolTip("Coarse hue intervals over [60, 330) deg.")
-        self.spinBox_n_fine = QSpinBox()
-        self.spinBox_n_fine.setRange(1, 359)
-        self.spinBox_n_fine.setValue(18)
-        self.spinBox_n_fine.setToolTip("Fine hue intervals over [-30, 60) deg.")
-        self.comboBox_hue_preserve = QComboBox()
-        self.comboBox_hue_preserve.addItems(["clip", "soft_clip", "scale"])
-        self.comboBox_hue_preserve.setCurrentText("soft_clip")
-        self.comboBox_hue_preserve.setToolTip(
-            "YUV->RGB out-of-gamut handling: clip / soft_clip / scale.")
-        self.label_lite_total = QLabel("len_h=36")
-
-        for widget in (
-            QLabel("n_coarse"), self.spinBox_n_coarse,
-            QLabel("n_fine"), self.spinBox_n_fine,
-            self.label_lite_total,
-            QLabel("Hue Preserve"), self.comboBox_hue_preserve,
-        ):
-            layout.addWidget(widget)
-        layout.addStretch(1)
-        self.ui.verticalLayout_delta_editor.addWidget(group)
-        self.lite_options_group = group
-        group.setVisible(False)
-
-        self.spinBox_n_coarse.valueChanged.connect(
-            lambda v: self._on_lite_partition_changed(v, "coarse"))
-        self.spinBox_n_fine.valueChanged.connect(
-            lambda v: self._on_lite_partition_changed(v, "fine"))
-        self.comboBox_hue_preserve.currentTextChanged.connect(self._on_hue_preserve_changed)
-
-    def _reload_lite_options_from_acm(self) -> None:
-        """Sync the Lite option widgets from the active ACM instance."""
-        if not self._is_lite_algo() or not hasattr(self, "spinBox_n_coarse"):
-            return
-        acm = self._get_current_acm()
-        n_coarse = int(getattr(acm, "n_coarse", 18))
-        n_fine = int(getattr(acm, "n_fine", 18))
-        max_part = max(1, acm.len_h - 1)
-        self.spinBox_n_coarse.blockSignals(True)
-        self.spinBox_n_fine.blockSignals(True)
-        self.spinBox_n_coarse.setRange(1, max_part)
-        self.spinBox_n_fine.setRange(1, max_part)
-        self.spinBox_n_coarse.setValue(n_coarse)
-        self.spinBox_n_fine.setValue(n_fine)
-        self.spinBox_n_coarse.blockSignals(False)
-        self.spinBox_n_fine.blockSignals(False)
-        self.label_lite_total.setText(f"len_h={acm.len_h}")
-        mode_name = acm.HUE_PRESERVE_MODES.get(
-            getattr(acm, "hue_preserve_mode", acm.HUE_PRESERVE_SOFT_CLIP), "soft_clip")
-        idx = self.comboBox_hue_preserve.findText(mode_name)
-        if idx >= 0:
-            self.comboBox_hue_preserve.blockSignals(True)
-            self.comboBox_hue_preserve.setCurrentIndex(idx)
-            self.comboBox_hue_preserve.blockSignals(False)
-
     def _sync_lite_options_state(self) -> None:
-        """Show Lite-only controls and configure chart closure for the active algo."""
-        is_lite = self._is_lite_algo()
-        if hasattr(self, "lite_options_group"):
-            self.lite_options_group.setVisible(is_lite)
+        """Configure chart closure and shared controls for the active algo."""
         for name in ("delta_chart_y", "delta_chart_s", "delta_chart_h"):
             chart = getattr(self, name, None)
             if chart is not None:
@@ -1045,12 +1006,12 @@ class AcmUiController:
 
     def _sync_clip_type_ui_state(self) -> None:
         """Enable clip-type controls only for algorithms that actually consume them."""
-        is_supported = self.current_algo not in (self._HW_ALGO_KEY, self._LITE_ALGO_KEY)
+        is_supported = self.current_algo != self._HW_ALGO_KEY
         tooltip = ""
         if not is_supported:
             tooltip = (
-                "clip_type is only supported by software ACM paths; HW_VOP and "
-                "ACM_LITE_HSV ignore this setting."
+                "clip_type is only supported by software ACM paths; HW_VOP "
+                "ignores this setting."
             )
         self.ui.comboBox_clip_type.setEnabled(is_supported)
         self.ui.comboBox_clip_type.setToolTip(tooltip)
@@ -1269,14 +1230,13 @@ class AcmUiController:
                 # Shrink the 2D gain hue axis first so set_hue_partition can
                 # accept a smaller total len_h.
                 acm.set_len(acm.len_y, acm.len_s, acm.len_h, new_len_h)
-            old_total = max(1, int(acm.n_coarse) + int(acm.n_fine))
             if new_len_h != acm.len_h:
-                new_coarse = int(round(new_len_h * acm.n_coarse / old_total))
-                new_coarse = max(1, min(new_len_h - 1, new_coarse))
-                acm.set_hue_partition(new_coarse, new_len_h - new_coarse)
+                # Lite keeps the coarse/fine split balanced, so len_h is the
+                # only input: n_coarse == n_fine (n_fine takes the odd extra).
+                n_coarse = new_len_h // 2
+                acm.set_hue_partition(n_coarse, new_len_h - n_coarse)
             if (new_len_y, new_len_s, new_len_h2) != (acm.len_y, acm.len_s, acm.len_hd):
                 acm.set_len(new_len_y, new_len_s, acm.len_h, new_len_h2)
-            self._reload_lite_options_from_acm()
             return
 
         acm.set_len(new_len_y, new_len_s, new_len_h, new_len_h2)
@@ -1569,6 +1529,10 @@ class AcmUiController:
                     segments_to_update.add(s - 1)
                 if s < last_idx:
                     segments_to_update.add(s)
+            if has_wrap and changed_idx == 0:
+                # The wrap sample mirrors sample 0, so the closing segment
+                # (last effective sample -> hue 360 deg) must follow too.
+                segments_to_update.add(n - 1)
         for i in sorted(segments_to_update):
             target_min = nearest_indices[i]
             target_max = int(round(min(max(float(interp_positions[i + 1]), 0.0), float(len_h))))
@@ -1902,7 +1866,6 @@ class AcmUiController:
         self._apply_lut_lengths()
         self._sync_ctrl_point_slider(defaults[2])
         self._reload_delta_controls_from_acm()
-        self._reload_lite_options_from_acm()
         # Explicitly rebuild sample-point overlay using the updated
         # ctrl_point_count, in case the slider signal was blocked.
         self._recompute_sample_points(
@@ -1915,6 +1878,7 @@ class AcmUiController:
         is_lite = self._is_lite_algo()
         default_ys = 1.0 if is_lite else 0.25
         slider_ys = 100 if is_lite else 25
+        default_h = 96 if is_lite else 64
         self._set_slider_spin_value(
             self.ui.slider_max_delta_y, self.ui.spinBox_max_delta_y, slider_ys)
         self.ui.spinBox_max_delta_y.setValue(default_ys)
@@ -1922,7 +1886,8 @@ class AcmUiController:
             self.ui.slider_max_delta_s, self.ui.spinBox_max_delta_s, slider_ys)
         self.ui.spinBox_max_delta_s.setValue(default_ys)
         self._set_slider_spin_value(
-            self.ui.slider_max_delta_h, self.ui.spinBox_max_delta_h, 64)
+            self.ui.slider_max_delta_h, self.ui.spinBox_max_delta_h, default_h)
+        self._apply_delta_range_to_acm()
         self._schedule_auto_run()
 
     def _on_clip_type_changed(self, text: str) -> None:
@@ -2091,6 +2056,22 @@ class AcmUiController:
         ds = self.ui.spinBox_max_delta_s.value()
         dh = self.ui.spinBox_max_delta_h.value()
         self._get_current_acm().delta_range = (float(dy), float(ds), int(dh))
+        self._sync_delta_chart_axes()
+
+    def _sync_delta_chart_axes(self) -> None:
+        """Scale delta-chart Y labels to the active max-delta setting.
+
+        The curves are still plotted in raw LUT units; only the tick labels
+        are converted so that e.g. delta-H reads +/-96 deg when the max delta
+        is 96.
+        """
+        dr = self._get_current_acm().delta_range
+        self.delta_chart_y.set_axis_scale(
+            float(dr[0]) / float(ACM_DELTA_Y_MAX), 2)
+        self.delta_chart_s.set_axis_scale(
+            float(dr[1]) / float(ACM_DELTA_S_MAX), 2)
+        self.delta_chart_h.set_axis_scale(
+            float(dr[2]) / float(ACM_DELTA_H_MAX), 0)
 
     def _schedule_auto_run(self) -> None:
         """Debounce ACM processing after UI edits."""
@@ -2836,10 +2817,9 @@ class AcmUiController:
             new_acm.lut_delta_sbyh[:] = resized_deltas[1]
             new_acm.lut_delta_hbyh[:] = resized_deltas[2]
 
-        # Copy gain LUTs from old to new (resize if needed). ACM_LITE uses
-        # the neutral-0 gain convention (gain = 1 + raw / 127), while the
-        # legacy paths use neutral 127 (gain = raw / 127); convert on switch.
-        src_is_lite = self._is_lite_algo(old_algo)
+        # Copy gain LUTs from old to new (resize if needed). Every algorithm
+        # stores gain as ``raw / 127`` with 127 = 1.0x, so the values can be
+        # copied directly without any neutral-value conversion.
         dst_is_lite = self._is_lite_algo(new_algo)
         from script.acm.acm_impl_base import bicubic_resize_array_2d
         for name_2d in ('ybyy', 'sbyy', 'hbyy', 'ybys', 'sbys', 'hbys'):
@@ -2850,16 +2830,16 @@ class AcmUiController:
                 data = np.rint(
                     bicubic_resize_array_2d(data.astype(np.float32), dst.shape[0], dst.shape[1])
                 ).astype(np.int16)
+                # Bicubic overshoot at sharp edges would otherwise turn a
+                # neutral (127) area into a non-neutral gain; keep the result
+                # inside the source value range.
+                data = np.clip(data, int(src.min()), int(src.max()))
                 logger.info("resampled gain_%s: %s => %s", name_2d, src.shape, dst.shape)
-            if src_is_lite and not dst_is_lite:
-                data = data + 127
-            elif dst_is_lite and not src_is_lite:
-                data = data - 127
             dst[:] = np.clip(data, -128, 127).astype(np.int8)
         if dst_is_lite:
-            # These tables are not used by the Lite path.
+            # These tables are not used by the Lite path; keep them neutral.
             for name_2d in ('ybys', 'hbyy', 'hbys'):
-                getattr(new_acm, f'lut_gain_{name_2d}')[:] = 0
+                getattr(new_acm, f'lut_gain_{name_2d}')[:] = 127
         # Sync active tables back to default tables, so the gain data survives
         # future LUT length changes (set_len / set_step).
         new_acm.sync_to_default()
@@ -2917,7 +2897,6 @@ class AcmUiController:
         self._set_slider_spin_value(self.ui.slider_len_h, self.ui.spinBox_len_h, acm.len_h)
         self._sync_ctrl_point_slider(acm.len_h)
         self._reload_delta_controls_from_acm()
-        self._reload_lite_options_from_acm()
         self._schedule_auto_run()
 
     def _on_lut_lengths_changed(self, value: int) -> None:
@@ -2930,52 +2909,6 @@ class AcmUiController:
         self._apply_lut_lengths()
         self._update_lut_visualization()
         self._schedule_auto_run()
-
-    def _on_lite_partition_changed(self, value: int, which: str) -> None:
-        """Apply a coarse/fine partition change from the Lite spin boxes."""
-        del value
-        if not self._is_lite_algo():
-            return
-        acm = self._get_current_acm()
-        n_coarse = max(1, self.spinBox_n_coarse.value())
-        n_fine = max(1, self.spinBox_n_fine.value())
-        total = max(acm.len_hd, min(360, n_coarse + n_fine))
-        if n_coarse + n_fine != total:
-            if which == "coarse":
-                n_coarse = max(1, total - n_fine)
-            else:
-                n_fine = max(1, total - n_coarse)
-        if n_coarse + n_fine != total:
-            n_coarse, n_fine = total // 2, total - total // 2
-
-        self.spinBox_n_coarse.blockSignals(True)
-        self.spinBox_n_fine.blockSignals(True)
-        try:
-            acm.set_hue_partition(n_coarse, n_fine)
-            self.spinBox_n_coarse.setValue(acm.n_coarse)
-            self.spinBox_n_fine.setValue(acm.n_fine)
-            self.label_lite_total.setText(f"len_h={acm.len_h}")
-            self._set_slider_spin_value(
-                self.ui.slider_len_h, self.ui.spinBox_len_h, acm.len_h)
-            self.ui.spinBox_len_h2.blockSignals(True)
-            self.ui.slider_len_h2.blockSignals(True)
-            self.ui.spinBox_len_h2.setMaximum(acm.len_h)
-            self.ui.slider_len_h2.setMaximum(acm.len_h)
-            self.ui.spinBox_len_h2.blockSignals(False)
-            self.ui.slider_len_h2.blockSignals(False)
-        finally:
-            self.spinBox_n_coarse.blockSignals(False)
-            self.spinBox_n_fine.blockSignals(False)
-        self._sync_ctrl_point_slider(acm.len_h)
-        self._reload_delta_controls_from_acm()
-        self._schedule_auto_run()
-
-    def _on_hue_preserve_changed(self, text: str) -> None:
-        """Apply the ACM_LITE YUV->RGB hue-preserve mode."""
-        acm = self._get_current_acm()
-        if hasattr(acm, "set_hue_preserve_mode"):
-            acm.set_hue_preserve_mode(text)
-            self._schedule_auto_run()
 
     def _on_ignore_gain_luts_toggled(self, checked: bool) -> None:
         """Toggle whether the active ACM instance ignores the six 2D gain LUTs."""
@@ -3026,6 +2959,7 @@ class AcmUiController:
         self.ui.spinBox_max_delta_y.setValue(dr[0])
         self.ui.spinBox_max_delta_s.setValue(dr[1])
         self.ui.spinBox_max_delta_h.setValue(dr[2])
+        self._sync_delta_chart_axes()
         ct = getattr(acm, 'clip_type', 'easy_clip')
         if ct not in self._SUPPORTED_CLIP_TYPES:
             ct = "easy_clip"
@@ -3035,7 +2969,6 @@ class AcmUiController:
             self.ui.comboBox_clip_type.setCurrentIndex(idx)
         self._sync_clip_type_ui_state()
         self._sync_ctrl_point_slider(acm.len_h)
-        self._reload_lite_options_from_acm()
         self._sync_lite_options_state()
         self._update_lut_visualization()
 

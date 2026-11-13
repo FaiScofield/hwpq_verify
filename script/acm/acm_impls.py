@@ -332,10 +332,10 @@ class AcmImplHwRk(AcmImplBase):
 class AcmImplHwRkLite(AcmImplBase):
     """RK ACM_LITE HSV color adjustment with a coarse/fine hue partition.
 
-    Processing domain is RGB/HSV: YUV input is converted to RGB first (with a
-    selectable hue-preserving mode), then to HSV for H/V/S adjustment, and
-    converted back to YUV at the end. The 1D delta LUTs (dH/dS/dV by H) use a
-    two-segment circular hue partition:
+    Processing domain is RGB/HSV: YUV input is converted to RGB first (its
+    out-of-gamut handling follows ``clip_type``), then to HSV for H/V/S
+    adjustment, and converted back to YUV at the end. The 1D delta LUTs
+    (dH/dS/dV by H) use a two-segment circular hue partition:
 
       * coarse segment [60, 330) with ``n_coarse`` intervals
       * fine segment   [-30, 60) with ``n_fine`` intervals
@@ -343,29 +343,21 @@ class AcmImplHwRkLite(AcmImplBase):
     The 2D gain LUTs keep the legacy 17-point hue axis (``len_hd``) and are
     sampled uniformly starting from 60 deg. Only ``GainV_byV``, ``GainS_byV``
     and ``GainS_byS`` are sampled; ``GainV_byS``, ``GainH_byV`` and
-    ``GainH_byS`` are ignored (their tables stay zero for config
-    compatibility).
+    ``GainH_byS`` are ignored (their tables stay at the identity value for
+    config compatibility).
 
     Global gains are applied at the last stage and are not clamped after
     application; the register range [0, 1023] maps to [0, 4] with 256 = 1.0x.
 
-    Gain tables use the Lite neutral convention ``gain = 1 + raw / 127``
-    (raw 0 = 1.0x), so they are not directly interchangeable with legacy
-    configs that use 127 as the neutral value.
+    Gain tables use the same convention as the legacy paths,
+    ``gain = raw / 127`` (raw 127 = 1.0x), so gain data can be copied between
+    algorithms without any neutral-value conversion. Gain tables scale the
+    delta increments, so a zero delta table always leaves the image unchanged.
     """
 
     HUE_START_DEG = 60.0
     HUE_COARSE_SPAN_DEG = 270.0
     HUE_FINE_SPAN_DEG = 90.0
-
-    HUE_PRESERVE_MODES = {
-        0: "clip",
-        1: "soft_clip",
-        2: "scale",
-    }
-    HUE_PRESERVE_CLIP = 0
-    HUE_PRESERVE_SOFT_CLIP = 1
-    HUE_PRESERVE_SCALE = 2
 
     # 2D gain table names kept by the base class; the Lite path samples only
     # the first three and leaves the deleted ones untouched.
@@ -379,9 +371,8 @@ class AcmImplHwRkLite(AcmImplBase):
         n_coarse: int = 18,
         n_fine: int = 18,
         len_h2: int = 17,
-        delta_range: tuple = (1.0, 1.0, 64),
+        delta_range: tuple = (1.0, 1.0, 96),
         use_cordic: bool = False,
-        hue_preserve_mode: int = HUE_PRESERVE_SOFT_CLIP,
         limited_range: bool = False,
         chroma_protect: float = ACM_HSV_GRAY_THRESHOLD_S,
     ):
@@ -409,27 +400,26 @@ class AcmImplHwRkLite(AcmImplBase):
         self.is_lut4rgb = True
         self.limited_range = bool(limited_range)
         self.chroma_protect = float(np.clip(chroma_protect, 0.0, 1.0))
-        self.set_hue_preserve_mode(hue_preserve_mode)
         self._init_lite_gain_luts()
         print(
             f"[ACM] created AcmImplHwRkLite: hue={n_coarse}+{n_fine}={len_h}, "
-            f"gain hue axis={self.len_hd}, hue preserve={self.HUE_PRESERVE_MODES[self.hue_preserve_mode]}"
+            f"gain hue axis={self.len_hd}, clip type={self.clip_type}"
         )
 
     # ------------------------------------------------------------------
     # Lite configuration helpers
     # ------------------------------------------------------------------
     def _init_lite_gain_luts(self) -> None:
-        """Initialise gain LUTs with the Lite neutral value.
+        """Reset Lite gain LUTs to the identity gain value.
 
-        Lite interprets a 2D gain entry as ``1 + raw / 127`` so that 0 means
-        1.0x and the usable range is [0, 2]. The base class initialises gain
-        tables with 127 (its own neutral), so all Lite tables are reset here.
+        Lite uses the same ``gain = raw / 127`` convention as the legacy
+        paths, so 127 means 1.0x. The tables are set explicitly here to keep
+        the Lite identity independent of the base-class defaults.
         """
         for name in self.LITE_GAIN_LUTS + self.REMOVED_GAIN_LUTS:
             for attr in (f"lut_{name}", f"_default_lut_{name}"):
                 if hasattr(self, attr):
-                    getattr(self, attr)[...] = 0
+                    getattr(self, attr)[...] = 127
 
     def set_hue_partition(self, n_coarse: int, n_fine: int, kernel: np.ndarray = None) -> None:
         """Change the coarse/fine hue partition with hue-aware resampling.
@@ -535,18 +525,6 @@ class AcmImplHwRkLite(AcmImplBase):
             int(np.clip(gain_h, 0, 1023)),
         )
 
-    def set_hue_preserve_mode(self, mode) -> None:
-        """Select the YUV->RGB out-of-gamut mode: clip/soft_clip/scale."""
-        if isinstance(mode, str):
-            inverse = {v: k for k, v in self.HUE_PRESERVE_MODES.items()}
-            if mode not in inverse:
-                raise ValueError(f"unknown hue preserve mode '{mode}', candidates: {list(inverse)}")
-            mode = inverse[mode]
-        if mode not in self.HUE_PRESERVE_MODES:
-            raise ValueError(f"unknown hue preserve mode {mode}, candidates: {list(self.HUE_PRESERVE_MODES)}")
-        self.hue_preserve_mode = int(mode)
-        print(f"[ACM] set hue preserve mode: {self.HUE_PRESERVE_MODES[self.hue_preserve_mode]}")
-
     def set_limited_range(self, limited: bool) -> None:
         """Select limited-range (True) or full-range (False) YUV I/O."""
         self.limited_range = bool(limited)
@@ -570,7 +548,6 @@ class AcmImplHwRkLite(AcmImplBase):
             acm["acmLite"] = 1
             acm["acmHuePartitionCoarse"] = int(self.n_coarse)
             acm["acmHuePartitionFine"] = int(self.n_fine)
-            acm["acmHuePreserveMode"] = self.HUE_PRESERVE_MODES.get(self.hue_preserve_mode, "soft_clip")
             acm["acmLimitedRange"] = int(bool(self.limited_range))
             acm["acmChromaProtect"] = float(self.chroma_protect)
             with open(filename, "w") as f:
@@ -621,10 +598,6 @@ class AcmImplHwRkLite(AcmImplBase):
             return False
 
         if is_lite:
-            try:
-                self.set_hue_preserve_mode(acm_data.get("acmHuePreserveMode", "soft_clip"))
-            except Exception:
-                self.set_hue_preserve_mode(self.HUE_PRESERVE_SOFT_CLIP)
             self.limited_range = bool(acm_data.get("acmLimitedRange", 0))
             self.chroma_protect = float(
                 np.clip(acm_data.get("acmChromaProtect", self.chroma_protect), 0.0, 1.0)
@@ -638,11 +611,12 @@ class AcmImplHwRkLite(AcmImplBase):
             self.n_fine = max(1, total - self.n_coarse)
             self._default_len_h = total
 
-        # Removed gain tables are not used by the Lite path; keep them zero.
+        # Removed gain tables are not used by the Lite path; keep them at the
+        # identity gain so the UI shows neutral data.
         for name in self.REMOVED_GAIN_LUTS:
             for attr in (f"lut_{name}", f"_default_lut_{name}"):
                 if hasattr(self, attr):
-                    getattr(self, attr)[...] = 0
+                    getattr(self, attr)[...] = 127
         self.b_lut_ready = True
         print(f"[ACM] loaded Lite config: hue={self.n_coarse}+{self.n_fine}, len_h={self.len_h}")
         return True
@@ -746,18 +720,22 @@ class AcmImplHwRkLite(AcmImplBase):
         return out
 
     def _apply_hue_preserve(self, rgb: np.ndarray) -> np.ndarray:
-        """Handle out-of-gamut RGB produced by YUV->RGB conversion."""
-        mode = self.hue_preserve_mode
-        if mode == self.HUE_PRESERVE_CLIP:
-            return np.clip(rgb, 0.0, 1.0)
-        if mode == self.HUE_PRESERVE_SOFT_CLIP:
-            return self._soft_clip_constant_hue(rgb)
-        if mode == self.HUE_PRESERVE_SCALE:
+        """Handle out-of-gamut RGB produced by YUV->RGB conversion.
+
+        The behavior follows ``clip_type`` so the Lite path reuses the shared
+        Clip Type control: ``easy_clip`` clips per channel, ``radial_clip``
+        scales all channels uniformly towards black and ``luma_clip`` keeps the
+        channel ratio (constant hue).
+        """
+        clip_type = self.clip_type
+        if clip_type == "radial_clip":
             return self._scale_clip(rgb)
-        raise ValueError(f"unknown hue preserve mode: {mode}")
+        if clip_type == "luma_clip":
+            return self._soft_clip_constant_hue(rgb)
+        return np.clip(rgb, 0.0, 1.0)
 
     def apply_hue_preserve(self, rgb: np.ndarray) -> np.ndarray:
-        """Public wrapper for the configured YUV->RGB gamut mapping."""
+        """Public wrapper for the YUV->RGB gamut mapping selected by clip_type."""
         return self._apply_hue_preserve(rgb)
 
     @staticmethod
@@ -841,9 +819,9 @@ class AcmImplHwRkLite(AcmImplBase):
             gain_sv = np.ones_like(dh_base)
             gain_ss = np.ones_like(dh_base)
         else:
-            gain_vv = self._sample_gain_2d(self.lut_gain_ybyy, j0, j1, fj, v) / 127.0 + 1.0
-            gain_sv = self._sample_gain_2d(self.lut_gain_sbyy, j0, j1, fj, v) / 127.0 + 1.0
-            gain_ss = self._sample_gain_2d(self.lut_gain_sbys, j0, j1, fj, s) / 127.0 + 1.0
+            gain_vv = self._sample_gain_2d(self.lut_gain_ybyy, j0, j1, fj, v) / 127.0
+            gain_sv = self._sample_gain_2d(self.lut_gain_sbyy, j0, j1, fj, v) / 127.0
+            gain_ss = self._sample_gain_2d(self.lut_gain_sbys, j0, j1, fj, s) / 127.0
 
         # ---- 7. Cache intermediates for UI/debug (legacy key names) ----
         self._last_delta_y_raw = dv_base.copy()
@@ -858,11 +836,13 @@ class AcmImplHwRkLite(AcmImplBase):
         self._last_intermediate_shape = h.shape
 
         # ---- 8. Global gains last; no clamp after gain ----
+        # The S delta stays a delta: gain tables scale the delta increment, so
+        # a zero delta table always leaves S untouched regardless of gain.
         g_v = float(np.clip(self.gain_y, 0, 1023)) / 256.0
         g_s = float(np.clip(self.gain_s, 0, 1023)) / 256.0
         g_h = float(np.clip(self.gain_h, 0, 1023)) / 256.0
         dh = dh_base * g_h
-        ds = ds_gain * gain_sv * gain_ss * g_s
+        ds = 1.0 + (ds_gain - 1.0) * gain_sv * gain_ss * g_s
         dv = dv_base * gain_vv * g_v
 
         self._final_delta_y = dv.copy()
