@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>639</width>
+    <width>843</width>
     <height>593</height>
    </rect>
   </property>
@@ -14,15 +14,9 @@
    <item>
     <layout class="QHBoxLayout" name="exeRowLayout">
      <item>
-      <widget class="QLabel" name="label_shpExe">
-       <property name="sizePolicy">
-        <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-         <horstretch>0</horstretch>
-         <verstretch>0</verstretch>
-        </sizepolicy>
-       </property>
+      <widget class="QCheckBox" name="cbox_useExe">
        <property name="text">
-        <string>SHP EXE</string>
+        <string>Use SHP EXE:</string>
        </property>
       </widget>
      </item>
@@ -61,7 +55,7 @@
         <string>在资源管理器中打开 EXE 所在目录</string>
        </property>
        <property name="text">
-        <string>Open Dir</string>
+        <string>Explore</string>
        </property>
       </widget>
      </item>
@@ -645,6 +639,39 @@
    </item>
   </layout>
  </widget>
+ <tabstops>
+  <tabstop>cbox_useExe</tabstop>
+  <tabstop>lineEdit_shpExe</tabstop>
+  <tabstop>btn_browseExe</tabstop>
+  <tabstop>btn_openDir</tabstop>
+  <tabstop>btn_readConfig</tabstop>
+  <tabstop>btn_saveConfig</tabstop>
+  <tabstop>checkBox_enableShp</tabstop>
+  <tabstop>comboBox_algoType</tabstop>
+  <tabstop>slider_peakingGain</tabstop>
+  <tabstop>spinBox_peakingGain</tabstop>
+  <tabstop>comboBox_BandIndex</tabstop>
+  <tabstop>pushButton_resetPeaking</tabstop>
+  <tabstop>groupBox_coring</tabstop>
+  <tabstop>spinBox_coringZero</tabstop>
+  <tabstop>spinBox_coringThresh</tabstop>
+  <tabstop>spinBox_coringRatio</tabstop>
+  <tabstop>groupBox_gainCtrl</tabstop>
+  <tabstop>spinBox_posThresh</tabstop>
+  <tabstop>spinBox_negThresh</tabstop>
+  <tabstop>groupBox_limitCtrl</tabstop>
+  <tabstop>spinBox_limitCtrlPos0</tabstop>
+  <tabstop>spinBox_limitCtrlPos1</tabstop>
+  <tabstop>spinBox_limitCtrlBandPos</tabstop>
+  <tabstop>groupBox_ShootCtrl</tabstop>
+  <tabstop>spinBox_filterRadius</tabstop>
+  <tabstop>spinBox_shootOver</tabstop>
+  <tabstop>spinBox_shootUnder</tabstop>
+  <tabstop>spinBox_deltaOffset</tabstop>
+  <tabstop>spinBox_unlimitOver</tabstop>
+  <tabstop>spinBox_unlimitUnder</tabstop>
+  <tabstop>pushButton_resetShootCtrl</tabstop>
+ </tabstops>
  <resources/>
  <connections/>
 </ui>

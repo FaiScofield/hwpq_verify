@@ -77,15 +77,15 @@ def getXYbyColorSpace(color_space):
         g_xy = [0.2650, 0.6900]
         b_xy = [0.1500, 0.0600]
         # w_xy = [0.32168, 0.33767] # Cinema, p3-D60(K=6000)
-        w_xy = [0.3140, 0.3510] # Theater, p3-DCI(K=6300)
-        # w_xy = [0.3127, 0.3290] # Display, p3-D65(K=6504)
+        w_xy = [0.3140, 0.3510] # Theater, p3-DCI(K=6300), gamma=2.6
+        # w_xy = [0.3127, 0.3290] # Display, p3-D65(K=6504), APPLE Co.
     elif color_space == 'display-p3' or color_space == 'dci-p3-d65':
         r_xy = [0.6800, 0.3200]
         g_xy = [0.2650, 0.6900]
         b_xy = [0.1500, 0.0600]
         # w_xy = [0.32168, 0.33767] # Cinema, p3-D60(K=6000)
         # w_xy = [0.3140, 0.3510] # Theater, p3-DCI(K=6300)
-        w_xy = [0.3127, 0.3290] # Display, p3-D65(K=6504)
+        w_xy = [0.3127, 0.3290] # Display, p3-D65(K=6504), APPLE Co.
     # elif color_space == 'dci-p3+':
     #     r_xy = [0.7400, 0.2700]
     #     g_xy = [0.2200, 0.2700]
