@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>851</width>
-    <height>447</height>
+    <height>520</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -441,7 +441,7 @@
    <item>
     <widget class="QGroupBox" name="groupBox_delta_editor">
      <property name="title">
-      <string>Delta Y/H/S Adjust</string>
+      <string>Y/H/S Adjust</string>
      </property>
      <layout class="QVBoxLayout" name="verticalLayout_delta_editor">
       <item>
@@ -660,7 +660,7 @@
         </property>
         <widget class="QWidget" name="tab_delta_y">
          <attribute name="title">
-          <string>Delta Y by H</string>
+          <string>Delta Y</string>
          </attribute>
          <layout class="QVBoxLayout" name="verticalLayout_delta_y">
           <item>
@@ -677,7 +677,7 @@
         </widget>
         <widget class="QWidget" name="tab_delta_s">
          <attribute name="title">
-          <string>Delta S by H</string>
+          <string>Delta S</string>
          </attribute>
          <layout class="QVBoxLayout" name="verticalLayout_delta_s">
           <item>
@@ -694,7 +694,7 @@
         </widget>
         <widget class="QWidget" name="tab_delta_h">
          <attribute name="title">
-          <string>Delta H by H</string>
+          <string>Delta H</string>
          </attribute>
          <layout class="QVBoxLayout" name="verticalLayout_delta_h">
           <item>
@@ -708,10 +708,40 @@
             <property name="minimumSize">
              <size>
               <width>0</width>
-              <height>0</height>
+              <height>100</height>
              </size>
             </property>
            </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="tab_gainY">
+         <attribute name="title">
+          <string>Gain Y</string>
+         </attribute>
+         <layout class="QVBoxLayout" name="verticalLayout_3">
+          <item>
+           <widget class="QTableWidget" name="table_gainY"/>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="tab_gainS">
+         <attribute name="title">
+          <string>Gain S</string>
+         </attribute>
+         <layout class="QVBoxLayout" name="verticalLayout_5">
+          <item>
+           <widget class="QTableWidget" name="table_gainS"/>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="tab_gainH">
+         <attribute name="title">
+          <string>Gain H</string>
+         </attribute>
+         <layout class="QVBoxLayout" name="verticalLayout_4">
+          <item>
+           <widget class="QTableWidget" name="table_gainH"/>
           </item>
          </layout>
         </widget>

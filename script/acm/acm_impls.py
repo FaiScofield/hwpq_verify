@@ -372,7 +372,7 @@ class AcmImplHwRkLite(AcmImplBase):
         n_fine: int = 18,
         len_h2: int = 17,
         delta_range: tuple = (1.0, 1.0, 96),
-        use_cordic: bool = False,
+        use_cordic: bool = True,
         limited_range: bool = False,
         chroma_protect: float = ACM_HSV_GRAY_THRESHOLD_S,
     ):
@@ -845,13 +845,16 @@ class AcmImplHwRkLite(AcmImplBase):
         ds = 1.0 + (ds_gain - 1.0) * gain_sv * gain_ss * g_s
         dv = dv_base * gain_vv * g_v
 
-        self._final_delta_y = dv.copy()
-        self._final_delta_s = (ds - 1.0).copy()
-        self._final_delta_h = dh.copy()
+        self._final_delta_y = (dv * w).copy()
+        self._final_delta_s = ((ds - 1.0) * w).copy()
+        self._final_delta_h = (dh * w).copy()
 
         # ---- 9. Apply in H -> V -> S order ----
+        # The chroma weight gates V as well, so neutral (white/gray) backgrounds
+        # keep their luminance. This mirrors the legacy HSV paths, which bypass
+        # the LUTs entirely for gray pixels.
         h_new = np.mod(h + dh * w, 360.0)
-        v_new = np.clip(v + dv, 0.0, 1.0)
+        v_new = np.clip(v + dv * w, 0.0, 1.0)
         s_new = np.clip(s * (1.0 + (ds - 1.0) * w), 0.0, 1.0)
 
         # ---- 10. HSV -> RGB, always in gamut by construction ----

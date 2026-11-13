@@ -323,12 +323,12 @@ class AcmImplBase:
         self._init_lens(len_y, len_s, len_h, len_hd)
         self._init_luts()
 
-        self._print_len("default", self._default_len_y, self._default_len_s, self._default_len_h, self._default_len_hd)
-        self._print_len("current", self.len_y, self.len_s, self.len_h, self.len_hd)
-        print(
-            f"[ACM] delta_range: (y={self.delta_range[0]}, s={self.delta_range[1]}, h={self.delta_range[2]}), "
-            f"use_cordic: {self.use_cordic}, clip_type: {self.clip_type}"
-        )
+        # self._print_len("default", self._default_len_y, self._default_len_s, self._default_len_h, self._default_len_hd)
+        # self._print_len("current", self.len_y, self.len_s, self.len_h, self.len_hd)
+        # print(
+        #     f"[ACM] delta_range: (y={self.delta_range[0]}, s={self.delta_range[1]}, h={self.delta_range[2]}), "
+        #     f"use_cordic: {self.use_cordic}, clip_type: {self.clip_type}"
+        # )
 
     # ------------------------------------------------------------------
     # length / LUT init helpers

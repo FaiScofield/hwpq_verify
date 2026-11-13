@@ -13,12 +13,17 @@ import numpy as np
 from PySide6.QtCore import QRect, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QSizePolicy,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -365,11 +370,21 @@ class SingleCurveChartWidget(QWidget):
         self.update()
 
     def _value_to_y(self, value: int | float) -> float:
-        """Map a chart value to widget coordinates."""
+        """Map a chart value to widget coordinates, clamped to the plot area."""
         value_min, value_max = self.value_range
         chart_height = self.height() - 2 * self.padding
         ratio = (value - value_min) / (value_max - value_min)
-        return self.padding + chart_height * (1 - ratio)
+        y_pos = self.padding + chart_height * (1 - ratio)
+        return clamp(y_pos, float(self.padding), float(self.height() - self.padding))
+
+    def _format_value(self, value: float) -> str:
+        """Format a raw chart value in the physical unit shown on the Y axis."""
+        value_min, value_max = self.value_range
+        clipped = clamp(float(value), float(value_min), float(value_max))
+        display = clipped * self.axis_scale
+        if self.axis_decimals > 0:
+            return f"{display:.{self.axis_decimals}f}"
+        return str(int(round(display)))
 
     def _index_position(self, index: int) -> tuple[float, float]:
         """Return the widget-space position for an integer-indexed point."""
@@ -517,12 +532,8 @@ class SingleCurveChartWidget(QWidget):
         value_min, value_max = self.value_range
         for idx in range(9):
             raw_value = value_min + (value_max - value_min) * idx / 8
-            display = raw_value * self.axis_scale
-            if self.axis_decimals > 0:
-                label = f"{display:.{self.axis_decimals}f}"
-            else:
-                label = str(int(round(display)))
-            painter.drawText(5, int(self._value_to_y(raw_value) + 4), label)
+            painter.drawText(5, int(self._value_to_y(raw_value) + 4),
+                             self._format_value(raw_value))
 
         # Integer-indexed points: small filled circles + value label
         # (even indices above the curve, odd indices below the curve)
@@ -536,7 +547,7 @@ class SingleCurveChartWidget(QWidget):
             else:
                 text_rect = QRect(int(x_pos) - 22, int(y_pos) + 8, 44, 14)
             text_rect = self._clamp_text_rect(text_rect)
-            painter.drawText(text_rect, Qt.AlignCenter, str(int(self.values[idx])))
+            painter.drawText(text_rect, Qt.AlignCenter, self._format_value(self.values[idx]))
 
         # Sample-point overlay: white dashed hollow circles (filled when selected).
         sample_radius = 4
@@ -641,6 +652,13 @@ class AcmUiController:
     )
     _HW_ALGO_KEY = "VOP_VP_ACM"
     _LITE_ALGO_KEY = "HW_RK_LITE"
+    # Gain tabs: each tab shows the delta curve on top, then the by-Y and by-S
+    # sub tables. Entries are (table widget name, delta key, gain blocks).
+    _GAIN_TABLES: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
+        ("table_gainY", "y", (("ybyy", "GainY by Y"), ("ybys", "GainY by S"))),
+        ("table_gainS", "s", (("sbyy", "GainS by Y"), ("sbys", "GainS by S"))),
+        ("table_gainH", "h", (("hbyy", "GainH by Y"), ("hbys", "GainH by S"))),
+    )
     # 支持 RGB/HSV 处理路径的算法：软件路径走基类 _do_acm_rgb，
     # ACM_LITE 走自身 _do_acm_rgb_lite；HW_VOP 恒走 YUV。
     _RGB_PATH_ALGOS: tuple[str, ...] = ("SW_ACM", "EVIDEO_ACM", "SW_ACM_VARIANT", "HW_RK_LITE")
@@ -733,6 +751,8 @@ class AcmUiController:
         }
         self.current_algo = "VOP_VP_ACM"
         self._apply_algo_display_names()
+        # Row index -> (lut suffix, local row) for the 2D gain table editors.
+        self._gain_row_maps: dict[str, list[tuple[str, int] | None]] = {}
 
         # --- Delta chart state ---
         self.full_delta_ybyh = None
@@ -791,6 +811,7 @@ class AcmUiController:
         self._sync_ctrl_point_slider(self._get_current_acm().len_h)
         self._reload_delta_controls_from_acm()
         self._sync_lite_options_state()
+        self._setup_gain_tables()
         self._on_lut_visualization_toggled(bool(self.ui.checkBox_lut_config.isChecked()))
 
     def _is_acm_enabled(self) -> bool:
@@ -962,6 +983,320 @@ class AcmUiController:
                 chart.set_h_cycle_closure(True)
         self._sync_hue_axis_layout()
         self._sync_offset_controls()
+
+    # ------------------------------------------------------------------ #
+    # 2D gain tables                                                     #
+    # ------------------------------------------------------------------ #
+
+    def _setup_gain_tables(self) -> None:
+        """Prepare the three gain tables and connect their edit signals."""
+        for table_name, _, _ in self._GAIN_TABLES:
+            table = getattr(self.ui, table_name, None)
+            if table is None:
+                continue
+            table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
+            table.cellChanged.connect(
+                lambda row, col, name=table_name: self._on_gain_table_cell_changed(name, row, col))
+        self._reload_gain_tables_from_acm()
+
+    def _lite_unsupported_gain_luts(self, acm: object) -> set[str]:
+        """Return the gain LUT suffixes that the Lite path does not consume."""
+        if not self._is_lite_algo():
+            return set()
+        return {name[len("gain_"):] for name in getattr(acm, "REMOVED_GAIN_LUTS", ())}
+
+    def _reload_gain_tables_from_acm(self) -> None:
+        """Rebuild the three gain tables from the active ACM instance."""
+        acm = self._get_current_acm()
+        unsupported = self._lite_unsupported_gain_luts(acm)
+        for table_name, delta_key, blocks in self._GAIN_TABLES:
+            table = getattr(self.ui, table_name, None)
+            if table is None:
+                continue
+            table.blockSignals(True)
+            try:
+                self._fill_gain_table(table, acm, delta_key, blocks, unsupported, table_name)
+            finally:
+                table.blockSignals(False)
+
+    def _fill_gain_table(
+        self,
+        table: QTableWidget,
+        acm: object,
+        delta_key: str,
+        blocks: tuple[tuple[str, str], ...],
+        unsupported: set[str],
+        table_name: str,
+    ) -> None:
+        """Fill one gain tab: delta curve on top, then by-Y and by-S sub tables."""
+        delta_values = np.asarray(
+            getattr(acm, f"lut_delta_{delta_key}byh"), dtype=np.int16)
+        luts: list[tuple[str, str, np.ndarray]] = []
+        for suffix, caption in blocks:
+            lut = getattr(acm, f"lut_gain_{suffix}", None)
+            if lut is not None:
+                luts.append((suffix, caption, np.asarray(lut)))
+        if not luts:
+            return
+
+        # The delta curve is 1D with len_h entries, so it sets the table width.
+        col_count = max([delta_values.size] + [lut.shape[1] for _, _, lut in luts])
+        row_count = 2 + sum(lut.shape[0] + 1 for _, _, lut in luts)
+        table.clearSpans()
+        table.clear()
+        table.setRowCount(row_count)
+        table.setColumnCount(col_count)
+        table.setHorizontalHeaderLabels([f"H{i}" for i in range(col_count)])
+
+        row_labels: list[str] = []
+        row_map: list[tuple[str, int] | None] = []
+        row = 0
+
+        # ---- Delta block: one editable row aligned with the hue axis ----
+        self._set_gain_block_header(
+            table, row, col_count,
+            f"Delta {delta_key.upper()} by H  [1 x {delta_values.size}]",
+            table_name, f"delta_{delta_key}", True)
+        row_labels.append("")
+        row_map.append(None)
+        row += 1
+
+        row_labels.append("d" + delta_key.upper())
+        row_map.append((f"delta_{delta_key}", 0))
+        for c in range(col_count):
+            item = QTableWidgetItem(str(int(delta_values[c])))
+            item.setTextAlignment(Qt.AlignCenter)
+            table.setItem(row, c, item)
+        row += 1
+
+        # ---- Gain blocks ----
+        for suffix, caption, lut in luts:
+            editable = suffix not in unsupported
+            self._set_gain_block_header(
+                table, row, col_count,
+                f"{caption}  [{lut.shape[0]} x {lut.shape[1]}]",
+                table_name, suffix, editable)
+            row_labels.append("")
+            row_map.append(None)
+            row += 1
+
+            # Suffix layout is "<gain>by<axis>", e.g. ybyy = GainY by Y.
+            axis = "Y" if suffix.endswith("y") else "S"
+            for r in range(lut.shape[0]):
+                row_labels.append(f"{axis}{r}")
+                row_map.append((suffix, r))
+                for c in range(lut.shape[1]):
+                    # Unsupported Lite tables stay at the identity gain (127).
+                    value = int(lut[r, c]) if editable else 127
+                    item = QTableWidgetItem(str(value))
+                    item.setTextAlignment(Qt.AlignCenter)
+                    if not editable:
+                        item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                        item.setBackground(QColor(246, 246, 246))
+                    table.setItem(row + r, c, item)
+            row += lut.shape[0]
+
+        table.setVerticalHeaderLabels(row_labels)
+        self._autosize_gain_table(table)
+        self._gain_row_maps[table_name] = row_map
+
+    def _set_gain_block_header(
+        self,
+        table: QTableWidget,
+        row: int,
+        col_count: int,
+        caption: str,
+        table_name: str,
+        block: str,
+        enabled: bool,
+    ) -> None:
+        """Create a merged title row with Clear/Reset buttons for one block."""
+        table.setSpan(row, 0, 1, min(col_count, 16))
+        host = QWidget()
+        layout = QHBoxLayout(host)
+        layout.setContentsMargins(6, 2, 6, 2)
+        layout.setSpacing(6)
+        layout.addWidget(QLabel(caption))
+        layout.addStretch(1)
+        for text, handler in (
+            ("Clear", self._on_gain_block_clear),
+            ("Reset", self._on_gain_block_reset),
+        ):
+            button = QPushButton(text)
+            button.setFixedHeight(22)
+            button.setEnabled(enabled)
+            button.clicked.connect(
+                lambda _checked=False, n=table_name, b=block, fn=handler: fn(n, b))
+            layout.addWidget(button)
+        table.setCellWidget(row, 0, host)
+        table.setRowHeight(row, 30)
+
+    @staticmethod
+    def _autosize_gain_table(table: QTableWidget) -> None:
+        """Shrink table columns to their content while keeping a compact width."""
+        table.resizeColumnsToContents()
+        table.verticalHeader().setDefaultSectionSize(22)
+        for c in range(table.columnCount()):
+            table.setColumnWidth(c, max(36, min(table.columnWidth(c), 64)))
+
+    def _on_gain_table_cell_changed(self, table_name: str, row: int, col: int) -> None:
+        """Write one edited delta/gain cell back to the active ACM instance."""
+        acm = self._get_current_acm()
+        row_map = self._gain_row_maps.get(table_name, [])
+        if not (0 <= row < len(row_map)):
+            return
+        entry = row_map[row]
+        if entry is None:
+            return
+        suffix, local_row = entry
+        table = getattr(self.ui, table_name, None)
+        item = table.item(row, col) if table is not None else None
+        if item is None:
+            return
+
+        try:
+            value = int(item.text())
+        except ValueError:
+            value = None
+
+        if suffix.startswith("delta_"):
+            key = suffix[len("delta_"):]
+            full = getattr(self, f"full_delta_{key}byh", None)
+            if full is None or not (0 <= col < len(full)):
+                return
+            lo, hi = self._delta_clip_range(key)
+            value = int(full[col]) if value is None else max(lo, min(hi, value))
+            if str(value) != item.text():
+                table.blockSignals(True)
+                item.setText(str(value))
+                table.blockSignals(False)
+            if int(full[col]) != value:
+                full[col] = value
+                self._apply_delta_curve_to_chart(key)
+            return
+
+        if suffix in self._lite_unsupported_gain_luts(acm):
+            return
+        lut = getattr(acm, f"lut_gain_{suffix}", None)
+        if lut is None or not (0 <= col < lut.shape[1]):
+            return
+        value = int(lut[local_row, col]) if value is None else max(
+            ACM_GAIN_MIN, min(ACM_GAIN_MAX, value))
+        if str(value) != item.text():
+            table.blockSignals(True)
+            item.setText(str(value))
+            table.blockSignals(False)
+        lut[local_row, col] = value
+        self._update_lut_visualization()
+        self._schedule_auto_run()
+
+    def _apply_delta_curve_to_chart(self, key: str) -> None:
+        """Push one cached delta curve to its chart, samples and ACM LUT."""
+        full = getattr(self, f"full_delta_{key}byh", None)
+        if full is None:
+            return
+        getattr(self, f"delta_chart_{key}").set_values(full)
+        self._recompute_sample_points(len(full), self.ctrl_point_count, force=True)
+        self._refresh_sample_overlays()
+        self._apply_full_delta_to_acm()
+        self._update_lut_visualization()
+        self._schedule_auto_run()
+
+    def _set_delta_curve_values(self, key: str, values: np.ndarray) -> None:
+        """Replace one full-length delta curve and refresh its chart and LUT."""
+        full = getattr(self, f"full_delta_{key}byh", None)
+        if full is None:
+            return
+        lo, hi = self._delta_clip_range(key)
+        source = np.asarray(values, dtype=np.float32)
+        if source.shape != full.shape:
+            from script.acm.acm_impl_base import linear_resize_array_1d
+            source = linear_resize_array_1d(source, len(full))
+        full[:] = np.clip(np.rint(source), lo, hi).astype(np.int16)
+        self._apply_delta_curve_to_chart(key)
+
+    def _refresh_gain_block_rows(self, table_name: str, suffix: str) -> None:
+        """Refresh the cells of one gain sub table from the ACM LUT."""
+        table = getattr(self.ui, table_name, None)
+        acm = self._get_current_acm()
+        lut = getattr(acm, f"lut_gain_{suffix}", None)
+        row_map = self._gain_row_maps.get(table_name, [])
+        if table is None or lut is None:
+            return
+        table.blockSignals(True)
+        try:
+            for row, entry in enumerate(row_map):
+                if entry is None or entry[0] != suffix:
+                    continue
+                local_row = entry[1]
+                for col in range(min(table.columnCount(), lut.shape[1])):
+                    item = table.item(row, col)
+                    if item is not None:
+                        item.setText(str(int(lut[local_row, col])))
+        finally:
+            table.blockSignals(False)
+
+    def _refresh_delta_rows_in_gain_tables(self) -> None:
+        """Sync the delta rows of the gain tables from the cached curves."""
+        for table_name, delta_key, _ in self._GAIN_TABLES:
+            table = getattr(self.ui, table_name, None)
+            full = getattr(self, f"full_delta_{delta_key}byh", None)
+            row_map = self._gain_row_maps.get(table_name, [])
+            if table is None or full is None:
+                continue
+            target = f"delta_{delta_key}"
+            table.blockSignals(True)
+            try:
+                for row, entry in enumerate(row_map):
+                    if entry is None or entry[0] != target:
+                        continue
+                    for col in range(min(table.columnCount(), len(full))):
+                        item = table.item(row, col)
+                        text = str(int(full[col]))
+                        if item is not None and item.text() != text:
+                            item.setText(text)
+            finally:
+                table.blockSignals(False)
+
+    def _on_gain_block_clear(self, table_name: str, block: str) -> None:
+        """Clear one delta/gain block to its neutral value (0 / 127)."""
+        acm = self._get_current_acm()
+        if block.startswith("delta_"):
+            key = block[len("delta_"):]
+            full = getattr(self, f"full_delta_{key}byh", None)
+            if full is not None:
+                self._set_delta_curve_values(key, np.zeros_like(full))
+            return
+        lut = getattr(acm, f"lut_gain_{block}", None)
+        if lut is None:
+            return
+        lut[...] = 127
+        self._refresh_gain_block_rows(table_name, block)
+        self._update_lut_visualization()
+        self._schedule_auto_run()
+
+    def _on_gain_block_reset(self, table_name: str, block: str) -> None:
+        """Restore one delta/gain block from the ACM default tables."""
+        acm = self._get_current_acm()
+        if block.startswith("delta_"):
+            key = block[len("delta_"):]
+            default = getattr(acm, f"_default_lut_delta_{key}byh", None)
+            if default is not None:
+                self._set_delta_curve_values(key, default)
+            return
+        lut = getattr(acm, f"lut_gain_{block}", None)
+        default = getattr(acm, f"_default_lut_gain_{block}", None)
+        if lut is None or default is None:
+            return
+        source = np.asarray(default)
+        if source.shape != lut.shape:
+            from script.acm.acm_impl_base import linear_resize_array_2d
+            source = np.rint(linear_resize_array_2d(
+                source.astype(np.float32), lut.shape[0], lut.shape[1]))
+        lut[...] = np.clip(source, ACM_GAIN_MIN, ACM_GAIN_MAX)
+        self._refresh_gain_block_rows(table_name, block)
+        self._update_lut_visualization()
+        self._schedule_auto_run()
 
     def _sync_hue_axis_layout(self) -> None:
         """Apply the coarse/fine hue axis layout to all three delta charts.
@@ -1237,6 +1572,7 @@ class AcmUiController:
                 acm.set_hue_partition(n_coarse, new_len_h - n_coarse)
             if (new_len_y, new_len_s, new_len_h2) != (acm.len_y, acm.len_s, acm.len_hd):
                 acm.set_len(new_len_y, new_len_s, acm.len_h, new_len_h2)
+            self._reload_gain_tables_from_acm()
             return
 
         acm.set_len(new_len_y, new_len_s, new_len_h, new_len_h2)
@@ -1253,6 +1589,8 @@ class AcmUiController:
             acm.lut_delta_hbyh = np.clip(
                 bicubic_resize_array_1d(saved_h, new_len_h),
                 ACM_DELTA_H_MIN, ACM_DELTA_H_MAX).astype(np.int16)
+
+        self._reload_gain_tables_from_acm()
 
     # ------------------------------------------------------------------ #
     # Control-point logic                                                #
@@ -1349,6 +1687,7 @@ class AcmUiController:
         self._sync_hue_axis_layout()
         self._recompute_sample_points(len_h, self.ctrl_point_count, force=True)
         self._refresh_sample_overlays()
+        self._refresh_delta_rows_in_gain_tables()
         self._update_lut_visualization()
 
     def _recompute_sample_points(self, len_h: int, count: int, force: bool = False) -> None:
@@ -1578,6 +1917,10 @@ class AcmUiController:
             full_lut[0] = int(round(values[0]))
             if not has_wrap:
                 full_lut[-1] = int(round(values[-1]))
+        # Interpolation (especially cubic / B-spline) can overshoot the LUT
+        # range; clamp so the curve and its labels stay inside the chart.
+        lo, hi = self._delta_clip_range(curve_key)
+        np.clip(full_lut, lo, hi, out=full_lut)
         getattr(self, f"delta_chart_{curve_key}").set_values(full_lut)
 
     def _on_sample_point_changed(self, curve_key: str, idx: int, sample_values: list) -> None:
@@ -1603,6 +1946,7 @@ class AcmUiController:
         acm.lut_delta_ybyh[:] = self.full_delta_ybyh
         acm.lut_delta_sbyh[:] = self.full_delta_sbyh
         acm.lut_delta_hbyh[:] = self.full_delta_hbyh
+        self._refresh_delta_rows_in_gain_tables()
 
     def _reset_delta_curve(self, curve_key: str) -> None:
         """Reset one delta curve and its backing LUT to all zeros."""
@@ -2062,14 +2406,13 @@ class AcmUiController:
         """Scale delta-chart Y labels to the active max-delta setting.
 
         The curves are still plotted in raw LUT units; only the tick labels
-        are converted so that e.g. delta-H reads +/-96 deg when the max delta
-        is 96.
+        are converted. Delta Y/S stay in raw integer units (their delta_range
+        entry is a normalised fraction), while delta H is shown in degrees so
+        e.g. it reads +/-96 deg when the max delta is 96.
         """
         dr = self._get_current_acm().delta_range
-        self.delta_chart_y.set_axis_scale(
-            float(dr[0]) / float(ACM_DELTA_Y_MAX), 2)
-        self.delta_chart_s.set_axis_scale(
-            float(dr[1]) / float(ACM_DELTA_S_MAX), 2)
+        self.delta_chart_y.set_axis_scale(1.0, 0)
+        self.delta_chart_s.set_axis_scale(1.0, 0)
         self.delta_chart_h.set_axis_scale(
             float(dr[2]) / float(ACM_DELTA_H_MAX), 0)
 
@@ -2834,7 +3177,7 @@ class AcmUiController:
                 # neutral (127) area into a non-neutral gain; keep the result
                 # inside the source value range.
                 data = np.clip(data, int(src.min()), int(src.max()))
-                logger.info("resampled gain_%s: %s => %s", name_2d, src.shape, dst.shape)
+                logger.debug("resampled gain_%s: %s => %s", name_2d, src.shape, dst.shape)
             dst[:] = np.clip(data, -128, 127).astype(np.int8)
         if dst_is_lite:
             # These tables are not used by the Lite path; keep them neutral.
@@ -2970,6 +3313,7 @@ class AcmUiController:
         self._sync_clip_type_ui_state()
         self._sync_ctrl_point_slider(acm.len_h)
         self._sync_lite_options_state()
+        self._reload_gain_tables_from_acm()
         self._update_lut_visualization()
 
     def load_current_config(self, path: str) -> bool:
