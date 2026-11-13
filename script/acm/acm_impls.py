@@ -6,7 +6,7 @@ Date        : 2026-06-14
 Description : Concrete ACM implementation subclasses.
 
     * AcmImplHwRk       - hardware ACM, 4 LUTs at (9, 13, 65, 17)
-    * AcmImplHwRkLite   - ACM_LITE HSV, coarse/fine hue (18+18), (9, 8, 36, 17)
+    * AcmImplHwRkLite   - ACM_LITE HSV, coarse/fine hue partition (default 12+20 intervals)
     * AcmImplSwRk       - software ACM matching RK semantics, (9, 13, 65, 65)
     * AcmImplSwEvideo   - evideo ACM, (9, 13, 65, 65) with wider delta range
     * AcmImplSwVariant  - any (y, s, h, h2) with h2 <= h
@@ -335,10 +335,14 @@ class AcmImplHwRkLite(AcmImplBase):
     Processing domain is RGB/HSV: YUV input is converted to RGB first (its
     out-of-gamut handling follows ``clip_type``), then to HSV for H/V/S
     adjustment, and converted back to YUV at the end. The 1D delta LUTs
-    (dH/dS/dV by H) use a two-segment circular hue partition:
+    (dH/dS/dV by H) use a two-segment hue partition:
 
-      * coarse segment [60, 330) with ``n_coarse`` intervals
-      * fine segment   [-30, 60) with ``n_fine`` intervals
+      * fine segment   [0, 60) with ``n_fine`` intervals
+      * coarse segment [60, 360) with ``n_coarse`` intervals
+
+    The table is point based: index 0 is 0 deg and the last point duplicates
+    360 deg (= 0 deg), so hardware can interpolate the closing segment
+    without address wrapping. ``len_h = n_fine + n_coarse + 1``.
 
     The 2D gain LUTs keep the legacy 17-point hue axis (``len_hd``) and are
     sampled uniformly starting from 60 deg. Only ``GainV_byV``, ``GainS_byV``
@@ -355,9 +359,9 @@ class AcmImplHwRkLite(AcmImplBase):
     delta increments, so a zero delta table always leaves the image unchanged.
     """
 
-    HUE_START_DEG = 60.0
-    HUE_COARSE_SPAN_DEG = 270.0
-    HUE_FINE_SPAN_DEG = 90.0
+    HUE_START_DEG = 0.0
+    HUE_FINE_SPAN_DEG = 60.0
+    HUE_COARSE_SPAN_DEG = 300.0
 
     # 2D gain table names kept by the base class; the Lite path samples only
     # the first three and leaves the deleted ones untouched.
@@ -368,8 +372,8 @@ class AcmImplHwRkLite(AcmImplBase):
         self,
         len_y: int = 9,
         len_s: int = 8,
-        n_coarse: int = 18,
-        n_fine: int = 18,
+        n_coarse: int = 20,
+        n_fine: int = 12,
         len_h2: int = 17,
         delta_range: tuple = (1.0, 1.0, 96),
         use_cordic: bool = True,
@@ -378,11 +382,12 @@ class AcmImplHwRkLite(AcmImplBase):
     ):
         n_coarse = int(n_coarse)
         n_fine = int(n_fine)
-        len_h = n_coarse + n_fine
+        # Point-based table: the last point duplicates 360 deg (0 deg).
+        len_h = n_coarse + n_fine + 1
         if n_coarse < 1 or n_fine < 1:
             raise ValueError(f"n_coarse/n_fine must be >= 1, got ({n_coarse}, {n_fine})")
         if not (ACM_LEN_H_MIN <= len_h <= ACM_LEN_H_MAX):
-            raise ValueError(f"n_coarse + n_fine must be in [{ACM_LEN_H_MIN}, {ACM_LEN_H_MAX}], got {len_h}")
+            raise ValueError(f"n_coarse + n_fine + 1 must be in [{ACM_LEN_H_MIN}, {ACM_LEN_H_MAX}], got {len_h}")
         if int(len_h2) > 0 and len_h < int(len_h2):
             raise ValueError(f"len_h ({len_h}) must be >= len_hd ({len_h2})")
 
@@ -402,8 +407,8 @@ class AcmImplHwRkLite(AcmImplBase):
         self.chroma_protect = float(np.clip(chroma_protect, 0.0, 1.0))
         self._init_lite_gain_luts()
         print(
-            f"[ACM] created AcmImplHwRkLite: hue={n_coarse}+{n_fine}={len_h}, "
-            f"gain hue axis={self.len_hd}, clip type={self.clip_type}"
+            f"[ACM] created AcmImplHwRkLite: fine={n_fine}, coarse={n_coarse}, "
+            f"len_h={len_h}, gain hue axis={self.len_hd}, clip type={self.clip_type}"
         )
 
     # ------------------------------------------------------------------
@@ -424,19 +429,21 @@ class AcmImplHwRkLite(AcmImplBase):
     def set_hue_partition(self, n_coarse: int, n_fine: int, kernel: np.ndarray = None) -> None:
         """Change the coarse/fine hue partition with hue-aware resampling.
 
-        ``len_h`` becomes ``n_coarse + n_fine``. The current 1D delta LUTs
-        are resampled by hue angle (not by array index) so that switching
-        between partitions preserves the tuning curve. The resampled tables
-        also become the new default set, so later ``set_len`` calls use the
-        new partition as the canonical reference.
+        ``n_coarse`` / ``n_fine`` count intervals over [60, 360) and [0, 60)
+        respectively. The table is point based, so ``len_h = n_coarse +
+        n_fine + 1`` and the last point duplicates 360 deg. The current 1D
+        delta LUTs are resampled by hue angle (not by array index) so that
+        switching between partitions preserves the tuning curve. The resampled
+        tables also become the new default set, so later ``set_len`` calls use
+        the new partition as the canonical reference.
         """
         n_coarse = int(n_coarse)
         n_fine = int(n_fine)
         if n_coarse < 1 or n_fine < 1:
             raise ValueError(f"n_coarse/n_fine must be >= 1, got ({n_coarse}, {n_fine})")
-        total = n_coarse + n_fine
+        total = n_coarse + n_fine + 1
         if not (ACM_LEN_H_MIN <= total <= ACM_LEN_H_MAX):
-            raise ValueError(f"n_coarse + n_fine must be in [{ACM_LEN_H_MIN}, {ACM_LEN_H_MAX}], got {total}")
+            raise ValueError(f"n_coarse + n_fine + 1 must be in [{ACM_LEN_H_MIN}, {ACM_LEN_H_MAX}], got {total}")
         if total < self.len_hd:
             raise ValueError(f"len_h ({total}) must be >= len_hd ({self.len_hd})")
 
@@ -451,7 +458,7 @@ class AcmImplHwRkLite(AcmImplBase):
         self.n_fine = n_fine
         self.set_len(self.len_y, self.len_s, total, self.len_hd, kernel)
 
-        old_total = old_n_coarse + old_n_fine
+        old_total = old_n_coarse + old_n_fine + 1
         if len(old_luts[0]) != old_total:
             print(
                 f"[ACM] hue partition resample skipped: current len_h({len(old_luts[0])}) "
@@ -478,16 +485,34 @@ class AcmImplHwRkLite(AcmImplBase):
         self.lut_delta_ybyh = self._default_lut_delta_ybyh.copy()
         self.lut_delta_sbyh = self._default_lut_delta_sbyh.copy()
         self.lut_delta_hbyh = self._default_lut_delta_hbyh.copy()
-        print(f"[ACM] hue partition changed to n_coarse={n_coarse}, n_fine={n_fine} (len_h={total})")
+        self._sync_hue_closure()
+        print(f"[ACM] hue partition changed to fine={n_fine}, coarse={n_coarse} (len_h={total})")
+
+    def _sync_hue_closure(self) -> None:
+        """Force the last hue-table point to equal index 0 (closed table).
+
+        The 1D tables are point based with the final point at 360 deg, so the
+        closing point must mirror index 0 for hardware interpolation. Both the
+        running and the default tables are kept closed.
+        """
+        for name in ("delta_ybyh", "delta_sbyh", "delta_hbyh"):
+            lut = getattr(self, f"lut_{name}", None)
+            if lut is not None and lut.size > 1:
+                lut[-1] = lut[0]
+            default = getattr(self, f"_default_lut_{name}", None)
+            if default is not None and default.size > 1:
+                default[-1] = default[0]
 
     def _sync_hue_partition_from_len(self) -> None:
         """Keep n_coarse/n_fine consistent when len_h changes externally."""
         total = int(self.len_h)
-        if getattr(self, "n_coarse", 0) + getattr(self, "n_fine", 0) == total:
+        if getattr(self, "n_coarse", 0) + getattr(self, "n_fine", 0) + 1 == total:
             return
-        self.n_coarse = total // 2
-        self.n_fine = total - self.n_coarse
-        print(f"[ACM] hue partition re-split to n_coarse={self.n_coarse}, n_fine={self.n_fine}")
+        intervals = max(2, total - 1)
+        # Keep the documented fine-segment share (12 / 32 ~= 0.375).
+        self.n_fine = max(1, int(round(intervals * 0.375)))
+        self.n_coarse = intervals - self.n_fine
+        print(f"[ACM] hue partition re-split to fine={self.n_fine}, coarse={self.n_coarse}")
 
     def _promote_current_to_default(self) -> None:
         """Promote the current tables/lengths to the canonical default set."""
@@ -502,12 +527,13 @@ class AcmImplHwRkLite(AcmImplBase):
             setattr(self, f"_default_lut_{name}", getattr(self, f"lut_{name}").copy())
 
     def set_len(self, len_y: int, len_s: int, len_h: int, len_hd: int = 0, kernel: np.ndarray = None) -> None:
-        """Set LUT lengths; len_h is split evenly when the partition changes."""
+        """Set LUT lengths; len_h is re-split when the partition changes."""
         if int(len_hd) > 0 and int(len_h) < int(len_hd):
             raise ValueError(f"len_h ({len_h}) must be >= len_hd ({len_hd})")
         super().set_len(len_y, len_s, len_h, len_hd, kernel)
         self._sync_hue_partition_from_len()
         self._promote_current_to_default()
+        self._sync_hue_closure()
 
     def set_step(
         self, step_y: float, step_s: float, step_h: float, step_h2: float = 0.0, kernel: np.ndarray = None
@@ -516,6 +542,7 @@ class AcmImplHwRkLite(AcmImplBase):
         super().set_step(step_y, step_s, step_h, step_h2, kernel)
         self._sync_hue_partition_from_len()
         self._promote_current_to_default()
+        self._sync_hue_closure()
 
     def set_global_gains(self, gain_y: int, gain_s: int, gain_h: int) -> None:
         """Set global gains in [0, 1023] (256 = 1.0x, 1023 ~= 4.0x)."""
@@ -572,15 +599,18 @@ class AcmImplHwRkLite(AcmImplBase):
         is_lite = bool(acm_data.get("acmLite", 0))
         total = max(
             ACM_LEN_H_MIN,
-            min(ACM_LEN_H_MAX, int(acm_data.get("lutLengthH", self.n_coarse + self.n_fine))),
+            min(ACM_LEN_H_MAX, int(acm_data.get("lutLengthH", self.n_coarse + self.n_fine + 1))),
         )
         n_coarse = self.n_coarse
         n_fine = self.n_fine
         if is_lite:
-            n_coarse = int(acm_data.get("acmHuePartitionCoarse", total // 2))
-            n_fine = int(acm_data.get("acmHuePartitionFine", total - n_coarse))
-            if n_coarse < 1 or n_fine < 1 or n_coarse + n_fine != total:
-                n_coarse, n_fine = total // 2, total - total // 2
+            n_coarse = int(acm_data.get("acmHuePartitionCoarse", -1))
+            n_fine = int(acm_data.get("acmHuePartitionFine", -1))
+            if n_coarse < 1 or n_fine < 1 or n_coarse + n_fine + 1 != total:
+                # Missing or legacy partition: fall back to the default ratio.
+                intervals = max(2, total - 1)
+                n_fine = max(1, int(round(intervals * 0.375)))
+                n_coarse = intervals - n_fine
             # Align canonical lengths with the file so the base loader does
             # not resample the 1D delta LUTs by array index.
             self.n_coarse, self.n_fine = n_coarse, n_fine
@@ -605,11 +635,14 @@ class AcmImplHwRkLite(AcmImplBase):
             self.n_coarse, self.n_fine = n_coarse, n_fine
             self._default_len_h = total
         else:
-            # Legacy config: keep the Lite table circular with an even split.
+            # Legacy config: keep the Lite table closed with the default split.
             total = int(self.len_h)
-            self.n_coarse = max(1, total // 2)
-            self.n_fine = max(1, total - self.n_coarse)
+            intervals = max(2, total - 1)
+            self.n_fine = max(1, int(round(intervals * 0.375)))
+            self.n_coarse = intervals - self.n_fine
             self._default_len_h = total
+
+        self._sync_hue_closure()
 
         # Removed gain tables are not used by the Lite path; keep them at the
         # identity gain so the UI shows neutral data.
@@ -618,7 +651,7 @@ class AcmImplHwRkLite(AcmImplBase):
                 if hasattr(self, attr):
                     getattr(self, attr)[...] = 127
         self.b_lut_ready = True
-        print(f"[ACM] loaded Lite config: hue={self.n_coarse}+{self.n_fine}, len_h={self.len_h}")
+        print(f"[ACM] loaded Lite config: fine={self.n_fine}, coarse={self.n_coarse}, len_h={self.len_h}")
         return True
 
     # ------------------------------------------------------------------
@@ -865,71 +898,64 @@ class AcmImplHwRkLite(AcmImplBase):
     # LUT sampling helpers
     # ------------------------------------------------------------------
     def _hue_grid(self, n_coarse: int, n_fine: int) -> np.ndarray:
-        """Return hue angles in degrees for the circular coarse/fine table.
+        """Return hue angles in degrees for the point-based hue table.
 
-        The grid follows the table traversal order: coarse points from 60 to
-        330 deg (endpoint included), then the fine interior points from 330
-        back to 60 deg. Shared endpoints are stored once.
+        Index 0 is 0 deg. The fine segment [0, 60) uses ``n_fine`` intervals,
+        the coarse segment [60, 360) uses ``n_coarse`` intervals, and the last
+        point duplicates 360 deg (same value as index 0). The returned length
+        is ``n_fine + n_coarse + 1``.
         """
-        start = self.HUE_START_DEG
-        coarse_end = start + self.HUE_COARSE_SPAN_DEG
-        coarse = np.linspace(start, coarse_end, n_coarse + 1, dtype=np.float32)
-        if n_fine > 1:
-            fine_step = self.HUE_FINE_SPAN_DEG / n_fine
-            fine = np.linspace(
-                coarse_end + fine_step,
-                coarse_end + self.HUE_FINE_SPAN_DEG - fine_step,
-                n_fine - 1,
-                dtype=np.float32,
-            )
-            angles = np.concatenate([coarse, fine])
-        else:
-            angles = coarse
-        return np.mod(angles, 360.0).astype(np.float32)
+        fine = np.linspace(
+            0.0, self.HUE_FINE_SPAN_DEG, n_fine + 1, dtype=np.float32)
+        coarse = np.linspace(
+            self.HUE_FINE_SPAN_DEG,
+            self.HUE_FINE_SPAN_DEG + self.HUE_COARSE_SPAN_DEG,
+            n_coarse + 1,
+            dtype=np.float32,
+        )[1:]
+        return np.concatenate([fine, coarse])
 
     @staticmethod
     def _circular_resample(
         old_angles: np.ndarray, new_angles: np.ndarray, old_values: np.ndarray
     ) -> np.ndarray:
-        """Resample 1D LUT values by hue angle with circular interpolation."""
-        old_angles = np.mod(np.asarray(old_angles, dtype=np.float32), 360.0)
-        order = np.argsort(old_angles)
-        angles = old_angles[order]
-        values = np.asarray(old_values, dtype=np.float32)[order]
-        angles_ext = np.concatenate([[angles[-1] - 360.0], angles, [angles[0] + 360.0]])
-        values_ext = np.concatenate([[values[-1]], values, [values[0]]])
-        new_angles = np.mod(np.asarray(new_angles, dtype=np.float32), 360.0)
-        return np.interp(new_angles, angles_ext, values_ext).astype(np.float32)
+        """Resample 1D LUT values by hue angle on a closed 0..360 grid.
+
+        Both angle arrays are expected to be the output of :meth:`_hue_grid`:
+        monotonically increasing from 0 to 360 deg with the last value
+        mirroring the first one.
+        """
+        angles = np.asarray(old_angles, dtype=np.float32)
+        values = np.asarray(old_values, dtype=np.float32)
+        new = np.clip(np.asarray(new_angles, dtype=np.float32), 0.0, 360.0)
+        return np.interp(new, angles, values).astype(np.float32)
 
     def _hue_pos_coarse_fine(self, h_deg: np.ndarray):
-        """Map hue to a fractional index in the coarse/fine circular table.
+        """Map hue to a fractional index in the point-based hue table.
 
-        Table layout: index 0 is 60 deg; indices [1, n_coarse] cover the
-        coarse segment up to 330 deg; the remaining indices cover the fine
-        segment from 330 deg back to 60 deg, wrapping to index 0.
+        Index 0 is 0 deg, ``n_fine`` intervals cover [0, 60) and ``n_coarse``
+        intervals cover [60, 360). The last point duplicates 360 deg, so the
+        closing segment interpolates against it without address wrapping.
         """
         n_coarse = self.n_coarse
         n_fine = self.n_fine
-        n_hue = n_coarse + n_fine
+        n_hue = n_coarse + n_fine + 1
 
-        start = self.HUE_START_DEG
-        coarse_end = start + self.HUE_COARSE_SPAN_DEG
         h = np.mod(h_deg, 360.0)
-        is_coarse = (h >= start) & (h < coarse_end)
-        h_fine = np.where(h >= coarse_end, h, h + 360.0)
-        u_coarse = (h - start) / self.HUE_COARSE_SPAN_DEG * n_coarse
-        u_fine = n_coarse + (h_fine - coarse_end) / self.HUE_FINE_SPAN_DEG * n_fine
-        u = np.where(is_coarse, u_coarse, u_fine)
+        is_fine = h < self.HUE_FINE_SPAN_DEG
+        u_fine = h / self.HUE_FINE_SPAN_DEG * n_fine
+        u_coarse = n_fine + (h - self.HUE_FINE_SPAN_DEG) / self.HUE_COARSE_SPAN_DEG * n_coarse
+        u = np.where(is_fine, u_fine, u_coarse)
 
-        i0 = np.floor(u).astype(np.int32) % n_hue
-        i1 = (i0 + 1) % n_hue
-        f = (u - np.floor(u)).astype(np.float32)
+        i0 = np.clip(np.floor(u).astype(np.int32), 0, n_hue - 2)
+        i1 = i0 + 1
+        f = np.clip(u - i0, 0.0, 1.0).astype(np.float32)
         return i0, i1, f
 
     def _hue_pos_uniform(self, h_deg: np.ndarray, n_hue: int):
         """Map hue to a fractional index in a uniform 2D-gain hue axis.
 
-        The axis starts at 60 deg and has ``n_hue`` points over 360 deg, with
+        The axis starts at 0 deg and has ``n_hue`` points over 360 deg, with
         the last point duplicating the first one for linear interpolation.
         """
         hp = np.mod(h_deg - self.HUE_START_DEG, 360.0)
@@ -941,7 +967,7 @@ class AcmImplHwRkLite(AcmImplBase):
 
     @staticmethod
     def _sample_1d(lut: np.ndarray, i0: np.ndarray, i1: np.ndarray, f: np.ndarray) -> np.ndarray:
-        """Linear interpolation on a circular 1D LUT."""
+        """Linear interpolation on a closed point-based 1D LUT."""
         return lut[i0].astype(np.float32) * (1.0 - f) + lut[i1].astype(np.float32) * f
 
     @staticmethod

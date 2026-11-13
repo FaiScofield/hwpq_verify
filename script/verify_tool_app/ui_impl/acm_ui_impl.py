@@ -218,6 +218,14 @@ class SingleCurveChartWidget(QWidget):
         """Enable or disable mirrored first/last sample values."""
         self.h_cycle_closure = bool(enabled)
 
+    def set_background_image(self, path: str) -> None:
+        """Load a chart background image; an empty or missing path clears it."""
+        pixmap = QPixmap(path) if path and os.path.isfile(path) else None
+        if pixmap is not None and pixmap.isNull():
+            pixmap = None
+        self._bg_pixmap = pixmap
+        self.update()
+
     def set_axis_scale(self, scale: float, decimals: int = 0) -> None:
         """Scale the Y-axis labels without moving the plotted curve.
 
@@ -237,16 +245,16 @@ class SingleCurveChartWidget(QWidget):
         self,
         n_coarse: int | None,
         n_fine: int | None,
-        coarse_span_deg: float = 270.0,
-        fine_span_deg: float = 90.0,
+        coarse_span_deg: float = 300.0,
+        fine_span_deg: float = 60.0,
     ) -> None:
         """Enable or disable the ACM_LITE coarse/fine hue axis layout.
 
         With the layout enabled the horizontal axis is drawn by hue angle
-        instead of by LUT index: a coarse step spans ``coarse_span_deg /
-        n_coarse`` degrees while a fine step spans ``fine_span_deg /
-        n_fine`` degrees, so for the default 18+18 partition the fine
-        anchor spacing is one third of the coarse spacing.
+        instead of by LUT index: the fine segment [0, fine_span) uses
+        ``n_fine`` intervals and the coarse segment [fine_span, 360) uses
+        ``n_coarse`` intervals. The table is point based, so its length is
+        ``n_fine + n_coarse + 1``.
 
         Passing ``None`` (or a non-positive partition) restores the legacy
         uniform index spacing used by the other algorithms.
@@ -277,14 +285,14 @@ class SingleCurveChartWidget(QWidget):
         if self.hue_partition is None:
             return clamp(idx / (n - 1), 0.0, 1.0)
         n_coarse, n_fine, coarse_span, fine_span = self.hue_partition
-        if n_coarse < 1 or n_fine < 1 or n_coarse + n_fine != n:
+        if n_coarse < 1 or n_fine < 1 or n_coarse + n_fine + 1 != n:
             # Partition and table length are out of sync; fall back to the
             # uniform spacing until the next sync.
             return clamp(idx / (n - 1), 0.0, 1.0)
-        if idx <= n_coarse:
-            angle = idx / n_coarse * coarse_span
+        if idx <= n_fine:
+            angle = idx / n_fine * fine_span
         else:
-            angle = coarse_span + (idx - n_coarse) / n_fine * fine_span
+            angle = fine_span + (idx - n_fine) / n_coarse * coarse_span
         return clamp(angle / (coarse_span + fine_span), 0.0, 1.0)
 
     def _ratio_to_x(self, ratio: float) -> float:
@@ -295,8 +303,8 @@ class SingleCurveChartWidget(QWidget):
     def _tick_indices(self) -> list[int]:
         """Return the LUT indices that receive an X-axis tick label.
 
-        ACM_LITE compresses the whole fine segment into the last quarter of
-        the axis, so labelling every other index would overlap; use a coarser
+        ACM_LITE compresses the whole fine segment into the first sixth of
+        the axis, so labelling every index would overlap; use a coarser
         stride per segment instead.
         """
         n = len(self.values)
@@ -305,14 +313,16 @@ class SingleCurveChartWidget(QWidget):
         if self.hue_partition is None:
             return list(range(0, n, 2))
         n_coarse, n_fine = self.hue_partition[0], self.hue_partition[1]
-        if n_coarse < 1 or n_fine < 1 or n_coarse + n_fine != n:
+        if n_coarse < 1 or n_fine < 1 or n_coarse + n_fine + 1 != n:
             return list(range(0, n, 2))
-        coarse_step = max(1, int(round(n_coarse / 5.0)))
         fine_step = max(1, int(round(n_fine / 3.0)))
-        ticks = list(range(0, n_coarse + 1, coarse_step))
-        if ticks[-1] != n_coarse:
-            ticks.append(n_coarse)
-        ticks.extend(range(n_coarse + fine_step, n, fine_step))
+        coarse_step = max(1, int(round(n_coarse / 5.0)))
+        ticks = list(range(0, n_fine + 1, fine_step))
+        if ticks[-1] != n_fine:
+            ticks.append(n_fine)
+        ticks.extend(range(n_fine + coarse_step, n, coarse_step))
+        if ticks[-1] != n - 1:
+            ticks.append(n - 1)
         return ticks
 
     def get_values(self) -> list[int]:
@@ -447,11 +457,11 @@ class SingleCurveChartWidget(QWidget):
         mid_y = self._value_to_y(0)
         painter.drawLine(self.padding, int(mid_y), width - self.padding, int(mid_y))
 
-        # Coarse/fine hue partition divider (ACM_LITE only)
+        # Fine/coarse hue partition divider (ACM_LITE only)
         if self.hue_partition is not None:
             n_coarse, n_fine = self.hue_partition[0], self.hue_partition[1]
-            if n_coarse > 0 and n_fine > 0 and n_coarse + n_fine == n:
-                x_div = self._ratio_to_x(self._index_ratio(float(n_coarse)))
+            if n_coarse > 0 and n_fine > 0 and n_coarse + n_fine + 1 == n:
+                x_div = self._ratio_to_x(self._index_ratio(float(n_fine)))
                 painter.setPen(QPen(QColor(120, 120, 120), 1, Qt.DashLine))
                 painter.drawLine(int(x_div), self.padding,
                                  int(x_div), height - self.padding)
@@ -648,7 +658,7 @@ class AcmUiController:
         "SW_RK (9,13,65,65)",
         "SW_Sonnoc (9,13,65,65)",
         "SW_Variant (custom)",
-        "ACM_LITE_HSV (18+18)",
+        "ACM_LITE_HSV",
     )
     _HW_ALGO_KEY = "VOP_VP_ACM"
     _LITE_ALGO_KEY = "HW_RK_LITE"
@@ -659,6 +669,15 @@ class AcmUiController:
         ("table_gainS", "s", (("sbyy", "GainS by Y"), ("sbys", "GainS by S"))),
         ("table_gainH", "h", (("hbyy", "GainH by Y"), ("hbys", "GainH by S"))),
     )
+    # Delta-chart background images: (legacy, Lite). The Lite set follows the
+    # 0..360 deg HSV axis and its delta semantics.
+    _RESOURCE_DIR = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resource")
+    _DELTA_BG_IMAGES: dict[str, tuple[str, str]] = {
+        "y": ("Acm_Y_deltaImg.bmp", "AcmLite_Y_deltaImg.bmp"),
+        "s": ("Acm_S_deltaImg.bmp", "AcmLite_S_deltaImg.bmp"),
+        "h": ("Acm_H_deltaImg.bmp", "AcmLite_H_deltaImg.bmp"),
+    }
     # 支持 RGB/HSV 处理路径的算法：软件路径走基类 _do_acm_rgb，
     # ACM_LITE 走自身 _do_acm_rgb_lite；HW_VOP 恒走 YUV。
     _RGB_PATH_ALGOS: tuple[str, ...] = ("SW_ACM", "EVIDEO_ACM", "SW_ACM_VARIANT", "HW_RK_LITE")
@@ -768,16 +787,16 @@ class AcmUiController:
         self._suppress_sample_signal = False
 
         # --- Chart widgets (hosted inside ACM tab) ---
-        _res_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resource")
+        _res_dir = self._RESOURCE_DIR
         self.delta_chart_y = SingleCurveChartWidget(
             (ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX), QColor(255, 200, 0),
-            bg_image_path=os.path.join(_res_dir, "Y_deltaImg.bmp"))
+            bg_image_path=os.path.join(_res_dir, self._DELTA_BG_IMAGES["y"][0]))
         self.delta_chart_s = SingleCurveChartWidget(
             (ACM_DELTA_S_MIN, ACM_DELTA_S_MAX), QColor(0, 180, 0),
-            bg_image_path=os.path.join(_res_dir, "S_deltaImg.bmp"))
+            bg_image_path=os.path.join(_res_dir, self._DELTA_BG_IMAGES["s"][0]))
         self.delta_chart_h = SingleCurveChartWidget(
             (ACM_DELTA_H_MIN, ACM_DELTA_H_MAX), QColor(0, 100, 255),
-            bg_image_path=os.path.join(_res_dir, "H_deltaImg.bmp"))
+            bg_image_path=os.path.join(_res_dir, self._DELTA_BG_IMAGES["h"][0]))
         for host, chart in (
             (self.ui.widget_delta_y_host, self.delta_chart_y),
             (self.ui.widget_delta_s_host, self.delta_chart_s),
@@ -978,8 +997,8 @@ class AcmUiController:
         for name in ("delta_chart_y", "delta_chart_s", "delta_chart_h"):
             chart = getattr(self, name, None)
             if chart is not None:
-                # ACM_LITE now renders one extra UI-only wrap sample at hue
-                # 360 deg, so the first/last samples still mirror each other.
+                # The hue table stores its closing point, so the first and
+                # last samples mirror each other for every algorithm.
                 chart.set_h_cycle_closure(True)
         self._sync_hue_axis_layout()
         self._sync_offset_controls()
@@ -1172,6 +1191,11 @@ class AcmUiController:
                 table.blockSignals(False)
             if int(full[col]) != value:
                 full[col] = value
+                # Closed table: editing either end updates the other.
+                if col == 0:
+                    full[-1] = value
+                elif col == len(full) - 1:
+                    full[0] = value
                 self._apply_delta_curve_to_chart(key)
             return
 
@@ -1213,6 +1237,8 @@ class AcmUiController:
             from script.acm.acm_impl_base import linear_resize_array_1d
             source = linear_resize_array_1d(source, len(full))
         full[:] = np.clip(np.rint(source), lo, hi).astype(np.int16)
+        # Closed point-based hue table: the last entry mirrors index 0.
+        full[-1] = full[0]
         self._apply_delta_curve_to_chart(key)
 
     def _refresh_gain_block_rows(self, table_name: str, suffix: str) -> None:
@@ -1301,26 +1327,40 @@ class AcmUiController:
     def _sync_hue_axis_layout(self) -> None:
         """Apply the coarse/fine hue axis layout to all three delta charts.
 
-        ACM_LITE stores the coarse segment over 270 deg and the fine segment
-        over 90 deg, so plotting LUT indices by hue angle makes the fine
-        anchor and sample spacing one third of the coarse spacing for the
-        default 18+18 partition. Legacy algorithms keep the uniform index
-        axis.
+        ACM_LITE uses a point-based hue table: the fine segment [0, 60) takes
+        ``n_fine`` intervals, the coarse segment [60, 360) takes ``n_coarse``
+        intervals, and the last point duplicates 0 deg. Legacy algorithms keep
+        the uniform index axis.
         """
         if self._is_lite_algo():
             acm = self._get_current_acm()
             n_coarse = int(getattr(acm, "n_coarse", 0))
             n_fine = int(getattr(acm, "n_fine", 0))
-            coarse_span = float(getattr(acm, "HUE_COARSE_SPAN_DEG", 270.0))
-            fine_span = float(getattr(acm, "HUE_FINE_SPAN_DEG", 90.0))
+            coarse_span = float(getattr(acm, "HUE_COARSE_SPAN_DEG", 300.0))
+            fine_span = float(getattr(acm, "HUE_FINE_SPAN_DEG", 60.0))
         else:
             n_coarse = n_fine = 0
-            coarse_span, fine_span = 270.0, 90.0
+            coarse_span, fine_span = 300.0, 60.0
         for name in ("delta_chart_y", "delta_chart_s", "delta_chart_h"):
             chart = getattr(self, name, None)
             if chart is not None:
                 chart.set_hue_partition_axis(
                     n_coarse, n_fine, coarse_span, fine_span)
+        self._sync_delta_backgrounds()
+
+    def _sync_delta_backgrounds(self) -> None:
+        """Select the background image set that matches the active algorithm.
+
+        The Lite set is generated from the HSV pipeline (0..360 deg hue axis,
+        additive V, multiplicative S and +/-96 deg H rotation); the legacy set
+        keeps the original images used by ``AcmImplHwRk``.
+        """
+        is_lite = self._is_lite_algo()
+        for key, (legacy_name, lite_name) in self._DELTA_BG_IMAGES.items():
+            chart = getattr(self, f"delta_chart_{key}", None)
+            if chart is not None:
+                chart.set_background_image(os.path.join(
+                    self._RESOURCE_DIR, lite_name if is_lite else legacy_name))
 
     def _sync_offset_controls(self) -> None:
         """Enable RGB offset controls only for HSV paths that consume them."""
@@ -1566,10 +1606,11 @@ class AcmUiController:
                 # accept a smaller total len_h.
                 acm.set_len(acm.len_y, acm.len_s, acm.len_h, new_len_h)
             if new_len_h != acm.len_h:
-                # Lite keeps the coarse/fine split balanced, so len_h is the
-                # only input: n_coarse == n_fine (n_fine takes the odd extra).
-                n_coarse = new_len_h // 2
-                acm.set_hue_partition(n_coarse, new_len_h - n_coarse)
+                # Point-based table: len_h = intervals + 1. Keep the
+                # documented fine-segment share (12 / 32 ~= 0.375).
+                intervals = max(2, new_len_h - 1)
+                n_fine = max(1, int(round(intervals * 0.375)))
+                acm.set_hue_partition(intervals - n_fine, n_fine)
             if (new_len_y, new_len_s, new_len_h2) != (acm.len_y, acm.len_s, acm.len_hd):
                 acm.set_len(new_len_y, new_len_s, acm.len_h, new_len_h2)
             self._reload_gain_tables_from_acm()
@@ -1599,57 +1640,47 @@ class AcmUiController:
     def _normalize_ctrl_point_count(self, len_h: int, value: int) -> int:
         """Clamp the control-point count to the valid range.
 
-        ACM_LITE allows one extra UI-only wrap sample, so its upper bound is
-        ``len_h + 1`` instead of ``len_h``.
+        The point-based hue table stores its closing point, so the upper bound
+        is ``len_h`` for every algorithm.
         """
-        max_value = max(4, int(len_h) + (1 if self._is_lite_algo() else 0))
+        max_value = max(4, int(len_h))
         return max(4, min(int(value), max_value))
 
     def _is_wrap_sample(self, index: int) -> bool:
-        """Return True when ``index`` is the ACM_LITE UI-only wrap sample.
+        """Return whether a sample index is a UI-only wrap sample.
 
-        The wrap sample sits at hue 360 deg, mirrors sample 0 for interactive
-        closure, and has no LUT slot of its own. H-cycle closure is always
-        enabled for the charts, so no extra flag check is needed here.
+        The point-based hue table stores the closing point itself, so no
+        extra UI-only wrap sample is used anymore.
         """
-        if not self._is_lite_algo():
-            return False
-        positions = self.sample_positions
-        if not positions or index != len(positions) - 1 or index < 1:
-            return False
-        full_lut = getattr(self, "full_delta_ybyh", None)
-        len_h = int(len(full_lut)) if full_lut is not None else 0
-        return len_h > 1 and float(positions[index]) >= float(len_h) - 1e-6
+        del index
+        return False
 
     def _update_ctrl_point_hint(self, len_h: int) -> None:
         """Refresh the displayed control-point hint text."""
         if self._is_lite_algo():
             acm = self._get_current_acm()
             # Report the angular resolution so the coarse/fine ratio is visible.
-            coarse_step = (float(getattr(acm, "HUE_COARSE_SPAN_DEG", 270.0))
-                           / max(1, int(acm.n_coarse)))
-            fine_step = (float(getattr(acm, "HUE_FINE_SPAN_DEG", 90.0))
+            fine_step = (float(getattr(acm, "HUE_FINE_SPAN_DEG", 60.0))
                          / max(1, int(acm.n_fine)))
+            coarse_step = (float(getattr(acm, "HUE_COARSE_SPAN_DEG", 300.0))
+                           / max(1, int(acm.n_coarse)))
             self.ui.label_delta_hint.setText(
-                f"(len_h: {len_h}, coarse: {acm.n_coarse}@{coarse_step:.1f}deg, "
-                f"fine: {acm.n_fine}@{fine_step:.1f}deg)")
+                f"(len_h: {len_h}, fine: {acm.n_fine}@{fine_step:.1f}deg [0-60], "
+                f"coarse: {acm.n_coarse}@{coarse_step:.1f}deg [60-360])")
             return
         count = max(1, len(self.sample_positions))
         step = (len_h - 1) / max(1, count - 1) if count > 1 else 0.0
         self.ui.label_delta_hint.setText(f"(len_h: {len_h}, step: {step:.2f})")
 
     def _compute_sample_positions(self, len_h: int, count: int) -> list[float]:
-        """Compute evenly spaced sample positions.
+        """Compute evenly spaced sample positions over [0, len_h - 1].
 
-        ACM_LITE additionally exposes a UI-only wrap sample at hue 360 deg,
-        so its positions span ``[0, len_h]`` instead of ``[0, len_h - 1]``;
-        the extra point mirrors sample 0 and is not written into the LUT.
-        For legacy uniform tables H-cycle closure is handled by mirroring
-        sample 0 to the last sample at the data level.
+        The closing point is part of the hue table, so the first and last
+        samples sit on index 0 and index ``len_h - 1`` and mirror each other.
         """
         if count < 2:
             return [0.0]
-        span = float(len_h) if self._is_lite_algo() else float(len_h - 1)
+        span = float(max(1, len_h - 1))
         positions: list[float] = []
         for i in range(count):
             positions.append(round(span * i / (count - 1), 2))
@@ -1657,7 +1688,7 @@ class AcmUiController:
 
     def _sync_ctrl_point_slider(self, len_h: int) -> None:
         """Update the control-point slider bounds for the current len_h."""
-        max_value = max(4, int(len_h) + (1 if self._is_lite_algo() else 0))
+        max_value = max(4, int(len_h))
         default_value = max(4, min(max_value, int(len_h) // 4))
         new_value = self._normalize_ctrl_point_count(len_h, default_value)
         self.ui.slider_ctrl_points.blockSignals(True)
@@ -1850,7 +1881,7 @@ class AcmUiController:
         # mirrors the two values).
         if changed_idx is not None and has_wrap and changed_idx >= n:
             changed_idx = 0
-        legacy_closure = not self._is_lite_algo()
+        legacy_closure = True
         # Decide which segments to re-interpolate and which samples need to
         # be synced to the LUT's nearest integer index.
         if changed_idx is None or not (0 <= changed_idx < n):
@@ -1906,17 +1937,11 @@ class AcmUiController:
         # reflected in the closest integer-indexed point.
         for s_idx in samples_to_update:
             full_lut[nearest_indices[s_idx]] = int(round(values[s_idx]))
-        # Force H-cycle closure on endpoints for legacy uniform tables.
-        # ACM_LITE keeps index 0 and index N-1 independent (circular table);
-        # its wrap sample never overwrites the last LUT entry.
-        if legacy_closure:
-            endpoint_value = int(round(values[0]))
-            full_lut[0] = endpoint_value
-            full_lut[-1] = endpoint_value
-        elif len(full_lut) > 0:
-            full_lut[0] = int(round(values[0]))
-            if not has_wrap:
-                full_lut[-1] = int(round(values[-1]))
+        # Force H-cycle closure on the endpoints: the point-based hue table
+        # stores its closing point, so index 0 and index N-1 share one value.
+        endpoint_value = int(round(values[0]))
+        full_lut[0] = endpoint_value
+        full_lut[-1] = endpoint_value
         # Interpolation (especially cubic / B-spline) can overshoot the LUT
         # range; clamp so the curve and its labels stay inside the chart.
         lo, hi = self._delta_clip_range(curve_key)
@@ -1926,9 +1951,8 @@ class AcmUiController:
     def _on_sample_point_changed(self, curve_key: str, idx: int, sample_values: list) -> None:
         """React to a sample point being edited in one of the charts.
 
-        The chart widget keeps the H-cycle closure pair (first and
-        last sample) in sync for legacy uniform tables; ACM_LITE disables
-        that mirroring because its hue table is circular.
+        The chart widget keeps the closing pair (first and last sample) in
+        sync, matching the closed point-based hue table.
         """
         if self._suppress_sample_signal:
             return
@@ -1943,6 +1967,10 @@ class AcmUiController:
         if self.full_delta_ybyh is None:
             return
         acm = self._get_current_acm()
+        # Closed point-based hue table: the last entry mirrors index 0.
+        self.full_delta_ybyh[-1] = self.full_delta_ybyh[0]
+        self.full_delta_sbyh[-1] = self.full_delta_sbyh[0]
+        self.full_delta_hbyh[-1] = self.full_delta_hbyh[0]
         acm.lut_delta_ybyh[:] = self.full_delta_ybyh
         acm.lut_delta_sbyh[:] = self.full_delta_sbyh
         acm.lut_delta_hbyh[:] = self.full_delta_hbyh
@@ -2121,7 +2149,7 @@ class AcmUiController:
         "SW_ACM": (9, 13, 65, 65),
         "EVIDEO_ACM": (9, 13, 65, 65),
         "SW_ACM_VARIANT": (9, 13, 65, 65),
-        "HW_RK_LITE": (9, 8, 36, 17),
+        "HW_RK_LITE": (9, 8, 33, 17),
     }
 
     @classmethod
@@ -2158,7 +2186,7 @@ class AcmUiController:
             return self._get_ui_lut_lengths()
         if algo_name == self._LITE_ALGO_KEY:
             # Keep the last ACM_LITE partition across algorithm switches;
-            # use the reset button to return to the 18+18 default.
+            # use the reset button to return to the 12+20 (len_h=33) default.
             acm = self.acm_instances.get(algo_name)
             if acm is not None:
                 return (acm.len_y, acm.len_s, acm.len_h, acm.len_hd)
@@ -2203,9 +2231,9 @@ class AcmUiController:
         defaults = self._get_default_lut_lengths(self.current_algo)
         if self._is_lite_algo():
             acm = self._get_current_acm()
-            # Lower len_hd before restoring the default 18+18 partition.
+            # Lower len_hd before restoring the default fine/coarse partition.
             acm.set_len(defaults[0], defaults[1], defaults[2], defaults[3])
-            acm.set_hue_partition(18, 18)
+            acm.set_hue_partition(20, 12)
         self._set_ui_lut_lengths(defaults)
         self._apply_lut_lengths()
         self._sync_ctrl_point_slider(defaults[2])

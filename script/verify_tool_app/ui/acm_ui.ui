@@ -95,7 +95,7 @@
        </item>
        <item>
         <property name="text">
-         <string>ACM_LITE_HSV (18+18)</string>
+         <string>ACM_LITE_HSV</string>
         </property>
        </item>
       </widget>
