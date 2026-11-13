@@ -41,8 +41,8 @@
       "s_vdpp_hist_cnt": {
         "#i_pre_vhsd_mode_auto_config": "0-MANUAL_CONFIG, 1-AUTO_CONFIG",
         "i_pre_vhsd_mode_auto_config": 1,
-        "#dci_hsd_mode": "0-disable, 1-x2",
-        "#dci_vsd_mode": "0-disable, 1-x2, 2-x4",
+        "#dci_vsd_mode": "0-disable, 1-x2",
+        "#dci_hsd_mode": "0-disable, 1-x2, 2-x4",
         "dci_hsd_mode": 1,
         "dci_vsd_mode": 1
       },

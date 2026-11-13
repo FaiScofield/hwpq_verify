@@ -12,7 +12,7 @@ import signal
 import subprocess
 import sys
 
-ACM_APP_VERSION = "v1.1"
+ACM_APP_VERSION = "v1.2"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
 

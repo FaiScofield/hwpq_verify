@@ -90,7 +90,12 @@
        </item>
        <item>
         <property name="text">
-         <string>ACM_LITE (custom)</string>
+         <string>SW_Variant (custom)</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>ACM_LITE_HSV (18+18)</string>
         </property>
        </item>
       </widget>

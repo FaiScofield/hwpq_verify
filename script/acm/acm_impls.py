@@ -6,6 +6,7 @@ Date        : 2026-06-14
 Description : Concrete ACM implementation subclasses.
 
     * AcmImplHwRk       - hardware ACM, 4 LUTs at (9, 13, 65, 17)
+    * AcmImplHwRkLite   - ACM_LITE HSV, coarse/fine hue (18+18), (9, 8, 36, 17)
     * AcmImplSwRk       - software ACM matching RK semantics, (9, 13, 65, 65)
     * AcmImplSwEvideo   - evideo ACM, (9, 13, 65, 65) with wider delta range
     * AcmImplSwVariant  - any (y, s, h, h2) with h2 <= h
@@ -14,6 +15,7 @@ LastEditTime: 2026-06-14
 
 import os
 import sys
+import json
 import argparse
 import numpy as np
 from typing import Optional
@@ -21,9 +23,14 @@ from typing import Optional
 if __package__:
     from .acm_impl_base import (
         AcmImplBase,
+        ACM_DELTA_Y_MIN,
         ACM_DELTA_Y_MAX,
+        ACM_DELTA_S_MIN,
         ACM_DELTA_S_MAX,
+        ACM_DELTA_H_MIN,
         ACM_DELTA_H_MAX,
+        ACM_LEN_H_MAX,
+        ACM_LEN_H_MIN,
         ACM_HSV_GRAY_THRESHOLD_S,
         linear_resize_array_1d,
         linear_resize_array_2d,
@@ -31,15 +38,21 @@ if __package__:
         bicubic_resize_array_2d,
     )
     from ..bcsh.hsv_adjust import rgb_to_hsv, hsv_to_rgb
+    from ..csc.get_csc_coefs import g_y2r_mat_bt709, g_r2y_mat_bt709
     from . import cordic
     from .. import utils as utl
 else:
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
     from acm_impl_base import (
         AcmImplBase,
+        ACM_DELTA_Y_MIN,
         ACM_DELTA_Y_MAX,
+        ACM_DELTA_S_MIN,
         ACM_DELTA_S_MAX,
+        ACM_DELTA_H_MIN,
         ACM_DELTA_H_MAX,
+        ACM_LEN_H_MAX,
+        ACM_LEN_H_MIN,
         ACM_HSV_GRAY_THRESHOLD_S,
         linear_resize_array_1d,
         linear_resize_array_2d,
@@ -47,6 +60,7 @@ else:
         bicubic_resize_array_2d,
     )
     from bcsh.hsv_adjust import rgb_to_hsv, hsv_to_rgb
+    from csc.get_csc_coefs import g_y2r_mat_bt709, g_r2y_mat_bt709
     import cordic
     import utils as utl
 
@@ -310,6 +324,664 @@ class AcmImplHwRk(AcmImplBase):
         out[1] = UO.astype(out.dtype)
         out[2] = VO.astype(out.dtype)
         return out
+
+
+# ---------------------------------------------------------------------------
+# AcmImplHwRkLite
+# ---------------------------------------------------------------------------
+class AcmImplHwRkLite(AcmImplBase):
+    """RK ACM_LITE HSV color adjustment with a coarse/fine hue partition.
+
+    Processing domain is RGB/HSV: YUV input is converted to RGB first (with a
+    selectable hue-preserving mode), then to HSV for H/V/S adjustment, and
+    converted back to YUV at the end. The 1D delta LUTs (dH/dS/dV by H) use a
+    two-segment circular hue partition:
+
+      * coarse segment [60, 330) with ``n_coarse`` intervals
+      * fine segment   [-30, 60) with ``n_fine`` intervals
+
+    The 2D gain LUTs keep the legacy 17-point hue axis (``len_hd``) and are
+    sampled uniformly starting from 60 deg. Only ``GainV_byV``, ``GainS_byV``
+    and ``GainS_byS`` are sampled; ``GainV_byS``, ``GainH_byV`` and
+    ``GainH_byS`` are ignored (their tables stay zero for config
+    compatibility).
+
+    Global gains are applied at the last stage and are not clamped after
+    application; the register range [0, 1023] maps to [0, 4] with 256 = 1.0x.
+
+    Gain tables use the Lite neutral convention ``gain = 1 + raw / 127``
+    (raw 0 = 1.0x), so they are not directly interchangeable with legacy
+    configs that use 127 as the neutral value.
+    """
+
+    HUE_START_DEG = 60.0
+    HUE_COARSE_SPAN_DEG = 270.0
+    HUE_FINE_SPAN_DEG = 90.0
+
+    HUE_PRESERVE_MODES = {
+        0: "clip",
+        1: "soft_clip",
+        2: "scale",
+    }
+    HUE_PRESERVE_CLIP = 0
+    HUE_PRESERVE_SOFT_CLIP = 1
+    HUE_PRESERVE_SCALE = 2
+
+    # 2D gain table names kept by the base class; the Lite path samples only
+    # the first three and leaves the deleted ones untouched.
+    LITE_GAIN_LUTS = ("gain_ybyy", "gain_sbyy", "gain_sbys")
+    REMOVED_GAIN_LUTS = ("gain_ybys", "gain_hbyy", "gain_hbys")
+
+    def __init__(
+        self,
+        len_y: int = 9,
+        len_s: int = 8,
+        n_coarse: int = 18,
+        n_fine: int = 18,
+        len_h2: int = 17,
+        delta_range: tuple = (1.0, 1.0, 64),
+        use_cordic: bool = False,
+        hue_preserve_mode: int = HUE_PRESERVE_SOFT_CLIP,
+        limited_range: bool = False,
+        chroma_protect: float = ACM_HSV_GRAY_THRESHOLD_S,
+    ):
+        n_coarse = int(n_coarse)
+        n_fine = int(n_fine)
+        len_h = n_coarse + n_fine
+        if n_coarse < 1 or n_fine < 1:
+            raise ValueError(f"n_coarse/n_fine must be >= 1, got ({n_coarse}, {n_fine})")
+        if not (ACM_LEN_H_MIN <= len_h <= ACM_LEN_H_MAX):
+            raise ValueError(f"n_coarse + n_fine must be in [{ACM_LEN_H_MIN}, {ACM_LEN_H_MAX}], got {len_h}")
+        if int(len_h2) > 0 and len_h < int(len_h2):
+            raise ValueError(f"len_h ({len_h}) must be >= len_hd ({len_h2})")
+
+        super().__init__(
+            len_y=len_y,
+            len_s=len_s,
+            len_h=len_h,
+            len_hd=len_h2,
+            delta_range=delta_range,
+            use_cordic=use_cordic,
+        )
+        self.name = "AcmImplHwRkLite"
+        self.n_coarse = n_coarse
+        self.n_fine = n_fine
+        self.is_lut4rgb = True
+        self.limited_range = bool(limited_range)
+        self.chroma_protect = float(np.clip(chroma_protect, 0.0, 1.0))
+        self.set_hue_preserve_mode(hue_preserve_mode)
+        self._init_lite_gain_luts()
+        print(
+            f"[ACM] created AcmImplHwRkLite: hue={n_coarse}+{n_fine}={len_h}, "
+            f"gain hue axis={self.len_hd}, hue preserve={self.HUE_PRESERVE_MODES[self.hue_preserve_mode]}"
+        )
+
+    # ------------------------------------------------------------------
+    # Lite configuration helpers
+    # ------------------------------------------------------------------
+    def _init_lite_gain_luts(self) -> None:
+        """Initialise gain LUTs with the Lite neutral value.
+
+        Lite interprets a 2D gain entry as ``1 + raw / 127`` so that 0 means
+        1.0x and the usable range is [0, 2]. The base class initialises gain
+        tables with 127 (its own neutral), so all Lite tables are reset here.
+        """
+        for name in self.LITE_GAIN_LUTS + self.REMOVED_GAIN_LUTS:
+            for attr in (f"lut_{name}", f"_default_lut_{name}"):
+                if hasattr(self, attr):
+                    getattr(self, attr)[...] = 0
+
+    def set_hue_partition(self, n_coarse: int, n_fine: int, kernel: np.ndarray = None) -> None:
+        """Change the coarse/fine hue partition with hue-aware resampling.
+
+        ``len_h`` becomes ``n_coarse + n_fine``. The current 1D delta LUTs
+        are resampled by hue angle (not by array index) so that switching
+        between partitions preserves the tuning curve. The resampled tables
+        also become the new default set, so later ``set_len`` calls use the
+        new partition as the canonical reference.
+        """
+        n_coarse = int(n_coarse)
+        n_fine = int(n_fine)
+        if n_coarse < 1 or n_fine < 1:
+            raise ValueError(f"n_coarse/n_fine must be >= 1, got ({n_coarse}, {n_fine})")
+        total = n_coarse + n_fine
+        if not (ACM_LEN_H_MIN <= total <= ACM_LEN_H_MAX):
+            raise ValueError(f"n_coarse + n_fine must be in [{ACM_LEN_H_MIN}, {ACM_LEN_H_MAX}], got {total}")
+        if total < self.len_hd:
+            raise ValueError(f"len_h ({total}) must be >= len_hd ({self.len_hd})")
+
+        old_n_coarse, old_n_fine = self.n_coarse, self.n_fine
+        old_luts = (
+            self.lut_delta_ybyh.copy(),
+            self.lut_delta_sbyh.copy(),
+            self.lut_delta_hbyh.copy(),
+        )
+
+        self.n_coarse = n_coarse
+        self.n_fine = n_fine
+        self.set_len(self.len_y, self.len_s, total, self.len_hd, kernel)
+
+        old_total = old_n_coarse + old_n_fine
+        if len(old_luts[0]) != old_total:
+            print(
+                f"[ACM] hue partition resample skipped: current len_h({len(old_luts[0])}) "
+                f"!= old partition({old_total})"
+            )
+            return
+
+        old_angles = self._hue_grid(old_n_coarse, old_n_fine)
+        new_angles = self._hue_grid(n_coarse, n_fine)
+        new_y = self._circular_resample(old_angles, new_angles, old_luts[0])
+        new_s = self._circular_resample(old_angles, new_angles, old_luts[1])
+        new_h = self._circular_resample(old_angles, new_angles, old_luts[2])
+
+        self._default_lut_delta_ybyh = np.clip(
+            np.rint(new_y), ACM_DELTA_Y_MIN, ACM_DELTA_Y_MAX
+        ).astype(np.int16)
+        self._default_lut_delta_sbyh = np.clip(
+            np.rint(new_s), ACM_DELTA_S_MIN, ACM_DELTA_S_MAX
+        ).astype(np.int16)
+        self._default_lut_delta_hbyh = np.clip(
+            np.rint(new_h), ACM_DELTA_H_MIN, ACM_DELTA_H_MAX
+        ).astype(np.int16)
+        self._default_len_h = total
+        self.lut_delta_ybyh = self._default_lut_delta_ybyh.copy()
+        self.lut_delta_sbyh = self._default_lut_delta_sbyh.copy()
+        self.lut_delta_hbyh = self._default_lut_delta_hbyh.copy()
+        print(f"[ACM] hue partition changed to n_coarse={n_coarse}, n_fine={n_fine} (len_h={total})")
+
+    def _sync_hue_partition_from_len(self) -> None:
+        """Keep n_coarse/n_fine consistent when len_h changes externally."""
+        total = int(self.len_h)
+        if getattr(self, "n_coarse", 0) + getattr(self, "n_fine", 0) == total:
+            return
+        self.n_coarse = total // 2
+        self.n_fine = total - self.n_coarse
+        print(f"[ACM] hue partition re-split to n_coarse={self.n_coarse}, n_fine={self.n_fine}")
+
+    def _promote_current_to_default(self) -> None:
+        """Promote the current tables/lengths to the canonical default set."""
+        self._default_len_y = self.len_y
+        self._default_len_s = self.len_s
+        self._default_len_h = self.len_h
+        self._default_len_hd = self.len_hd
+        self._default_lut_delta_ybyh = self.lut_delta_ybyh.copy()
+        self._default_lut_delta_sbyh = self.lut_delta_sbyh.copy()
+        self._default_lut_delta_hbyh = self.lut_delta_hbyh.copy()
+        for name in self.LITE_GAIN_LUTS + self.REMOVED_GAIN_LUTS:
+            setattr(self, f"_default_lut_{name}", getattr(self, f"lut_{name}").copy())
+
+    def set_len(self, len_y: int, len_s: int, len_h: int, len_hd: int = 0, kernel: np.ndarray = None) -> None:
+        """Set LUT lengths; len_h is split evenly when the partition changes."""
+        if int(len_hd) > 0 and int(len_h) < int(len_hd):
+            raise ValueError(f"len_h ({len_h}) must be >= len_hd ({len_hd})")
+        super().set_len(len_y, len_s, len_h, len_hd, kernel)
+        self._sync_hue_partition_from_len()
+        self._promote_current_to_default()
+
+    def set_step(
+        self, step_y: float, step_s: float, step_h: float, step_h2: float = 0.0, kernel: np.ndarray = None
+    ) -> None:
+        """Set LUT steps; keep the coarse/fine partition consistent."""
+        super().set_step(step_y, step_s, step_h, step_h2, kernel)
+        self._sync_hue_partition_from_len()
+        self._promote_current_to_default()
+
+    def set_global_gains(self, gain_y: int, gain_s: int, gain_h: int) -> None:
+        """Set global gains in [0, 1023] (256 = 1.0x, 1023 ~= 4.0x)."""
+        super().set_global_gains(
+            int(np.clip(gain_y, 0, 1023)),
+            int(np.clip(gain_s, 0, 1023)),
+            int(np.clip(gain_h, 0, 1023)),
+        )
+
+    def set_hue_preserve_mode(self, mode) -> None:
+        """Select the YUV->RGB out-of-gamut mode: clip/soft_clip/scale."""
+        if isinstance(mode, str):
+            inverse = {v: k for k, v in self.HUE_PRESERVE_MODES.items()}
+            if mode not in inverse:
+                raise ValueError(f"unknown hue preserve mode '{mode}', candidates: {list(inverse)}")
+            mode = inverse[mode]
+        if mode not in self.HUE_PRESERVE_MODES:
+            raise ValueError(f"unknown hue preserve mode {mode}, candidates: {list(self.HUE_PRESERVE_MODES)}")
+        self.hue_preserve_mode = int(mode)
+        print(f"[ACM] set hue preserve mode: {self.HUE_PRESERVE_MODES[self.hue_preserve_mode]}")
+
+    def set_limited_range(self, limited: bool) -> None:
+        """Select limited-range (True) or full-range (False) YUV I/O."""
+        self.limited_range = bool(limited)
+        print(f"[ACM] set limited range: {self.limited_range}")
+
+    # ------------------------------------------------------------------
+    # Config persistence
+    # ------------------------------------------------------------------
+    def dump_json(self, filename: str = "") -> bool:
+        """Write the Lite config including the hue partition and HSV options."""
+        if not filename:
+            super().dump_json("")
+            return True
+        ok = super().dump_json(filename)
+        if not ok:
+            return False
+        try:
+            with open(filename, "r") as f:
+                data = json.load(f)
+            acm = data.get("pq_tuning_param", {}).get("acm", data)
+            acm["acmLite"] = 1
+            acm["acmHuePartitionCoarse"] = int(self.n_coarse)
+            acm["acmHuePartitionFine"] = int(self.n_fine)
+            acm["acmHuePreserveMode"] = self.HUE_PRESERVE_MODES.get(self.hue_preserve_mode, "soft_clip")
+            acm["acmLimitedRange"] = int(bool(self.limited_range))
+            acm["acmChromaProtect"] = float(self.chroma_protect)
+            with open(filename, "w") as f:
+                json.dump(data, f, indent=4, ensure_ascii=False, cls=utl.CompactArrayEncoder)
+            return True
+        except Exception as exc:
+            print(f"[ACM] dump Lite config failed: {exc}")
+            return False
+
+    def load_json(self, filename: str) -> bool:
+        """Load a config and restore the Lite hue partition and HSV options."""
+        if not os.path.exists(filename) or not filename.endswith(".json"):
+            return super().load_json(filename)
+
+        try:
+            with open(filename, "r") as f:
+                raw = json.load(f)
+            acm_data = raw.get("pq_tuning_param", {}).get("acm", raw.get("acm", raw))
+        except Exception:
+            return super().load_json(filename)
+
+        is_lite = bool(acm_data.get("acmLite", 0))
+        total = max(
+            ACM_LEN_H_MIN,
+            min(ACM_LEN_H_MAX, int(acm_data.get("lutLengthH", self.n_coarse + self.n_fine))),
+        )
+        n_coarse = self.n_coarse
+        n_fine = self.n_fine
+        if is_lite:
+            n_coarse = int(acm_data.get("acmHuePartitionCoarse", total // 2))
+            n_fine = int(acm_data.get("acmHuePartitionFine", total - n_coarse))
+            if n_coarse < 1 or n_fine < 1 or n_coarse + n_fine != total:
+                n_coarse, n_fine = total // 2, total - total // 2
+            # Align canonical lengths with the file so the base loader does
+            # not resample the 1D delta LUTs by array index.
+            self.n_coarse, self.n_fine = n_coarse, n_fine
+            self._default_len_h = total
+            self._default_len_y = int(acm_data.get("lutLengthY", self._default_len_y))
+            self._default_len_s = int(acm_data.get("lutLengthS", self._default_len_s))
+            self._default_len_hd = min(int(acm_data.get("lutLengthHD", self._default_len_hd)), total)
+            self.len_y = self._default_len_y
+            self.len_s = self._default_len_s
+            self.len_h = total
+            self.len_hd = self._default_len_hd
+
+        ok = super().load_json(filename)
+        if not ok:
+            return False
+
+        if is_lite:
+            try:
+                self.set_hue_preserve_mode(acm_data.get("acmHuePreserveMode", "soft_clip"))
+            except Exception:
+                self.set_hue_preserve_mode(self.HUE_PRESERVE_SOFT_CLIP)
+            self.limited_range = bool(acm_data.get("acmLimitedRange", 0))
+            self.chroma_protect = float(
+                np.clip(acm_data.get("acmChromaProtect", self.chroma_protect), 0.0, 1.0)
+            )
+            self.n_coarse, self.n_fine = n_coarse, n_fine
+            self._default_len_h = total
+        else:
+            # Legacy config: keep the Lite table circular with an even split.
+            total = int(self.len_h)
+            self.n_coarse = max(1, total // 2)
+            self.n_fine = max(1, total - self.n_coarse)
+            self._default_len_h = total
+
+        # Removed gain tables are not used by the Lite path; keep them zero.
+        for name in self.REMOVED_GAIN_LUTS:
+            for attr in (f"lut_{name}", f"_default_lut_{name}"):
+                if hasattr(self, attr):
+                    getattr(self, attr)[...] = 0
+        self.b_lut_ready = True
+        print(f"[ACM] loaded Lite config: hue={self.n_coarse}+{self.n_fine}, len_h={self.len_h}")
+        return True
+
+    # ------------------------------------------------------------------
+    # Public processing entry
+    # ------------------------------------------------------------------
+    def do_acm_u8(self, planar_data: np.ndarray, isRgb: bool = False, use_cordic: Optional[bool] = None) -> np.ndarray:
+        """Apply ACM_LITE HSV to an 8-bit RGB or YUV444 planar image."""
+        if isRgb:
+            return self._do_acm_rgb_lite(planar_data, rng=256)
+        return self._do_acm_yuv_lite(planar_data, depth=8)
+
+    def do_acm_u10(self, planar_data: np.ndarray, isRgb: bool = False, use_cordic: Optional[bool] = None) -> np.ndarray:
+        """Apply ACM_LITE HSV to a 10-bit RGB or YUV444 planar image."""
+        if isRgb:
+            return self._do_acm_rgb_lite(planar_data, rng=1024)
+        return self._do_acm_yuv_lite(planar_data, depth=10)
+
+    # ------------------------------------------------------------------
+    # Domain conversion
+    # ------------------------------------------------------------------
+    def _do_acm_rgb_lite(self, planar_data: np.ndarray, rng: int) -> np.ndarray:
+        """Apply the HSV pipeline to a full-range [H, W, 3] RGB image."""
+        if planar_data.ndim != 3 or planar_data.shape[2] != 3:
+            raise ValueError(f"RGB input must be [H, W, 3], got {planar_data.shape}")
+        scale = float(rng - 1)
+        rgb_f = np.clip(planar_data.astype(np.float32) / scale, 0.0, 1.0)
+        rgb_out = self._do_hsv_lite(rgb_f)
+        out = np.clip(np.rint(rgb_out * scale), 0.0, scale).astype(planar_data.dtype)
+        return out.transpose(2, 0, 1)
+
+    def _do_acm_yuv_lite(self, planar_data: np.ndarray, depth: int) -> np.ndarray:
+        """Apply the HSV pipeline to a YUV444 planar image."""
+        if planar_data.ndim != 3 or planar_data.shape[0] != 3:
+            raise ValueError(f"YUV input must be [3, H, W], got {planar_data.shape}")
+        rgb_f = self._yuv444_to_rgb(planar_data, depth)
+        rgb_out = self._do_hsv_lite(rgb_f)
+        return self._rgb_to_yuv444(rgb_out, depth, planar_data.dtype)
+
+    def _yuv444_to_rgb(self, planar_data: np.ndarray, depth: int) -> np.ndarray:
+        """Convert YUV444 planar to [H, W, 3] RGB in [0, 1] using BT.709.
+
+        In limited-range mode, Y is expanded from [16, 235] (8-bit) or
+        [64, 940] (10-bit), and Cb/Cr from [16, 240] or [64, 960].
+        Out-of-gamut values are handled by the configured hue-preserve mode.
+        """
+        if depth not in (8, 10):
+            raise ValueError(f"depth must be 8 or 10, got {depth}")
+        max_v = 1023.0 if depth == 10 else 255.0
+        y = planar_data[0].astype(np.float32)
+        cb = planar_data[1].astype(np.float32)
+        cr = planar_data[2].astype(np.float32)
+
+        if self.limited_range:
+            if depth == 10:
+                y_off, y_scale, c_center, c_scale = 64.0, 876.0, 512.0, 896.0
+            else:
+                y_off, y_scale, c_center, c_scale = 16.0, 219.0, 128.0, 224.0
+            y = (y - y_off) / y_scale
+            cb = (cb - c_center) / c_scale
+            cr = (cr - c_center) / c_scale
+        else:
+            c_center = (max_v + 1.0) * 0.5
+            y = y / max_v
+            cb = (cb - c_center) / max_v
+            cr = (cr - c_center) / max_v
+
+        ycbcr = np.stack([y, cb, cr], axis=-1)
+        rgb = ycbcr @ g_y2r_mat_bt709.T
+        return self._apply_hue_preserve(rgb)
+
+    def _rgb_to_yuv444(self, rgb: np.ndarray, depth: int, dtype: np.dtype) -> np.ndarray:
+        """Convert [H, W, 3] RGB in [0, 1] back to YUV444 planar using BT.709."""
+        if depth not in (8, 10):
+            raise ValueError(f"depth must be 8 or 10, got {depth}")
+        max_v = 1023.0 if depth == 10 else 255.0
+        yuv = np.clip(rgb, 0.0, 1.0) @ g_r2y_mat_bt709.T
+        y = yuv[..., 0]
+        cb = yuv[..., 1]
+        cr = yuv[..., 2]
+
+        if self.limited_range:
+            if depth == 10:
+                y_off, y_scale, c_center, c_scale = 64.0, 876.0, 512.0, 896.0
+            else:
+                y_off, y_scale, c_center, c_scale = 16.0, 219.0, 128.0, 224.0
+            out_y = y_off + y_scale * y
+            out_cb = c_center + c_scale * cb
+            out_cr = c_center + c_scale * cr
+        else:
+            c_center = (max_v + 1.0) * 0.5
+            out_y = y * max_v
+            out_cb = cb * max_v + c_center
+            out_cr = cr * max_v + c_center
+
+        out = np.empty((3,) + y.shape, dtype=dtype)
+        out[0] = np.clip(np.rint(out_y), 0.0, max_v).astype(dtype)
+        out[1] = np.clip(np.rint(out_cb), 0.0, max_v).astype(dtype)
+        out[2] = np.clip(np.rint(out_cr), 0.0, max_v).astype(dtype)
+        return out
+
+    def _apply_hue_preserve(self, rgb: np.ndarray) -> np.ndarray:
+        """Handle out-of-gamut RGB produced by YUV->RGB conversion."""
+        mode = self.hue_preserve_mode
+        if mode == self.HUE_PRESERVE_CLIP:
+            return np.clip(rgb, 0.0, 1.0)
+        if mode == self.HUE_PRESERVE_SOFT_CLIP:
+            return self._soft_clip_constant_hue(rgb)
+        if mode == self.HUE_PRESERVE_SCALE:
+            return self._scale_clip(rgb)
+        raise ValueError(f"unknown hue preserve mode: {mode}")
+
+    def apply_hue_preserve(self, rgb: np.ndarray) -> np.ndarray:
+        """Public wrapper for the configured YUV->RGB gamut mapping."""
+        return self._apply_hue_preserve(rgb)
+
+    @staticmethod
+    def _soft_clip_constant_hue(rgb: np.ndarray) -> np.ndarray:
+        """Map out-of-gamut RGB back while preserving the channel ratio.
+
+        The max channel is clipped to 1.0 and the min channel to 0.0; the
+        middle channel is linearly interpolated so that
+        ``(mid - min) / (max - min)`` is preserved, which keeps hue constant.
+        """
+        eps = 1e-6
+        flat = rgb.reshape(-1, 3)
+        order = np.argsort(flat, axis=-1)
+        sorted_rgb = np.take_along_axis(flat, order, axis=-1)
+        mn = sorted_rgb[:, 0]
+        md = sorted_rgb[:, 1]
+        mx = sorted_rgb[:, 2]
+
+        mn2 = np.clip(mn, 0.0, 1.0)
+        mx2 = np.clip(mx, 0.0, 1.0)
+        chroma = mx - mn
+        md2 = np.where(
+            chroma > eps,
+            mn2 + (mx2 - mn2) * (md - mn) / np.maximum(chroma, eps),
+            mn2,
+        )
+        out_sorted = np.stack([mn2, md2, mx2], axis=-1).astype(np.float32)
+        out_flat = np.empty_like(flat)
+        np.put_along_axis(out_flat, order, out_sorted, axis=-1)
+        out = out_flat.reshape(rgb.shape)
+        need_map = ((mx > 1.0) | (mn < 0.0)).reshape(rgb.shape[:-1] + (1,))
+        return np.where(need_map, out, rgb)
+
+    @staticmethod
+    def _scale_clip(rgb: np.ndarray) -> np.ndarray:
+        """Scale RGB uniformly so that the max channel fits [0, 1].
+
+        Uniform scaling preserves hue and saturation; negative values are
+        clipped to zero because scaling alone cannot move them into range.
+        """
+        mx = np.max(rgb, axis=-1, keepdims=True)
+        scale = np.where(mx > 1.0, 1.0 / np.maximum(mx, 1e-6), 1.0)
+        return np.clip(rgb * scale, 0.0, 1.0)
+
+    # ------------------------------------------------------------------
+    # HSV core
+    # ------------------------------------------------------------------
+    def _do_hsv_lite(self, rgb: np.ndarray) -> np.ndarray:
+        """Core HSV adjustment on a full-range [H, W, 3] RGB image."""
+        # ---- 1. RGB -> HSV (hexagon model, h in [0, 360)) ----
+        h, s, v = rgb_to_hsv(rgb)
+
+        # ---- 2. Neutral protection weight based on chroma C = V * S ----
+        chroma = v * s
+        chroma_protect = float(np.clip(self.chroma_protect, 0.0, 1.0))
+        if chroma_protect > 0.0:
+            w = np.clip(chroma / chroma_protect, 0.0, 1.0)
+            w = w * w * (3.0 - 2.0 * w)
+        else:
+            w = np.ones_like(chroma)
+
+        # ---- 3. Coarse/fine hue position for the 1D delta LUTs ----
+        i0, i1, fh = self._hue_pos_coarse_fine(h)
+
+        # ---- 4. Sample 1D delta LUTs ----
+        dh_raw = self._sample_1d(self.lut_delta_hbyh, i0, i1, fh)
+        ds_raw = self._sample_1d(self.lut_delta_sbyh, i0, i1, fh)
+        dv_raw = self._sample_1d(self.lut_delta_ybyh, i0, i1, fh)
+
+        dr_v, _, dr_h = self.delta_range
+        dh_base = dh_raw / float(ACM_DELTA_H_MAX) * float(dr_h)
+        ds_gain = ds_raw / float(ACM_DELTA_S_MAX) + 1.0
+        dv_base = dv_raw / float(ACM_DELTA_Y_MAX) * float(dr_v)
+
+        # ---- 5. Uniform hue position for the 2D gain LUTs ----
+        j0, j1, fj = self._hue_pos_uniform(h, self.len_hd)
+
+        # ---- 6. Sample the retained 2D gain LUTs ----
+        if self.ignore_gain_luts:
+            gain_vv = np.ones_like(dh_base)
+            gain_sv = np.ones_like(dh_base)
+            gain_ss = np.ones_like(dh_base)
+        else:
+            gain_vv = self._sample_gain_2d(self.lut_gain_ybyy, j0, j1, fj, v) / 127.0 + 1.0
+            gain_sv = self._sample_gain_2d(self.lut_gain_sbyy, j0, j1, fj, v) / 127.0 + 1.0
+            gain_ss = self._sample_gain_2d(self.lut_gain_sbys, j0, j1, fj, s) / 127.0 + 1.0
+
+        # ---- 7. Cache intermediates for UI/debug (legacy key names) ----
+        self._last_delta_y_raw = dv_base.copy()
+        self._last_delta_s_raw = (ds_gain - 1.0).copy()
+        self._last_delta_h_raw = dh_base.copy()
+        self._last_gain_yy = gain_vv.copy()
+        self._last_gain_ys = np.ones_like(gain_vv)
+        self._last_gain_sy = gain_sv.copy()
+        self._last_gain_ss = gain_ss.copy()
+        self._last_gain_hy = np.ones_like(gain_vv)
+        self._last_gain_hs = np.ones_like(gain_vv)
+        self._last_intermediate_shape = h.shape
+
+        # ---- 8. Global gains last; no clamp after gain ----
+        g_v = float(np.clip(self.gain_y, 0, 1023)) / 256.0
+        g_s = float(np.clip(self.gain_s, 0, 1023)) / 256.0
+        g_h = float(np.clip(self.gain_h, 0, 1023)) / 256.0
+        dh = dh_base * g_h
+        ds = ds_gain * gain_sv * gain_ss * g_s
+        dv = dv_base * gain_vv * g_v
+
+        self._final_delta_y = dv.copy()
+        self._final_delta_s = (ds - 1.0).copy()
+        self._final_delta_h = dh.copy()
+
+        # ---- 9. Apply in H -> V -> S order ----
+        h_new = np.mod(h + dh * w, 360.0)
+        v_new = np.clip(v + dv, 0.0, 1.0)
+        s_new = np.clip(s * (1.0 + (ds - 1.0) * w), 0.0, 1.0)
+
+        # ---- 10. HSV -> RGB, always in gamut by construction ----
+        rgb_out = hsv_to_rgb(np.stack([h_new, s_new, v_new], axis=-1))
+        return np.clip(rgb_out, 0.0, 1.0)
+
+    # ------------------------------------------------------------------
+    # LUT sampling helpers
+    # ------------------------------------------------------------------
+    def _hue_grid(self, n_coarse: int, n_fine: int) -> np.ndarray:
+        """Return hue angles in degrees for the circular coarse/fine table.
+
+        The grid follows the table traversal order: coarse points from 60 to
+        330 deg (endpoint included), then the fine interior points from 330
+        back to 60 deg. Shared endpoints are stored once.
+        """
+        start = self.HUE_START_DEG
+        coarse_end = start + self.HUE_COARSE_SPAN_DEG
+        coarse = np.linspace(start, coarse_end, n_coarse + 1, dtype=np.float32)
+        if n_fine > 1:
+            fine_step = self.HUE_FINE_SPAN_DEG / n_fine
+            fine = np.linspace(
+                coarse_end + fine_step,
+                coarse_end + self.HUE_FINE_SPAN_DEG - fine_step,
+                n_fine - 1,
+                dtype=np.float32,
+            )
+            angles = np.concatenate([coarse, fine])
+        else:
+            angles = coarse
+        return np.mod(angles, 360.0).astype(np.float32)
+
+    @staticmethod
+    def _circular_resample(
+        old_angles: np.ndarray, new_angles: np.ndarray, old_values: np.ndarray
+    ) -> np.ndarray:
+        """Resample 1D LUT values by hue angle with circular interpolation."""
+        old_angles = np.mod(np.asarray(old_angles, dtype=np.float32), 360.0)
+        order = np.argsort(old_angles)
+        angles = old_angles[order]
+        values = np.asarray(old_values, dtype=np.float32)[order]
+        angles_ext = np.concatenate([[angles[-1] - 360.0], angles, [angles[0] + 360.0]])
+        values_ext = np.concatenate([[values[-1]], values, [values[0]]])
+        new_angles = np.mod(np.asarray(new_angles, dtype=np.float32), 360.0)
+        return np.interp(new_angles, angles_ext, values_ext).astype(np.float32)
+
+    def _hue_pos_coarse_fine(self, h_deg: np.ndarray):
+        """Map hue to a fractional index in the coarse/fine circular table.
+
+        Table layout: index 0 is 60 deg; indices [1, n_coarse] cover the
+        coarse segment up to 330 deg; the remaining indices cover the fine
+        segment from 330 deg back to 60 deg, wrapping to index 0.
+        """
+        n_coarse = self.n_coarse
+        n_fine = self.n_fine
+        n_hue = n_coarse + n_fine
+
+        start = self.HUE_START_DEG
+        coarse_end = start + self.HUE_COARSE_SPAN_DEG
+        h = np.mod(h_deg, 360.0)
+        is_coarse = (h >= start) & (h < coarse_end)
+        h_fine = np.where(h >= coarse_end, h, h + 360.0)
+        u_coarse = (h - start) / self.HUE_COARSE_SPAN_DEG * n_coarse
+        u_fine = n_coarse + (h_fine - coarse_end) / self.HUE_FINE_SPAN_DEG * n_fine
+        u = np.where(is_coarse, u_coarse, u_fine)
+
+        i0 = np.floor(u).astype(np.int32) % n_hue
+        i1 = (i0 + 1) % n_hue
+        f = (u - np.floor(u)).astype(np.float32)
+        return i0, i1, f
+
+    def _hue_pos_uniform(self, h_deg: np.ndarray, n_hue: int):
+        """Map hue to a fractional index in a uniform 2D-gain hue axis.
+
+        The axis starts at 60 deg and has ``n_hue`` points over 360 deg, with
+        the last point duplicating the first one for linear interpolation.
+        """
+        hp = np.mod(h_deg - self.HUE_START_DEG, 360.0)
+        u = hp / 360.0 * (n_hue - 1)
+        i0 = np.clip(np.floor(u).astype(np.int32), 0, n_hue - 1)
+        i1 = np.minimum(i0 + 1, n_hue - 1)
+        f = (u - i0).astype(np.float32)
+        return i0, i1, f
+
+    @staticmethod
+    def _sample_1d(lut: np.ndarray, i0: np.ndarray, i1: np.ndarray, f: np.ndarray) -> np.ndarray:
+        """Linear interpolation on a circular 1D LUT."""
+        return lut[i0].astype(np.float32) * (1.0 - f) + lut[i1].astype(np.float32) * f
+
+    @staticmethod
+    def _sample_gain_2d(
+        lut: np.ndarray, j0: np.ndarray, j1: np.ndarray, fj: np.ndarray, axis_val: np.ndarray
+    ) -> np.ndarray:
+        """Bilinear interpolation on a [axis, hue] gain LUT.
+
+        ``axis_val`` is V or S in [0, 1]; the hue axis uses j0/j1/fj.
+        """
+        n_axis = lut.shape[0]
+        u = np.clip(axis_val, 0.0, 1.0).astype(np.float32) * (n_axis - 1)
+        k0 = np.floor(u).astype(np.int32)
+        k1 = np.minimum(k0 + 1, n_axis - 1)
+        fk = u - k0
+
+        v00 = lut[k0, j0].astype(np.float32)
+        v01 = lut[k0, j1].astype(np.float32)
+        v10 = lut[k1, j0].astype(np.float32)
+        v11 = lut[k1, j1].astype(np.float32)
+        top = v00 * (1.0 - fj) + v01 * fj
+        bot = v10 * (1.0 - fj) + v11 * fj
+        return top * (1.0 - fk) + bot * fk
 
 
 # ---------------------------------------------------------------------------
