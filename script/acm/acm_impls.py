@@ -363,6 +363,15 @@ class AcmImplHwRkLite(AcmImplBase):
     HUE_FINE_SPAN_DEG = 60.0
     HUE_COARSE_SPAN_DEG = 300.0
 
+    # Raw full-scale code ranges of the Lite delta tables. The normalisation
+    # denominator is ``RAW_RANGE / delta_range``, so one raw code maps to
+    # ``delta_range / RAW_RANGE`` in physical units. With the default
+    # delta_range this yields 1 deg per raw for H, 1/1023 for Y and 1/63 for
+    # the multiplicative S gain.
+    DELTA_H_RAW_RANGE = 63.0
+    DELTA_Y_RAW_RANGE = 127.0
+    DELTA_S_RAW_RANGE = 63.0
+
     # 2D gain table names kept by the base class; the Lite path samples only
     # the first three and leaves the deleted ones untouched.
     LITE_GAIN_LUTS = ("gain_ybyy", "gain_sbyy", "gain_sbys")
@@ -375,7 +384,7 @@ class AcmImplHwRkLite(AcmImplBase):
         n_coarse: int = 20,
         n_fine: int = 12,
         len_h2: int = 17,
-        delta_range: tuple = (1.0, 1.0, 96),
+        delta_range: tuple = (0.124, 1.0, 63),
         use_cordic: bool = True,
         limited_range: bool = False,
         chroma_protect: float = ACM_HSV_GRAY_THRESHOLD_S,
@@ -838,10 +847,13 @@ class AcmImplHwRkLite(AcmImplBase):
         ds_raw = self._sample_1d(self.lut_delta_sbyh, i0, i1, fh)
         dv_raw = self._sample_1d(self.lut_delta_ybyh, i0, i1, fh)
 
-        dr_v, _, dr_h = self.delta_range
-        dh_base = dh_raw / float(ACM_DELTA_H_MAX) * float(dr_h)
-        ds_gain = ds_raw / float(ACM_DELTA_S_MAX) + 1.0
-        dv_base = dv_raw / float(ACM_DELTA_Y_MAX) * float(dr_v)
+        # Normalisation: raw code / (RAW_RANGE / delta_range). The raw
+        # full-scale stays fixed, so changing delta_range only moves the
+        # normalisation denominator.
+        dr_y, dr_s, dr_h = self.delta_range
+        dh_base = dh_raw * float(dr_h) / self.DELTA_H_RAW_RANGE
+        ds_gain = 1.0 + ds_raw * float(dr_s) / self.DELTA_S_RAW_RANGE
+        dv_base = dv_raw * float(dr_y) / self.DELTA_Y_RAW_RANGE
 
         # ---- 5. Uniform hue position for the 2D gain LUTs ----
         j0, j1, fj = self._hue_pos_uniform(h, self.len_hd)

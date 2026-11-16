@@ -218,6 +218,15 @@ class SingleCurveChartWidget(QWidget):
         """Enable or disable mirrored first/last sample values."""
         self.h_cycle_closure = bool(enabled)
 
+    def set_value_range(self, value_min: int, value_max: int) -> None:
+        """Replace the plotted raw value range (e.g. Lite uses +/-63 for H)."""
+        if value_min >= value_max:
+            return
+        if self.value_range == (value_min, value_max):
+            return
+        self.value_range = (value_min, value_max)
+        self.update()
+
     def set_background_image(self, path: str) -> None:
         """Load a chart background image; an empty or missing path clears it."""
         pixmap = QPixmap(path) if path and os.path.isfile(path) else None
@@ -2248,15 +2257,19 @@ class AcmUiController:
     def _on_reset_max_delta(self) -> None:
         """Reset max delta controls to the active algorithm defaults."""
         is_lite = self._is_lite_algo()
-        default_ys = 1.0 if is_lite else 0.25
-        slider_ys = 100 if is_lite else 25
-        default_h = 96 if is_lite else 64
+        # Lite normalises with RAW_RANGE / delta_range, so the controls mirror
+        # the default physical ranges (H 63 deg, Y 0.124, S 1.0).
+        default_y = 0.124 if is_lite else 0.25
+        default_s = 1.0 if is_lite else 0.25
+        slider_y = 12 if is_lite else 25
+        slider_s = 100 if is_lite else 25
+        default_h = 63 if is_lite else 64
         self._set_slider_spin_value(
-            self.ui.slider_max_delta_y, self.ui.spinBox_max_delta_y, slider_ys)
-        self.ui.spinBox_max_delta_y.setValue(default_ys)
+            self.ui.slider_max_delta_y, self.ui.spinBox_max_delta_y, slider_y)
+        self.ui.spinBox_max_delta_y.setValue(default_y)
         self._set_slider_spin_value(
-            self.ui.slider_max_delta_s, self.ui.spinBox_max_delta_s, slider_ys)
-        self.ui.spinBox_max_delta_s.setValue(default_ys)
+            self.ui.slider_max_delta_s, self.ui.spinBox_max_delta_s, slider_s)
+        self.ui.spinBox_max_delta_s.setValue(default_s)
         self._set_slider_spin_value(
             self.ui.slider_max_delta_h, self.ui.spinBox_max_delta_h, default_h)
         self._apply_delta_range_to_acm()
@@ -2434,13 +2447,24 @@ class AcmUiController:
         """Scale delta-chart Y labels to the active max-delta setting.
 
         The curves are still plotted in raw LUT units; only the tick labels
-        are converted. Delta Y/S stay in raw integer units (their delta_range
-        entry is a normalised fraction), while delta H is shown in degrees so
-        e.g. it reads +/-96 deg when the max delta is 96.
+        are converted. ACM_LITE normalises with ``RAW_RANGE / delta_range``,
+        so its H label scale is ``delta_range / RAW_RANGE`` while Y/S stay in
+        raw code units.
         """
+        if self._is_lite_algo():
+            acm = self._get_current_acm()
+            dr = acm.delta_range
+            h_range = int(round(getattr(acm, "DELTA_H_RAW_RANGE", 63.0)))
+            self.delta_chart_y.set_axis_scale(1.0, 0)
+            self.delta_chart_s.set_axis_scale(1.0, 0)
+            self.delta_chart_h.set_value_range(-h_range, h_range)
+            self.delta_chart_h.set_axis_scale(
+                float(dr[2]) / float(h_range), 0)
+            return
         dr = self._get_current_acm().delta_range
         self.delta_chart_y.set_axis_scale(1.0, 0)
         self.delta_chart_s.set_axis_scale(1.0, 0)
+        self.delta_chart_h.set_value_range(ACM_DELTA_H_MIN, ACM_DELTA_H_MAX)
         self.delta_chart_h.set_axis_scale(
             float(dr[2]) / float(ACM_DELTA_H_MAX), 0)
 
