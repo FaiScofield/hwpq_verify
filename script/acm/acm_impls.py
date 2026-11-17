@@ -345,8 +345,8 @@ class AcmImplHwRkLite(AcmImplBase):
     without address wrapping. ``len_h = n_fine + n_coarse + 1``.
 
     The 2D gain LUTs keep the legacy 17-point hue axis (``len_hd``) and are
-    sampled uniformly starting from 60 deg. Only ``GainV_byV``, ``GainS_byV``
-    and ``GainS_byS`` are sampled; ``GainV_byS``, ``GainH_byV`` and
+    sampled uniformly starting from 0 deg. ``GainV_byV``, ``GainS_byV``,
+    ``GainS_byS`` and ``GainV_byS`` are all sampled; ``GainH_byV`` and
     ``GainH_byS`` are ignored (their tables stay at the identity value for
     config compatibility).
 
@@ -372,10 +372,10 @@ class AcmImplHwRkLite(AcmImplBase):
     DELTA_Y_RAW_RANGE = 127.0
     DELTA_S_RAW_RANGE = 63.0
 
-    # 2D gain table names kept by the base class; the Lite path samples only
-    # the first three and leaves the deleted ones untouched.
-    LITE_GAIN_LUTS = ("gain_ybyy", "gain_sbyy", "gain_sbys")
-    REMOVED_GAIN_LUTS = ("gain_ybys", "gain_hbyy", "gain_hbys")
+    # 2D gain table names kept by the base class; the Lite path samples the
+    # first four and leaves the deleted ones untouched.
+    LITE_GAIN_LUTS = ("gain_ybyy", "gain_sbyy", "gain_sbys", "gain_ybys")
+    REMOVED_GAIN_LUTS = ("gain_hbyy", "gain_hbys")
 
     def __init__(
         self,
@@ -863,17 +863,19 @@ class AcmImplHwRkLite(AcmImplBase):
             gain_vv = np.ones_like(dh_base)
             gain_sv = np.ones_like(dh_base)
             gain_ss = np.ones_like(dh_base)
+            gain_vs = np.ones_like(dh_base)
         else:
             gain_vv = self._sample_gain_2d(self.lut_gain_ybyy, j0, j1, fj, v) / 127.0
             gain_sv = self._sample_gain_2d(self.lut_gain_sbyy, j0, j1, fj, v) / 127.0
             gain_ss = self._sample_gain_2d(self.lut_gain_sbys, j0, j1, fj, s) / 127.0
+            gain_vs = self._sample_gain_2d(self.lut_gain_ybys, j0, j1, fj, s) / 127.0
 
         # ---- 7. Cache intermediates for UI/debug (legacy key names) ----
         self._last_delta_y_raw = dv_base.copy()
         self._last_delta_s_raw = (ds_gain - 1.0).copy()
         self._last_delta_h_raw = dh_base.copy()
         self._last_gain_yy = gain_vv.copy()
-        self._last_gain_ys = np.ones_like(gain_vv)
+        self._last_gain_ys = gain_vs.copy()
         self._last_gain_sy = gain_sv.copy()
         self._last_gain_ss = gain_ss.copy()
         self._last_gain_hy = np.ones_like(gain_vv)
@@ -888,7 +890,7 @@ class AcmImplHwRkLite(AcmImplBase):
         g_h = float(np.clip(self.gain_h, 0, 1023)) / 256.0
         dh = dh_base * g_h
         ds = 1.0 + (ds_gain - 1.0) * gain_sv * gain_ss * g_s
-        dv = dv_base * gain_vv * g_v
+        dv = dv_base * gain_vv * gain_vs * g_v
 
         self._final_delta_y = (dv * w).copy()
         self._final_delta_s = ((ds - 1.0) * w).copy()
